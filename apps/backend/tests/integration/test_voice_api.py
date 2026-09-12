@@ -203,6 +203,23 @@ class TestChoosing:
             await api.client.get("/v1/preferences/voice", headers=bearer(tokens))
         ).status_code == 401
 
+    async def test_leaving_the_field_out_is_refused_rather_than_read_as_clearing(
+        self, api: Api
+    ) -> None:
+        # Clearing is said with null. An empty body is a client that forgot, and treating it as
+        # a request to forget the user's choice would be acting on a mistake.
+        tokens = await sign_in(api)
+        await api.client.put(
+            "/v1/preferences/voice",
+            headers=bearer(tokens),
+            json={"persona_voice_id": ANOTHER_VOICE},
+        )
+
+        response = await api.client.put("/v1/preferences/voice", headers=bearer(tokens), json={})
+
+        assert response.status_code == 422
+        assert (await selection(api, tokens))["persona_voice_id"] == ANOTHER_VOICE
+
     async def test_it_needs_a_token(self, api: Api) -> None:
         assert (await api.client.get("/v1/voices")).status_code == 401
         assert (await api.client.get("/v1/preferences/voice")).status_code == 401

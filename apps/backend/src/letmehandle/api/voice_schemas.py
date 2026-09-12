@@ -71,8 +71,10 @@ class VoiceSelectionResponse(Response):
 class VoiceSelectionUpdate(Request):
     """A change to the chosen voice.
 
-    Both fields are optional and `null` clears: a user removing their choice returns to the
-    provider's default, which is a thing they must be able to do.
+    The field is required and may be `null`, and the difference from optional is the point.
+    `null` clears the choice and returns to the provider's default, which somebody must be able
+    to do; a request that simply left the field out would otherwise mean the same thing, and a
+    client reading the schema could not tell "clear it" from "I forgot to send it".
     """
 
-    persona_voice_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    persona_voice_id: Annotated[str, Field(min_length=1, max_length=64)] | None
