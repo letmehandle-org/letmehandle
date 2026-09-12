@@ -773,6 +773,161 @@
         ],
         "title": "VerifyRequest",
         "type": "object"
+      },
+      "VoiceCapabilitiesPayload": {
+        "description": "What the configured provider can do.\n\nThe interface renders from these. Everything absent means the control is not drawn at all \u2014\nnot disabled, not labelled as unavailable \u2014 because a control that cannot work teaches\npeople to distrust the ones that can.",
+        "properties": {
+          "builtin_voices": {
+            "title": "Builtin Voices",
+            "type": "boolean"
+          },
+          "cloning": {
+            "title": "Cloning",
+            "type": "boolean"
+          },
+          "custom_voice": {
+            "title": "Custom Voice",
+            "type": "boolean"
+          },
+          "local_inference": {
+            "title": "Local Inference",
+            "type": "boolean"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "boolean"
+          },
+          "realtime_streaming": {
+            "title": "Realtime Streaming",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "builtin_voices",
+          "preview",
+          "custom_voice",
+          "cloning",
+          "local_inference",
+          "realtime_streaming"
+        ],
+        "title": "VoiceCapabilitiesPayload",
+        "type": "object"
+      },
+      "VoiceCatalogueResponse": {
+        "description": "Everything a client needs to draw the voice screen.",
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/VoiceCapabilitiesPayload"
+          },
+          "default_voice_id": {
+            "title": "Default Voice Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/VoicePayload"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "capabilities",
+          "default_voice_id",
+          "voices"
+        ],
+        "title": "VoiceCatalogueResponse",
+        "type": "object"
+      },
+      "VoicePayload": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "locales": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Locales",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "locales"
+        ],
+        "title": "VoicePayload",
+        "type": "object"
+      },
+      "VoiceSelectionResponse": {
+        "description": "What the user has chosen, and what a call would actually use.\n\n`resolved_voice_id` is the answer the fallback chain gives right now \u2014 the cloned voice if\nit is still available, otherwise the chosen one, otherwise the provider's default. It is\nreturned alongside the choice because those differ exactly when something has gone wrong\nwith a voice, and that is the moment a user should be able to see it.",
+        "properties": {
+          "cloned_voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloned Voice Id"
+          },
+          "persona_voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Persona Voice Id"
+          },
+          "resolved_voice_id": {
+            "title": "Resolved Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cloned_voice_id",
+          "persona_voice_id",
+          "resolved_voice_id"
+        ],
+        "title": "VoiceSelectionResponse",
+        "type": "object"
+      },
+      "VoiceSelectionUpdate": {
+        "additionalProperties": false,
+        "description": "A change to the chosen voice.\n\nBoth fields are optional and `null` clears: a user removing their choice returns to the\nprovider's default, which is a thing they must be able to do.",
+        "properties": {
+          "persona_voice_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Persona Voice Id"
+          }
+        },
+        "title": "VoiceSelectionUpdate",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1249,6 +1404,104 @@
         "summary": "Replace preferences",
         "tags": [
           "preferences"
+        ]
+      }
+    },
+    "/v1/preferences/voice": {
+      "get": {
+        "operationId": "read_selection_v1_preferences_voice_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceSelectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The chosen voice",
+        "tags": [
+          "voice"
+        ]
+      },
+      "put": {
+        "description": "Set or clear the chosen voice.\n\nA voice the provider does not offer is refused rather than stored. Storing it would\nmean a selection that silently falls through to the default on every call, which looks\nto the user exactly like their choice being ignored.",
+        "operationId": "choose_voice_v1_preferences_voice_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceSelectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceSelectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Choose a voice",
+        "tags": [
+          "voice"
+        ]
+      }
+    },
+    "/v1/voices": {
+      "get": {
+        "description": "What the configured provider offers, and what it can do with it.\n\nThe client renders from this rather than from a bundled list, so a deployment that\nchanges provider changes the screen without shipping an app.\n\nBehind a token like everything else: this is a signed-in screen, and which provider a\ndeployment runs is not something to tell whoever asks.",
+        "operationId": "read_catalogue_v1_voices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCatalogueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The voices on offer",
+        "tags": [
+          "voice"
         ]
       }
     }
