@@ -1,0 +1,29 @@
+<!--
+title: Code sent
+group: Getting started
+note: Six boxes, a live caret, and the wait stated as a number rather than a sentence.
+-->
+<div class="bar nav"><button class="back"><svg class="ic"><use href="#i-chev-l"/></svg></button></div>
+<div class="pad center" style="margin-top:22px">
+  <h1 class="h1">Enter the code</h1>
+  <p class="lead" style="margin-top:8px">Sent to +1 202 555 0143</p>
+  <div class="otp" style="margin-top:26px">
+    <i>4</i><i>2</i><i>1</i><i class="on"><span class="caret"></span></i><i></i><i></i>
+  </div>
+  <p class="sm" style="margin-top:18px;color:var(--d-faint);display:flex;align-items:center;justify-content:center;gap:7px">
+    <svg class="ic-sm ic"><use href="#i-clock"/></svg><span class="num">0:23</span>
+  </p>
+</div>
+<div class="pad" style="margin-top:18px">
+  <div class="keypad">
+    <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span>
+    <span>7</span><span>8</span><span>9</span><span></span><span>0</span>
+    <span><svg class="ic"><use href="#i-chev-l"/></svg></span>
+  </div>
+</div>
+<style>
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.keypad span{height:44px;display:flex;align-items:center;justify-content:center;font-size:19px;
+  font-weight:300;color:var(--d-fg);border-radius:var(--d-r-md)}
+.keypad span:active{background:var(--d-well)}
+</style>

@@ -1,0 +1,369 @@
+/* ============================================================
+   DIAL · LAVENDER — design tokens and shared components
+   Light ground, pastel hero, one violet primary.
+   One family, Poppins, in three weights: 300 for the dial figure,
+   400 for everything read, 600 for titles and buttons.
+
+   Every value the screens use lives here. A literal in a screen
+   file is a bug: change it here and every screen changes.
+   Mirrors apps/mobile/src/theme/index.ts — phase 9 replaces
+   that file with these values.
+   ============================================================ */
+:root{
+  /* ground and surface */
+  --d-bg:#F8F6FF;          /* the app's ground, tinted toward the primary */
+  --d-surface:#FFFFFF;     /* cards, sheets, the tab bar */
+  --d-well:#F1EEFC;        /* inset: fields, pressed states */
+  --d-line:#E9E4F7;        /* hairline */
+  --d-line-soft:#F1EDFB;   /* hairline, quieter */
+  --d-shadow:0 2px 10px rgba(46,31,99,.07);
+  --d-shadow-lg:0 10px 26px rgba(46,31,99,.13);
+
+  /* ink */
+  --d-fg:#1D1436;
+  --d-dim:#7A72A0;
+  --d-faint:#9A93BC;
+  --d-ghost:#C6BFDF;
+
+  /* the assistant — primary. The bright shade fills, the deep shade carries text. */
+  --d-acc:#7C6BEA;
+  --d-acc-deep:#4F3FB8;
+  --d-acc-wash:#E6E1FF;
+  --d-acc-lo:#B9AAFF;      /* the spark inside the ring */
+
+  /* needs you — the one contrasting hue, apricot */
+  --d-warn:#FBA36B;
+  --d-warn-deep:#B5641D;
+  --d-warn-wash:#FFEBD8;
+
+  /* refused — neutral, never red: a refused call is the product working */
+  --d-mute-wash:#EFECF8;
+
+  /* destructive — a separate red, so delete never looks like the brand */
+  --d-stop:#C2364E;
+  --d-stop-wash:#FFE3E8;
+
+  /* the pastel hero card */
+  --d-hero-a:#E9E3FF;
+  --d-hero-b:#D8CFFB;
+  --d-hero-ink:#2C1F63;
+  --d-hero-mut:#7166AC;
+
+  /* the ring */
+  --d-arc:#7C6BEA;         /* handled */
+  --d-arc-warn:#FBA36B;    /* you */
+  --d-dial-rest:#E4DEF6;   /* the unfilled remainder, on the app ground */
+
+  /* geometry */
+  --d-r-sm:10px; --d-r-md:16px; --d-r-lg:22px; --d-r-pill:99px;
+  --d-s1:4px; --d-s2:8px; --d-s3:12px; --d-s4:16px; --d-s5:20px; --d-s6:28px;
+  --d-pad:18px;            /* the screen gutter, never varies */
+
+  --d-face:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --d-w-light:300; --d-w-read:400; --d-w-strong:600;
+  --d-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+
+/* ---------- screen shell ---------- */
+.scr{background:var(--d-bg);color:var(--d-fg);font-family:var(--d-face);font-weight:var(--d-w-read)}
+.scr b,.scr strong{font-weight:var(--d-w-read)}
+.scr *{box-sizing:border-box}
+.sheet{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.pad{padding-left:var(--d-pad);padding-right:var(--d-pad)}
+.grow{flex:1}
+.center{text-align:center}
+
+/* ---------- type ---------- */
+.h1{font-size:20px;font-weight:var(--d-w-strong);letter-spacing:-.02em;line-height:1.25;margin:0}
+.h2{font-size:15px;font-weight:var(--d-w-strong);letter-spacing:-.012em;line-height:1.35;margin:0}
+.lead{font-size:11.5px;color:var(--d-dim);line-height:1.55;margin:8px 0 0}
+.sm{font-size:10.5px;color:var(--d-dim);line-height:1.5;margin:0}
+.lbl{font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-faint);margin:0;font-weight:var(--d-w-strong)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- icons ---------- */
+.ic{width:20px;height:20px;flex:0 0 20px;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;fill:none;display:block}
+.ic-sm{width:15px;height:15px;flex-basis:15px}
+.ic-lg{width:26px;height:26px;flex-basis:26px}
+
+/* ---------- top bar ---------- */
+.bar{display:flex;align-items:center;gap:var(--d-s3);padding:14px var(--d-pad) 0;min-height:34px}
+.bar .t{font-size:13px;font-weight:var(--d-w-strong);letter-spacing:-.01em}
+.bar .r{margin-left:auto;display:flex;gap:var(--d-s4);color:var(--d-acc-deep)}
+.bar button,.bar .btn{background:none;border:0;color:var(--d-fg);padding:0;display:flex}
+
+/* a sub-page bar: round back button, centred title, optional round action */
+.bar.nav{justify-content:center;position:relative;min-height:44px;padding-top:10px}
+.bar.nav .back,.bar.nav .r>*{width:34px;height:34px;border-radius:50%;background:var(--d-surface);
+  box-shadow:var(--d-shadow);display:flex;align-items:center;justify-content:center;color:var(--d-fg)}
+.bar.nav .back{position:absolute;left:var(--d-pad);top:10px}
+.bar.nav .back .ic{width:17px;height:17px}
+.bar.nav .t{font-size:13.5px}
+.bar.nav .r{position:absolute;right:var(--d-pad);top:10px;margin:0;gap:8px}
+.bar.nav .r .ic{width:16px;height:16px}
+/* a top-level screen title, left aligned */
+.bar .t.big{font-size:19px;letter-spacing:-.02em}
+
+/* status as a pill on the home family of screens */
+.pill-status{display:inline-flex;align-items:center;gap:7px;background:var(--d-surface);border-radius:var(--d-r-pill);
+  padding:6px 12px 6px 10px;box-shadow:var(--d-shadow)}
+.pill-status .t{font-size:11.5px}
+
+/* ---------- the pastel hero ---------- */
+.hero{margin:10px var(--d-s3) 0;border-radius:var(--d-r-lg);padding:14px 0 16px;
+  background:linear-gradient(152deg,var(--d-hero-a) 0%,var(--d-hero-b) 100%);
+  color:var(--d-hero-ink);box-shadow:0 8px 22px rgba(124,107,234,.16);
+  --d-dial-rest:rgba(255,255,255,.74)}
+.hero .h1,.hero .h2{color:var(--d-hero-ink)}
+.hero .sm{color:var(--d-hero-mut)}
+
+/* ---------- the dial ---------- */
+/* --seg-a/b/c are cumulative stops. Set them per screen. */
+.dial{position:relative;width:var(--dial-size,166px);height:var(--dial-size,166px);margin:0 auto}
+.dial .track{position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(var(--d-arc) 0 var(--seg-a,60%),
+                            var(--d-arc-warn) var(--seg-a,60%) var(--seg-b,68%),
+                            var(--d-dial-rest) var(--seg-b,68%) 100%);
+  -webkit-mask:radial-gradient(circle,transparent 61%,#000 62%);
+          mask:radial-gradient(circle,transparent 61%,#000 62%)}
+.dial .inner{position:absolute;inset:14px;border-radius:50%;
+  background:conic-gradient(var(--d-acc-lo) 0 var(--seg-c,54%),var(--d-dial-rest) var(--seg-c,54%) 100%);
+  -webkit-mask:radial-gradient(circle,transparent 70%,#000 71%);
+          mask:radial-gradient(circle,transparent 70%,#000 71%)}
+.dial .core{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;text-align:center;gap:5px}
+.dial .core b{font-size:36px;font-weight:var(--d-w-light);letter-spacing:-.03em;line-height:1}
+.dial .core .u{font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-hero-mut);font-weight:var(--d-w-strong)}
+.dial .core .k{font-size:10px;color:var(--d-acc-deep)}
+.dial.live .track{animation:dial-spin 9s linear infinite}
+
+/* an empty dial: one hairline ring, no data. Needs no .track element. */
+.dial.blank{border:1px solid var(--d-line);border-radius:50%}
+.dial.blank .track,.dial.blank .inner{display:none}
+.dial.blank .core .u{color:var(--d-faint)}
+
+@keyframes dial-spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.5;transform:scale(.9)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes shimmer{to{background-position:200% 0}}
+
+/* ---------- legend ---------- */
+.legend{display:flex;justify-content:center;gap:var(--d-s4);margin-top:var(--d-s4);
+  font-size:9px;color:var(--d-hero-mut)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:7px;height:7px;border-radius:50%;display:block}
+
+/* ---------- rows and cards ---------- */
+/* a .tx block is a title and a quiet second line, wherever it sits */
+.tx s{display:block;text-decoration:none}
+.tx b{display:block}
+.rows{margin-top:var(--d-s4)}
+.row{display:flex;align-items:center;gap:var(--d-s3);min-height:44px;padding:7px 0;
+  border-bottom:1px solid var(--d-line-soft);font-size:12px}
+.row:last-child{border-bottom:0}
+.row .tx b{display:block;font-size:12px;letter-spacing:-.005em}
+.row .tx s{display:block;text-decoration:none;font-size:10px;color:var(--d-faint);margin-top:1px}
+.row .end{margin-left:auto;display:flex;align-items:center;gap:var(--d-s2);color:var(--d-faint)}
+.row .chev{color:var(--d-ghost)}
+.row.tap:active{background:var(--d-well)}
+/* a white card holds one or more rows and removes their last hairline */
+.card{background:var(--d-surface);border-radius:var(--d-r-lg);padding:2px 14px;
+  margin-bottom:7px;box-shadow:var(--d-shadow)}
+.card .row:last-child{border-bottom:0}
+.list{padding:var(--d-s3) var(--d-s3) 0}
+.list .lbl{padding-left:6px;margin-bottom:8px}
+
+/* category / avatar disc */
+.disc{width:32px;height:32px;flex:0 0 32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;background:var(--d-mute-wash);color:var(--d-dim)}
+.disc.ok{background:var(--d-acc-wash);color:var(--d-acc-deep)}
+.disc.warn{background:var(--d-warn-wash);color:var(--d-warn-deep)}
+.disc.stop{background:var(--d-stop-wash);color:var(--d-stop)}
+.disc.acc{background:var(--d-acc-wash);color:var(--d-acc-deep)}
+
+/* ---------- status dot ---------- */
+.dot{width:7px;height:7px;border-radius:50%;display:block;flex:0 0 7px;background:var(--d-acc)}
+.dot.warn{background:var(--d-warn-deep)} .dot.stop{background:var(--d-stop)}
+.dot.acc{background:var(--d-acc)} .dot.off{background:var(--d-ghost)}
+.dot.beat{animation:pulse 2s ease-in-out infinite}
+
+/* ---------- chips ---------- */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:9px;letter-spacing:.05em;padding:5px 10px;border-radius:var(--d-r-pill);
+  background:var(--d-surface);border:1px solid var(--d-line);color:var(--d-dim);
+  display:inline-flex;align-items:center;gap:5px}
+.tag.on{border-color:transparent;color:#fff;background:var(--d-acc)}
+.tag.ok{background:var(--d-acc-wash);border-color:transparent;color:var(--d-acc-deep)}
+.tag.warn{background:var(--d-warn-wash);border-color:transparent;color:var(--d-warn-deep)}
+.tag.stop{background:var(--d-stop-wash);border-color:transparent;color:var(--d-stop)}
+
+/* ---------- buttons ---------- */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;height:46px;
+  border-radius:var(--d-r-pill);font-size:13px;font-weight:var(--d-w-strong);font-family:var(--d-face);
+  border:1px solid transparent;width:100%;cursor:pointer;letter-spacing:-.005em}
+.btn.primary{background:var(--d-acc);color:#fff;box-shadow:0 6px 16px rgba(124,107,234,.30)}
+.btn.ghost{background:var(--d-surface);border-color:var(--d-line);color:var(--d-fg);box-shadow:var(--d-shadow)}
+.btn.quiet{background:transparent;color:var(--d-dim);height:38px;font-size:12px}
+.btn.danger{background:var(--d-stop-wash);color:var(--d-stop)}
+.btn+.btn{margin-top:var(--d-s2)}
+.foot{margin-top:auto;padding:var(--d-s3) var(--d-pad) var(--d-s5)}
+
+/* ---------- form ---------- */
+.field{background:var(--d-surface);border:1px solid var(--d-line);border-radius:var(--d-r-md);
+  display:flex;align-items:center;gap:var(--d-s3);padding:0 14px;height:52px;color:var(--d-fg);
+  box-shadow:var(--d-shadow)}
+.field .val{font-size:15px;letter-spacing:.01em}
+.field .ph{color:var(--d-ghost)}
+.field.focus{border-color:var(--d-acc);box-shadow:0 0 0 3px var(--d-acc-wash)}
+.field.bad{border-color:var(--d-stop);box-shadow:0 0 0 3px var(--d-stop-wash)}
+.otp{display:flex;gap:8px;justify-content:center}
+.otp i{width:34px;height:46px;border-radius:var(--d-r-sm);background:var(--d-surface);
+  border:1px solid var(--d-line);display:flex;align-items:center;justify-content:center;
+  font-size:17px;font-style:normal;box-shadow:var(--d-shadow)}
+.otp i.on{border-color:var(--d-acc);box-shadow:0 0 0 3px var(--d-acc-wash)}
+.otp i.bad{border-color:var(--d-stop);color:var(--d-stop)}
+.caret{width:1.5px;height:20px;background:var(--d-acc);animation:pulse 1.1s steps(2) infinite}
+
+/* ---------- toggle and choice ---------- */
+.tgl{width:34px;height:20px;border-radius:var(--d-r-pill);background:#DED7F2;position:relative;
+  flex:0 0 34px;display:block}
+.tgl:after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(46,31,99,.25)}
+.tgl.on{background:var(--d-acc)}
+.tgl.on:after{left:auto;right:3px}
+.pick{display:flex;gap:4px;background:var(--d-well);border:1px solid var(--d-line);
+  border-radius:var(--d-r-pill);padding:3px}
+.pick span{flex:1;text-align:center;font-size:10.5px;padding:8px 0;border-radius:var(--d-r-pill);color:var(--d-dim)}
+.pick span.on{background:var(--d-surface);color:var(--d-acc-deep);box-shadow:var(--d-shadow);font-weight:var(--d-w-strong)}
+.radio{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--d-ghost);flex:0 0 18px;position:relative}
+.radio.on{border-color:var(--d-acc)}
+.radio.on:after{content:'';position:absolute;inset:3.5px;border-radius:50%;background:var(--d-acc)}
+
+/* ---------- panel ---------- */
+.panel{background:var(--d-surface);border:1px solid var(--d-line);border-radius:var(--d-r-md);
+  padding:13px 14px;box-shadow:var(--d-shadow)}
+.panel.warn{background:var(--d-warn-wash);border-color:transparent;box-shadow:none}
+.panel.stop{background:var(--d-stop-wash);border-color:transparent;box-shadow:none}
+.panel.acc{background:var(--d-acc-wash);border-color:transparent;box-shadow:none}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:9px 14px;font-size:11px}
+.kv dt{color:var(--d-faint)} .kv dd{margin:0;color:var(--d-fg);text-align:right}
+
+/* ---------- progress ---------- */
+.steps{display:flex;gap:4px;padding:0 var(--d-pad)}
+.steps i{height:3px;flex:1;background:var(--d-line);border-radius:3px}
+.steps i.on{background:var(--d-acc)}
+.steps i.done{background:var(--d-acc-lo)}
+
+/* ---------- waveform (voice preview) ---------- */
+.wave{display:flex;align-items:center;gap:2.5px;height:30px}
+.wave i{width:2.5px;border-radius:2px;background:currentColor;opacity:.6}
+.wave.play i{animation:wv 1s ease-in-out infinite alternate}
+@keyframes wv{to{transform:scaleY(1.7)}}
+
+/* ---------- skeleton ---------- */
+.sk{background:linear-gradient(90deg,#EFEBFA 25%,#F7F4FE 50%,#EFEBFA 75%);
+  background-size:200% 100%;animation:shimmer 1.4s linear infinite;border-radius:6px}
+
+/* ---------- tab bar ---------- */
+.tabs{display:flex;height:58px;flex:0 0 58px;background:var(--d-surface);
+  border-top:1px solid var(--d-line);align-items:center;padding-bottom:2px;
+  box-shadow:0 -2px 14px rgba(46,31,99,.05)}
+.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--d-faint);
+  text-decoration:none;font-size:8.5px;letter-spacing:.04em}
+.tabs a.on{color:var(--d-acc-deep);font-weight:var(--d-w-strong)}
+.tabs a .ic{padding:3px 14px;box-sizing:content-box;border-radius:var(--d-r-pill)}
+.tabs a.on .ic{background:var(--d-acc-wash)}
+.tabs .badge{position:relative}
+.tabs .badge:after{content:'';position:absolute;top:-2px;right:-3px;width:6px;height:6px;
+  border-radius:50%;background:var(--d-warn-deep);border:1.5px solid var(--d-surface)}
+
+/* ---------- banner ---------- */
+.banner{display:flex;align-items:center;gap:9px;margin:0 var(--d-pad);padding:10px 12px;
+  border-radius:var(--d-r-md);font-size:10.5px;line-height:1.45}
+.banner.off{background:var(--d-surface);border:1px solid var(--d-line);color:var(--d-dim);
+  box-shadow:var(--d-shadow)}
+.banner.bad{background:var(--d-stop-wash);color:#8E1F34}
+
+/* ---------- bottom sheet ---------- */
+.modal{position:absolute;left:0;right:0;bottom:0;background:var(--d-surface);
+  border-radius:var(--d-r-lg) var(--d-r-lg) 0 0;box-shadow:0 -18px 44px rgba(46,31,99,.22);
+  padding-top:10px;z-index:6}
+.grip{width:34px;height:3px;border-radius:3px;background:var(--d-line);margin:0 auto 8px}
+
+
+/* ---------- lanes: where a kind of call goes ---------- */
+/* one card per lane: who  ->  what happens. Read left to right, no options. */
+.lane{display:grid;grid-template-columns:1fr 22px 1fr;align-items:center;background:var(--d-surface);
+  border-radius:var(--d-r-lg);padding:14px 10px;box-shadow:var(--d-shadow);margin-bottom:10px}
+.lane .end-a,.lane .end-b{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center}
+.lane .end-a b,.lane .end-b b{font-size:11px;font-weight:var(--d-w-strong);line-height:1.25}
+.lane .ico{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.lane .ico .ic{width:22px;height:22px}
+.lane .go{color:var(--d-ghost);display:flex;justify-content:center}
+.lane.you .end-b .ico{background:var(--d-mute-wash);color:var(--d-dim)}
+.lane.you .end-a .ico{background:var(--d-mute-wash);color:var(--d-dim)}
+.lane.ai{background:linear-gradient(152deg,var(--d-hero-a),var(--d-hero-b));box-shadow:0 8px 20px rgba(124,107,234,.16)}
+.lane.ai .end-a .ico{background:rgba(255,255,255,.75);color:var(--d-hero-mut)}
+.lane.ai .end-b .ico{background:var(--d-acc);color:#fff;box-shadow:0 6px 14px rgba(124,107,234,.35)}
+.lane.ai b{color:var(--d-hero-ink)}
+.lane.ai .go{color:var(--d-hero-mut)}
+.aside{display:flex;align-items:center;justify-content:center;gap:7px;font-size:10px;color:var(--d-faint)}
+
+/* ---------- graph: when the phone rings for you ---------- */
+/* Nodes are placed on a fixed 232 x 250 canvas and the edges are one SVG drawn
+   underneath, ending exactly at node borders — so a line never crosses a label. */
+.graph{position:relative;width:232px;height:250px;margin:0 auto}
+.graph svg.edges{position:absolute;inset:0;width:232px;height:250px;overflow:visible}
+.graph .edges path{fill:none;stroke:var(--d-line);stroke-width:2;stroke-linecap:round}
+.graph .edges path.hot{stroke:var(--d-warn)}
+.graph .edges circle{fill:var(--d-surface);stroke:var(--d-line);stroke-width:2}
+.graph .edges circle.hot{stroke:var(--d-warn)}
+.graph .n{position:absolute;display:flex;align-items:center;background:var(--d-surface);box-shadow:var(--d-shadow);
+  font-weight:var(--d-w-strong);color:var(--d-fg)}
+.graph .n .disc{width:30px;height:30px;flex-basis:30px}
+.graph .n .disc .ic{width:16px;height:16px}
+.graph .n-a{left:22px;top:0;width:188px;height:46px;border-radius:var(--d-r-pill);padding:0 14px 0 8px;gap:9px;font-size:11.5px;white-space:nowrap}
+.graph .n-a .disc{background:var(--d-acc);color:#fff}
+.graph .n-b{top:84px;width:104px;height:78px;border-radius:var(--d-r-md);flex-direction:column;justify-content:center;
+  gap:7px;font-size:10.5px;text-align:center;line-height:1.2}
+.graph .n-b .disc{width:34px;height:34px;flex-basis:34px}
+.graph .n-b .disc .ic{width:18px;height:18px}
+.graph .n-b1{left:0} .graph .n-b2{left:128px}
+.graph .n-c{left:26px;top:202px;width:180px;height:48px;border-radius:var(--d-r-pill);padding:0 14px 0 9px;gap:9px;
+  font-size:12.5px;background:var(--d-warn);color:#5C3208;box-shadow:0 8px 18px rgba(240,138,60,.30)}
+.graph .n-c .disc{background:rgba(255,255,255,.7);color:#8A4A0E}
+.graph-else{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:18px;
+  font-size:10.5px;color:var(--d-dim)}
+.graph-else .disc{width:26px;height:26px;flex-basis:26px}
+.graph-else .disc .ic{width:14px;height:14px}
+
+/* ---------- choice cards: pick one, see it ---------- */
+.choices{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.choice{background:var(--d-surface);border:1.5px solid transparent;border-radius:var(--d-r-md);
+  box-shadow:var(--d-shadow);padding:11px 4px 9px;display:flex;flex-direction:column;align-items:center;gap:7px;
+  font-size:10.5px;color:var(--d-dim)}
+.choice .ic{width:20px;height:20px;color:var(--d-faint)}
+.choice.on{border-color:var(--d-acc);background:var(--d-acc-wash);color:var(--d-acc-deep);
+  font-weight:var(--d-w-strong);box-shadow:none}
+.choice.on .ic{color:var(--d-acc-deep)}
+/* length drawn as lines of speech rather than described */
+.lines{display:flex;flex-direction:column;gap:3px;width:34px;height:20px;justify-content:center}
+.lines i{height:3px;border-radius:3px;background:currentColor;opacity:.55;display:block}
+.choice.on .lines i{opacity:1}
+
+/* ---------- voices ---------- */
+.voices{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.voice{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:10.5px;color:var(--d-dim)}
+.voice .av{width:48px;height:48px;border-radius:50%;background:var(--d-surface);box-shadow:var(--d-shadow);
+  display:flex;align-items:center;justify-content:center;color:var(--d-faint);position:relative}
+.voice.on{color:var(--d-acc-deep);font-weight:var(--d-w-strong)}
+.voice.on .av{background:var(--d-acc);color:#fff;box-shadow:0 0 0 3px var(--d-acc-wash),0 6px 14px rgba(124,107,234,.3)}
+
+/* the assistant's mark: a small open ring, the dial at icon size */
+.mark{width:18px;height:18px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;
+  transform:rotate(-45deg);display:block;flex:0 0 18px}
+
+/* tighter rows, for screens that are genuinely a long list */
+.dense .row{min-height:40px;padding:5px 0}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
