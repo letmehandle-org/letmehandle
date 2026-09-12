@@ -33,6 +33,7 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
     Verbosity,
 )
+from letmehandle.domain.models.voice import VoiceSelection
 from tests.contracts.preference_fakes import (
     InMemoryOnboardingRepository,
     InMemoryPreferencesRepository,
@@ -122,6 +123,7 @@ class TestPartialUpdates:
             topics=frozenset({Topic("school run")}),
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
             call_handling=REJECT_UNKNOWN,
+            voice=VoiceSelection(persona_voice_id="ava"),
         )
         await service.replace_all(USER, full)
 
@@ -136,6 +138,7 @@ class TestPartialUpdates:
         assert after.topics == frozenset({Topic("school run")})
         assert after.important_contacts == full.important_contacts
         assert after.rules.default_posture is HandlingPosture.REJECT
+        assert after.voice.persona_voice_id == "ava"
 
     async def test_an_empty_value_clears_a_section_where_absence_would_not(
         self, service: PreferencesService
@@ -211,6 +214,29 @@ class TestCallHandlingAndHours:
         await service.apply(USER, PreferenceChanges(hours=Hours()))
 
         assert (await service.get(USER)).rules.quiet_hours is None
+
+
+class TestVoice:
+    async def test_a_chosen_voice_is_kept(self, service: PreferencesService) -> None:
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_changing_something_else_leaves_the_voice_alone(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+
+        await service.apply(USER, PreferenceChanges(formality=Formality.WARM))
+
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_a_voice_can_be_cleared(self, service: PreferencesService) -> None:
+        # Back to the provider's default, which is a thing somebody must be able to do.
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection()))
+
+        assert (await service.get(USER)).voice == VoiceSelection()
 
 
 class TestReplacing:

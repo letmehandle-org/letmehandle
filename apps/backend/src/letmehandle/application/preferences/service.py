@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         Topic,
         Verbosity,
     )
+    from letmehandle.domain.models.voice import VoiceSelection
     from letmehandle.domain.ports.repositories import (
         OnboardingRepository,
         PreferencesRepository,
@@ -79,6 +80,7 @@ class PreferenceChanges:
     hours: Hours | None = None
     authority: AgentAuthority | None = None
     notifications: NotificationPreferences | None = None
+    voice: VoiceSelection | None = None
     formality: Formality | None = None
     verbosity: Verbosity | None = None
     topics: frozenset[Topic] | None = None
@@ -100,6 +102,7 @@ class PreferenceChanges:
                 "hours",
                 "authority",
                 "notifications",
+                "voice",
                 "formality",
                 "verbosity",
                 "topics",
@@ -204,6 +207,7 @@ class PreferencesService:
             notifications=(
                 base.notifications if changes.notifications is None else changes.notifications
             ),
+            voice=base.voice if changes.voice is None else changes.voice,
             formality=base.formality if changes.formality is None else changes.formality,
             verbosity=base.verbosity if changes.verbosity is None else changes.verbosity,
             topics=base.topics if changes.topics is None else changes.topics,

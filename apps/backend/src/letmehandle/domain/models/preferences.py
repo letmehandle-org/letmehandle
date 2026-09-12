@@ -18,6 +18,9 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority
 from letmehandle.domain.models.intent import CallImportance
 
+# At run time, not under TYPE_CHECKING: it is a default factory, not only an annotation.
+from letmehandle.domain.models.voice import VoiceSelection
+
 if TYPE_CHECKING:
     from datetime import datetime, time, tzinfo
 
@@ -29,7 +32,11 @@ if TYPE_CHECKING:
 # Stored beside them, so that a later change can migrate what is there rather than guess what
 # an older row meant. Without it, adding a field leaves every existing row ambiguous: absent
 # because the user declined, or absent because the field did not exist when they answered.
-PREFERENCES_VERSION: Final = 1
+#
+# 2 added the chosen voice. A document written at 1 has none, which reads as "has not chosen"
+# rather than "chose nothing" — and the difference matters, because the first resolves to the
+# provider's default and the second would mean silence.
+PREFERENCES_VERSION: Final = 2
 
 
 class HandlingPosture(StrEnum):
@@ -298,6 +305,9 @@ class UserPreferences:
     rules: CallRules = field(default_factory=CallRules)
     authority: AgentAuthority = field(default_factory=AgentAuthority.none)
     notifications: NotificationPreferences = field(default_factory=NotificationPreferences)
+    # How the assistant sounds. Empty means nothing has been chosen, which resolves to the
+    # provider's default rather than to silence — see `resolve_voice`.
+    voice: VoiceSelection = field(default_factory=VoiceSelection)
     formality: Formality = Formality.NEUTRAL
     verbosity: Verbosity = Verbosity.NORMAL
     locale: str = "en"

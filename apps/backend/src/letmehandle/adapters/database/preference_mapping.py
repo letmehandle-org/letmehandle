@@ -33,6 +33,7 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
     Verbosity,
 )
+from letmehandle.domain.models.voice import VoiceSelection
 
 
 def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
@@ -50,6 +51,10 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
         "topics": sorted(topic.name for topic in preferences.topics),
         "disclosable_facts": sorted(fact.text for fact in preferences.disclosable_facts),
         "authority": sorted(capability.value for capability in preferences.authority.capabilities),
+        "voice": {
+            "cloned": preferences.voice.cloned_voice_id,
+            "persona": preferences.voice.persona_voice_id,
+        },
         "notifications": {
             "on_handled_call": preferences.notifications.on_handled_call,
             "on_blocked_call": preferences.notifications.on_blocked_call,
@@ -110,6 +115,7 @@ def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
             )
         ),
         notifications=_notifications_from_document(document.get("notifications", {})),
+        voice=_voice_from_document(document.get("voice", {})),
         important_contacts=tuple(
             _contact_from_document(entry) for entry in document.get("important_contacts", [])
         ),
@@ -219,6 +225,24 @@ def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
 def _parse_time(value: str) -> time:
     hour, _, minute = value.partition(":")
     return time(int(hour), int(minute))
+
+
+def _voice_from_document(document: dict[str, Any]) -> VoiceSelection:
+    """What the user chose, as far as this version can tell.
+
+    A document written before voices existed has none, which reads as "has not chosen" — and
+    that resolves to the provider's default rather than to silence. The version beside the
+    document is what makes the distinction readable later.
+    """
+    return VoiceSelection(
+        cloned_voice_id=_optional_text(document.get("cloned")),
+        persona_voice_id=_optional_text(document.get("persona")),
+    )
+
+
+def _optional_text(value: object) -> str | None:
+    """A stored string, or nothing. Anything else stored here is not a voice identifier."""
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _notifications_from_document(document: dict[str, Any]) -> NotificationPreferences:
