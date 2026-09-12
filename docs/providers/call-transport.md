@@ -96,7 +96,8 @@ account is refused too.
 The provider duplicates, reorders and drops callbacks. Repeats are recognised by the idempotency
 token header and by the provider's own identifiers (conference and sequence number; call, sequence
 number and status). State is resolved by sequence number, not arrival: a join arriving after the
-leave that followed it is stale. A leg reported completed without having joined is given two
+leave that followed it is stale. A leg reported completed after it joined has left, whether or not the conference's leave
+for it ever arrives. A leg reported completed without having joined is given two
 seconds for a delayed join or leave to arrive before it is reported unreachable.
 
 Handlers change state and return; anything that needs the network runs as a task the transport

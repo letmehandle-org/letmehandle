@@ -470,7 +470,12 @@ class TwilioCallTransport(CallTransport):
                 self._unreachable(call, leg, ParticipantOutcome.ANSWERED_BY_MACHINE)
                 self._spawn(call, self._hang_up_leg(call, leg))
             return
-        if not progress.status.is_final or leg.joined:
+        if not progress.status.is_final:
+            return
+        if leg.joined:
+            # The leg's own call is over, so it has left the conference, whether or not the
+            # conference's leave for it ever arrives.
+            self._left(call, leg)
             return
         if leg.removed:
             # Taken off the call on request before joining: nothing happened that was not asked.
@@ -585,6 +590,9 @@ class TwilioCallTransport(CallTransport):
             )
             self._spawn(call, self._apply_presence_locked(call))
             return
+        self._left(call, leg)
+
+    def _left(self, call: _Call, leg: _Leg) -> None:
         leg.finished = True
         self._emit(CallEventKind.PARTICIPANT_LEFT, call, f"left:{leg.label}", participant=leg.role)
         self._end_stream(call, leg)

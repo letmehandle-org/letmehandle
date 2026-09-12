@@ -529,15 +529,19 @@ async def test_a_completion_arriving_before_the_join_and_leave_it_followed_waits
     assert shapes(await drain(transport)) == [("participant_left", "user", None)]
 
 
-async def test_a_completed_progress_after_joining_leaves_the_leaving_to_the_conference(
-    transport: TwilioCallTransport,
+async def test_a_joined_leg_completing_is_its_leaving_when_the_leave_itself_is_lost(
+    transport: TwilioCallTransport, api: RecordingApi
 ) -> None:
     await answered_call(transport)
+    await transport.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)
     await with_user(transport)
     transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 9))
-    assert await drain(transport) == []
-    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
     assert shapes(await drain(transport)) == [("participant_left", "user", None)]
+    # With nobody else on the call, the caller hears the assistant again.
+    assert api.updates[-1] == (CONFERENCE, "CAsim-assistant-1", False, None)
+    # The leave arriving after all is the same leaving, already reported.
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
+    assert await drain(transport) == []
 
 
 async def test_a_leave_arriving_before_its_join_is_resolved_by_sequence(
