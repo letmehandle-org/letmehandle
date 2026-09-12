@@ -105,10 +105,13 @@ export interface paths {
         put?: never;
         /**
          * End this session
-         * @description End the session this refresh token belongs to.
+         * @description End the session this refresh token belongs to, and forget the device signing out.
          *
          *     Always succeeds. Somebody signing out has nothing to gain from being told their token was
          *     already invalid, and saying so would tell an attacker whether a token they hold is real.
+         *
+         *     The device is removed only from the account the refresh token belonged to, so a request can
+         *     never remove somebody else's device by naming it.
          */
         post: operations["sign_out_v1_auth_signout_post"];
         delete?: never;
@@ -200,6 +203,75 @@ export interface paths {
          *     call nothing was said on, `404 call_not_found` for no such call.
          */
         get: operations["read_transcript_v1_calls__call_id__transcript_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Register this device for escalation notifications
+         * @description Record this device's push token for the signed-in user.
+         *
+         *     Idempotent: the app calls it on every launch and whenever its platform issues a new token. A
+         *     token previously registered to another account moves to this one.
+         */
+        put: operations["register_device_v1_devices_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/unregister": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop sending escalation notifications to this device
+         * @description Forget this device for the signed-in user. Succeeds whether or not it was registered.
+         *
+         *     A POST with a body rather than a DELETE with the token in the path: a push token identifies a
+         *     handset, and a path is what access logs keep.
+         */
+        post: operations["unregister_device_v1_devices_unregister_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/escalations/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The context of an escalation
+         * @description What the user was, or would have been, told about this escalation.
+         *
+         *     For the app opened without a notification, or opened long after one: the same words, from
+         *     the backend rather than from the lock screen.
+         */
+        get: operations["read_escalation_v1_escalations__call_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -537,6 +609,57 @@ export interface components {
             expires_in_seconds: number;
         };
         /**
+         * DevicePayload
+         * @description One device, as its platform identifies it.
+         */
+        DevicePayload: {
+            platform: components["schemas"]["DevicePlatform"];
+            /** Token */
+            token: string;
+        };
+        /**
+         * DevicePlatform
+         * @description Which delivery path a device needs.
+         * @enum {string}
+         */
+        DevicePlatform: "ios" | "android";
+        /**
+         * EscalationContextResponse
+         * @description An escalation as the app shows it — the same words the notification carried.
+         *
+         *     `title`, `caller_label` and `body` are exactly what a notification would display, untrimmed.
+         *     The structured fields beside them are for the app to lay out itself: `caller` is absent when
+         *     nobody knows who is calling, where `caller_label` says so in words. `status` says whether the
+         *     call is still going; an `ended` escalation is shown as what happened, not as a call to join.
+         *     `delivery` says what became of the push, so a failure can be surfaced rather than hidden.
+         */
+        EscalationContextResponse: {
+            /** Body */
+            body: string;
+            /** Call Id */
+            call_id: string;
+            /** Caller */
+            caller: string | null;
+            /** Caller Label */
+            caller_label: string;
+            delivery: components["schemas"]["NotificationDelivery"];
+            /** Ended At */
+            ended_at: string | null;
+            /** Established */
+            established: string | null;
+            /** Needed */
+            needed: string | null;
+            /**
+             * Raised At
+             * Format: date-time
+             */
+            raised_at: string;
+            reason: components["schemas"]["EscalationReason"];
+            status: components["schemas"]["EscalationStatus"];
+            /** Title */
+            title: string;
+        };
+        /**
          * EscalationReason
          * @description Why the assistant wants a person.
          *
@@ -546,6 +669,15 @@ export interface components {
          * @enum {string}
          */
         EscalationReason: "caller_asked_for_the_user" | "action_not_authorised" | "decision_needs_the_user" | "important_enough_to_interrupt" | "cannot_understand_the_caller" | "user_rule_requires_it";
+        /**
+         * EscalationStatus
+         * @description Whether the call the escalation belongs to is still going.
+         *
+         *     A notification can arrive after the call has ended, and that is a designed state: the app
+         *     shows what happened instead of a live context for a call nobody can join.
+         * @enum {string}
+         */
+        EscalationStatus: "live" | "ended";
         /** ExtractedDetailPayload */
         ExtractedDetailPayload: {
             /** Evidence */
@@ -600,6 +732,12 @@ export interface components {
             /** @default pass_through */
             posture: components["schemas"]["HandlingPosture"];
         };
+        /**
+         * NotificationDelivery
+         * @description What became of telling the user, surfaced in the app rather than raised anywhere.
+         * @enum {string}
+         */
+        NotificationDelivery: "pending" | "delivered" | "failed" | "no_devices";
         /** NotificationsPayload */
         NotificationsPayload: {
             /**
@@ -763,8 +901,23 @@ export interface components {
             /** Refresh Token */
             refresh_token: string;
         };
+        /**
+         * RegisterDeviceRequest
+         * @description This device's current push token.
+         *
+         *     `previous_token` is the token the platform rotated away from, when the app knows it. It is
+         *     removed from this user's devices so the old one does not linger until a delivery fails.
+         */
+        RegisterDeviceRequest: {
+            platform: components["schemas"]["DevicePlatform"];
+            /** Previous Token */
+            previous_token?: string | null;
+            /** Token */
+            token: string;
+        };
         /** SignOutRequest */
         SignOutRequest: {
+            device?: components["schemas"]["DevicePayload"] | null;
             /** Refresh Token */
             refresh_token: string;
         };
@@ -1242,6 +1395,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TranscriptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_device_v1_devices_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unregister_device_v1_devices_unregister_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevicePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_escalation_v1_escalations__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationContextResponse"];
                 };
             };
             /** @description Validation Error */

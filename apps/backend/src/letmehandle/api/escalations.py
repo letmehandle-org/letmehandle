@@ -1,0 +1,108 @@
+"""Devices and escalation context, over HTTP.
+
+Two things the app needs so that push is an accelerator and never the only path (D-016): a way
+to tell the backend where to deliver, and a way to read an escalation's context when nothing was
+delivered. Both are the signed-in user's own and nobody else's (D-012): another user's call id
+is a 404, exactly as a call id that does not exist.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Path, Response, status
+
+from letmehandle.api.dependencies import CurrentUser, Devices, EscalationContexts
+from letmehandle.api.errors import UNPROCESSABLE, ApiError
+from letmehandle.api.escalation_schemas import EscalationContextResponse, RegisterDeviceRequest
+from letmehandle.api.schemas import DevicePayload
+from letmehandle.application.escalation.notification import notification_for
+from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.models.escalation_context import MAX_CALL_ID_LENGTH, EscalationContext
+from letmehandle.domain.models.identifiers import CallId
+from letmehandle.domain.ports.notification import DeviceToken
+
+router = APIRouter(prefix="/v1", tags=["escalation"])
+
+
+@router.put(
+    "/devices",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Register this device for escalation notifications",
+)
+async def register_device(
+    body: RegisterDeviceRequest, user: CurrentUser, devices: Devices
+) -> Response:
+    """Record this device's push token for the signed-in user.
+
+    Idempotent: the app calls it on every launch and whenever its platform issues a new token. A
+    token previously registered to another account moves to this one.
+    """
+    token = DeviceToken(body.platform, body.token)
+    replacing = (
+        None if body.previous_token is None else DeviceToken(body.platform, body.previous_token)
+    )
+    await devices.register(user.id, token, replacing=replacing)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/devices/unregister",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Stop sending escalation notifications to this device",
+)
+async def unregister_device(body: DevicePayload, user: CurrentUser, devices: Devices) -> Response:
+    """Forget this device for the signed-in user. Succeeds whether or not it was registered.
+
+    A POST with a body rather than a DELETE with the token in the path: a push token identifies a
+    handset, and a path is what access logs keep.
+    """
+    await devices.remove(user.id, DeviceToken(body.platform, body.token))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/escalations/{call_id}",
+    response_model=EscalationContextResponse,
+    summary="The context of an escalation",
+)
+async def read_escalation(
+    call_id: Annotated[str, Path(min_length=1, max_length=MAX_CALL_ID_LENGTH)],
+    user: CurrentUser,
+    contexts: EscalationContexts,
+) -> EscalationContextResponse:
+    """What the user was, or would have been, told about this escalation.
+
+    For the app opened without a notification, or opened long after one: the same words, from
+    the backend rather than from the lock screen.
+    """
+    try:
+        identifier = CallId(call_id)
+    except InvariantError as error:
+        raise ApiError(UNPROCESSABLE, "invalid_call_id", "That is not a call id.") from error
+
+    context = await contexts.get(user.id, identifier)
+    if context is None:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "escalation_not_found", "There is no such escalation."
+        )
+    return context_response(context, locale=user.preferences.locale)
+
+
+def context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:
+    """The response, built from the same notification a push would have carried."""
+    shown = notification_for(context, locale=locale)
+    return EscalationContextResponse(
+        call_id=context.call_id.value,
+        status=context.status,
+        reason=context.reason,
+        title=shown.title,
+        caller_label=shown.caller_label,
+        body=shown.body,
+        caller=context.caller_label,
+        established=context.established,
+        needed=context.needed,
+        raised_at=context.raised_at,
+        ended_at=context.ended_at,
+        delivery=context.delivery,
+    )

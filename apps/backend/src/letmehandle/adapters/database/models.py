@@ -28,6 +28,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
 )
@@ -289,3 +290,31 @@ class CallSummaryRow(Base):
             name="fk_call_summaries_call_user",
         ),
     )
+
+
+class EscalationContextRow(Base):
+    """What a user was told about one escalation, kept so the app can fetch it without a push.
+
+    Keyed by the user and the call together. The call id alone would let one user's escalation
+    stand in the way of another's, and every read filters by both anyway.
+
+    Nothing here is a transcript or a recording: a label for the caller, two short sentences, and
+    what became of the notification.
+    """
+
+    __tablename__ = "escalation_contexts"
+
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    caller_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    established: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    needed: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False)
+    raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (PrimaryKeyConstraint("user_id", "call_id", name="pk_escalation_contexts"),)

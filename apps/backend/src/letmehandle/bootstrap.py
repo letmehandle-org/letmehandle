@@ -9,13 +9,27 @@ It is also the only module permitted to name a provider. A test asserts that no 
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Final, assert_never
+from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
 
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.database.repositories import (
+    SqlDeviceRepository,
+    SqlEscalationContextRepository,
+)
+from letmehandle.adapters.database.session import unit_of_work
+from letmehandle.adapters.notification.apns.provider import (
+    APNsEnvironment,
+    APNsNotificationProvider,
+)
+from letmehandle.adapters.notification.apns.token import APNsProviderToken
+from letmehandle.adapters.notification.fcm import provider as fcm
+from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
+from letmehandle.adapters.notification.shared import CredentialError
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
 from letmehandle.adapters.security.hashing import (
@@ -39,18 +53,27 @@ from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
-from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
+from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
+from letmehandle.config.settings import (
+    APNsEnvironmentName,
+    ConfigurationError,
+    OTPProviderName,
+    Settings,
+    SpeechProviderName,
+)
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
     from strands.models.model import Model
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions, CallAgent
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.notification import NotificationProvider
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.security import (
@@ -86,6 +109,9 @@ class Container:
     # None when no transcript keys are configured. Call history cannot be read without them, and
     # its routes say so; everything else, which never opens a sealed record, runs regardless.
     transcript_cipher: TranscriptCipher | None
+    # One per configured platform, possibly none. A platform without one is an outcome at
+    # dispatch, not a startup failure: escalation works without push (D-016).
+    notifications: tuple[NotificationProvider, ...] = ()
 
 
 def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
@@ -119,7 +145,97 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
             if settings.transcript_encryption_keys is None
             else AesGcmTranscriptCipher(settings.require_transcript_keys())
         ),
+        notifications=build_notification_providers(settings, clock=clock),
     )
+
+
+def build_notification_providers(
+    settings: Settings, *, clock: Clock
+) -> tuple[NotificationProvider, ...]:
+    """A provider for each platform the deployment has credentials for.
+
+    A platform is built when any of its variables is set, and then every one is required: a
+    half-configured platform stops the process naming what is missing rather than starting and
+    silently never delivering. Credentials are parsed here, so an unreadable key fails at startup
+    too — with a message that names the variable and never repeats the key.
+    """
+    providers: list[NotificationProvider] = []
+    if settings.apns_configured:
+        apns = settings.require_apns()
+        try:
+            token = APNsProviderToken(
+                key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
+            )
+        except CredentialError as error:
+            raise ConfigurationError(
+                f"APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID: {error}"
+            ) from None
+        providers.append(
+            APNsNotificationProvider(
+                token=token,
+                topic=apns.topic,
+                environment=_APNS_ENVIRONMENTS[apns.environment],
+                clock=clock,
+            )
+        )
+    if settings.fcm_configured:
+        credentials = settings.require_fcm()
+        try:
+            account = ServiceAccount.parse(credentials.service_account_json)
+        except CredentialError as error:
+            raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
+        client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
+        providers.append(
+            fcm.FCMNotificationProvider(
+                project_id=credentials.project_id,
+                tokens=AccessTokenSource(account, client=client, clock=clock),
+                client=client,
+            )
+        )
+    return tuple(providers)
+
+
+_APNS_ENVIRONMENTS: Final = {
+    APNsEnvironmentName.SANDBOX: APNsEnvironment.SANDBOX,
+    APNsEnvironmentName.PRODUCTION: APNsEnvironment.PRODUCTION,
+}
+
+
+def build_escalation_dispatcher(
+    container: Container,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    metrics: MetricsRecorder,
+) -> EscalationDispatcher:
+    """The dispatcher, storing through its own short units of work.
+
+    This is the object the call orchestration asks to notify a user. It opens a unit of work to
+    claim the context and read devices, closes it, sends, and opens another to record the result,
+    so no transaction is held open across a push.
+    """
+    clock = container.clock
+
+    @asynccontextmanager
+    async def stores() -> AsyncIterator[EscalationStores]:
+        async with unit_of_work(session_factory) as session:
+            yield EscalationStores(
+                devices=SqlDeviceRepository(session, clock),
+                contexts=SqlEscalationContextRepository(session),
+            )
+
+    return EscalationDispatcher(providers=container.notifications, stores=stores, metrics=metrics)
+
+
+@runtime_checkable
+class _Closable(Protocol):
+    async def aclose(self) -> None: ...  # pragma: no cover - a protocol signature, never run
+
+
+async def close_notification_providers(container: Container) -> None:
+    """Close each provider's connection. Called once, as the application stops."""
+    for provider in container.notifications:
+        if isinstance(provider, _Closable):
+            await provider.aclose()
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:

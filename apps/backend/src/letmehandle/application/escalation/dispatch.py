@@ -1,0 +1,305 @@
+"""Telling the user about an escalation, on every device they have, without ever getting in its way.
+
+The governing rule is D-016: the phone ringing is the escalation, and this is context for it. So
+nothing here raises into its caller, nothing waits longer than a short bound, and a failure is a
+recorded outcome — on the stored context, where the app surfaces it, and in the metrics — rather
+than an exception on the path that is ringing somebody's phone.
+
+In order, for one escalation:
+
+  1. The context is claimed in storage. A second dispatch for the same call finds it claimed and
+     stops: one notification per call, however often the caller asks. The context is stored
+     before anything is sent, so the app can fetch it even if every push is lost.
+  2. Every device the user has is sent to at once, through the provider for its platform, each
+     bounded by the same deadline. A platform with no provider configured is an outcome too.
+  3. Tokens a platform reported dead are removed, and what became of the notification is
+     recorded on the context.
+
+Storage is reached through a scope that opens and commits its own unit of work, so no database
+transaction is held open while a push is in flight.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
+from letmehandle.domain.models.escalation_context import NotificationDelivery
+from letmehandle.domain.ports.notification import DeliveryStatus
+from letmehandle.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from contextlib import AbstractAsyncContextManager
+    from datetime import datetime
+
+    from letmehandle.domain.models.escalation_context import EscalationContext
+    from letmehandle.domain.models.identifiers import CallId, UserId
+    from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.notification import (
+        DevicePlatform,
+        DeviceToken,
+        EscalationNotification,
+        NotificationProvider,
+    )
+    from letmehandle.domain.ports.repositories import (
+        DeviceRepository,
+        EscalationContextRepository,
+    )
+
+logger = get_logger(__name__)
+
+# Short, because a notification arriving after the user has already answered is worth little, and
+# a caller awaiting this — rather than starting it in the background — waits at most this long.
+DEFAULT_TIMEOUT: Final = timedelta(seconds=5)
+
+DISPATCH_METRIC: Final = "escalation.dispatch"
+DELIVERY_METRIC: Final = "escalation.delivery"
+TOKEN_REMOVED_METRIC: Final = "escalation.token_removed"  # noqa: S105 - a metric name
+
+
+@dataclass(frozen=True, slots=True)
+class EscalationStores:
+    """The storage one unit of work gives the dispatcher."""
+
+    devices: DeviceRepository
+    contexts: EscalationContextRepository
+
+
+class DispatchResult(StrEnum):
+    """What happened to a dispatch as a whole."""
+
+    SENT = "sent"
+    DEDUPLICATED = "deduplicated"
+    NO_DEVICES = "no_devices"
+    STORAGE_UNAVAILABLE = "storage_unavailable"
+
+
+class AttemptResult(StrEnum):
+    """What happened on one device."""
+
+    DELIVERED = "delivered"
+    REJECTED = "rejected"
+    TOKEN_INVALID = "token_invalid"  # noqa: S105 - an outcome, not a credential
+    FAILED = "failed"
+    TIMED_OUT = "timed_out"
+    ERRORED = "errored"
+    NOT_CONFIGURED = "not_configured"
+
+
+_FROM_STATUS: Final = {
+    DeliveryStatus.DELIVERED: AttemptResult.DELIVERED,
+    DeliveryStatus.REJECTED: AttemptResult.REJECTED,
+    DeliveryStatus.TOKEN_INVALID: AttemptResult.TOKEN_INVALID,
+    DeliveryStatus.FAILED: AttemptResult.FAILED,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryAttempt:
+    """One device's outcome. The token is kept for cleanup and never printed in full."""
+
+    token: DeviceToken
+    result: AttemptResult
+    detail: str | None = None
+    token_removed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchReport:
+    """Everything a dispatch did, returned rather than raised."""
+
+    result: DispatchResult
+    attempts: tuple[DeliveryAttempt, ...] = ()
+    delivery: NotificationDelivery | None = None
+
+    @property
+    def delivered(self) -> int:
+        return sum(1 for attempt in self.attempts if attempt.result is AttemptResult.DELIVERED)
+
+
+class EscalationDispatcher:
+    """Delivers escalation notifications to a user's devices and records what happened."""
+
+    def __init__(
+        self,
+        *,
+        providers: Iterable[NotificationProvider],
+        stores: Callable[[], AbstractAsyncContextManager[EscalationStores]],
+        metrics: MetricsRecorder,
+        timeout: timedelta = DEFAULT_TIMEOUT,
+        locale: str = DEFAULT_LOCALE,
+    ) -> None:
+        self._providers: dict[DevicePlatform, NotificationProvider] = {}
+        for provider in providers:
+            if provider.platform in self._providers:
+                raise ValueError(f"two notification providers were given for {provider.platform}")
+            self._providers[provider.platform] = provider
+        self._stores = stores
+        self._metrics = metrics
+        self._timeout = timeout
+        self._locale = locale
+        self._background: set[asyncio.Task[DispatchReport]] = set()
+
+    async def dispatch(self, user_id: UserId, context: EscalationContext) -> DispatchReport:
+        """Notify every device this user has about this escalation. Never raises.
+
+        Awaiting it takes at most the timeout plus two short storage round trips. A caller that
+        must not wait even that long uses `start`.
+        """
+        claimed = replace(context, delivery=NotificationDelivery.PENDING)
+        try:
+            async with self._stores() as stores:
+                first = await stores.contexts.claim(user_id, claimed)
+                tokens = await stores.devices.tokens_for(user_id) if first else []
+        except Exception as error:  # noqa: BLE001 - D-016: recorded, never raised into the escalation
+            return self._finish(
+                DispatchReport(DispatchResult.STORAGE_UNAVAILABLE), stage="claim", error=error
+            )
+
+        if not first:
+            return self._finish(DispatchReport(DispatchResult.DEDUPLICATED))
+        if not tokens:
+            report = DispatchReport(
+                DispatchResult.NO_DEVICES, delivery=NotificationDelivery.NO_DEVICES
+            )
+            return await self._record(user_id, claimed.call_id, report, dead=())
+
+        deadline = asyncio.get_running_loop().time() + self._timeout.total_seconds()
+        attempts = tuple(
+            await asyncio.gather(*(self._attempt(token, claimed, deadline) for token in tokens))
+        )
+        delivered = any(attempt.result is AttemptResult.DELIVERED for attempt in attempts)
+        report = DispatchReport(
+            DispatchResult.SENT,
+            attempts=attempts,
+            delivery=NotificationDelivery.DELIVERED if delivered else NotificationDelivery.FAILED,
+        )
+        dead = tuple(a.token for a in attempts if a.result is AttemptResult.TOKEN_INVALID)
+        return await self._record(user_id, claimed.call_id, report, dead=dead)
+
+    def start(self, user_id: UserId, context: EscalationContext) -> asyncio.Task[DispatchReport]:
+        """Dispatch in the background and return at once, so the ring is not delayed at all.
+
+        The task is held here until it finishes: a task nothing references can be collected
+        before it runs.
+        """
+        task = asyncio.get_running_loop().create_task(self.dispatch(user_id, context))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return task
+
+    async def call_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
+        """Record that the call is over, so the app shows a summary. Never raises.
+
+        Returns whether a context was marked; false for a call that never escalated, and false
+        when storage could not be reached, which is logged and counted.
+        """
+        try:
+            async with self._stores() as stores:
+                return await stores.contexts.mark_ended(user_id, call_id, at_instant)
+        except Exception as error:  # noqa: BLE001 - ending a call must not fail on this record
+            self._failed("end", error)
+            return False
+
+    async def aclose(self) -> None:
+        """Let background dispatches finish. Each is already bounded by the timeout."""
+        if self._background:
+            await asyncio.gather(*self._background, return_exceptions=True)
+
+    async def _attempt(
+        self, token: DeviceToken, context: EscalationContext, deadline: float
+    ) -> DeliveryAttempt:
+        provider = self._providers.get(token.platform)
+        if provider is None:
+            attempt = DeliveryAttempt(token, AttemptResult.NOT_CONFIGURED)
+            self._metrics.increment(
+                DELIVERY_METRIC, {"platform": token.platform.value, "outcome": attempt.result.value}
+            )
+            return attempt
+
+        try:
+            notification = notification_for(
+                context, fits=_within_limit(provider), locale=self._locale
+            )
+            async with asyncio.timeout_at(deadline):
+                outcome = await provider.send(token, notification)
+            attempt = DeliveryAttempt(token, _FROM_STATUS[outcome.status], outcome.detail)
+        except TimeoutError:
+            attempt = DeliveryAttempt(token, AttemptResult.TIMED_OUT)
+        except Exception as error:  # noqa: BLE001 - one device's defect must not cost the others
+            # Logged without a traceback: its frames can hold the notification being sent.
+            logger.error(  # noqa: TRY400
+                "escalation.delivery_errored",
+                provider=provider.name,
+                device=str(token),
+                error=type(error).__name__,
+            )
+            attempt = DeliveryAttempt(token, AttemptResult.ERRORED, type(error).__name__)
+
+        self._metrics.increment(
+            DELIVERY_METRIC,
+            {
+                "platform": token.platform.value,
+                "provider": provider.name,
+                "outcome": attempt.result.value,
+            },
+        )
+        return attempt
+
+    async def _record(
+        self,
+        user_id: UserId,
+        call_id: CallId,
+        report: DispatchReport,
+        *,
+        dead: tuple[DeviceToken, ...],
+    ) -> DispatchReport:
+        """Remove dead tokens and record the delivery, in one unit of work after sending."""
+        delivery = report.delivery or NotificationDelivery.FAILED
+        try:
+            async with self._stores() as stores:
+                for token in dead:
+                    await stores.devices.remove(user_id, token)
+                await stores.contexts.record_delivery(user_id, call_id, delivery)
+        except Exception as error:  # noqa: BLE001 - the notification went; only the record did not
+            return self._finish(report, stage="record", error=error)
+
+        for token in dead:
+            provider = self._providers[token.platform]
+            self._metrics.increment(
+                TOKEN_REMOVED_METRIC, {"platform": token.platform.value, "provider": provider.name}
+            )
+        removed = set(dead)
+        attempts = tuple(
+            replace(attempt, token_removed=attempt.token in removed) for attempt in report.attempts
+        )
+        return self._finish(replace(report, attempts=attempts))
+
+    def _finish(
+        self, report: DispatchReport, *, stage: str | None = None, error: Exception | None = None
+    ) -> DispatchReport:
+        if error is not None and stage is not None:
+            self._failed(stage, error)
+        self._metrics.increment(DISPATCH_METRIC, {"outcome": report.result.value})
+        return report
+
+    def _failed(self, stage: str, error: Exception) -> None:
+        logger.error("escalation.storage_failed", stage=stage, error=type(error).__name__)
+        self._metrics.increment("escalation.storage_failed", {"stage": stage, "kind": _kind(error)})
+
+
+def _within_limit(provider: NotificationProvider) -> Callable[[EscalationNotification], bool]:
+    def fits(notification: EscalationNotification) -> bool:
+        return provider.payload_size(notification) <= provider.payload_limit_bytes
+
+    return fits
+
+
+def _kind(error: Exception) -> str:
+    """A bounded category for a metric: never the message, which can carry anything."""
+    return "timeout" if isinstance(error, TimeoutError) else "error"

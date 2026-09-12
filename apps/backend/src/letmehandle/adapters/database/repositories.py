@@ -15,7 +15,13 @@ from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
-from letmehandle.domain.models.identifiers import UserId
+from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.escalation_context import (
+    EscalationContext,
+    EscalationStatus,
+    NotificationDelivery,
+)
+from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.onboarding import OnboardingProgress
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import UserPreferences
@@ -23,6 +29,7 @@ from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.notification import DevicePlatform, DeviceToken
 from letmehandle.domain.ports.repositories import (
     DeviceRepository,
+    EscalationContextRepository,
     OnboardingRepository,
     OTPChallengeRepository,
     PreferencesRepository,
@@ -32,6 +39,7 @@ from letmehandle.domain.ports.repositories import (
 
 from .models import (
     DeviceRow,
+    EscalationContextRow,
     OnboardingRow,
     OTPChallengeRow,
     PreferencesRow,
@@ -328,22 +336,24 @@ class SqlDeviceRepository(DeviceRepository):
         self._clock = clock
 
     async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # Removed from wherever it was first. A handset changes hands, and two accounts sharing
-        # a token would send one person's call context to the other's phone.
+        # One statement that moves the token to this account if another holds it. A handset
+        # changes hands, and two accounts sharing a token would send one person's call context to
+        # the other's phone. Not a delete and then an insert: an app registers on every launch,
+        # and two launches racing through a delete-then-insert both insert, and one fails on the
+        # unique constraint.
+        now = self._clock.now()
+        statement = insert(DeviceRow).values(
+            user_id=user_id.value,
+            platform=token.platform.value,
+            token=token.value,
+            registered_at=now,
+        )
         await self._session.execute(
-            delete(DeviceRow).where(
-                DeviceRow.platform == token.platform.value, DeviceRow.token == token.value
+            statement.on_conflict_do_update(
+                constraint="uq_user_devices_platform_token",
+                set_={"user_id": user_id.value, "registered_at": now},
             )
         )
-        self._session.add(
-            DeviceRow(
-                user_id=user_id.value,
-                platform=token.platform.value,
-                token=token.value,
-                registered_at=self._clock.now(),
-            )
-        )
-        await self._session.flush()
 
     async def tokens_for(self, user_id: UserId) -> list[DeviceToken]:
         result = await self._session.execute(
@@ -362,3 +372,74 @@ class SqlDeviceRepository(DeviceRepository):
             )
         )
         await self._session.flush()
+
+
+class SqlEscalationContextRepository(EscalationContextRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def claim(self, user_id: UserId, context: EscalationContext) -> bool:
+        # One statement, so two dispatches racing for the same call cannot both win: the database
+        # decides which insert happened, and the other sees nothing returned.
+        statement = (
+            insert(EscalationContextRow)
+            .values(
+                user_id=user_id.value,
+                call_id=context.call_id.value,
+                reason=context.reason.value,
+                caller_label=context.caller_label,
+                established=context.established,
+                needed=context.needed,
+                status=context.status.value,
+                delivery=context.delivery.value,
+                raised_at=context.raised_at,
+                ended_at=context.ended_at,
+            )
+            .on_conflict_do_nothing(index_elements=["user_id", "call_id"])
+            .returning(EscalationContextRow.call_id)
+        )
+        claimed = (await self._session.execute(statement)).scalar_one_or_none()
+        return claimed is not None
+
+    async def get(self, user_id: UserId, call_id: CallId) -> EscalationContext | None:
+        row = await self._session.get(EscalationContextRow, (user_id.value, call_id.value))
+        return None if row is None else self._to_context(row)
+
+    async def record_delivery(
+        self, user_id: UserId, call_id: CallId, delivery: NotificationDelivery
+    ) -> None:
+        await self._session.execute(
+            update(EscalationContextRow)
+            .where(
+                EscalationContextRow.user_id == user_id.value,
+                EscalationContextRow.call_id == call_id.value,
+            )
+            .values(delivery=delivery.value)
+        )
+
+    async def mark_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
+        row = await self._session.get(
+            EscalationContextRow, (user_id.value, call_id.value), with_for_update=True
+        )
+        if row is None:
+            return False
+        # Through the domain, so an end before the escalation is refused rather than stored.
+        ended = self._to_context(row).ended(at_instant)
+        row.status = ended.status.value
+        row.ended_at = ended.ended_at
+        await self._session.flush()
+        return True
+
+    @staticmethod
+    def _to_context(row: EscalationContextRow) -> EscalationContext:
+        return EscalationContext(
+            call_id=CallId(row.call_id),
+            reason=EscalationReason(row.reason),
+            raised_at=row.raised_at,
+            caller_label=row.caller_label,
+            established=row.established,
+            needed=row.needed,
+            status=EscalationStatus(row.status),
+            ended_at=row.ended_at,
+            delivery=NotificationDelivery(row.delivery),
+        )

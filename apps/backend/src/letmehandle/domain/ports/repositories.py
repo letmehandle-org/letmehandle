@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
     from letmehandle.domain.models.call import CallSession, TranscriptEntry
+    from letmehandle.domain.models.escalation_context import (
+        EscalationContext,
+        NotificationDelivery,
+    )
     from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.models.onboarding import OnboardingProgress
     from letmehandle.domain.models.phone_number import PhoneNumber
@@ -385,4 +389,33 @@ class SummaryRepository(ABC):
 
         One read for a page of history rather than one per call. A call that is not theirs is
         absent too.
+        """
+
+
+class EscalationContextRepository(ABC):
+    """What each user was told about each escalation, so it can be read without a push."""
+
+    @abstractmethod
+    async def claim(self, user_id: UserId, context: EscalationContext) -> bool:
+        """Store the context if this call has none yet, and say whether this was the first.
+
+        The basis of deduplication: two dispatches for one call, however close together, produce
+        one stored context and one notification. A repeat leaves the first untouched.
+        """
+
+    @abstractmethod
+    async def get(self, user_id: UserId, call_id: CallId) -> EscalationContext | None:
+        """The context, or nothing — which is also what another user's call id gets."""
+
+    @abstractmethod
+    async def record_delivery(
+        self, user_id: UserId, call_id: CallId, delivery: NotificationDelivery
+    ) -> None:
+        """Record what became of telling the user."""
+
+    @abstractmethod
+    async def mark_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
+        """Record that the call is over, returning whether there was a context to mark.
+
+        Ending one already ended keeps the first end time.
         """

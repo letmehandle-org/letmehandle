@@ -104,9 +104,11 @@ class RecordingNotificationProvider(NotificationProvider):
         self,
         platform: DevicePlatform = DevicePlatform.IOS,
         status: DeliveryStatus = DeliveryStatus.DELIVERED,
+        limit: int = 4096,
     ) -> None:
         self._platform = platform
         self.status = status
+        self.limit = limit
         self.sent: list[tuple[DeviceToken, EscalationNotification]] = []
 
     @property
@@ -116,6 +118,14 @@ class RecordingNotificationProvider(NotificationProvider):
     @property
     def platform(self) -> DevicePlatform:
         return self._platform
+
+    @property
+    def payload_limit_bytes(self) -> int:
+        return self.limit
+
+    def payload_size(self, notification: EscalationNotification) -> int:
+        fields = (notification.title, notification.body, notification.caller_label)
+        return sum(len(text.encode()) for text in fields) + len(str(notification.data).encode())
 
     async def send(
         self, token: DeviceToken, notification: EscalationNotification
