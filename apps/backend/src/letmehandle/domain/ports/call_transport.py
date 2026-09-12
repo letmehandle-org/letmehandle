@@ -1,7 +1,7 @@
 """How a call exists at all.
 
 Named for the concern rather than for a vendor, because a programmable telephony account and a
-platform's own call screening service are the same thing served two ways — and they differ in
+handset's own call screening service are the same thing served two ways — and they differ in
 kind, not only in supplier. One can screen a call before the handset rings but cannot hand an
 application the audio of a call; the other can stream that audio and add a second person to a
 call already in progress, but never sees the call before it connects.
@@ -36,10 +36,10 @@ class TransportCapabilities:
     than it could, and that is recoverable; one that inherits a true it did not mean promises
     a caller something that will fail while they are on the line.
 
-    A transport must declare only what the platform genuinely provides. Android's call
-    screening does not give an application the audio of a call, so a transport built on it
-    declares `can_stream_call_audio_to_ai` false — and the product then offers no spoken
-    assistant on that path, rather than offering one that cannot work.
+    A transport must declare only what it genuinely provides. A screening service that never
+    hands an application the audio of a call declares `can_stream_call_audio_to_ai` false — and
+    the product then offers no spoken assistant on that path, rather than offering one that
+    cannot work.
     """
 
     can_screen_before_ringing: bool = False
