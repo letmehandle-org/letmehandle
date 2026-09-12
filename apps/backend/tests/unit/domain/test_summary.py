@@ -121,3 +121,8 @@ class TestExtractedDetails:
         # Absent rather than invented. A summary that fabricates a reference number is worse
         # than one that omits it.
         assert a_summary().detail("reference") is None
+
+
+def test_a_summary_repr_quotes_nothing_from_the_call() -> None:
+    summary = a_summary(headline="Caller asked for the card PIN")
+    assert "card PIN" not in repr(summary)
