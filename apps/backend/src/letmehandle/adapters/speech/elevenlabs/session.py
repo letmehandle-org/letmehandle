@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING
 
 from letmehandle.adapters.audio.conversion import AudioConverter
 from letmehandle.adapters.speech.elevenlabs import protocol
-from letmehandle.adapters.speech.elevenlabs.outbox import Outbox
 from letmehandle.adapters.speech.elevenlabs.protocol import (
     DEFAULT_WIRE_FORMAT,
     AgentAudio,
@@ -50,6 +49,7 @@ from letmehandle.adapters.speech.elevenlabs.protocol import (
     ToolRequested,
 )
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
+from letmehandle.adapters.speech.session_support.outbox import Outbox
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.recovery import (
     is_retryable,
