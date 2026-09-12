@@ -37,6 +37,9 @@ def test_main_starts_the_server_with_the_application_factory(
     assert recorded_uvicorn["target"] == "letmehandle.main:create_app"
     assert recorded_uvicorn["factory"] is True
     assert recorded_uvicorn["port"] == 8000
+    # structlog owns logging; uvicorn must not emit a second account of every request.
+    assert recorded_uvicorn["log_config"] is None
+    assert recorded_uvicorn["access_log"] is False
 
 
 def test_main_refuses_to_start_on_invalid_configuration(

@@ -29,6 +29,11 @@ dev = [
     "aiosqlite>=0.20",
 ]
 
+[project.scripts]
+# The one way to start this application. The container uses it too, so the command a
+# contributor runs and the command production runs are the same code path.
+letmehandle = "letmehandle.main:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

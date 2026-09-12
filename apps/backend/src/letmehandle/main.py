@@ -90,5 +90,9 @@ def main() -> None:
         factory=True,
         host="0.0.0.0",  # noqa: S104 - a container binds every interface by design
         port=8000,
+        # Logging belongs to structlog. Leaving uvicorn's own dictConfig in place would emit a
+        # second, unstructured line for every request, carrying no correlation id — two
+        # accounts of the same event, one of them useless.
         log_config=None,
+        access_log=False,
     )
