@@ -112,7 +112,9 @@ Application runs:     yes      no migration: preferences are one versioned docum
                                now at version 2
 Manual verification:  none beyond the automated suites
 Docs updated:         decision record (D-024, D-025), docs/providers/voice.md, the phase plan
-Known issues:         none open; one review finding declined, with the reason below
+Known issues:         the shipped catalogue names voices no speech provider offers; it
+                      is replaced by the speech provider's own in phase 5 (below).
+                      One review finding declined, with the reason below
 Commits created:      24
 ```
 
@@ -175,6 +177,15 @@ reported as the user's choice being ignored. A retry test found the button and n
 token, but those tokens are genuinely equivalent — same subject, same expiry — and nothing revokes
 access tokens individually. The only harm found was a test asserting they differed, which was wrong
 and was removed.
+
+## A known issue carried into phase 5
+
+The plan says the first catalogue is the built-in voice set of the realtime speech provider.
+There was no speech provider to take it from, so `SHIPPED_VOICES` holds three invented names.
+Selection, storage and the fallback chain are unaffected, but a speech session asked to speak
+in one of those names has nothing to speak with. Phase 5 builds the catalogue from the
+configured speech provider's voices and removes the invented list, and until then no call can
+use a voice, because no call exists.
 
 ## What this phase deliberately does not do
 
