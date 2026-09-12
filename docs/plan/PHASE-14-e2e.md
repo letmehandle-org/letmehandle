@@ -1,0 +1,87 @@
+# Phase 14 — Full system end to end
+
+**Goal:** the scenarios that define the product are automated, and they pass.
+
+## In scope
+
+### Harness — `tests/e2e/`
+- The whole system under test: backend, database, and controllable stand-ins for every
+  external provider, driving real code paths through real ports.
+- Telephony is driven by the callback simulator from Phase 7, extended to reproduce
+  duplication, reordering, delay and mid-call disconnection.
+- Speech is driven by a scripted provider producing deterministic turns and injectable
+  failures.
+- The LLM is scripted for logic scenarios. A separate, non-blocking run exercises a real
+  model for behavioural confidence.
+- Every scenario asserts the full outcome: final state, participants over time, the summary
+  produced, the notifications dispatched, and that no resource leaked.
+
+### Scenarios
+Each is automated, named, and independently runnable.
+
+- **A — Routine commercial call.** The assistant handles it completely. No escalation. A
+  summary is generated with the correct intent and outcome.
+- **B — Delivery driver needing the user.** The assistant starts the call, determines a human
+  is required, escalation fires, the handset rings, the notification carries correct context,
+  the human answers and joins the existing call, all three parties behave correctly, the call
+  ends, the summary records that a human joined and when.
+- **C — Important known caller.** Routing passes the call straight to the user with no
+  assistant involvement and no model invocation. Asserted by the model never being called.
+- **D — Unsafe request.** The caller asks for something outside the assistant's authority,
+  including an attempt to instruct the assistant directly. The action is refused before
+  execution and the call escalates or ends per policy.
+- **E — Speech provider failure.** Failure at connect, mid-utterance, and during
+  reconnection. Each degrades as documented; the caller is not left in silence; resources are
+  released.
+- **F — Duplicated telephony callback.** Every callback type delivered twice, and out of
+  order. State is unchanged by the duplicate and correct despite the reordering.
+- **G — User does not answer the escalation.** Ring times out. The assistant resumes and
+  concludes the call; the summary records the unanswered escalation.
+- **H — Caller hangs up during escalation.** The ring is cancelled, the bridge is abandoned,
+  everything is cleaned up, and the user is not left with a phone ringing for a call that no
+  longer exists.
+
+Additional scenarios covering combinations that the earlier phases identified as risky:
+escalation requested twice; notification failure with a successful escalation; restart
+mid-call; LLM unavailable at the decision point.
+
+### Manual verification
+A documented script for what automation cannot reach: a real inbound call, a real escalation
+to a real handset, and both push platforms on physical devices. Executed and recorded in the
+verification report.
+
+## Explicitly out of scope
+
+- Load and performance testing.
+- Chaos testing beyond the injected failures listed.
+- Testing provider internals.
+
+## Tests required
+
+Every scenario above, automated, deterministic, and run in CI with no vendor account. A
+scenario that cannot be automated is stated as such with its reason and moved to the manual
+script — it is not quietly dropped.
+
+Each scenario also asserts the negative: no leaked task, connection or timer at the end, and
+no sensitive data in anything the run emitted.
+
+## Acceptance criteria
+
+1. Scenarios A through H are automated and pass.
+2. The additional combination scenarios are automated and pass.
+3. Every scenario asserts final state, summary, notifications, and resource cleanup.
+4. The suite runs in CI with no vendor credentials.
+5. The suite is deterministic. A flaking scenario is treated as a defect in the system, not
+   in the test, until proven otherwise.
+6. The manual script is executed and recorded.
+7. No scenario emits sensitive data.
+8. Coverage meets the D-020 floors.
+
+## Risks and open questions
+
+- **Simulator divergence.** Stand-ins may drift from real provider behaviour. Mitigated by
+  the Phase 1 contract suites: simulator and real adapter pass the same suite, so divergence
+  shows up as a contract failure rather than a production surprise.
+- **Flakiness.** An end-to-end suite with timing in it is the natural home of flaky tests. The
+  rule is that a flake is a defect until proven otherwise, and it is investigated rather than
+  retried.
