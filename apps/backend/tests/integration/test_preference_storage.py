@@ -346,6 +346,44 @@ class TestMalformedDocuments:
         )
 
 
+# Every section stored as the wrong kind of value. Each once escaped the mapper as a bare
+# AttributeError, TypeError or ValueError, which no caller can tell apart from a bug.
+MALFORMED_SHAPES: list[dict[str, object]] = [
+    {"notifications": "yes"},
+    {"rules": []},
+    {"voice": "abc"},
+    {"topics": [1]},
+    {"topics": "work"},
+    {"disclosable_facts": [None]},
+    {"version": "x"},
+    {"version": True},
+    {"locale": ["en"]},
+    {"authority": 5},
+    {"important_contacts": {"number": "+12025550143"}},
+    {"important_contacts": ["+12025550143"]},
+    {"important_contacts": [{"number": 12025550143, "label": "Home"}]},
+    {"important_contacts": [{"number": "+12025550143", "label": 7}]},
+    {"rules": {"posture_by_category": ["spam"]}},
+    {"rules": {"blocked_categories": "spam"}},
+    {"rules": {"quiet_hours": "22:00-07:00"}},
+    {"rules": {"quiet_hours": {"start": 22, "end": "07:00", "zone": "UTC"}}},
+]
+
+
+class TestMalformedShapes:
+    @pytest.mark.parametrize("document", MALFORMED_SHAPES, ids=repr)
+    def test_a_section_of_the_wrong_shape_is_the_domain_error(
+        self, document: dict[str, object]
+    ) -> None:
+        with pytest.raises(InvariantError):
+            document_to_preferences(document)
+
+    @pytest.mark.parametrize("document", [[], "preferences", 7], ids=repr)
+    def test_a_document_that_is_not_an_object_is_the_domain_error(self, document: object) -> None:
+        with pytest.raises(InvariantError):
+            document_to_preferences(document)
+
+
 class TestCorruptEntries:
     def test_a_contact_missing_its_number_raises_the_domain_error(self) -> None:
         # Not a bare KeyError: that escapes as a server fault with nothing naming the cause.

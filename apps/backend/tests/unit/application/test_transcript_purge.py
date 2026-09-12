@@ -12,6 +12,7 @@ import pytest
 from letmehandle.application.retention.purge import (
     PURGE_DELETED,
     PURGE_RUNS,
+    PURGE_USER_SKIPPED,
     TranscriptPurge,
 )
 from letmehandle.domain.errors import InvariantError
@@ -26,6 +27,8 @@ from tests.support.recording_metrics import RecordingMetrics
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from letmehandle.domain.models.preferences import UserPreferences
 
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 
@@ -54,12 +57,47 @@ class Scope:
     preferences: PreferencesRepository
 
 
+class DeletesEverything(TranscriptRetentionRepository):
+    """Three users with one expired entry each, and a record of whose were deleted."""
+
+    def __init__(self) -> None:
+        self.deleted_for: list[str] = []
+
+    async def users_with_entries_at_or_before(
+        self, cutoff: datetime, *, after: UserId | None, limit: int
+    ) -> list[UserId]:
+        names = ("user-1", "user-2", "user-3")
+        return [UserId(name) for name in names if after is None or name > after.value][:limit]
+
+    async def delete_expired(self, user_id: UserId, *, at_or_before: datetime, limit: int) -> int:
+        self.deleted_for.append(user_id.value)
+        return 1
+
+
+class UnreadableFor(InMemoryPreferencesRepository):
+    """Fails to read one user's preferences with an error that is not the domain's own."""
+
+    def __init__(self, user: str, error: Exception) -> None:
+        super().__init__()
+        self._user = user
+        self._error = error
+
+    async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
+        if user_id.value == self._user:
+            raise self._error
+        return await super().get(user_id, for_update=for_update)
+
+
 def purge_over(
-    retention: TranscriptRetentionRepository, metrics: RecordingMetrics
+    retention: TranscriptRetentionRepository,
+    metrics: RecordingMetrics,
+    preferences: PreferencesRepository | None = None,
 ) -> TranscriptPurge:
+    chosen = preferences or InMemoryPreferencesRepository()
+
     @asynccontextmanager
     async def open_scope() -> AsyncIterator[Scope]:
-        yield Scope(retention, InMemoryPreferencesRepository())
+        yield Scope(retention, chosen)
 
     return TranscriptPurge(
         open_scope=open_scope, clock=FixedClock(NOW), metrics=metrics, batch_size=3
@@ -82,3 +120,21 @@ def test_a_batch_of_nothing_is_refused() -> None:
             metrics=RecordingMetrics(),
             batch_size=0,
         )
+
+
+@pytest.mark.parametrize(
+    "error", [AttributeError("x"), TypeError("x"), ValueError("x"), KeyError("x")], ids=repr
+)
+async def test_any_failure_to_read_one_user_s_preferences_skips_only_that_user(
+    error: Exception,
+) -> None:
+    retention = DeletesEverything()
+    metrics = RecordingMetrics()
+
+    result = await purge_over(retention, metrics, UnreadableFor("user-1", error)).run()
+
+    assert retention.deleted_for == ["user-2", "user-3"]
+    assert (result.users_examined, result.users_skipped, result.entries_deleted) == (3, 1, 2)
+    assert not result.is_complete
+    assert metrics.counted(PURGE_USER_SKIPPED, kind="unreadable_preferences") == 1
+    assert metrics.counted(PURGE_RUNS, outcome="incomplete") == 1

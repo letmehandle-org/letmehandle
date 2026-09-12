@@ -57,6 +57,8 @@ PURGE_RUNS: Final = "transcripts.purge.runs"
 PURGE_DELETED: Final = "transcripts.purge.deleted_entries"
 PURGE_USERS: Final = "transcripts.purge.users_examined"
 PURGE_SKIPPED: Final = "transcripts.purge.users_skipped"
+# One count per user passed over, labelled with why and never with who.
+PURGE_USER_SKIPPED: Final = "transcripts.purge.user_skipped"
 
 DEFAULT_BATCH_SIZE: Final = 500
 
@@ -139,12 +141,17 @@ class TranscriptPurge:
         try:
             async with self._open_scope() as scope:
                 stored = await scope.preferences.get(user_id)
-        except InvariantError:
+        except Exception:  # noqa: BLE001 - counted, recorded and reported as incomplete
             # Preferences that cannot be read leave no retention to honour. Deleting at the
             # default could destroy what this user chose to keep; so their transcripts wait
             # for a run that can read the setting, the run says it was incomplete, and nobody
             # else's purge is held up behind them.
-            counts.users_skipped += 1
+            #
+            # Any failure, not only the domain's own. What one corrupt document raises is not
+            # something this loop can enumerate, and one row nobody can read must not be what
+            # stops every user sorting after it from ever being purged. A failure that is not
+            # about one user, such as the database going away, fails the next statement anyway.
+            self._skip(counts, kind="unreadable_preferences")
             return
         retention = (stored or UserPreferences()).transcript_retention_days
         cutoff = now - timedelta(days=retention)
@@ -159,6 +166,10 @@ class TranscriptPurge:
             # will delete them. The cutoff is in the past, so the set cannot grow while this runs.
             if deleted < self._batch_size:
                 return
+
+    def _skip(self, counts: _Counts, *, kind: str) -> None:
+        counts.users_skipped += 1
+        self._metrics.increment(PURGE_USER_SKIPPED, {"kind": kind})
 
     def _record(self, counts: _Counts, *, outcome: str) -> None:
         self._metrics.increment(PURGE_RUNS, {"outcome": outcome})

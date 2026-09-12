@@ -8,6 +8,7 @@ or two purges tripping over each other.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -378,4 +379,41 @@ class TestObservability:
         assert await world.remaining(BOB, "call-bob") == []
         assert (result.users_skipped, result.entries_deleted) == (1, 1)
         assert not result.is_complete
+        assert metrics.counted(PURGE_RUNS, outcome="incomplete") == 1
+
+    @pytest.mark.parametrize(
+        "corruption",
+        [
+            {"notifications": "yes"},
+            {"rules": []},
+            {"voice": "abc"},
+            {"topics": [1]},
+            {"version": "x"},
+            {"authority": 5},
+        ],
+        ids=repr,
+    )
+    async def test_a_malformed_document_sorting_first_stops_nobody_else_s_purge(
+        self, engine: AsyncEngine, corruption: dict[str, object]
+    ) -> None:
+        world = World(engine)
+        for user in (ALICE, BOB, CAROL):
+            await world.user(user, retention_days=7)
+            await world.call(user, f"call-{user.value}", [ago(60)])
+        async with unit_of_work(world.factory) as session:
+            await session.execute(
+                text(
+                    "UPDATE user_preferences SET document = document || CAST(:patch AS jsonb) "
+                    "WHERE user_id = 'alice'"
+                ),
+                {"patch": json.dumps(corruption)},
+            )
+        metrics = RecordingMetrics()
+
+        result = await purge(engine, metrics=metrics, batch_size=1)
+
+        assert await world.remaining(ALICE, "call-alice") == [ago(60)]
+        assert await world.remaining(BOB, "call-bob") == []
+        assert await world.remaining(CAROL, "call-carol") == []
+        assert (result.users_examined, result.users_skipped, result.entries_deleted) == (3, 1, 2)
         assert metrics.counted(PURGE_RUNS, outcome="incomplete") == 1
