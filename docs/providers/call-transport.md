@@ -127,7 +127,6 @@ product reads.
   app. Participant events never occur on this transport.
 - **Terminate.** Nobody on a server can hang up a handset's call. `terminate` releases the
   transport's interest: later reports for that call are still stored, and no longer published.
-
 - **Recognising a contact.** Contacts are stored in E.164, and a caller is compared in that form.
   A network often delivers a domestic caller nationally, so the service reads the handset's
   country — the network's, or the SIM's when the network has not said — and passes it into the
