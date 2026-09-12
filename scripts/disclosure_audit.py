@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Keeps what belongs in a working session out of a public repository."""
+
+# This repository is public from its first commit. The conversation that produces it is not,
+# and the boundary between them only runs one way: a push cannot be taken back, because by
+# then it is in somebody else's clone and in a search index.
+#
+# What must not cross that boundary is set out in docs/architecture/decisions.md under D-021:
+# credentials, cloud and provider account identifiers, resource names, personal data of any
+# kind, and anything said in a working session that is not a technical requirement.
+#
+# A convention lasts exactly as long as the person who remembers it. This script is that
+# convention made mechanical, so that it does not have to be remembered.
+#
+# ---------------------------------------------------------------------------
+# Two tiers, because a gate that cries wolf is a gate somebody turns off
+# ---------------------------------------------------------------------------
+#
+#   TIER 1  A credential, an account identifier, a personal datum, a real phone number, a
+#           name. Zero tolerance. No baseline, no way to record an exception. If one of
+#           these matches, something crossed the boundary.
+#
+#   TIER 2  Vocabulary that is usually innocent and occasionally the tell — "the operator",
+#           "our strategy", "competitor". Ratcheted against scripts/disclosure_baseline.json:
+#           what already exists is recorded, and any rise fails. Shrinking one file does not
+#           pay for growing another, so the count only ever goes down.
+#
+# In text being written now — a commit message, a pull request body, the added side of a
+# diff — there is no legacy to grandfather, so both tiers block.
+#
+# ---------------------------------------------------------------------------
+# Why some patterns are base64
+# ---------------------------------------------------------------------------
+#
+# Not obfuscation. A plain-text list of the names and addresses this gate exists to catch
+# would publish them inside the gate, and would match itself on every run, so the audit
+# could never pass. Decoded at run time, they exist only in memory.
+#
+#   See them:  python3 scripts/disclosure_audit.py --show-terms
+#
+# ---------------------------------------------------------------------------
+# Where this runs
+# ---------------------------------------------------------------------------
+#
+#   make verify            the working tree, beside pii-audit
+#   .githooks/pre-commit   the staged content, before it is recorded
+#   .githooks/commit-msg   the message, before it is recorded
+#   .githooks/pre-push     every commit in the push, message and diff
+#   .github/workflows      the pull request's whole range, plus its title and body
+#
+# No one layer holds alone: hooks are skipped by --no-verify and a workflow is skipped by an
+# admin merge. They are layered because the ways around each do not overlap.
+
+import argparse
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+
+BASELINE = os.path.join("scripts", "disclosure_baseline.json")
+
+# This file and its baseline are the only exempt paths, and they are exempt because they are
+# the gate. Nothing else in the tree can be excluded.
+SELF = ("scripts/disclosure_audit.py", BASELINE.replace(os.sep, "/"))
+
+# Identity terms: names, and the names of unrelated projects whose mention would say more
+# about who wrote this than about the code.
+IDENTITY_B64 = [
+    "XGJuYXZlZW5cYg==",
+    "XGJuYXZlZW5iaGF0dFxi",
+    "XGJiaGF0dFxi",
+    "XGJvcGVubGxtc1xi",
+    "XGJ1dHRyZmxvd1xi",
+    "XGJzYXN0YVtcc1wtXT90cmFkZXJcYg==",
+    "XGJraWNoa2ljaFxi",
+    "XGJ6YXByaXNlXGI=",
+]
+
+# Structural tier 1 patterns. These are shapes, not secrets, so they are readable: a reviewer
+# needs to see what is being matched in order to trust the gate.
+#
+# Phone numbers are the interesting case. This product is built on phone numbers and its
+# tests need them, so a blanket ban would be unworkable and would be worked around. Instead
+# only numbers reserved for fiction are permitted — the North American 555-01xx range and the
+# United Kingdom's Ofcom drama ranges — and every fixture must use one. A number outside them
+# is either real or about to be, and both are a problem.
+FICTIONAL_NUMBERS = re.compile(
+    r"""\+(?:
+          1[2-9][0-9]{2}55501[0-9]{2}   # +1 NPA 555-01xx, reserved for fiction in North America
+        | 441632960[0-9]{3}             # Ofcom drama range, geographic
+        | 447700900[0-9]{3}             # Ofcom drama range, mobile
+        | 442079460[0-9]{3}             # Ofcom drama range, London
+        )(?![0-9])""",
+    re.VERBOSE,
+)
+
+STRUCTURAL = [
+    # A cloud account identifier, a resource name, or anything else that names a specific
+    # deployed thing.
+    (r"\barn:aws[a-z\-]*:[a-z0-9\-]*:", "an AWS resource identifier"),
+    (r"(?<![\w.+])\d{12}(?![\w.])", "a twelve-digit account identifier"),
+    (r"\b[A-Z]{2}[0-9a-f]{32}\b", "a provider account or resource identifier"),
+    # An email address. Addresses at reserved documentation domains are the exception,
+    # because examples need one.
+    (
+        r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b)(?!.*\.invalid\b)[\w-]+\.[\w.-]+\b",
+        "an email address",
+    ),
+    # A street address, loosely. Deliberately loose: a false positive here is cheap and a
+    # miss is not.
+    (r"\b\d{1,5}\s+[A-Z][a-z]+\s+(?:Street|Road|Avenue|Lane|Drive|Marg|Nagar)\b", "a postal address"),
+    # A private key, in any of the usual wrappers. gitleaks catches these too; two gates
+    # with different bypasses is the point.
+    (r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY", "a private key"),
+]
+
+# Tier 2: ordinary words that are usually about the product and occasionally about the
+# session that built it. Ratcheted rather than banned.
+VOCABULARY = [
+    (r"\bthe operator\b", "session vocabulary"),
+    (r"\bhackathon\b", "session vocabulary"),
+    (r"\bcompetitor(?:s|'s)?\b", "positioning"),
+    (r"\bgo[\s-]to[\s-]market\b", "strategy"),
+    (r"\bmonetis|monetiz", "strategy"),
+    (r"\bpricing\s+tier\b", "strategy"),
+    (r"\binvestor(?:s)?\b", "strategy"),
+    (r"\bour\s+strategy\b", "strategy"),
+    (r"\bmarket\s+share\b", "strategy"),
+    (r"\bas\s+(?:you|we)\s+(?:said|discussed|agreed)\b", "session vocabulary"),
+]
+
+
+def compiled_tier1():
+    """Tier 1 patterns, with the identity terms decoded at run time."""
+    out = [(re.compile(base64.b64decode(t).decode(), re.I), "an identifying name")
+           for t in IDENTITY_B64]
+    out += [(re.compile(p, re.I if "PRIVATE KEY" not in p else 0), why)
+            for p, why in STRUCTURAL]
+    return out
+
+
+def compiled_tier2():
+    return [(re.compile(p, re.I), why) for p, why in VOCABULARY]
+
+
+def scan_line(line, tier1, tier2):
+    """Return (tier1 hits, tier2 hits) for one line."""
+    # A permitted fictional number is removed before matching, so the phone rule can be
+    # strict without making the test fixtures unwritable.
+    cleaned = FICTIONAL_NUMBERS.sub("", line)
+    one = [why for pattern, why in tier1 if pattern.search(cleaned)]
+    two = [why for pattern, why in tier2 if pattern.search(cleaned)]
+    # A phone number that survived the fictional substitution is real enough to block.
+    if re.search(r"\+\d{9,15}\b", cleaned):
+        one.append("a phone number outside the ranges reserved for fiction")
+    return one, two
+
+
+def tracked_files():
+    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True)
+    return [p for p in out.stdout.splitlines() if p and p not in SELF]
+
+
+def is_text(path):
+    try:
+        with open(path, "rb") as handle:
+            return b"\0" not in handle.read(8192)
+    except OSError:
+        return False
+
+
+def load_baseline():
+    try:
+        with open(BASELINE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return {}
+
+
+def report(findings, label):
+    """Print findings and return whether anything was found."""
+    if not findings:
+        return False
+    print(f"\n\033[31mdisclosure: {label}\033[0m")
+    for where, why, text in findings:
+        print(f"  {where}")
+        print(f"    {why}: {text.strip()[:110]}")
+    return True
+
+
+def audit_tree():
+    tier1, tier2 = compiled_tier1(), compiled_tier2()
+    baseline = load_baseline()
+    blocking, counts = [], {}
+
+    for path in tracked_files():
+        if not is_text(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                lines = handle.readlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            one, two = scan_line(line, tier1, tier2)
+            for why in one:
+                blocking.append((f"{path}:{number}", why, line))
+            if two:
+                counts[path] = counts.get(path, 0) + len(two)
+
+    failed = report(blocking, "these must not be in a tracked file")
+
+    # The ratchet. A rise in any file fails; a fall is recorded so it cannot rise back.
+    risen = [(p, c, baseline.get(p, 0)) for p, c in counts.items() if c > baseline.get(p, 0)]
+    if risen:
+        failed = True
+        print("\n\033[31mdisclosure: tier 2 vocabulary increased\033[0m")
+        for path, now, before in risen:
+            print(f"  {path}: {before} → {now}")
+        print("  Rewrite the line, or if it is genuinely product copy, update the baseline")
+        print("  in the same commit and say why in the message.")
+
+    if not failed:
+        print(f"disclosure: clean ({len(counts)} files carry ratcheted vocabulary)")
+    return 1 if failed else 0
+
+
+def audit_text(stream, label):
+    tier1, tier2 = compiled_tier1(), compiled_tier2()
+    findings = []
+    for number, line in enumerate(stream.read().splitlines(), 1):
+        one, two = scan_line(line, tier1, tier2)
+        for why in one + two:
+            findings.append((f"{label}, line {number}", why, line))
+    return 1 if report(findings, f"{label} carries text that must not be published") else 0
+
+
+def audit_range(args):
+    """Every commit in a push: its message, and the added side of its diff."""
+    tier1, tier2 = compiled_tier1(), compiled_tier2()
+    revs = subprocess.run(["git", "rev-list", *args], capture_output=True, text=True)
+    if revs.returncode != 0:
+        print(f"disclosure: could not resolve {' '.join(args)}", file=sys.stderr)
+        return 1
+
+    findings = []
+    for sha in revs.stdout.split():
+        message = subprocess.run(["git", "log", "-1", "--format=%B", sha],
+                                 capture_output=True, text=True).stdout
+        for line in message.splitlines():
+            one, two = scan_line(line, tier1, tier2)
+            for why in one + two:
+                findings.append((f"{sha[:8]} message", why, line))
+
+        diff = subprocess.run(["git", "show", "--format=", "--unified=0", sha],
+                              capture_output=True, text=True).stdout
+        path = "?"
+        for line in diff.splitlines():
+            if line.startswith("+++ b/"):
+                path = line[6:]
+                continue
+            if not line.startswith("+") or line.startswith("+++"):
+                continue
+            if path in SELF:
+                continue
+            one, two = scan_line(line[1:], tier1, tier2)
+            for why in one + two:
+                findings.append((f"{sha[:8]} {path}", why, line[1:]))
+
+    return 1 if report(findings, "a commit being pushed carries text that must not be published") else 0
+
+
+def audit_staged():
+    """What is about to be committed: the added side of the staged diff."""
+    tier1, tier2 = compiled_tier1(), compiled_tier2()
+    diff = subprocess.run(["git", "diff", "--cached", "--unified=0", "--no-color"],
+                          capture_output=True, text=True).stdout
+    findings, path = [], "?"
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        if path in SELF:
+            continue
+        one, two = scan_line(line[1:], tier1, tier2)
+        for why in one + two:
+            findings.append((path, why, line[1:]))
+    return 1 if report(findings, "staged changes carry text that must not be published") else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--range", nargs="+", help="audit the commits in this rev range")
+    parser.add_argument("--staged", action="store_true", help="audit the staged diff")
+    parser.add_argument("--text", action="store_true", help="audit stdin")
+    parser.add_argument("--label", default="the text", help="what to call stdin in messages")
+    parser.add_argument("--show-terms", action="store_true", help="print the decoded patterns")
+    args = parser.parse_args()
+
+    if args.show_terms:
+        for term in IDENTITY_B64:
+            print(base64.b64decode(term).decode())
+        for pattern, why in STRUCTURAL + VOCABULARY:
+            print(f"{pattern}    # {why}")
+        return 0
+    if args.staged:
+        return audit_staged()
+    if args.text:
+        return audit_text(sys.stdin, args.label)
+    if args.range:
+        return audit_range(args.range)
+    return audit_tree()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

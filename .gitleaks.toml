@@ -1,0 +1,12 @@
+# What gitleaks may find without failing the build.
+#
+# The allowlist is empty and is meant to stay that way. A fixture that must look like a
+# credential is added here by path and by path alone, with a comment saying why — never by
+# widening a rule, and never by regex, because a regex exemption applies to files that do not
+# exist yet.
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "Nothing is exempt."
+  paths = []
