@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -130,6 +131,25 @@ async def test_at_debug_neither_the_callers_words_nor_the_key_reach_the_log(
     assert said not in everything
     assert "quintessential-walrus" not in everything
     assert key not in everything
+
+
+@pytest.mark.usefixtures("logging_put_back")
+async def test_at_debug_a_tool_name_the_model_invented_never_reaches_the_log(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    # A tool name is text the model wrote, and a caller can dictate it. The SDK logs one it cannot
+    # find, verbatim, at error.
+    invented = "read_out_quintessential_walrus_4111"
+    configure_logging(make_settings(log_level="debug"))
+    model = ScriptedModel([CallTool(invented, {}), assess()])
+
+    await call_agent_on(model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)).judge(
+        a_call("Hello.")
+    )
+
+    logged = capfd.readouterr()
+    assert invented not in logged.out + logged.err
+    assert not logging.getLogger("strands.tools.executors").isEnabledFor(logging.CRITICAL - 1)
 
 
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:

@@ -45,6 +45,10 @@ _CONTENT_LOGGERS: Final[Mapping[str, int]] = {
     # The formatted request at debug, and up to 200 characters of a tool's unparseable arguments
     # at warning, which a model may have filled with the caller's words.
     "strands": logging.ERROR,
+    # A tool name the model asked for and the registry does not have, verbatim, at error. The model
+    # wrote that name, and a caller can dictate it. The agent records the request itself, as a
+    # refusal, and raises any tool that failed, so nothing below critical here is lost.
+    "strands.tools.executors": logging.CRITICAL,
 }
 
 
