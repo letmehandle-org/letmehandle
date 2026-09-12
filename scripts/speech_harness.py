@@ -286,7 +286,7 @@ async def _run(context: str, locale: str) -> None:
         async with (
             await provider.connect(
                 system_context=context,
-                voice_id=settings.speech_default_voice,
+                voice_id=settings.require_voice_catalogue()[1],
                 locale=locale,
                 input_format=SPEECH_WIDEBAND,
             ) as session,

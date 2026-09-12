@@ -146,12 +146,20 @@ class Settings(BaseSettings):
     speech_transcription_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
     speech_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
 
-    # The voices this deployment offers, and the one a call gets when nobody chose. Required, with
-    # no default: a compatible server decides its own voices, so any list written here would be a
-    # list of voices that some server cannot speak — which is the exact thing that went wrong
-    # before this was configuration. `NoDecode` keeps pydantic from reading the text as JSON.
-    speech_voices: Annotated[tuple[Voice, ...], NoDecode, BeforeValidator(_catalogue_from_text)]
-    speech_default_voice: str
+    # The voices this deployment offers, and the one a call gets when nobody chose. No default: a
+    # compatible server decides its own voices, so any list written here would be a list of voices
+    # that some server cannot speak — which is the exact thing that went wrong before this was
+    # configuration. `NoDecode` keeps pydantic from reading the text as JSON.
+    #
+    # Optional here and required by what serves voices, like the database URL: the API refuses to
+    # start without them, while a migration, which has no use for a voice, does not.
+    speech_voices: Annotated[
+        tuple[Voice, ...] | None,
+        NoDecode,
+        BeforeValidator(_blank_is_absent),
+        BeforeValidator(_catalogue_from_text),
+    ] = None
+    speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
     @field_validator("log_level")
     @classmethod
@@ -181,7 +189,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _default_voice_is_in_the_catalogue(self) -> Settings:
-        """A default outside the catalogue leaves a call nobody configured with no voice at all."""
+        """A default outside the catalogue leaves a call nobody configured with no voice at all.
+
+        Checked whenever either is given, so half a catalogue is refused at startup rather than
+        passing here and failing at the first request for voices.
+        """
+        if self.speech_voices is None and self.speech_default_voice is None:
+            return self
+        if self.speech_voices is None or self.speech_default_voice is None:
+            raise ValueError(
+                "SPEECH_VOICES and SPEECH_DEFAULT_VOICE are set together or not at all"
+            )
         if self.speech_default_voice not in {voice.id for voice in self.speech_voices}:
             raise ValueError(
                 f"SPEECH_DEFAULT_VOICE {self.speech_default_voice!r} is not one of the voices "
@@ -202,6 +220,15 @@ class Settings(BaseSettings):
                 "see .env.example."
             )
         return self.auth_signing_key.get_secret_value()
+
+    def require_voice_catalogue(self) -> tuple[tuple[Voice, ...], str]:
+        """The voices and the default one, or a failure naming the variables to set."""
+        if self.speech_voices is None or self.speech_default_voice is None:
+            raise ConfigurationError(
+                "SPEECH_VOICES and SPEECH_DEFAULT_VOICE are required to offer voices. "
+                "Set them in .env; see .env.example."
+            )
+        return self.speech_voices, self.speech_default_voice
 
     def require_speech_service(self) -> tuple[str, str]:
         """The speech endpoint and model, or a failure naming whichever is missing.
@@ -252,8 +279,7 @@ def get_settings() -> Settings:
     repeatedly would make it possible for two parts of the application to disagree about it.
     """
     try:
-        # The required fields arrive from the environment, which the type checker cannot see.
-        return Settings()  # type: ignore[call-arg]
+        return Settings()
     except ValidationError as error:
         variables = ", ".join(
             str(item["loc"][0]).upper() for item in error.errors() if item.get("loc")

@@ -117,7 +117,9 @@ def main() -> None:
     # Validate before uvicorn starts, so bad configuration is one clear line on stderr rather
     # than a traceback from inside a worker that has already bound a port.
     try:
-        get_settings()
+        # The catalogue as well as the settings: every request for voices needs it, and a service
+        # that starts without it fails in front of somebody instead of here.
+        get_settings().require_voice_catalogue()
     except ConfigurationError as error:
         raise SystemExit(str(error)) from error
 

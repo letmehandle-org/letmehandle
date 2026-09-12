@@ -240,8 +240,20 @@ def test_the_catalogue_is_read_from_the_environment(monkeypatch: pytest.MonkeyPa
     assert settings.speech_default_voice == "second"
 
 
-def test_a_process_with_no_catalogue_refuses_to_start_naming_it() -> None:
-    with pytest.raises(ConfigurationError, match="SPEECH_VOICES"):
+def test_settings_without_a_catalogue_can_be_read_by_what_has_no_use_for_one() -> None:
+    # A database migration reads the settings for its URL. Refusing it for want of voices is a
+    # deployment that cannot migrate until it has configured something unrelated.
+    assert get_settings().speech_voices is None
+
+
+def test_asking_for_the_catalogue_without_one_names_what_to_set() -> None:
+    with pytest.raises(ConfigurationError, match="SPEECH_VOICES and SPEECH_DEFAULT_VOICE"):
+        get_settings().require_voice_catalogue()
+
+
+def test_half_a_catalogue_is_refused_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_DEFAULT_VOICE", "first")
+    with pytest.raises(ConfigurationError, match="set together or not at all"):
         get_settings()
 
 

@@ -106,9 +106,8 @@ def build_voice_provider(settings: Settings) -> VoiceProvider:
     Read from configuration rather than written anywhere in code, because the service decides
     which voices exist and a list of its own here would offer voices it cannot speak.
     """
-    return BuiltInVoiceProvider(
-        settings.speech_voices, default_voice_id=settings.speech_default_voice
-    )
+    voices, default_voice = settings.require_voice_catalogue()
+    return BuiltInVoiceProvider(voices, default_voice_id=default_voice)
 
 
 # English only in the first release (D-017). A setting arrives with the second language, not
