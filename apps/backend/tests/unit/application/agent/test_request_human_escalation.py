@@ -1,7 +1,9 @@
-"""Asking for a person: the model's reading goes in, the policy's decision comes out.
+"""Asking for a person: the model's reading goes in, the policy's decision comes out in words.
 
-A malformed proposal reaches nobody. So does one that tries to choose its own reason or urgency,
-which is the shape a model talked into it by a caller would send.
+Asking reaches nobody; the conclusion does that once the model has finished. What is tested here is
+what the tool writes down and what it tells the model. A malformed proposal is not written down at
+all, and neither is one that tries to choose its own reason or urgency, which is the shape a model
+talked into it by a caller would send.
 """
 
 from __future__ import annotations
@@ -10,11 +12,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.application.agent.escalation import circumstances_of
 from letmehandle.application.agent.tools.escalation import REASON_IN_WORDS, RequestHumanEscalation
 from letmehandle.domain.models.authority import AgentAuthority, Capability
-from letmehandle.domain.models.escalation import EscalationReason, EscalationUrgency
-from tests.support.recording_call_actions import Escalated
-from tests.unit.application.agent.calls import THREE_AM, a_call
+from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.intent import CallImportance, CallIntent
+from letmehandle.domain.policy.escalation import EscalationProposal, decide_escalation
+from tests.unit.application.agent.calls import NOON, THREE_AM, a_call
 from tests.unit.application.agent.kit import Kit, answered, refused
 
 if TYPE_CHECKING:
@@ -24,24 +28,25 @@ NOTABLE_ENQUIRY: Mapping[str, object] = {"importance": "notable", "intent": "enq
 
 
 def tool(kit: Kit) -> RequestHumanEscalation:
-    return RequestHumanEscalation(kit.notes, kit.escalation)
+    return RequestHumanEscalation(kit.notes)
 
 
-async def test_a_proposal_worth_reaching_the_user_for_reaches_them_now() -> None:
+async def test_a_proposal_worth_reaching_the_user_for_is_told_so_and_reaches_nobody_yet() -> None:
     kit = Kit()
 
     said = await answered(tool(kit), a_call(), NOTABLE_ENQUIRY)
 
-    (escalated,) = kit.actions.of_kind(Escalated)
-    assert escalated.decision.reason is EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT
-    assert escalated.decision.urgency is EscalationUrgency.IMMEDIATE
+    assert kit.notes.escalations_requested == (
+        EscalationProposal(importance=CallImportance.NOTABLE, intent=CallIntent.ENQUIRY),
+    )
+    assert kit.actions.actions == []
     assert said == (
-        "The user is being reached now, because the call matters enough to interrupt them. "
-        "Tell the caller you are trying to reach them."
+        "The user's rules call for reaching the user now, because the call matters enough to "
+        "interrupt them. That happens once your assessment is recorded."
     )
 
 
-async def test_every_field_of_the_proposal_reaches_the_policy() -> None:
+async def test_every_field_of_the_proposal_is_written_down() -> None:
     kit = Kit()
     arguments = {
         "importance": "routine",
@@ -55,9 +60,14 @@ async def test_every_field_of_the_proposal_reaches_the_policy() -> None:
 
     await answered(tool(kit), a_call(from_important_contact=True), arguments)
 
-    (escalated,) = kit.actions.of_kind(Escalated)
-    assert escalated.decision.reason is EscalationReason.ACTION_NOT_AUTHORISED
-    assert escalated.decision.caller_summary == "The dentist wants to confirm Thursday."
+    assert kit.notes.escalations_requested == (
+        EscalationProposal(
+            importance=CallImportance.ROUTINE,
+            intent=CallIntent.APPOINTMENT,
+            requested_capability=Capability.CONFIRM_APPOINTMENTS,
+            caller_summary="The dentist wants to confirm Thursday.",
+        ),
+    )
 
 
 @pytest.mark.parametrize(
@@ -70,12 +80,14 @@ async def test_every_field_of_the_proposal_reaches_the_policy() -> None:
 )
 async def test_each_flag_is_read_as_the_model_sent_it(field: str, reason: EscalationReason) -> None:
     kit = Kit()
+    call = a_call()
     value = field != "understood"
 
-    await answered(tool(kit), a_call(), {**NOTABLE_ENQUIRY, field: value})
+    said = await answered(tool(kit), call, {**NOTABLE_ENQUIRY, field: value})
 
-    (escalated,) = kit.actions.of_kind(Escalated)
-    assert escalated.decision.reason is reason
+    [proposal] = kit.notes.escalations_requested
+    assert decide_escalation(proposal, circumstances_of(call)).reason is reason
+    assert REASON_IN_WORDS[reason] in said
 
 
 async def test_inside_quiet_hours_the_model_is_told_the_user_hears_later() -> None:
@@ -83,21 +95,20 @@ async def test_inside_quiet_hours_the_model_is_told_the_user_hears_later() -> No
 
     said = await answered(tool(kit), a_call(now=THREE_AM), NOTABLE_ENQUIRY)
 
-    assert kit.actions.of_kind(Escalated)[0].decision.urgency is EscalationUrgency.WHILE_CONVENIENT
     assert said == (
-        "The user will be told about this call when it is convenient, not now, because the call "
-        "matters enough to interrupt them. Tell the caller the user will hear about it, without "
-        "promising when."
+        "The user's rules call for telling the user about this call when it is convenient, not "
+        "now, because the call matters enough to interrupt them. That happens once your assessment "
+        "is recorded."
     )
 
 
-async def test_a_proposal_below_the_users_threshold_reaches_nobody() -> None:
+async def test_a_proposal_below_the_users_threshold_is_told_nobody_will_be_reached() -> None:
     kit = Kit()
 
     said = await answered(tool(kit), a_call(), {"importance": "routine", "intent": "sales"})
 
     assert kit.actions.actions == []
-    assert said.startswith("The user will not be reached for this call.")
+    assert said.startswith("The user's rules do not call for reaching the user on this call.")
 
 
 async def test_null_optional_fields_are_read_as_absent() -> None:
@@ -106,8 +117,21 @@ async def test_null_optional_fields_are_read_as_absent() -> None:
 
     await answered(tool(kit), a_call(), arguments)
 
-    (escalated,) = kit.actions.of_kind(Escalated)
-    assert escalated.decision.caller_summary is None
+    [proposal] = kit.notes.escalations_requested
+    assert proposal.requested_capability is None
+    assert proposal.caller_summary is None
+
+
+async def test_nothing_the_model_is_told_asks_it_to_speak_to_anybody() -> None:
+    # The agent judges; the speech model speaks. An instruction to tell the caller something is
+    # an instruction to a model that is talking to nobody.
+    for arguments, now in [
+        (NOTABLE_ENQUIRY, NOON),
+        (NOTABLE_ENQUIRY, THREE_AM),
+        ({"importance": "routine", "intent": "sales"}, NOON),
+    ]:
+        said = await answered(tool(Kit()), a_call(now=now), arguments)
+        assert "caller" not in said.lower()
 
 
 def test_every_reason_the_policy_can_give_can_be_said() -> None:
@@ -146,6 +170,5 @@ async def test_a_malformed_proposal_is_refused_and_reaches_nobody(
     reason = await refused(tool(kit), call, arguments)
 
     assert reason.startswith(because)
-    assert kit.actions.actions == []
-    assert not kit.escalation.has_escalated(call.call_id)
+    assert kit.notes.escalations_requested == ()
     assert [refusal.reason for refusal in kit.notes.refusals] == [reason]

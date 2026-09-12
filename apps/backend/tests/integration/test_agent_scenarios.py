@@ -1,10 +1,10 @@
 """Calls judged end to end: the SDK's agent loop, a scripted model, the real tools and policy.
 
 Nothing between the model's words and the judgement is replaced. The SDK executes the registry's
-tools the script asks for and feeds their results back; the tools act on a recording of the call
-through the real escalation service; the assessment is validated by the adapter; the escalation is
-decided by the policy. Only what the model says is fixed, so every difference in a judgement below
-comes from the call, the user's rules, or the model misbehaving.
+tools the script asks for and feeds their results back; the tools act on, and ask for, what happens
+to a recording of the call; the assessment is validated by the adapter; the conclusion acts through
+the real escalation service on what the policy decides. Only what the model says is fixed, so every
+difference in a judgement below comes from the call, the user's rules, or the model misbehaving.
 """
 
 from __future__ import annotations
@@ -21,17 +21,21 @@ from strands.tools import convert_pydantic_to_tool_spec
 
 from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
-from letmehandle.application.agent.ports import CallEnding
+from letmehandle.application.agent.conclusion import (
+    NOT_ENDED_WITHOUT_AN_ASSESSMENT,
+)
+from letmehandle.application.agent.ports import CallEnding, ToolRefusal
 from letmehandle.bootstrap import call_agent_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
-from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.escalation import EscalationReason, EscalationUrgency
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
-from tests.support.agent_calls import a_call
+from tests.support.agent_calls import QUIET_AT_MIDDAY, a_call
 from tests.support.recording_call_actions import (
     Ended,
     Escalated,
     MessageTaken,
+    Recorded,
     RecordingCallActions,
 )
 from tests.support.scripted_model import CallTool, CutOff, Fail, Hang, Say, ScriptedModel, assess
@@ -102,23 +106,6 @@ class TestHandledCalls:
         ]
         assert run.model.unused_steps == 0
 
-    async def test_a_call_the_agent_has_ended_is_not_escalated_afterwards(self) -> None:
-        # The model hung up and only then assessed the call as needing the user. There is no call
-        # left to bring anybody into, so the judgement says it ended and rings nobody, rather than
-        # failing because orchestration refuses an action on a call that is over.
-        call = a_call("It's the school again, please get her.")
-        run = await judged(
-            call,
-            [
-                CallTool("end_call", {"ending": "resolved"}),
-                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
-            ],
-        )
-
-        assert run.judgement.ended
-        assert not run.judgement.escalation.required
-        assert run.actions.of_kind(Escalated) == []
-
     async def test_a_caller_asking_for_the_user_is_put_through(self) -> None:
         call = a_call("This is the school. I need to speak to her about her son, now please.")
         summary = "The school is calling about her son."
@@ -146,12 +133,12 @@ class TestHandledCalls:
         assert run.judgement.escalation.required
         assert run.judgement.escalation.reason is EscalationReason.CALLER_ASKED_FOR_THE_USER
         assert run.judgement.escalation.caller_summary == summary
-        # The model asked and the end-of-turn check agreed: one path, so the phone rang once.
+        # The model asked and then assessed the same: one conclusion, so the phone rang once.
         assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]
 
     async def test_a_model_that_forgets_to_ask_for_the_user_still_reaches_them(self) -> None:
-        # The end-of-turn check is the guarantee: the tool is how a model asks, not the only way a
-        # call the user's rules say needs them reaches them.
+        # The conclusion is the guarantee: the tool is how a model asks, not the only way a call
+        # the user's rules say needs them reaches them.
         call = a_call("I need to speak to him, it's his mother.")
         run = await judged(
             call,
@@ -418,24 +405,200 @@ class TestAModelThatMisbehaves:
         assert [refusal.tool for refusal in run.judgement.refusals] == ["take_a_message"]
 
 
+URGENT_AND_ASKED_FOR = {
+    "importance": "urgent",
+    "intent": "personal",
+    "caller_asked_for_the_user": True,
+}
+RULES_CALL_FOR_THE_USER = ToolRefusal(
+    "end_call", "the user's rules call for reaching the user, so the call was not ended"
+)
+
+
+class TestEndingAndEscalatingTogether:
+    """A hang-up the model asked for, held to the escalation the rules require once it finished."""
+
+    async def test_a_hang_up_before_the_assessment_does_not_cancel_the_escalation(self) -> None:
+        # The model thought the call was over, then assessed it as the emergency it was.
+        call = a_call(
+            "It's Mum. Dad has collapsed, please get her now.", from_important_contact=True
+        )
+        run = await judged(
+            call,
+            [
+                CallTool("end_call", {"ending": "resolved"}),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ],
+        )
+
+        assert run.judgement.escalation.reason is EscalationReason.CALLER_ASKED_FOR_THE_USER
+        assert run.judgement.escalation.is_immediate
+        assert run.actions.actions == [Escalated(call.call_id, run.judgement.escalation)]
+        assert not run.judgement.ended
+        assert run.judgement.refusals == (RULES_CALL_FOR_THE_USER,)
+
+    async def test_asking_for_more_after_asking_to_end_is_not_a_crash(self) -> None:
+        call = a_call("Hi, it's the pharmacy, she needs to decide about her prescription today.")
+        outcome = {"outcome": "resolved_by_agent", "headline": "The pharmacy needs a decision."}
+        run = await judged(
+            call,
+            [
+                CallTool("end_call", {"ending": "resolved"}),
+                CallTool(
+                    "request_human_escalation", {"importance": "notable", "intent": "enquiry"}
+                ),
+                CallTool("record_call_outcome", outcome),
+                assess(intent="enquiry", importance="notable"),
+            ],
+        )
+
+        assert [type(action) for action in run.actions.actions] == [Recorded, Escalated]
+        assert not run.judgement.ended
+        assert run.judgement.refusals == (RULES_CALL_FOR_THE_USER,)
+
+    async def test_a_failure_to_reach_the_user_is_raised_and_nobody_is_hung_up_on(self) -> None:
+        actions = RecordingCallActions(escalation_failures=[ConnectionError("dialler down")])
+        model = ScriptedModel(
+            [
+                CallTool("request_human_escalation", URGENT_AND_ASKED_FOR),
+                CallTool("end_call", {"ending": "resolved"}),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ]
+        )
+
+        with pytest.raises(ConnectionError, match="dialler down"):
+            await an_agent(model, actions).judge(a_call("Put her on, it's an emergency."))
+        assert actions.actions == []
+
+    async def test_reaching_the_user_is_not_cut_short_by_the_bound_on_the_model(self) -> None:
+        # The bound is for model turns. A ring that takes longer than it is still a ring, and the
+        # model that asked for it is not the one that failed.
+        actions = RecordingCallActions(escalation_gate=asyncio.Event())
+        gate = actions.escalation_gate
+        assert gate is not None
+
+        async def open_the_gate_late() -> None:
+            await asyncio.sleep(0.5)
+            gate.set()
+
+        call = a_call("Put her on, it's an emergency.")
+        opener = asyncio.create_task(open_the_gate_late())
+        run = await judged(
+            call,
+            [
+                CallTool("request_human_escalation", URGENT_AND_ASKED_FOR),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ],
+            actions=actions,
+            bound=timedelta(seconds=0.2),
+        )
+        await opener
+
+        assert run.judgement.proposal.importance is CallImportance.URGENT
+        assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]
+
+    async def test_a_call_is_handed_over_once_the_user_is_reached_now(self) -> None:
+        call = a_call("Put her on, it's an emergency.")
+        run = await judged(
+            call,
+            [
+                CallTool("request_human_escalation", URGENT_AND_ASKED_FOR),
+                CallTool("end_call", {"ending": "handed_over"}),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ],
+        )
+
+        assert run.actions.actions == [
+            Escalated(call.call_id, run.judgement.escalation),
+            Ended(call.call_id, CallEnding.HANDED_OVER),
+        ]
+        assert run.judgement.ended
+
+    async def test_a_note_for_later_is_not_a_hand_over(self) -> None:
+        call = a_call("Could she ring the garage back about the car?", quiet_hours=QUIET_AT_MIDDAY)
+        run = await judged(
+            call,
+            [
+                CallTool(
+                    "request_human_escalation", {"importance": "notable", "intent": "enquiry"}
+                ),
+                CallTool("end_call", {"ending": "handed_over"}),
+                assess(intent="enquiry", importance="notable"),
+            ],
+        )
+
+        assert run.judgement.escalation.urgency is EscalationUrgency.WHILE_CONVENIENT
+        assert run.actions.of_kind(Ended) == []
+        assert not run.judgement.ended
+        assert [refusal.reason for refusal in run.judgement.refusals] == [
+            "the user was not reached for this call, so it was not handed over"
+        ]
+
+    async def test_an_earlier_request_for_the_user_outlasts_a_calmer_assessment(self) -> None:
+        run = await judged(
+            a_call("It's the school. Actually, don't worry, it can wait."),
+            [
+                CallTool("request_human_escalation", URGENT_AND_ASKED_FOR),
+                assess(intent="enquiry", importance="routine"),
+            ],
+        )
+
+        assert run.judgement.proposal.importance is CallImportance.ROUTINE
+        assert run.judgement.escalation.reason is EscalationReason.CALLER_ASKED_FOR_THE_USER
+        assert len(run.actions.of_kind(Escalated)) == 1
+
+    async def test_a_judgement_that_never_finished_hangs_up_on_nobody(self) -> None:
+        run = await judged(
+            a_call("That's all, bye."),
+            [CallTool("end_call", {"ending": "resolved"}), Fail(RuntimeError("model down"))],
+        )
+
+        assert run.judgement.proposal == UNDERSTOOD_NOTHING
+        assert run.actions.actions == []
+        assert run.judgement.refusals == (ToolRefusal("end_call", NOT_ENDED_WITHOUT_AN_ASSESSMENT),)
+
+
 class TestABrokenTool:
     async def test_a_tool_that_raises_is_raised_not_narrated(self) -> None:
-        # Orchestration failing to reach the user: the tool raises, and so must the judgement.
+        # Orchestration failing to keep a message: the tool raises, and so must the judgement.
         actions = RecordingCallActions(
-            escalation_failures=[LookupError("row 42 missing from secrets")]
+            message_failures=[LookupError("row 42 missing from secrets")]
         )
         model = ScriptedModel(
             [
-                CallTool(
-                    "request_human_escalation", {"importance": "urgent", "intent": "personal"}
-                ),
-                assess(importance="urgent", intent="personal"),
+                CallTool("take_a_message", {"message": "Call the garage."}),
+                assess(),
             ]
         )
 
         with pytest.raises(LookupError, match="row 42"):
-            await an_agent(model, actions).judge(a_call("Hello?"))
+            await an_agent(model, actions).judge(
+                a_call("Hello?", authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE))
+            )
         # The model was told the action did not happen, and nothing of why.
         shown = json.dumps([request.messages for request in model.requests])
         assert "could not be completed" in shown
         assert "row 42" not in shown
+
+    async def test_after_a_failure_nothing_more_is_done_but_the_user_is_still_reached(self) -> None:
+        actions = RecordingCallActions(message_failures=[LookupError("the store is down")])
+        model = ScriptedModel(
+            [
+                CallTool("take_a_message", {"message": "Dad has collapsed."}),
+                CallTool(
+                    "record_call_outcome", {"outcome": "resolved_by_agent", "headline": "Kept."}
+                ),
+                CallTool("end_call", {"ending": "resolved"}),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ]
+        )
+        call = a_call(
+            "Dad has collapsed, get her now.",
+            authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE),
+        )
+
+        with pytest.raises(LookupError, match="the store is down"):
+            await an_agent(model, actions).judge(call)
+        [escalated] = actions.actions
+        assert isinstance(escalated, Escalated)
+        assert escalated.decision.is_immediate

@@ -2,14 +2,20 @@
 
 The model is asked for its reading of the call, never for a reason or an urgency. Those are the
 policy's to give, from the user's rules: a model that could name its own urgency is a model a
-caller can talk into naming it. The answer comes back in plain words, so the model can tell the
-caller something true about what happens next.
+caller can talk into naming it.
+
+Asking reaches nobody yet. The reading is written down, and the model is told in words what the
+rules make of it, so the rest of its judgement can take that into account. The user is reached
+once the model has finished, by the conclusion, on the most pressing of every reading it gave —
+never from inside the model's turn, where a slow ring would be cut off by the bound on the model's
+time and a ring could be followed by a hang-up that cancels it.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.agent.escalation import circumstances_of
 from letmehandle.application.agent.tool import ToolResult, ToolSpec
 from letmehandle.application.agent.tools.arguments import (
     SHORT_TEXT_CHARACTERS,
@@ -28,13 +34,11 @@ from letmehandle.application.agent.tools.base import CheckedTool
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.intent import CallImportance, CallIntent
-from letmehandle.domain.policy.escalation import EscalationProposal
+from letmehandle.domain.policy.escalation import EscalationProposal, decide_escalation
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from letmehandle.application.agent.escalation import EscalationService
-    from letmehandle.application.agent.notes import JudgementNotes
     from letmehandle.application.agent.ports import CallSoFar
     from letmehandle.application.agent.tool import ToolOutcome
     from letmehandle.domain.models.escalation import EscalationDecision
@@ -43,7 +47,7 @@ IMPORTANCE: Final = options_by_name(CallImportance)
 INTENT: Final = options_by_value(CallIntent)
 CAPABILITY: Final = options_by_value(Capability)
 
-# Why the user is being reached, as the model can repeat it. Every reason has one, and the test
+# Why the user is being reached, in words the model reads. Every reason has one, and the test
 # that walks the enum is what keeps it that way.
 REASON_IN_WORDS: Final[Mapping[EscalationReason, str]] = {
     EscalationReason.CALLER_ASKED_FOR_THE_USER: "the caller asked for them",
@@ -58,8 +62,8 @@ _SPEC: Final = ToolSpec(
     name="request_human_escalation",
     description=(
         "Say what you believe about the call, and ask whether the user should be reached. You do "
-        "not decide: the user's own rules do, and the answer tells you what will happen so you "
-        "can tell the caller. Asking again does not reach the user again."
+        "not decide: the user's own rules do, and the answer tells you what they decided. The "
+        "user is reached after your assessment is recorded, at most once however often you ask."
     ),
     parameters=object_schema(
         {
@@ -88,27 +92,23 @@ _SPEC: Final = ToolSpec(
 def _in_words(decision: EscalationDecision) -> str:
     if decision.reason is None:
         return (
-            "The user will not be reached for this call. Carry on handling it within what you "
-            "are allowed to do."
+            "The user's rules do not call for reaching the user on this call. Carry on within what "
+            "you are allowed to do."
         )
     why = REASON_IN_WORDS[decision.reason]
     if decision.is_immediate:
         return (
-            f"The user is being reached now, because {why}. Tell the caller you are trying to "
-            f"reach them."
+            f"The user's rules call for reaching the user now, because {why}. That happens once "
+            f"your assessment is recorded."
         )
     return (
-        f"The user will be told about this call when it is convenient, not now, because {why}. "
-        f"Tell the caller the user will hear about it, without promising when."
+        f"The user's rules call for telling the user about this call when it is convenient, not "
+        f"now, because {why}. That happens once your assessment is recorded."
     )
 
 
 class RequestHumanEscalation(CheckedTool[EscalationProposal]):
     """Needs no grant: asking whether the user should be reached is what the policy is for."""
-
-    def __init__(self, notes: JudgementNotes, escalation: EscalationService) -> None:
-        super().__init__(notes)
-        self._escalation = escalation
 
     @property
     def spec(self) -> ToolSpec:
@@ -126,4 +126,5 @@ class RequestHumanEscalation(CheckedTool[EscalationProposal]):
         )
 
     async def _act(self, call: CallSoFar, parsed: EscalationProposal) -> ToolOutcome:
-        return ToolResult(_in_words(await self._escalation.consider(call, parsed)))
+        self._notes.escalation_requested(parsed)
+        return ToolResult(_in_words(decide_escalation(parsed, circumstances_of(call))))

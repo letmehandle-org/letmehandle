@@ -40,6 +40,7 @@ from letmehandle.domain.models.escalation import (
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from letmehandle.domain.models.authority import AgentAuthority, Capability
@@ -94,6 +95,31 @@ def decide_escalation(
         _urgency(proposal, circumstances),
         caller_summary=proposal.caller_summary,
     )
+
+
+def most_pressing(
+    proposals: Sequence[EscalationProposal], circumstances: CallCircumstances
+) -> EscalationProposal:
+    """Of several readings of the same call, the one the rules would act on most strongly.
+
+    A model may ask for the user part way through and assess the call differently at the end, and
+    either reading can be the one that matters: a caller who calmed down is still the caller who
+    said somebody collapsed. So each is decided, and the strongest decision wins — an immediate
+    escalation over a later note, any escalation over none. Of readings the rules treat alike, the
+    last is taken, because it was made knowing the most.
+    """
+    if not proposals:
+        raise InvariantError("there is no most pressing reading of no readings")
+    return max(
+        reversed(proposals),
+        key=lambda proposal: _pressure(decide_escalation(proposal, circumstances)),
+    )
+
+
+def _pressure(decision: EscalationDecision) -> int:
+    if not decision.required:
+        return 0
+    return 2 if decision.is_immediate else 1
 
 
 def _reason(

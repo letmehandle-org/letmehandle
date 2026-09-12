@@ -1,4 +1,8 @@
-"""Ending a call, held to which kind of ending it is."""
+"""Asking to end a call, held to which kind of ending it is.
+
+The tool only writes the ending down. Whether it is applied, once the model has finished, is the
+conclusion's to decide and is tested beside it.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +13,6 @@ import pytest
 from letmehandle.application.agent.ports import CallEnding
 from letmehandle.application.agent.tools.end_call import EndCall
 from letmehandle.domain.models.authority import AgentAuthority, Capability
-from letmehandle.domain.models.intent import CallImportance, CallIntent
-from letmehandle.domain.policy.escalation import EscalationProposal
-from tests.support.recording_call_actions import Ended
 from tests.unit.application.agent.calls import a_call
 from tests.unit.application.agent.kit import Kit, answered, refused
 
@@ -25,29 +26,33 @@ EVERYTHING_BUT_DECLINING = AgentAuthority.granting(
 
 
 def tool(kit: Kit) -> EndCall:
-    return EndCall(kit.notes, kit.actions, kit.escalation)
+    return EndCall(kit.notes)
 
 
-async def test_a_resolved_call_ends_without_any_grant() -> None:
+@pytest.mark.parametrize("ending", [CallEnding.RESOLVED, CallEnding.HANDED_OVER])
+async def test_an_ending_that_needs_no_grant_is_written_down_and_nothing_else(
+    ending: CallEnding,
+) -> None:
     kit = Kit()
-    call = a_call(authority=AgentAuthority.none())
 
-    said = await answered(tool(kit), call, {"ending": "resolved"})
+    said = await answered(tool(kit), a_call(authority=AgentAuthority.none()), {"ending": ending})
 
-    assert kit.actions.actions == [Ended(call.call_id, CallEnding.RESOLVED)]
-    # The member itself, not its text: orchestration is handed the type it matches on.
-    assert kit.actions.of_kind(Ended)[0].ending is CallEnding.RESOLVED
-    assert said == "The call has ended."
-    assert kit.notes.ended
+    # The member itself, not its text: the conclusion hands orchestration the type it matches on.
+    assert kit.notes.requested_ending is ending
+    assert kit.actions.actions == []
+    assert not kit.notes.ended
+    assert said == (
+        "The call will end once your assessment is recorded, if the user's rules still allow it "
+        "then."
+    )
 
 
-async def test_declining_a_caller_needs_the_users_grant_to_decline() -> None:
+async def test_declining_a_caller_is_written_down_with_the_users_grant_to_decline() -> None:
     kit = Kit()
-    call = a_call(authority=MAY_DECLINE)
 
-    await answered(tool(kit), call, {"ending": "declined"})
+    await answered(tool(kit), a_call(authority=MAY_DECLINE), {"ending": "declined"})
 
-    assert kit.actions.actions == [Ended(call.call_id, CallEnding.DECLINED)]
+    assert kit.notes.requested_ending is CallEnding.DECLINED
 
 
 async def test_without_the_grant_to_decline_the_caller_is_not_turned_away() -> None:
@@ -58,41 +63,18 @@ async def test_without_the_grant_to_decline_the_caller_is_not_turned_away() -> N
     )
 
     assert reason == "the assistant is not authorised to decline something on the user's behalf"
-    assert kit.actions.actions == []
-    assert not kit.notes.ended
+    assert kit.notes.requested_ending is None
 
 
-async def test_a_call_is_not_handed_over_to_a_user_who_was_never_reached() -> None:
-    kit = Kit()
-
-    reason = await refused(tool(kit), a_call(), {"ending": "handed_over"})
-
-    assert reason == "the user has not been reached for this call, so it was not handed over"
-    assert kit.actions.actions == []
-    assert not kit.notes.ended
-
-
-async def test_a_call_the_user_was_reached_for_can_be_handed_over() -> None:
-    kit = Kit()
-    call = a_call()
-    await kit.escalation.consider(
-        call, EscalationProposal(importance=CallImportance.URGENT, intent=CallIntent.PERSONAL)
-    )
-
-    await answered(tool(kit), call, {"ending": "handed_over"})
-
-    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, CallEnding.HANDED_OVER)]
-
-
-async def test_a_call_is_ended_once() -> None:
+async def test_one_ending_is_asked_for() -> None:
     kit = Kit()
     call = a_call(authority=MAY_DECLINE)
     await answered(tool(kit), call, {"ending": "resolved"})
 
     reason = await refused(tool(kit), call, {"ending": "declined"})
 
-    assert reason == "the call has already been ended"
-    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, CallEnding.RESOLVED)]
+    assert reason == "an ending has already been asked for"
+    assert kit.notes.requested_ending is CallEnding.RESOLVED
     assert [refusal.reason for refusal in kit.notes.refusals] == [reason]
 
 
@@ -110,7 +92,7 @@ async def test_a_call_is_ended_once() -> None:
         ),
     ],
 )
-async def test_a_malformed_ending_is_refused_and_the_call_goes_on(
+async def test_a_malformed_ending_is_refused_and_nothing_is_asked_for(
     arguments: Mapping[str, object], because: str
 ) -> None:
     kit = Kit()
@@ -118,5 +100,4 @@ async def test_a_malformed_ending_is_refused_and_the_call_goes_on(
     reason = await refused(tool(kit), a_call(authority=MAY_DECLINE), arguments)
 
     assert reason.startswith(because)
-    assert kit.actions.actions == []
-    assert not kit.notes.ended
+    assert kit.notes.requested_ending is None

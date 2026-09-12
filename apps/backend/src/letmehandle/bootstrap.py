@@ -35,6 +35,7 @@ from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIM
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
+from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
@@ -186,16 +187,15 @@ def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:
 
 
 def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallAgent:
-    """The agent on `model`, its tools and its end-of-turn check sharing one escalation service.
+    """The agent on `model`, with its tools and the conclusion that acts on what they asked for.
 
-    Built once, here, so no wiring can hand the tools one memory of whether the user was reached and
-    the agent another. Tests reach the same wiring with a scripted model.
+    Built once, here, so every judgement on a call goes through one escalation service and one
+    memory of whether the user was reached. Tests reach the same wiring with a scripted model.
     """
-    escalation = EscalationService(actions)
     return StrandsCallAgent(
         model,
-        tools=tools_for_judgements(actions, escalation),
-        escalation=escalation,
+        tools=tools_for_judgements(actions),
+        conclusion=JudgementConclusion(actions, EscalationService(actions)),
         timeout=timeout,
     )
 

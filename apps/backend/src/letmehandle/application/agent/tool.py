@@ -54,6 +54,16 @@ class AgentTool(ABC):
     def spec(self) -> ToolSpec:
         """Its name, what it is for, and the arguments it takes."""
 
+    @property
+    def acts_on_the_call(self) -> bool:
+        """Whether using it changes something for the caller or the user, rather than reading or
+        asking.
+
+        A judgement that has already had a tool fail runs no more of these: whatever it does next
+        rests on something that did not happen.
+        """
+        return False
+
     @abstractmethod
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
         """Validate, check the user's grant, then act — in that order, every time.

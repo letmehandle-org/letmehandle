@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from letmehandle.adapters.agent.strands.tools import TOOL_FAILED, ToolLedger, present
+from letmehandle.adapters.agent.strands.tools import (
+    AFTER_A_FAILURE,
+    TOOL_FAILED,
+    ToolLedger,
+    present,
+)
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from tests.support.agent_calls import BrokenTool, GuardedTool, a_call
 
@@ -77,3 +82,18 @@ async def test_a_tool_that_raises_is_kept_and_the_model_learns_nothing_of_why() 
     assert result["content"] == [{"text": TOOL_FAILED}]
     # The first failure is the one that explains the rest.
     assert ledger.failure is first
+
+
+async def test_after_a_failure_a_tool_that_acts_is_refused_and_one_that_reads_still_runs() -> None:
+    ledger = ToolLedger()
+    acting = GuardedTool("take_message", acts=True, notes=ledger.notes)
+    reading = GuardedTool("read_preferences", notes=ledger.notes)
+    await result_of(presented(BrokenTool(ValueError("down")), ledger), {})
+
+    refused = await result_of(presented(acting, ledger), {"message": "Hi."})
+    read = await result_of(presented(reading, ledger), {})
+
+    assert refused["content"] == [{"text": f"Refused: {AFTER_A_FAILURE}"}]
+    assert acting.acted == []
+    assert [refusal.tool for refusal in ledger.notes.refusals] == ["take_message"]
+    assert read["status"] == "success"

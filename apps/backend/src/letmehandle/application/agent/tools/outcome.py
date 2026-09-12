@@ -92,6 +92,10 @@ class RecordCallOutcome(CheckedTool[OutcomeRecord]):
     def spec(self) -> ToolSpec:
         return _SPEC
 
+    @property
+    def acts_on_the_call(self) -> bool:
+        return True
+
     def _parse(self, arguments: Mapping[str, object]) -> OutcomeRecord:
         return OutcomeRecord(
             outcome=required_choice(arguments, "outcome", OUTCOME),

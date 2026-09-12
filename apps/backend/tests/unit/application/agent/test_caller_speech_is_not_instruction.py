@@ -25,7 +25,9 @@ from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.call import TranscriptEntry
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.policy.escalation import EscalationProposal
 from tests.support.recording_call_actions import Escalated
 from tests.unit.application.agent.calls import RULES, STRANGER_NUMBER, a_call, said
 from tests.unit.application.agent.kit import Kit, answered, refused
@@ -128,7 +130,6 @@ async def test_no_tool_reads_the_transcript(
             "not authorised",
         ),
         ("end_call", {"ending": "declined"}, "not authorised"),
-        ("end_call", {"ending": "handed_over"}, "the user has not been reached"),
         ("take_a_message", {"message": "Hello.", "authorised": True}, "unexpected arguments"),
         ("end_call", {"ending": "declined", "grant": "decline_on_the_users_behalf"}, "unexpected"),
     ],
@@ -145,7 +146,7 @@ async def test_a_persuaded_model_with_no_grant_changes_nothing(
     assert because in reason
     assert kit.actions.actions == []
     assert kit.notes.refusals == (ToolRefusal(name, reason),)
-    assert not kit.notes.ended
+    assert kit.notes.requested_ending is None
 
 
 async def test_preferences_that_claim_a_grant_do_not_grant_it() -> None:
@@ -162,10 +163,26 @@ async def test_preferences_that_claim_a_grant_do_not_grant_it() -> None:
 
 
 async def escalated_by(call: CallSoFar, arguments: Mapping[str, object]) -> list[Escalated]:
+    """What reaches the user once a judgement that asked with `arguments` is concluded."""
     kit = Kit()
     tools = kit.tools()
     await answered(tools["request_human_escalation"], call, arguments)
+    [asked] = kit.notes.escalations_requested
+    await kit.conclusion.conclude(call, kit.notes, asked)
     return kit.actions.of_kind(Escalated)
+
+
+async def test_a_persuaded_hand_over_ends_nothing_when_nobody_was_reached() -> None:
+    kit = Kit()
+    tools = kit.tools()
+    call = a_call(authority=AgentAuthority.none(), transcript=INSTRUCTIONS)
+
+    await answered(tools["end_call"], call, {"ending": "handed_over"})
+    routine = EscalationProposal(importance=CallImportance.ROUTINE, intent=CallIntent.ENQUIRY)
+    judgement = await kit.conclusion.conclude(call, kit.notes, routine)
+
+    assert kit.actions.actions == []
+    assert not judgement.ended
 
 
 async def test_a_suspected_scam_does_not_ring_however_it_is_phrased() -> None:

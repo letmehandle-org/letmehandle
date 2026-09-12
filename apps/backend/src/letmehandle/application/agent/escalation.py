@@ -1,8 +1,9 @@
 """The one path by which a call reaches the user.
 
-The escalation tool uses it when the model asks for a person, and the agent's end-of-turn check
-uses it when the model did not ask but the call calls for one. One path, because two would be two
-places deciding whether a phone rings, and the second one written is the one that forgets a rule.
+The judgement's conclusion uses it, once the model has finished, on the most pressing reading the
+model gave — whether it asked for a person or only assessed a call that calls for one. One path,
+because two would be two places deciding whether a phone rings, and the second one written is the
+one that forgets a rule.
 
 The policy decides; this remembers. A decision is taken afresh every time it is asked for, but a
 call reaches the user at most once for each level of urgency, and only ever upwards:
@@ -57,10 +58,6 @@ class EscalationService(ConsiderEscalation):
         # Per call, whether the escalation already made was immediate. Absent means none was made.
         self._escalated_immediately: dict[CallId, bool] = {}
         self._turns: defaultdict[CallId, asyncio.Lock] = defaultdict(asyncio.Lock)
-
-    def has_escalated(self, call_id: CallId) -> bool:
-        """Whether the user has been asked to join this call."""
-        return call_id in self._escalated_immediately
 
     async def consider(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
         """The policy's decision on this proposal, acted on if it is one nobody has acted on yet."""

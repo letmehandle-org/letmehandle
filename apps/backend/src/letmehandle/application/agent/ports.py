@@ -4,9 +4,9 @@ Two ports, facing opposite ways. `CallAgent` is what orchestration asks for a ju
 so far; an implementation runs a model and the tools below. `CallActions` is what those tools use
 to affect the call; orchestration implements it, because only orchestration holds the call.
 
-Beside `CallAgent` sits `ConsiderEscalation`, the one path by which a call reaches the user. An
-agent is handed it for its end-of-turn check, and the escalation tool is handed the same instance,
-so a call has one memory of whether the user's phone has already rung.
+Beside `CallAgent` sits `ConsiderEscalation`, the one path by which a call reaches the user. A
+judgement's conclusion is handed it, and every judgement on a call shares the instance, so a call
+has one memory of whether the user's phone has already rung.
 
 Neither names a framework or a model. D-026 puts the SDK in an adapter behind `CallAgent`, so that
 everything a user relies on — what the assistant may do, when the user's phone rings — lives here
@@ -130,8 +130,11 @@ class ToolRefusal:
 class AgentJudgement:
     """What the agent concluded from one look at the call.
 
-    `proposal` is its reading of the call, which the escalation policy — not the agent — turns into
-    a decision. `refusals` are the actions it attempted and was not allowed, in order.
+    `proposal` is its final reading of the call. `escalation` is the policy's decision — not the
+    agent's — on the most pressing of that reading and any it gave when asking for the user.
+    `refusals` are the actions it attempted and was not allowed, in order, including an ending the
+    rules did not allow once the model had finished. `ended` is whether the call was actually ended,
+    which asking for an ending does not guarantee.
     """
 
     proposal: EscalationProposal
@@ -143,8 +146,8 @@ class AgentJudgement:
 class ConsiderEscalation(Protocol):
     """Whether the user is needed on a call, decided by the policy and acted on at most once.
 
-    Implemented by `application.agent.escalation.EscalationService`. An agent and the tools it is
-    given must share one instance: two would each think the other had not rung the user.
+    Implemented by `application.agent.escalation.EscalationService`. Every judgement on a call must
+    share one instance: two would each think the other had not rung the user.
     """
 
     async def consider(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
@@ -190,7 +193,7 @@ class CallEnding(StrEnum):
 
 
 class CallActions(ABC):
-    """The only ways the agent's tools can affect a call. Implemented by orchestration."""
+    """The only ways a judgement can affect a call. Implemented by orchestration."""
 
     @abstractmethod
     async def escalate(self, call_id: CallId, decision: EscalationDecision) -> None:
@@ -206,4 +209,4 @@ class CallActions(ABC):
 
     @abstractmethod
     async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
-        """Hang up on the caller, for the kind of ending the tool was allowed."""
+        """Hang up on the caller, for the kind of ending the judgement was allowed."""

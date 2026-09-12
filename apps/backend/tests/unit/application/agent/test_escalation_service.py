@@ -49,7 +49,6 @@ async def test_a_decision_to_escalate_reaches_the_user() -> None:
     assert decision.required
     assert decision.reason is EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT
     assert actions.actions == [Escalated(call.call_id, decision)]
-    assert escalation.has_escalated(call.call_id)
 
 
 async def test_a_decision_not_to_escalate_reaches_nobody() -> None:
@@ -60,7 +59,6 @@ async def test_a_decision_not_to_escalate_reaches_nobody() -> None:
 
     assert not decision.required
     assert actions.actions == []
-    assert not escalation.has_escalated(call.call_id)
 
 
 async def test_asking_again_does_not_ring_again() -> None:
@@ -116,7 +114,6 @@ async def test_a_failed_escalation_leaves_the_call_able_to_reach_the_user() -> N
 
     with pytest.raises(ConnectionError):
         await escalation.consider(call, URGENT)
-    assert not escalation.has_escalated(call.call_id)
 
     await escalation.consider(call, URGENT)
     assert len(actions.actions) == 1
@@ -131,7 +128,10 @@ async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing() -> None
     with pytest.raises(ConnectionError):
         await escalation.consider(night, URGENT)
 
-    assert escalation.has_escalated(night.call_id)
+    # The note for later still stands, so another one is not made...
+    await escalation.consider(night, NOTABLE)
+    assert len(actions.actions) == 1
+    # ...and the upgrade can still be.
     retried = await escalation.consider(night, URGENT)
     assert retried.is_immediate
     assert len(actions.actions) == 2

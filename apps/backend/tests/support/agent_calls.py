@@ -9,7 +9,7 @@ behaviour every real tool must share.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.notes import JudgementNotes
@@ -21,7 +21,12 @@ from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.models.preferences import CallRules, ImportantContact, UserPreferences
+from letmehandle.domain.models.preferences import (
+    CallRules,
+    ImportantContact,
+    TimeWindow,
+    UserPreferences,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -29,8 +34,9 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
 
-# Midday on a weekday, in no quiet hours anybody has set.
+# Midday on a weekday, in no quiet hours anybody has set unless a call asks for `QUIET_AT_MIDDAY`.
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
+QUIET_AT_MIDDAY: Final = TimeWindow(time(11, 0), time(13, 0), "UTC")
 
 # Reserved for fiction, never routable.
 STRANGER: Final = Caller(number=PhoneNumber("+12025550101"))
@@ -42,6 +48,7 @@ def a_call(
     authority: AgentAuthority | None = None,
     escalate_at_or_above: CallImportance = CallImportance.NOTABLE,
     from_important_contact: bool = False,
+    quiet_hours: TimeWindow | None = None,
     locale: str = "en",
 ) -> CallSoFar:
     """A call in which the caller has said each of `said`, in turn.
@@ -50,7 +57,7 @@ def a_call(
     one important contact; `from_important_contact` decides whether that is who is calling.
     """
     preferences = UserPreferences(
-        rules=CallRules(escalate_at_or_above=escalate_at_or_above),
+        rules=CallRules(quiet_hours=quiet_hours, escalate_at_or_above=escalate_at_or_above),
         authority=authority or AgentAuthority.none(),
         locale=locale,
         important_contacts=(MUM,),
@@ -82,10 +89,15 @@ class GuardedTool(AgentTool):
     reply: str = "done"
     notes: JudgementNotes = field(default_factory=JudgementNotes)
     acted: list[Mapping[str, object]] = field(default_factory=list)
+    acts: bool = False
 
     @property
     def spec(self) -> ToolSpec:
         return ToolSpec(self.name, self.description, _NO_ARGUMENTS)
+
+    @property
+    def acts_on_the_call(self) -> bool:
+        return self.acts
 
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
         if self.capability is not None and not call.authority.allows(self.capability):

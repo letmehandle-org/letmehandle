@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import ToolRefusal
@@ -21,21 +22,20 @@ if TYPE_CHECKING:
 
 @dataclass
 class Kit:
-    """The actions, the escalation memory and the notes a set of tools shares."""
+    """The actions and notes a set of tools shares, and the conclusion that acts on the notes."""
 
     actions: RecordingCallActions = field(default_factory=RecordingCallActions)
     notes: JudgementNotes = field(default_factory=JudgementNotes)
     escalation: EscalationService = field(init=False)
+    conclusion: JudgementConclusion = field(init=False)
 
     def __post_init__(self) -> None:
         self.escalation = EscalationService(self.actions)
+        self.conclusion = JudgementConclusion(self.actions, self.escalation)
 
     def tools(self) -> dict[str, AgentTool]:
         """The registry's tools for one judgement, by name."""
-        return {
-            tool.spec.name: tool
-            for tool in tools_for_a_judgement(self.actions, self.escalation, self.notes)
-        }
+        return {tool.spec.name: tool for tool in tools_for_a_judgement(self.actions, self.notes)}
 
 
 async def refused(tool: AgentTool, call: CallSoFar, arguments: Mapping[str, object]) -> str:

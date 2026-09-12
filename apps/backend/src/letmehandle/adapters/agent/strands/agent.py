@@ -3,17 +3,19 @@
 One SDK agent per judgement, built from the model it is handed, the versioned prompts and the
 application's tools, and thrown away afterwards: a judgement shares no conversation, no tool state
 and no lock with any other call. The tools are built afresh for each judgement too, around notes
-of its own, and what the judgement reports as refused and whether the call ended is read from
-those notes and nowhere else.
+of its own, and what the judgement reports as refused, and what it asked for, is read from those
+notes and nowhere else.
 
 What the model is given is split along the one line that matters. The instructions and the user's
 preferences are the system prompt. The caller's words are a message of their own, delimited and
 labelled as a record of what was said. Nothing from the call is ever written into the instructions.
 
-The model proposes; it does not decide. Its assessment is validated into a proposal, and the
-proposal goes through the escalation service this agent is handed — the same instance the
-escalation tool uses, so a model that forgot to ask for the user still cannot skip an escalation
-the user's rules require, and a model that did ask cannot make the user's phone ring twice.
+The model proposes; it does not decide. Its assessment is validated into a proposal, and once the
+model has finished — outside the bound on its time, which is for model turns and not for reaching
+the user — the conclusion this agent is handed acts on that proposal and on everything the model
+asked for along the way: the escalation first, then an ending if the rules still allow one. A model
+that forgot to ask for the user still cannot skip an escalation the user's rules require, and a
+model that hung up first cannot cancel one.
 """
 
 from __future__ import annotations
@@ -27,10 +29,13 @@ from strands.tools.executors import SequentialToolExecutor
 
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.adapters.agent.strands.tools import ToolLedger, UnknownToolRefusals, present
+from letmehandle.application.agent.conclusion import (
+    NOT_ENDED_AFTER_A_FAILURE,
+    NOT_ENDED_WITHOUT_AN_ASSESSMENT,
+)
 from letmehandle.application.agent.notes import JudgementNotes
-from letmehandle.application.agent.ports import AgentJudgement, CallAgent
+from letmehandle.application.agent.ports import CallAgent
 from letmehandle.application.agent.prompts import PROMPT_VERSION, load_prompts
-from letmehandle.domain.models.escalation import EscalationDecision
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.observability.logging import get_logger
@@ -40,7 +45,8 @@ if TYPE_CHECKING:
 
     from strands.models.model import Model
 
-    from letmehandle.application.agent.ports import CallSoFar, ConsiderEscalation
+    from letmehandle.application.agent.conclusion import JudgementConclusion
+    from letmehandle.application.agent.ports import AgentJudgement, CallSoFar
     from letmehandle.application.agent.prompts import Prompts
     from letmehandle.application.agent.tool import ToolsForAJudgement
 
@@ -88,7 +94,7 @@ class StrandsCallAgent(CallAgent):
         model: Model,
         *,
         tools: ToolsForAJudgement,
-        escalation: ConsiderEscalation,
+        conclusion: JudgementConclusion,
         timeout: timedelta,
         prompt_version: str = PROMPT_VERSION,
     ) -> None:
@@ -96,16 +102,17 @@ class StrandsCallAgent(CallAgent):
             raise ValueError("a judgement needs time to happen in")
         self._model = model
         self._tools = tools
-        self._escalation = escalation
+        self._conclusion = conclusion
         self._timeout = timeout
         self._prompt_version = prompt_version
         self._logger = get_logger(__name__)
 
     async def judge(self, call: CallSoFar) -> AgentJudgement:
-        """Run the model, then the escalation check on whatever it proposed.
+        """Run the model, then act on what it asked for and concluded.
 
-        Raises only for a tool that raised. That is a defect, or orchestration failing to act, and
-        either is somebody else's to handle — the model misbehaving is this method's to absorb.
+        Raises for a tool that raised, once the escalation the rules require has still been made,
+        and for a failure to reach the user. Either is a defect or orchestration failing to act,
+        and somebody else's to handle — the model misbehaving is this method's to absorb.
         """
         prompts = load_prompts(call.preferences.locale, self._prompt_version)
         ledger = ToolLedger(JudgementNotes())
@@ -126,25 +133,30 @@ class StrandsCallAgent(CallAgent):
             # Retries belong inside the time bound, and the default backs off for minutes.
             retry_strategy=None,
         )
-        proposal = await self._assess(agent, prompts, call)
+        assessment = await self._assess(agent, prompts, call)
         if ledger.failure is not None:
-            raise ledger.failure
-        # A call the agent has already ended has nobody left to bring the user to. Considering it
-        # would ring the user for a caller who is gone, or fail on an action orchestration rightly
-        # refuses; the judgement records how the call ended and the proposal it ended on.
-        escalation = (
-            EscalationDecision.not_needed()
-            if ledger.notes.ended
-            else await self._escalation.consider(call, proposal)
-        )
-        return AgentJudgement(
-            proposal=proposal,
-            escalation=escalation,
-            refusals=ledger.notes.refusals,
-            ended=ledger.notes.ended,
-        )
+            withheld: str | None = NOT_ENDED_AFTER_A_FAILURE
+        elif assessment is None:
+            withheld = NOT_ENDED_WITHOUT_AN_ASSESSMENT
+        else:
+            withheld = None
+        try:
+            return await self._conclusion.conclude(
+                call,
+                ledger.notes,
+                assessment if assessment is not None else fallback_proposal(),
+                ending_withheld=withheld,
+            )
+        finally:
+            # After the escalation, never instead of it: the user's rules still apply to a call on
+            # which something broke. A failure to reach the user as well stays attached as context.
+            if ledger.failure is not None:
+                raise ledger.failure
 
-    async def _assess(self, agent: Agent, prompts: Prompts, call: CallSoFar) -> EscalationProposal:
+    async def _assess(
+        self, agent: Agent, prompts: Prompts, call: CallSoFar
+    ) -> EscalationProposal | None:
+        """The model's validated assessment, or None when it gave no usable one."""
         try:
             async with asyncio.timeout(self._timeout.total_seconds()):
                 result = await agent.invoke_async(
@@ -162,12 +174,12 @@ class StrandsCallAgent(CallAgent):
             self._logger.warning(
                 "agent.model_failed", call_id=str(call.call_id), failure=type(error).__name__
             )
-            return fallback_proposal()
+            return None
 
         assessment = result.structured_output
         if not isinstance(assessment, CallAssessment):
             self._logger.warning(
                 "agent.no_assessment", call_id=str(call.call_id), stop_reason=result.stop_reason
             )
-            return fallback_proposal()
+            return None
         return assessment.to_proposal()

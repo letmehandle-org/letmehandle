@@ -26,6 +26,7 @@ from letmehandle.domain.policy.escalation import (
     CallCircumstances,
     EscalationProposal,
     decide_escalation,
+    most_pressing,
 )
 
 # Quiet from ten at night to seven in the morning, London time. Noon is plainly outside it and
@@ -236,3 +237,40 @@ def test_changing_what_the_user_granted_changes_the_decision_for_the_same_call()
     )
     assert without.reason is EscalationReason.ACTION_NOT_AUTHORISED
     assert granted.reason is EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT
+
+
+URGENT_PERSONAL: Final = call(importance=CallImportance.URGENT, intent=CallIntent.PERSONAL)
+ROUTINE_ENQUIRY: Final = call(importance=CallImportance.ROUTINE)
+
+
+@pytest.mark.parametrize(
+    ("readings", "expected"),
+    [
+        pytest.param((ROUTINE_ENQUIRY,), ROUTINE_ENQUIRY, id="one reading is the reading"),
+        pytest.param(
+            (URGENT_PERSONAL, ROUTINE_ENQUIRY), URGENT_PERSONAL, id="an earlier alarm outlasts calm"
+        ),
+        pytest.param(
+            (ROUTINE_ENQUIRY, URGENT_PERSONAL), URGENT_PERSONAL, id="a later alarm is heard"
+        ),
+        pytest.param(
+            (call(), URGENT_PERSONAL), URGENT_PERSONAL, id="ringing now beats a note for later"
+        ),
+        pytest.param((ROUTINE_ENQUIRY, call()), call(), id="a note for later beats nothing"),
+        pytest.param(
+            (call(caller_summary="first"), call(caller_summary="last")),
+            call(caller_summary="last"),
+            id="of readings the rules treat alike, the last",
+        ),
+    ],
+)
+def test_the_most_pressing_reading_is_the_one_acted_on(
+    readings: tuple[EscalationProposal, ...], expected: EscalationProposal
+) -> None:
+    # At three in the morning, so a notable call is a note for later and an urgent one rings.
+    assert most_pressing(readings, circumstances(now=THREE_AM)) == expected
+
+
+def test_no_readings_have_no_most_pressing_one() -> None:
+    with pytest.raises(InvariantError):
+        most_pressing((), circumstances())

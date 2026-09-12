@@ -5,12 +5,12 @@ said. It does not validate, check a grant or decide anything: each tool does tha
 (D-026), so what the assistant may do does not depend on this file being right.
 
 Two things are kept for the judgement, in a ledger that lives as long as one: the judgement's notes,
-which the tools write their refusals and the call's ending to, and which this file writes to only
-for arguments that never reached a tool; and a tool that raised. The SDK's own answer to a raising
-tool is to tell the model the exception's text and carry on, which both shows a model — and through
-it a caller — whatever the exception said, and turns a defect into a sentence nobody reads. Here
-the model is told only that the action did not complete, and the agent raises the failure once the
-model has finished.
+which the tools write their refusals and requests to, and which this file writes to only for calls
+that never reached a tool; and a tool that raised. The SDK's own answer to a raising tool is to
+tell the model the exception's text and carry on, which both shows a model — and through it a
+caller — whatever the exception said, and turns a defect into a sentence nobody reads. Here the
+model is told only that the action did not complete, no tool that acts on the call runs after it,
+and the agent raises the failure once the model has finished.
 
 A tool the model asks for that does not exist never reaches this file's wrappers, and the SDK's own
 answer is an error the judgement never hears of. `UnknownToolRefusals` records it as a refusal like
@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 
 # What the model reads when a tool raised. Deliberately says nothing about why.
 TOOL_FAILED: Final = "The action could not be completed."
+
+# Why a tool that acts on the call is refused once another has failed.
+AFTER_A_FAILURE: Final = "an earlier action on this call failed, so nothing more is done"
 
 # How a request for a tool nobody has is written down. The name is kept only when the SDK accepts it
 # as a tool name at all; anything else is text the model wrote, which a caller may have dictated.
@@ -101,6 +104,10 @@ def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgent
             # The SDK hands on whatever JSON the model wrote. A list or a bare string is a
             # malformed call like any other, refused like one and written down like one.
             refusal = ToolRefusal(spec.name, "the arguments must be a JSON object")
+            ledger.notes.refused(refusal)
+            return _result(tool_use, f"Refused: {refusal.reason}", succeeded=False)
+        if ledger.failure is not None and tool.acts_on_the_call:
+            refusal = ToolRefusal(spec.name, AFTER_A_FAILURE)
             ledger.notes.refused(refusal)
             return _result(tool_use, f"Refused: {refusal.reason}", succeeded=False)
         try:

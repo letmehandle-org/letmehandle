@@ -53,13 +53,15 @@ type Action = Escalated | Recorded | MessageTaken | Ended
 class RecordingCallActions(CallActions):
     """Every action, in order.
 
-    `escalation_failures` are raised, one per escalation and in order, instead of reaching anyone.
+    `escalation_failures` are raised, one per escalation and in order, instead of reaching anyone;
+    `message_failures` the same for messages.
     `escalation_gate`, when set, holds every escalation until it is opened — which is how a test
     puts two escalations in flight at the same moment without sleeping.
     """
 
     actions: list[Action] = field(default_factory=list)
     escalation_failures: list[Exception] = field(default_factory=list)
+    message_failures: list[Exception] = field(default_factory=list)
     escalation_gate: asyncio.Event | None = None
     escalations_started: int = 0
 
@@ -80,6 +82,8 @@ class RecordingCallActions(CallActions):
 
     async def take_message(self, call_id: CallId, message: str) -> None:
         self._still_on(call_id)
+        if self.message_failures:
+            raise self.message_failures.pop(0)
         self.actions.append(MessageTaken(call_id, message))
 
     async def end_call(self, call_id: CallId, ending: CallEnding) -> None:

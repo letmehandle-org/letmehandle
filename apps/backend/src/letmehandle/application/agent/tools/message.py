@@ -56,6 +56,10 @@ class TakeAMessage(CheckedTool[str]):
     def spec(self) -> ToolSpec:
         return _SPEC
 
+    @property
+    def acts_on_the_call(self) -> bool:
+        return True
+
     def _parse(self, arguments: Mapping[str, object]) -> str:
         return required_text(arguments, "message", limit=MAX_MESSAGE_CHARACTERS)
 
