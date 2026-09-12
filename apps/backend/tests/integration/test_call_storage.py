@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
@@ -19,6 +20,7 @@ from letmehandle.adapters.database.call_repositories import (
     SqlTranscriptRepository,
     SqlTranscriptRetentionRepository,
 )
+from letmehandle.adapters.database.engine import create_engine
 from letmehandle.adapters.database.repositories import SqlUserRepository
 from letmehandle.adapters.security.transcript_cipher import AesGcmTranscriptCipher
 from letmehandle.domain.errors import (
@@ -45,6 +47,7 @@ from letmehandle.domain.models.summary import CallOutcome, CallSummary, Extracte
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.repositories import MAX_CALL_PAGE, MAX_PURGE_BATCH, CallCursor
 from tests.contracts.fakes import FixedClock
+from tests.support.config import make_settings
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,6 +202,41 @@ class TestCalls:
 
         assert await calls.get(ME, call.id) == call
         assert (await calls.list_for_user(ME, limit=10)).calls == (call,)
+
+
+class TestDatabaseErrors:
+    async def test_a_failed_statement_s_error_carries_none_of_its_values(
+        self, session: AsyncSession, database_url: str, schema: str
+    ) -> None:
+        # A database error's text is what reaches a log line or an error tracker. With its
+        # parameters rendered, a call that failed to save would write who called into it.
+        engine = create_engine(make_settings(database_url=database_url))
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(text(f'SET search_path TO "{schema}"'))
+                with pytest.raises(IntegrityError) as raised:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO calls (id, user_id, state, caller_number, "
+                            "caller_display_name, caller_category, started_at, updated_at) "
+                            "VALUES (:id, :user_id, 'received', :number, :name, 'delivery', "
+                            ":now, :now)"
+                        ),
+                        {
+                            "id": "call-1",
+                            "user_id": "nobody",
+                            "number": CALLER_NUMBER.value,
+                            "name": "Wrenfield Parcel Desk",
+                            "now": NOW,
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+        printed = str(raised.value) + repr(raised.value)
+        assert "fk" in printed.lower() or "foreign key" in printed
+        assert CALLER_NUMBER.value not in printed
+        assert "Wrenfield" not in printed
 
 
 class TestHistory:
