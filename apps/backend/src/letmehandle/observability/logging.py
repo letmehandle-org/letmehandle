@@ -28,7 +28,7 @@ def add_correlation_id(_logger: WrappedLogger, _method: str, event_dict: EventDi
     return event_dict
 
 
-_CONTENT_LOGGERS: Final = ("websockets",)
+_CONTENT_LOGGERS: Final = ("websockets", "httpx", "httpcore")
 
 
 def configure_logging(settings: Settings) -> None:
@@ -70,10 +70,11 @@ def configure_logging(settings: Settings) -> None:
         force=True,
     )
 
-    # Libraries that log what passes through them, held above debug whatever the process is set
+    # Libraries that log what passes through them, held at warning whatever the process is set
     # to. At debug the websocket library prints request headers and frame text — which is the
     # speech service's key and the words somebody said — and a debugging session is exactly
-    # when a log is copied somewhere it should not go.
+    # when a log is copied somewhere it should not go. The HTTP client does it at info: every
+    # request's full URL, which for the telephony API names the account and the calls.
     for name in _CONTENT_LOGGERS:
         logging.getLogger(name).setLevel(max(logging.WARNING, logging.getLogger().level))
 
