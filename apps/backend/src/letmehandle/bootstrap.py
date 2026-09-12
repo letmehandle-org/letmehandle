@@ -22,14 +22,23 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
+from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
+from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
+from letmehandle.adapters.speech.realtime.websocket import websocket_opener
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.config.settings import OTPProviderName, Settings
+from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from letmehandle.adapters.speech.realtime.connection import ConnectionOpener
     from letmehandle.domain.ports.clock import Clock, IdGenerator
+    from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+    from letmehandle.domain.ports.speech import SpeechProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
 
@@ -92,6 +101,37 @@ def build_voice_provider(settings: Settings) -> VoiceProvider:
     """
     return BuiltInVoiceProvider(
         settings.speech_voices, default_voice_id=settings.speech_default_voice
+    )
+
+
+def build_speech_provider(
+    settings: Settings,
+    *,
+    metrics: MetricsRecorder,
+    wrap_connection: Callable[[ConnectionOpener], ConnectionOpener] | None = None,
+) -> SpeechProvider:
+    """The speech service this deployment talks to.
+
+    `wrap_connection` lets a caller stand between the session and the network — the harness uses
+    it to drop a connection on command and watch the session recover — without that caller
+    constructing the adapter itself.
+    """
+    endpoint, model = settings.require_speech_service()
+    key = settings.speech_api_key
+    opener = websocket_opener(
+        endpoint, model=model, api_key=None if key is None else key.get_secret_value()
+    )
+    return RealtimeSpeechProvider(
+        opener if wrap_connection is None else wrap_connection(opener),
+        metrics,
+        # English only in the first release (D-017). A setting arrives with the second language,
+        # not before it.
+        languages=("en",),
+        # What this adapter can convert from: a microphone's wideband audio, and a phone line's.
+        input_formats=(SPEECH_WIDEBAND, TELEPHONY_NARROWBAND),
+        # The protocol's own wire format, so that nothing is converted twice on its way out. A
+        # sink converts to what it plays.
+        output_format=WIRE_FORMAT,
     )
 
 

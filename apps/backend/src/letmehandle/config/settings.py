@@ -188,6 +188,26 @@ class Settings(BaseSettings):
             )
         return self.auth_signing_key.get_secret_value()
 
+    def require_speech_service(self) -> tuple[str, str]:
+        """The speech endpoint and model, or a failure naming whichever is missing.
+
+        Optional at startup because nothing in the running service opens a speech session yet;
+        required by whatever does, so that it fails naming the variable rather than connecting to
+        nothing.
+        """
+        endpoint, model = self.speech_endpoint_url, self.speech_model
+        if endpoint is None or model is None:
+            missing = [
+                name
+                for name, value in (("SPEECH_ENDPOINT_URL", endpoint), ("SPEECH_MODEL", model))
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{' and '.join(missing)} must be set to hold a spoken conversation. "
+                "Set them in .env; see .env.example."
+            )
+        return str(endpoint), model
+
     def require_database_url(self) -> str:
         """The database URL, or a failure that names what is missing.
 

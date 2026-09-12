@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from pydantic import PostgresDsn, SecretStr
+from pydantic import AnyWebsocketUrl, PostgresDsn, SecretStr
 
 from letmehandle.config.settings import (
     Environment,
@@ -55,6 +55,9 @@ def make_settings(
     auth_signing_key: str | None = TEST_SIGNING_KEY,
     speech_voices: tuple[Voice, ...] = EXAMPLE_VOICES,
     speech_default_voice: str = EXAMPLE_DEFAULT_VOICE,
+    speech_endpoint_url: str | None = None,
+    speech_model: str | None = None,
+    speech_api_key: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -68,9 +71,11 @@ def make_settings(
         database_url=PostgresDsn(database_url) if database_url is not None else None,
         otp_provider=otp_provider,
         auth_signing_key=SecretStr(auth_signing_key) if auth_signing_key is not None else None,
-        speech_endpoint_url=None,
-        speech_model=None,
-        speech_api_key=None,
+        speech_endpoint_url=(
+            AnyWebsocketUrl(speech_endpoint_url) if speech_endpoint_url is not None else None
+        ),
+        speech_model=speech_model,
+        speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
     )
