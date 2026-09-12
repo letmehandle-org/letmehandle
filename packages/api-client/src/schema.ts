@@ -475,6 +475,7 @@ export interface components {
             locale: string;
             notifications: components["schemas"]["NotificationsPayload"];
             personality: components["schemas"]["PersonalityPayload"];
+            privacy: components["schemas"]["PrivacyPayload"];
             /** Version */
             version: number;
         };
@@ -495,6 +496,18 @@ export interface components {
             locale?: string | null;
             notifications?: components["schemas"]["NotificationsPayload"] | null;
             personality?: components["schemas"]["PersonalityPayload"] | null;
+            privacy?: components["schemas"]["PrivacyPayload"] | null;
+        };
+        /**
+         * PrivacyPayload
+         * @description What is kept, and for how long.
+         */
+        PrivacyPayload: {
+            /**
+             * Transcript Retention Days
+             * @default 7
+             */
+            transcript_retention_days: number;
         };
         /** ProfileResponse */
         ProfileResponse: {

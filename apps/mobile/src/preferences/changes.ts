@@ -27,5 +27,6 @@ export function applyChanges(
     authority: changes.authority ?? current.authority,
     notifications: changes.notifications ?? current.notifications,
     personality: changes.personality ?? current.personality,
+    privacy: changes.privacy ?? current.privacy,
   };
 }

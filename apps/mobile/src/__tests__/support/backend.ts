@@ -53,6 +53,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     respect_quiet_hours: true,
   },
   personality: { formality: 'neutral', verbosity: 'normal', topics: [] },
+  privacy: { transcript_retention_days: 7 },
 };
 
 /** What the shipped provider offers: a few voices, and nothing else it can do with them. */

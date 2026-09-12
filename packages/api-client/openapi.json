@@ -414,6 +414,9 @@
           "personality": {
             "$ref": "#/components/schemas/PersonalityPayload"
           },
+          "privacy": {
+            "$ref": "#/components/schemas/PrivacyPayload"
+          },
           "version": {
             "title": "Version",
             "type": "integer"
@@ -427,7 +430,8 @@
           "hours",
           "authority",
           "notifications",
-          "personality"
+          "personality",
+          "privacy"
         ],
         "title": "PreferencesResponse",
         "type": "object"
@@ -513,9 +517,34 @@
                 "type": "null"
               }
             ]
+          },
+          "privacy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrivacyPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "PreferencesUpdate",
+        "type": "object"
+      },
+      "PrivacyPayload": {
+        "additionalProperties": false,
+        "description": "What is kept, and for how long.",
+        "properties": {
+          "transcript_retention_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Transcript Retention Days",
+            "type": "integer"
+          }
+        },
+        "title": "PrivacyPayload",
         "type": "object"
       },
       "ProfileResponse": {
