@@ -7,6 +7,14 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    // Resolved in settings.gradle by asking node, because this is a pnpm workspace and the
+    // packages are not under apps/mobile/node_modules. Everything else in this block is the
+    // template's documentation of what can be overridden, and is left alone.
+    root = file("../../")
+    reactNativeDir = gradle.ext.reactNativeDir
+    codegenDir = new File(gradle.ext.reactNativeDir.parentFile, "@react-native/codegen")
+    cliFile = new File(gradle.ext.reactNativeDir, "cli.js")
+
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")

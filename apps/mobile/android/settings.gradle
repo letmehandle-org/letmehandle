@@ -1,6 +1,39 @@
-pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+// Package paths are resolved by asking node, not by assuming "../node_modules".
+//
+// This is a pnpm workspace: dependencies are installed once at the repository root rather than
+// inside each application, so the template's relative path is wrong here. It is wrong in a way
+// that only appears when somebody builds Android, because the iOS side has always resolved
+// through node and so never noticed.
+//
+// Two details that are easy to get wrong and cost an afternoon each:
+//   - the resolution lives inside pluginManagement, because Gradle requires that block to be
+//     the first statement in the file;
+//   - includeBuild is given a String. Handed a File it silently contributes no plugins, and
+//     the failure surfaces later as "plugin not found in any included build".
+pluginManagement {
+    def resolvePackage = { String name ->
+        def script = "require('path').dirname(require.resolve('${name}/package.json'))"
+        def process = ["node", "--print", script].execute()
+        def located = process.text.trim()
+        process.waitFor()
+        if (process.exitValue() != 0 || located.isEmpty()) {
+            throw new GradleException(
+                "Could not find ${name}. Run `pnpm install` from the repository root."
+            )
+        }
+        return located
+    }
+
+    gradle.ext.reactNativeGradlePlugin = resolvePackage("@react-native/gradle-plugin")
+    gradle.ext.reactNativeDir = new File(resolvePackage("react-native"))
+
+    includeBuild(gradle.ext.reactNativeGradlePlugin)
+}
+
 plugins { id("com.facebook.react.settings") }
-extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+    ex.autolinkLibrariesFromCommand()
+}
 rootProject.name = 'org.letmehandle.app'
 include ':app'
-includeBuild('../node_modules/@react-native/gradle-plugin')
+includeBuild(gradle.ext.reactNativeGradlePlugin)
