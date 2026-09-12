@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from fastapi import APIRouter, Request, Response, status
 
-from letmehandle.api.dependencies import AuthService, CurrentUser, Users
+from letmehandle.api.dependencies import AuthService, CurrentUser, Devices, Users
 from letmehandle.api.errors import ApiError
 from letmehandle.api.schemas import (
     ChallengeRequest,
@@ -22,6 +22,7 @@ from letmehandle.application.auth.service import AuthenticationError, RateLimite
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
+from letmehandle.domain.ports.notification import DeviceToken
 
 router = APIRouter(prefix="/v1", tags=["authentication"])
 
@@ -122,13 +123,18 @@ async def refresh(body: RefreshRequest, service: AuthService) -> TokenResponse:
 
 
 @router.post("/auth/signout", status_code=status.HTTP_204_NO_CONTENT, summary="End this session")
-async def sign_out(body: SignOutRequest, service: AuthService) -> Response:
-    """End the session this refresh token belongs to.
+async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices) -> Response:
+    """End the session this refresh token belongs to, and forget the device signing out.
 
     Always succeeds. Somebody signing out has nothing to gain from being told their token was
     already invalid, and saying so would tell an attacker whether a token they hold is real.
+
+    The device is removed only from the account the refresh token belonged to, so a request can
+    never remove somebody else's device by naming it.
     """
-    await service.sign_out(body.refresh_token)
+    owner = await service.sign_out(body.refresh_token)
+    if owner is not None and body.device is not None:
+        await devices.remove(owner, DeviceToken(body.device.platform, body.device.token))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

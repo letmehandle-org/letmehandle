@@ -21,6 +21,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from letmehandle.adapters.database.repositories import (
+    SqlDeviceRepository,
+    SqlEscalationContextRepository,
     SqlOnboardingRepository,
     SqlOTPChallengeRepository,
     SqlPreferencesRepository,
@@ -29,11 +31,12 @@ from letmehandle.adapters.database.repositories import (
 )
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.escalation.devices import DeviceRegistrationService
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.models.user import User
-from letmehandle.domain.ports.repositories import UserRepository
+from letmehandle.domain.ports.repositories import EscalationContextRepository, UserRepository
 from letmehandle.domain.ports.voice import VoiceProvider
 
 if TYPE_CHECKING:
@@ -186,8 +189,25 @@ def get_user_repository(
     return SqlUserRepository(session, container_of(request).clock)
 
 
+def get_device_service(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DeviceRegistrationService:
+    """The device token lifecycle, on this request's session."""
+    return DeviceRegistrationService(SqlDeviceRepository(session, container_of(request).clock))
+
+
+def get_escalation_contexts(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> EscalationContextRepository:
+    """Stored escalation contexts, on this request's session."""
+    return SqlEscalationContextRepository(session)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthService = Annotated[AuthenticationService, Depends(get_authentication_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+Devices = Annotated[DeviceRegistrationService, Depends(get_device_service)]
+EscalationContexts = Annotated[EscalationContextRepository, Depends(get_escalation_contexts)]

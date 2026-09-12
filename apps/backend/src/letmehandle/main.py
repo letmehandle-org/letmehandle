@@ -12,6 +12,7 @@ from letmehandle.adapters.database.engine import create_engine
 from letmehandle.adapters.database.session import create_session_factory
 from letmehandle.api.auth import router as auth_router
 from letmehandle.api.errors import register_error_handlers
+from letmehandle.api.escalations import router as escalations_router
 from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
@@ -125,6 +126,7 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(preferences_router)
+    app.include_router(escalations_router)
     app.include_router(build_voice_router(chosen_voices))
     return app
 

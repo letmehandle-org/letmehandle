@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.ports.notification import DevicePlatform
 
 
 class Request(BaseModel):
@@ -54,8 +55,24 @@ class RefreshRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
 
 
+# What a push token is made of on either platform: hex on iOS, and letters, digits, colons,
+# hyphens and underscores on Android. Nothing else is accepted, so a token can never carry a
+# path separator, a space or a control character into a request built from it.
+PushTokenValue = Annotated[str, Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._:-]+$")]
+
+
+class DevicePayload(Request):
+    """One device, as its platform identifies it."""
+
+    platform: DevicePlatform
+    token: PushTokenValue
+
+
 class SignOutRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
+    # The device signing out, when the app has one registered. It stops receiving the account's
+    # escalation notifications in the same request that ends the session.
+    device: DevicePayload | None = None
 
 
 class TokenResponse(Response):
