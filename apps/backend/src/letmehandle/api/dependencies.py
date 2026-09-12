@@ -180,6 +180,7 @@ def get_call_reporting(
     return CallReporting(
         reports=SqlCallReportRepository(session, container.clock),
         sink=container.reported_calls,
+        rate_limiter=container.rate_limiter,
     )
 
 

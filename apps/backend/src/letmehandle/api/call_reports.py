@@ -8,7 +8,7 @@ calls, whatever identifiers it sends.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
 from letmehandle.api.body_limit import limited_body_route
 from letmehandle.api.call_report_schemas import (
@@ -20,6 +20,8 @@ from letmehandle.api.call_report_schemas import (
     UnreadableReport,
 )
 from letmehandle.api.dependencies import CallReports, CurrentUser
+from letmehandle.api.errors import ApiError
+from letmehandle.application.calls.reports import ReportingRateLimitedError
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId, EventId
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -64,7 +66,15 @@ async def report_calls(
             rejected.append(
                 RejectedReport(index=index, event_id=payload.event_id, reason=str(error))
             )
-    outcome = await reporting.report(user.id, batch)
+    try:
+        outcome = await reporting.report(user.id, batch)
+    except ReportingRateLimitedError as error:
+        raise ApiError(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many reports. Try again shortly.",
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
     return CallReportReceipt(
         accepted=[event.value for event in outcome.accepted],
         duplicates=[event.value for event in outcome.duplicates],

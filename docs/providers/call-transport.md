@@ -132,7 +132,10 @@ transport's feed. Each report in a batch is read on its own: the answer is a `20
 `accepted`, `duplicates` and `rejected` — each rejection with its `index` in the batch, its
 `event_id` when one could be read, and a `reason` — so one report the handset got wrong is dropped
 by itself instead of holding back the rest. A caller number is E.164 as the handset writes it,
-`^\+[1-9][0-9]{1,14}$`. A batch that is not a list of at most 100 reports is refused whole with `422`. The route exists whichever transport is configured, so a handset's reports are
+`^\+[1-9][0-9]{1,14}$`. A batch that is not a list of at most 100 reports is refused whole with `422`.
+One account may send thirty requests a minute, and a request over that is refused with `429` and
+`Retry-After`. At most a hundred of one account's events wait on the live feed; past that they
+are stored and not published, so one handset reporting in a loop cannot crowd out anybody else's. The route exists whichever transport is configured, so a handset's reports are
 never lost to configuration; `TELEPHONY_PROVIDER=android_native` makes that feed the transport the
 product reads.
 

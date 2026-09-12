@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from letmehandle.application.calls.reports import CallReporting, scoped_call_id
+from letmehandle.application.calls.reports import (
+    CallReporting,
+    ReportingPolicy,
+    ReportingRateLimitedError,
+    scoped_call_id,
+)
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
 from letmehandle.domain.ports.reported_calls import CallEnding, CallReport
+from tests.contracts.auth_fakes import CountingRateLimiter
 from tests.contracts.call_report_fakes import (
     InMemoryCallReportRepository,
     RecordingCallEventSink,
@@ -57,7 +63,31 @@ def sink() -> RecordingCallEventSink:
 def reporting(
     repository: InMemoryCallReportRepository, sink: RecordingCallEventSink
 ) -> CallReporting:
-    return CallReporting(repository, sink)
+    return CallReporting(repository, sink, CountingRateLimiter())
+
+
+class TestRateLimit:
+    async def test_a_handset_reporting_too_often_is_told_when_to_try_again(
+        self, repository: InMemoryCallReportRepository, sink: RecordingCallEventSink
+    ) -> None:
+        reporting = CallReporting(
+            repository,
+            sink,
+            CountingRateLimiter(),
+            ReportingPolicy(requests_per_window=2, window=timedelta(minutes=1)),
+        )
+        for number in range(2):
+            await reporting.report(USER, [report(f"e{number}", CallEventKind.INCOMING)])
+
+        with pytest.raises(ReportingRateLimitedError) as refused:
+            await reporting.report(USER, [report("e9", CallEventKind.INCOMING)])
+
+        assert refused.value.retry_after_seconds == 60
+        # Refused before anything was stored or handed on.
+        assert (USER, "e9") not in repository.rows
+        assert len(sink.published) == 2
+        # Counted per user: another account's handset is not held back by this one.
+        await reporting.report(SOMEBODY_ELSE, [report("e9", CallEventKind.INCOMING)])
 
 
 class TestMapping:

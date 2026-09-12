@@ -17,6 +17,7 @@ from letmehandle.adapters.database.models import CallReportRow
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
 from letmehandle.api.call_report_schemas import MAX_REPORTS_PER_REQUEST
 from letmehandle.api.call_reports import REPORTS_BODY_LIMIT_BYTES
+from letmehandle.application.calls.reports import ReportingPolicy
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
 
@@ -217,6 +218,22 @@ class TestSize:
         ]
         response = await send(api, tokens, batch)
         assert response.status_code == 200, response.text
+
+
+class TestRateLimit:
+    async def test_a_handset_reporting_too_often_is_refused_with_when_to_try_again(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        allowed = ReportingPolicy().requests_per_window
+        for _ in range(allowed):
+            assert (await send(api, tokens, [SCREENED_CALL[0]])).status_code == 200
+
+        refused = await send(api, tokens, [SCREENED_CALL[0]])
+
+        assert refused.status_code == 429
+        assert refused.json()["error"] == "rate_limited"
+        assert int(refused.headers["Retry-After"]) >= 1
 
 
 class TestIdempotency:
