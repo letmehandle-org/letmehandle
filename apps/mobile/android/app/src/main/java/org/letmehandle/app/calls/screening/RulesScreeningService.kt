@@ -3,12 +3,14 @@ package org.letmehandle.app.calls.screening
 import android.os.Build
 import android.telecom.Call
 import android.telecom.CallScreeningService
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import java.time.Instant
 import java.util.concurrent.Executors
 import org.letmehandle.app.calls.CallScreeningGraph
 import org.letmehandle.app.calls.FailureSummary
+import org.letmehandle.app.calls.rules.DialingCountry
 import org.letmehandle.app.calls.rules.ScreenedCaller
 import org.letmehandle.app.calls.rules.ScreeningDecision
 import org.letmehandle.app.calls.rules.ScreeningRules
@@ -35,16 +37,29 @@ class RulesScreeningService : CallScreeningService() {
     val graph = CallScreeningGraph.get(this)
     val caller =
         HandlePresentation.callerOf(callDetails.handlePresentation, callDetails.handle?.schemeSpecificPart)
+    // Read on the worker, because asking telephony is a call into another process and the main
+    // thread is the one the platform is waiting on.
+    val country = lazy { dialingCountry() }
     screener.screen(
-        evaluate = { ScreeningRules.evaluate(graph.readSnapshot(), caller, Instant.now()) },
+        evaluate = { ScreeningRules.evaluate(graph.readSnapshot(), caller, Instant.now(), country.value) },
         onFailure = { failure ->
           Log.e(CallScreeningGraph.TAG, "screening a call failed: ${FailureSummary.of(failure)}")
         },
     ) { screening ->
       respondToCall(callDetails, responseFor(screening.decision))
       Log.i(CallScreeningGraph.TAG, "screened: ${screening.decision} (${screening.reason})")
-      graph.ledger.screened((caller as? ScreenedCaller.Presented)?.number?.e164, screening.decision, Instant.now())
+      // Not asked for here when the evaluation never got as far: a response given on the deadline
+      // must not wait on the same stalled call that made it late.
+      val reached = if (country.isInitialized()) country.value else null
+      val number = (caller as? ScreenedCaller.Presented)?.number?.e164(reached)
+      graph.ledger.screened(number, screening.decision, Instant.now())
     }
+  }
+
+  /** The country the network is in, or the SIM's when the network has not said; null on neither. */
+  private fun dialingCountry(): DialingCountry? {
+    val telephony = getSystemService(TelephonyManager::class.java) ?: return null
+    return DialingCountry.of(telephony.networkCountryIso, telephony.simCountryIso)
   }
 
   companion object {

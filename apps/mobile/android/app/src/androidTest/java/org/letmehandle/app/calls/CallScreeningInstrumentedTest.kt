@@ -137,7 +137,7 @@ class CallScreeningInstrumentedTest {
 
     DeadlineScreener(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor())
         .screen(
-            { ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now()) },
+            { ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now(), country = null) },
             { failure -> throw AssertionError("screening failed", failure) },
             responses::add,
         )
@@ -153,7 +153,7 @@ class CallScreeningInstrumentedTest {
     val screened = ScreenedCaller.Presented(CallerNumber.parse(caller))
     assertEquals(
         Screening(ScreeningDecision.ALLOW, ScreeningReason.NO_RULES),
-        ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now()),
+        ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now(), country = null),
     )
   }
 

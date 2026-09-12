@@ -38,8 +38,14 @@ class ScreeningRulesTest {
 
   private val londonNights = QuietHours(LocalTime.of(22, 0), LocalTime.of(7, 0), ZoneId.of("Europe/London"))
 
-  private fun decide(snapshot: CallRulesSnapshot?, caller: ScreenedCaller = stranger, at: Instant = noon) =
-      ScreeningRules.evaluate(snapshot, caller, at)
+  private val unitedStates = DialingCountry.of(networkIso = "us", simIso = null)
+
+  private fun decide(
+      snapshot: CallRulesSnapshot?,
+      caller: ScreenedCaller = stranger,
+      at: Instant = noon,
+      country: DialingCountry? = unitedStates,
+  ) = ScreeningRules.evaluate(snapshot, caller, at, country)
 
   @Test
   fun `with no rules the call rings`() {
@@ -132,6 +138,69 @@ class ScreeningRulesTest {
     val snapshot = rules(contacts = listOf(ImportantContact(contact, HandlingPosture.REJECT)))
     val caller = ScreenedCaller.Presented(CallerNumber.parse("202-555-0143"))
     assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.IMPORTANT_CONTACT), decide(snapshot, caller))
+  }
+
+  private data class MatchCase(
+      val name: String,
+      val delivered: String,
+      val country: DialingCountry?,
+      val contact: ImportantContact,
+      val at: Instant,
+      val expected: Screening,
+  )
+
+  @Test
+  fun `a contact is recognised in international form, and a guess from trailing digits only ever rings`() {
+    // Unknown callers ring, so any refusal or silence below comes from matching a contact.
+    val rejectedAbroad = ImportantContact("+447700900143", HandlingPosture.REJECT)
+    val rejectedInDenver = ImportantContact("+13035550143", HandlingPosture.REJECT)
+    val putThroughInDenver = ImportantContact("+13035550143", HandlingPosture.PASS_THROUGH)
+    val handledInDenver = ImportantContact("+13035550143", HandlingPosture.HANDLE_WITH_AGENT)
+    val ringsAsUnknown = Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE)
+    val table =
+        listOf(
+            // A national caller in the US shares ten trailing digits with a UK number: read as
+            // +1…, they are somebody else.
+            MatchCase("national caller, contact abroad", "770-090-0143", unitedStates, rejectedAbroad, noon, ringsAsUnknown),
+            // And with no country to read it by, a guess cannot reject.
+            MatchCase("national caller, no country", "770-090-0143", null, rejectedAbroad, noon, ringsAsUnknown),
+            // Seven digits is not a whole number anywhere in North America.
+            MatchCase("seven digits, rejected contact", "555-0143", unitedStates, rejectedInDenver, noon, ringsAsUnknown),
+            MatchCase(
+                "seven digits, contact put through",
+                "555-0143",
+                unitedStates,
+                putThroughInDenver,
+                lateEvening,
+                Screening(ScreeningDecision.ALLOW, ScreeningReason.IMPORTANT_CONTACT),
+            ),
+            // A contact whose posture could hide the call is not guessed at: the caller is unknown.
+            MatchCase("seven digits, contact handled", "555-0143", unitedStates, handledInDenver, noon, ringsAsUnknown),
+            // Placed exactly, a contact's own posture applies in full.
+            MatchCase(
+                "national caller read in its country",
+                "303-555-0143",
+                unitedStates,
+                rejectedInDenver,
+                noon,
+                Screening(ScreeningDecision.REJECT, ScreeningReason.IMPORTANT_CONTACT),
+            ),
+            MatchCase(
+                "international caller",
+                "+1 303 555 0143",
+                null,
+                rejectedInDenver,
+                noon,
+                Screening(ScreeningDecision.REJECT, ScreeningReason.IMPORTANT_CONTACT),
+            ),
+            MatchCase("international caller, another country", "+1 770 090 0143", null, rejectedAbroad, noon, ringsAsUnknown),
+        )
+    table.forEach { case ->
+      val snapshot =
+          rules(defaultPosture = HandlingPosture.PASS_THROUGH, quietHours = londonNights, contacts = listOf(case.contact))
+      val caller = ScreenedCaller.Presented(CallerNumber.parse(case.delivered))
+      assertEquals(case.name, case.expected, decide(snapshot, caller, case.at, case.country))
+    }
   }
 
   @Test

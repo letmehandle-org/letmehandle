@@ -128,6 +128,14 @@ product reads.
 - **Terminate.** Nobody on a server can hang up a handset's call. `terminate` releases the
   transport's interest: later reports for that call are still stored, and no longer published.
 
+- **Recognising a contact.** Contacts are stored in E.164, and a caller is compared in that form.
+  A network often delivers a domestic caller nationally, so the service reads the handset's
+  country — the network's, or the SIM's when the network has not said — and passes it into the
+  evaluation, which reads a national number internationally only when its form is a whole national
+  number in that country's plan (ten digits in North America; a trunk prefix where the plan has
+  one). When it cannot, agreeing trailing digits are a guess, and a guess only ever lets a call
+  ring: it counts for a contact the user put through, never for one to reject or hand over.
+
 What the platform does not show a screening service is not claimed: callers in the user's contacts
 and callers withholding their number always ring on this path. Should a call without a presented
 number reach the service anyway, only a restricted presentation — the caller's own choice — gets

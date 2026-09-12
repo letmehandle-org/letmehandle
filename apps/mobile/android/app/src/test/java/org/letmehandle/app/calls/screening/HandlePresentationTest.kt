@@ -25,7 +25,7 @@ class HandlePresentationTest {
       )
 
   private fun decisionFor(presentation: Int, handleNumber: String?): ScreeningDecision =
-      ScreeningRules.evaluate(refuseAnonymous, HandlePresentation.callerOf(presentation, handleNumber), now).decision
+      ScreeningRules.evaluate(refuseAnonymous, HandlePresentation.callerOf(presentation, handleNumber), now, country = null).decision
 
   @Test
   fun `a caller who restricted their number is anonymous`() {

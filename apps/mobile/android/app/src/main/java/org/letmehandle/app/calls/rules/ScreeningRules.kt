@@ -53,8 +53,9 @@ sealed interface ScreenedCaller {
 /**
  * The user's deterministic call rules, applied to one call.
  *
- * Pure: no clock, no storage, no platform. Everything it needs is passed in, which is what lets
- * every rule be tested on the JVM and what keeps it fast enough to never approach the deadline.
+ * Pure: no clock, no storage, no platform. Everything it needs is passed in — the time, and the
+ * country the handset is dialling in — which is what lets every rule be tested on the JVM and what
+ * keeps it fast enough to never approach the deadline.
  *
  * The order, and the reasons for it:
  *
@@ -64,7 +65,10 @@ sealed interface ScreenedCaller {
  *   2. A withheld number: the anonymous posture. A number that simply did not arrive rings, as a
  *      caller put through would — silenced in quiet hours, never rejected.
  *   3. An important contact: their own posture. A contact the user asked to put through rings
- *      during quiet hours too — that is what naming them was for.
+ *      during quiet hours too — that is what naming them was for. A contact is recognised by the
+ *      caller's number in international form. When a national number cannot be put in that form,
+ *      trailing digits that agree are only a guess, and a guess may let a call ring but never
+ *      refuse or hide one: it counts only for a contact the user asked to put through.
  *   4. Everybody else is an unknown caller. The handset does not classify callers, so the only
  *      category it can honestly apply is `unknown`: blocked, then its posture, then the default.
  *
@@ -73,7 +77,12 @@ sealed interface ScreenedCaller {
  * did not ask to hide is worse than letting it ring. Either of those is silenced in quiet hours.
  */
 object ScreeningRules {
-  fun evaluate(snapshot: CallRulesSnapshot?, caller: ScreenedCaller, now: Instant): Screening {
+  fun evaluate(
+      snapshot: CallRulesSnapshot?,
+      caller: ScreenedCaller,
+      now: Instant,
+      country: DialingCountry?,
+  ): Screening {
     if (snapshot == null) {
       return Screening(ScreeningDecision.ALLOW, ScreeningReason.NO_RULES)
     }
@@ -90,10 +99,7 @@ object ScreeningRules {
           is ScreenedCaller.Presented -> caller.number
         }
 
-    val contact =
-        presented?.let { number ->
-          snapshot.importantContacts.firstOrNull { number.matches(it.phoneNumber) }
-        }
+    val contact = presented?.let { importantContact(snapshot, it, country) }
     if (contact != null) {
       return if (contact.posture == HandlingPosture.PASS_THROUGH) {
         Screening(ScreeningDecision.ALLOW, ScreeningReason.IMPORTANT_CONTACT)
@@ -110,6 +116,21 @@ object ScreeningRules {
       decide(snapshot, categoryPosture, ScreeningReason.CATEGORY_POSTURE, now)
     } else {
       decide(snapshot, snapshot.defaultPosture, ScreeningReason.DEFAULT_POSTURE, now)
+    }
+  }
+
+  private fun importantContact(
+      snapshot: CallRulesSnapshot,
+      number: CallerNumber,
+      country: DialingCountry?,
+  ): ImportantContact? {
+    val international = number.e164(country)
+    return if (international != null) {
+      snapshot.importantContacts.firstOrNull { it.phoneNumber == international }
+    } else {
+      snapshot.importantContacts.firstOrNull {
+        it.posture == HandlingPosture.PASS_THROUGH && number.endsLike(it.phoneNumber)
+      }
     }
   }
 

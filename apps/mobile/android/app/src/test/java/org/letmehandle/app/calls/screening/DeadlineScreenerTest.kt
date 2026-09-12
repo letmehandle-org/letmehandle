@@ -131,7 +131,7 @@ class DeadlineScreenerTest {
     val caller = ScreenedCaller.Presented(CallerNumber.parse("+12025550145"))
 
     DeadlineScreener(worker, timer).screen(
-        { ScreeningRules.evaluate(snapshot = null, caller = caller, now = Instant.now()) },
+        { ScreeningRules.evaluate(snapshot = null, caller = caller, now = Instant.now(), country = null) },
         failures::add,
         responses::add,
     )
