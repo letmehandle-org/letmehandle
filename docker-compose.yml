@@ -32,8 +32,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-console}
       DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@postgres:5432/letmehandle
+      SPEECH_PROVIDER: ${SPEECH_PROVIDER:-realtime}
       SPEECH_ENDPOINT_URL: ${SPEECH_ENDPOINT_URL:-}
       SPEECH_MODEL: ${SPEECH_MODEL:-}
+      SPEECH_AGENT_ID: ${SPEECH_AGENT_ID:-}
       SPEECH_API_KEY: ${SPEECH_API_KEY:-}
       # Example voices, so the development stack starts. No speech service speaks them; set
       # SPEECH_VOICES and SPEECH_DEFAULT_VOICE in .env to your service's own.
