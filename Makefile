@@ -72,8 +72,9 @@ verify: audit lint typecheck test coverage api-types-check ## Everything. What p
 	@echo -e "\033[32mverify passed\033[0m"
 
 .PHONY: audit
-audit: ## Check that nothing private reached a tracked file
+audit: ## Check that nothing private reached a tracked file, or any commit
 	@python3 scripts/disclosure_audit.py
+	@python3 scripts/disclosure_audit.py --history
 	@if command -v gitleaks >/dev/null 2>&1; then \
 		gitleaks detect --redact --no-banner --config .gitleaks.toml; \
 	else \
