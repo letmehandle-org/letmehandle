@@ -24,6 +24,7 @@ from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import ORDER, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
+    PREFERENCES_VERSION,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -214,6 +215,15 @@ class TestCallHandlingAndHours:
         await service.apply(USER, PreferenceChanges(hours=Hours()))
 
         assert (await service.get(USER)).rules.quiet_hours is None
+
+
+class TestVersion:
+    async def test_a_change_leaves_the_set_at_today_s_version(
+        self, service: PreferencesService
+    ) -> None:
+        # What is handed back says the same thing the row it is about to become will say.
+        updated = await service.apply(USER, PreferenceChanges(locale="en-GB"))
+        assert updated.version == PREFERENCES_VERSION
 
 
 class TestVoice:

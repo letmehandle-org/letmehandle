@@ -15,7 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from letmehandle.domain.models.preferences import CallRules, UserPreferences
+from letmehandle.domain.models.preferences import (
+    PREFERENCES_VERSION,
+    CallRules,
+    UserPreferences,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -208,6 +212,10 @@ class PreferencesService:
         """
         return replace(
             base,
+            # Composing produces today's shape, whatever shape the stored row was in, so
+            # the set that is handed back says the same thing the row it is about to
+            # become will say.
+            version=PREFERENCES_VERSION,
             locale=base.locale if changes.locale is None else changes.locale,
             rules=_merge_rules(base.rules, changes),
             authority=base.authority if changes.authority is None else changes.authority,

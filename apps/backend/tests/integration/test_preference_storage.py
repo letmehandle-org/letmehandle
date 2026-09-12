@@ -156,6 +156,18 @@ class TestMapping:
     def test_the_version_is_recorded(self) -> None:
         assert preferences_to_document(everything())["version"] == PREFERENCES_VERSION
 
+    def test_a_document_read_at_an_older_version_is_written_back_at_this_one(self) -> None:
+        # The field describes the shape of the document, not where the row came from. A row
+        # that gained a version-2 field while still labelled 1 is a row no later migration can
+        # reason about: it cannot tell a value the user chose from one that did not exist when
+        # they answered.
+        older = preferences_to_document(everything())
+        older["version"] = 1
+
+        rewritten = preferences_to_document(document_to_preferences(older))
+
+        assert rewritten["version"] == PREFERENCES_VERSION
+
 
 class TestPreferencesRepository:
     async def test_nothing_stored_is_nothing(self, session: AsyncSession) -> None:

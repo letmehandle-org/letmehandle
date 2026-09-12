@@ -44,7 +44,11 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
     turns every save into a change and makes a diff between two versions unreadable.
     """
     return {
-        "version": preferences.version,
+        # Today's version, not the one this set was read at. The field describes the shape
+        # of the document being written, and a row that gains a version-2 field while still
+        # labelled 1 is a row no future migration can reason about: it cannot tell a value
+        # the user chose from one that did not exist when they answered.
+        "version": PREFERENCES_VERSION,
         "locale": preferences.locale,
         "formality": preferences.formality.value,
         "verbosity": preferences.verbosity.value,
