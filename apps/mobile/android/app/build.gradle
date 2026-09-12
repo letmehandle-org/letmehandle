@@ -128,6 +128,19 @@ android {
     }
 }
 
+// The call audio guard reads the manifest as merged, libraries included, because a permission a
+// dependency declares is granted to the app all the same. Declaring the artifact as an input is
+// also what makes the merge run before the tests.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def mergedManifest = variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST.INSTANCE)
+        tasks.matching { it.name == "test${variant.name.capitalize()}UnitTest" }.configureEach { task ->
+            task.inputs.file(mergedManifest).withPropertyName("mergedManifest")
+            task.jvmArgumentProviders.add({ ["-DmergedManifest=${mergedManifest.get().asFile.absolutePath}"] } as CommandLineArgumentProvider)
+        }
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
