@@ -11,6 +11,7 @@ import { theme } from '../theme';
 
 interface Props {
   readonly onOpenSection: (section: PreferenceSection) => void;
+  readonly onOpenVoice: () => void;
 }
 
 /**
@@ -19,8 +20,16 @@ interface Props {
  * Every section is here, including the ones onboarding let somebody skip. Nothing about this
  * product is set once: a preference that could only be given during setup would be one people
  * reinstall the application to change.
+ *
+ * The voice sits alongside them although it was never a setup question. Setup asks what the
+ * server says is left to ask, and the server has no voice step — which is a statement about
+ * what somebody must answer before their assistant can work, not about where they should later
+ * look for it.
  */
-export function SettingsScreen({ onOpenSection }: Props): React.JSX.Element {
+export function SettingsScreen({
+  onOpenSection,
+  onOpenVoice,
+}: Props): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
@@ -31,27 +40,51 @@ export function SettingsScreen({ onOpenSection }: Props): React.JSX.Element {
       testID="settings-screen"
     >
       {PREFERENCE_SECTIONS.map(section => (
-        <Pressable
+        <Row
           key={section}
-          accessibilityRole="button"
-          accessibilityLabel={t(`preferences.${section}.title`)}
+          title={t(`preferences.${section}.title`)}
+          subtitle={t(`preferences.${section}.subtitle`)}
           testID={`settings-open-${section}`}
           onPress={() => {
             onOpenSection(section);
           }}
-          style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-        >
-          <View style={styles.rowText}>
-            <Text style={styles.title}>
-              {t(`preferences.${section}.title`)}
-            </Text>
-            <Text style={styles.subtitle}>
-              {t(`preferences.${section}.subtitle`)}
-            </Text>
-          </View>
-        </Pressable>
+        />
       ))}
+
+      <Row
+        title={t('voice.title')}
+        subtitle={t('voice.subtitle')}
+        testID="settings-open-voice"
+        onPress={onOpenVoice}
+      />
     </Screen>
+  );
+}
+
+function Row({
+  title,
+  subtitle,
+  testID,
+  onPress,
+}: {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly testID: string;
+  readonly onPress: () => void;
+}): React.JSX.Element {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      testID={testID}
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      <View style={styles.rowText}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.subtitle}>{subtitle}</Text>
+      </View>
+    </Pressable>
   );
 }
 
