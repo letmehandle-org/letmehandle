@@ -115,7 +115,7 @@ class World:
                 participants=(),
                 ended_at=NOW,
             )
-            await SqlCallRepository(session, self.clock).save(call)
+            await SqlCallRepository(session, CIPHER, self.clock).save(call)
             await SqlTranscriptRepository(session, CIPHER).append(
                 user_id,
                 call.id,
@@ -198,7 +198,9 @@ class TestWhatIsDeleted:
         assert await world.remaining(ALICE, "call-1") == []
         assert await world.summary_exists(ALICE, "call-1")
         async with unit_of_work(world.factory) as session:
-            assert await SqlCallRepository(session, world.clock).get(ALICE, CallId("call-1"))
+            assert await SqlCallRepository(session, CIPHER, world.clock).get(
+                ALICE, CallId("call-1")
+            )
 
     async def test_each_user_s_own_retention_decides_and_nobody_else_s(
         self, engine: AsyncEngine

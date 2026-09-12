@@ -181,6 +181,13 @@ dump. A scheduled purge deletes expired rows, and the purge is tested.
 Retention is a user-facing setting with a documented floor and ceiling. The structured call
 summary is retained separately and outlives the transcript.
 
+*Amended:* who called is sealed alongside transcripts and summaries — the caller's number and
+display name on the call record, under the same cipher and key id, bound to the user and the
+call. The summary already sealed who the caller was taken to be; a plain column beside it on
+the call would leave a dump saying who called whom all the same, and a phone number is as
+personal as anything said on the line. The category stays readable, being a classification
+rather than an identity, and history decrypts the caller per row.
+
 ## D-015 — Notifications: direct APNs and direct FCM, one adapter each
 
 **Accepted.** Two adapters behind one `NotificationProvider` port. The iOS path does not

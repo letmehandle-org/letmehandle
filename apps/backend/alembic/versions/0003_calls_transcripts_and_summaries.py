@@ -26,8 +26,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("state", sa.String(32), nullable=False),
-        sa.Column("caller_number", sa.String(16), nullable=True),
-        sa.Column("caller_display_name", sa.Text(), nullable=True),
+        # Who called, sealed: the number and the name, bound to the owner and the call.
+        sa.Column("key_id", sa.String(16), nullable=False),
+        sa.Column("caller_ciphertext", sa.LargeBinary(), nullable=False),
         sa.Column("caller_category", sa.String(32), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),

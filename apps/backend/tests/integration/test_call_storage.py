@@ -7,6 +7,7 @@ somebody said sitting in the database where a dump could read it.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -99,7 +100,7 @@ def a_call(
 
 @pytest.fixture
 def calls(session: AsyncSession) -> SqlCallRepository:
-    return SqlCallRepository(session, FixedClock(NOW))
+    return SqlCallRepository(session, AesGcmTranscriptCipher([KEY_A]), FixedClock(NOW))
 
 
 @pytest.fixture
@@ -170,6 +171,44 @@ class TestCalls:
         assert stored is not None
         assert stored.participants == (Participant(ParticipantRole.CALLER, NOW, later(5)),)
 
+    async def test_who_called_is_not_stored_in_clear(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        # The summary seals who the caller was taken to be; a plain column beside it would
+        # leave a dump saying who called whom all the same.
+        await users(session)
+        await calls.save(a_call())
+        await assert_nowhere_in(session, "calls", 1, CALLER_NUMBER.value)
+        await assert_nowhere_in(session, "calls", 1, "Parcel desk")
+
+    async def test_a_withheld_caller_round_trips_sealed(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        await users(session)
+        call = CallSession(id=CallId("call-1"), user_id=ME, caller=Caller(), started_at=NOW)
+        await calls.save(call)
+        assert await calls.get(ME, call.id) == call
+
+    async def test_a_caller_moved_onto_another_call_no_longer_opens(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        await users(session)
+        await calls.save(a_call("call-1"))
+        await calls.save(
+            CallSession(id=CallId("call-2"), user_id=ME, caller=Caller(), started_at=later(5))
+        )
+        await session.execute(
+            text(
+                "UPDATE calls SET caller_ciphertext = "
+                "(SELECT caller_ciphertext FROM calls WHERE id = 'call-1') WHERE id = 'call-2'"
+            )
+        )
+
+        with pytest.raises(DecryptionError):
+            await calls.get(ME, CallId("call-2"))
+        with pytest.raises(DecryptionError):
+            await calls.list_for_user(ME, limit=10)
+
     async def test_one_user_cannot_read_another_s_call(
         self, session: AsyncSession, calls: SqlCallRepository
     ) -> None:
@@ -217,16 +256,21 @@ class TestDatabaseErrors:
                 with pytest.raises(IntegrityError) as raised:
                     await connection.execute(
                         text(
-                            "INSERT INTO calls (id, user_id, state, caller_number, "
-                            "caller_display_name, caller_category, started_at, updated_at) "
-                            "VALUES (:id, :user_id, 'received', :number, :name, 'delivery', "
-                            ":now, :now)"
+                            "INSERT INTO user_preferences (user_id, version, document, updated_at) "
+                            "VALUES (:user_id, 3, CAST(:document AS jsonb), :now)"
                         ),
                         {
-                            "id": "call-1",
                             "user_id": "nobody",
-                            "number": CALLER_NUMBER.value,
-                            "name": "Wrenfield Parcel Desk",
+                            "document": json.dumps(
+                                {
+                                    "important_contacts": [
+                                        {
+                                            "number": CALLER_NUMBER.value,
+                                            "label": "Wrenfield Parcel Desk",
+                                        }
+                                    ]
+                                }
+                            ),
                             "now": NOW,
                         },
                     )

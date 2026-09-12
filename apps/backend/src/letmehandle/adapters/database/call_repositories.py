@@ -1,8 +1,9 @@
 """Calls, transcripts and summaries, implemented against PostgreSQL.
 
-In a module of their own because two of the three hold a cipher, and nothing else in the
-database adapter does: whatever a transcript or a summary says is sealed before it reaches a
-statement and opened after it leaves one, so no plaintext ever becomes a bound parameter.
+In a module of their own because all three hold a cipher, and nothing else in the database
+adapter does: whatever a transcript or a summary says, and who the caller was, is sealed before
+it reaches a statement and opened after it leaves one, so none of it ever becomes a bound
+parameter.
 
 Every read filters by the owner, and every write against a call first proves the call is the
 writer's. The composite foreign keys underneath enforce the same thing a second time.
@@ -65,16 +66,49 @@ async def _owns_call(session: AsyncSession, user_id: UserId, call_id: CallId) ->
     return bool(result.scalar_one())
 
 
+def _identity_to_document(caller: Caller) -> dict[str, str | None]:
+    """Who the caller is: the half of a `Caller` that identifies a person."""
+    return {
+        "number": None if caller.number is None else caller.number.value,
+        "display_name": caller.display_name,
+    }
+
+
+def _caller_from(identity: dict[str, Any], category: str) -> Caller:
+    return Caller(
+        number=None if identity["number"] is None else PhoneNumber(identity["number"]),
+        display_name=identity["display_name"],
+        category=CallerCategory(category),
+    )
+
+
+def _caller_context(user_id: str, call_id: str) -> tuple[str, ...]:
+    """What a call's sealed caller is bound to, so it opens on no other call or user's row."""
+    return ("caller", user_id, call_id)
+
+
 class SqlCallRepository(CallRepository):
-    def __init__(self, session: AsyncSession, clock: Clock) -> None:
+    """Calls, with who called sealed.
+
+    The number and the name are sealed together, under the same key and bound to the owner and
+    the call; the category stays a column, being a classification rather than an identity. A
+    withheld caller is sealed too, so a dump cannot tell which calls had a number.
+    """
+
+    def __init__(self, session: AsyncSession, cipher: TranscriptCipher, clock: Clock) -> None:
         self._session = session
+        self._cipher = cipher
         self._clock = clock
 
     async def save(self, call: CallSession) -> None:
+        sealed = self._cipher.seal(
+            json.dumps(_identity_to_document(call.caller)).encode(),
+            _caller_context(call.user_id.value, call.id.value),
+        )
         values = {
             "state": call.state.value,
-            "caller_number": None if call.caller.number is None else call.caller.number.value,
-            "caller_display_name": call.caller.display_name,
+            "key_id": sealed.key_id,
+            "caller_ciphertext": sealed.ciphertext,
             "caller_category": call.caller.category.value,
             "ended_at": call.ended_at,
             "updated_at": self._clock.now(),
@@ -124,7 +158,7 @@ class SqlCallRepository(CallRepository):
         if row is None:
             return None
         participants = await self._participants([row.id])
-        return _to_call(row, participants.get(row.id, ()))
+        return self._to_call(row, participants.get(row.id, ()))
 
     async def list_for_user(
         self, user_id: UserId, *, limit: int, after: CallCursor | None = None
@@ -142,7 +176,7 @@ class SqlCallRepository(CallRepository):
         rows = list(result.scalars().all())
         page, more = rows[:limit], len(rows) > limit
         participants = await self._participants([row.id for row in page])
-        calls = tuple(_to_call(row, participants.get(row.id, ())) for row in page)
+        calls = tuple(self._to_call(row, participants.get(row.id, ())) for row in page)
         last = page[-1] if more else None
         return CallPage(
             calls=calls,
@@ -164,21 +198,22 @@ class SqlCallRepository(CallRepository):
             )
         return {call_id: tuple(each) for call_id, each in grouped.items()}
 
-
-def _to_call(row: CallRow, participants: tuple[Participant, ...]) -> CallSession:
-    return CallSession.restore(
-        id=CallId(row.id),
-        user_id=UserId(row.user_id),
-        caller=Caller(
-            number=None if row.caller_number is None else PhoneNumber(row.caller_number),
-            display_name=row.caller_display_name,
-            category=CallerCategory(row.caller_category),
-        ),
-        started_at=row.started_at,
-        state=CallState(row.state),
-        participants=participants,
-        ended_at=row.ended_at,
-    )
+    def _to_call(self, row: CallRow, participants: tuple[Participant, ...]) -> CallSession:
+        identity = json.loads(
+            self._cipher.open(
+                SealedBytes(row.key_id, row.caller_ciphertext),
+                _caller_context(row.user_id, row.id),
+            )
+        )
+        return CallSession.restore(
+            id=CallId(row.id),
+            user_id=UserId(row.user_id),
+            caller=_caller_from(identity, row.caller_category),
+            started_at=row.started_at,
+            state=CallState(row.state),
+            participants=participants,
+            ended_at=row.ended_at,
+        )
 
 
 def _transcript_context(
@@ -306,11 +341,7 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
 def _summary_to_document(summary: CallSummary) -> dict[str, Any]:
     caller = summary.caller
     return {
-        "caller": {
-            "number": None if caller.number is None else caller.number.value,
-            "display_name": caller.display_name,
-            "category": caller.category.value,
-        },
+        "caller": {**_identity_to_document(caller), "category": caller.category.value},
         "headline": summary.headline,
         "details": [
             {"label": each.label, "value": each.value, "evidence": each.evidence}
@@ -375,11 +406,7 @@ class SqlSummaryRepository(SummaryRepository):
         caller = document["caller"]
         return CallSummary(
             call_id=CallId(row.call_id),
-            caller=Caller(
-                number=None if caller["number"] is None else PhoneNumber(caller["number"]),
-                display_name=caller["display_name"],
-                category=CallerCategory(caller["category"]),
-            ),
+            caller=_caller_from(caller, caller["category"]),
             intent=CallIntent(row.intent),
             importance=CallImportance(row.importance),
             outcome=CallOutcome(row.outcome),

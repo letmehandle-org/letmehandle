@@ -28,7 +28,6 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
-    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -165,7 +164,8 @@ class CallRow(Base):
 
     Relational rather than a document, unlike preferences (D-022). A call is queried across time
     — a user's history, newest first, a page at a time — so what is filtered and sorted on is a
-    column with an index behind it. Nothing anybody said is here.
+    column with an index behind it. Nothing anybody said is here, and who called is sealed like
+    a transcript (D-014): a dump of this table says a user had a call, never with whom.
     """
 
     __tablename__ = "calls"
@@ -175,9 +175,10 @@ class CallRow(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     state: Mapped[str] = mapped_column(String(32), nullable=False)
-    # E.164, or nothing for a withheld number.
-    caller_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    caller_display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Which key sealed the caller, and the caller's number and name, sealed together with the
+    # owner and the call as context. Sealed even when the number was withheld.
+    key_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    caller_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     caller_category: Mapped[str] = mapped_column(String(32), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
