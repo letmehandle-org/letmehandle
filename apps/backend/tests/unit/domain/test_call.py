@@ -17,6 +17,7 @@ from letmehandle.domain.models.call import (
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId, UserId
+from letmehandle.domain.models.phone_number import PhoneNumber
 
 START = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -175,6 +176,26 @@ class TestTranscript:
         call.record(Speaker.CALLER, "Hello", START)
         assert isinstance(call.transcript, tuple)
         assert len(call.transcript) == 1
+
+
+class TestRepresentation:
+    def test_neither_a_call_nor_an_entry_prints_what_was_said_or_who_said_it(self) -> None:
+        # A repr is what a debugger, a log line or a failing assertion prints.
+        call = CallSession(
+            id=CallId("call-1"),
+            user_id=UserId("user-1"),
+            caller=Caller(
+                number=PhoneNumber.parse("+12025550123"), display_name="Wrenfield Parcel Desk"
+            ),
+            started_at=START,
+        )
+        call.record(Speaker.CALLER, "the gate code is violet-kestrel-5521", START)
+
+        printed = repr(call) + repr(call.transcript[0])
+
+        for secret in ("violet-kestrel", "5550123", "Wrenfield"):
+            assert secret not in printed
+        assert "call-1" in printed
 
 
 class TestEscalationSequence:

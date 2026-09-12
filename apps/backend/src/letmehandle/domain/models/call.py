@@ -73,7 +73,8 @@ class TranscriptEntry:
     """
 
     speaker: Speaker
-    text: str
+    # Out of the repr: a repr is what a log line or a failing assertion prints.
+    text: str = field(repr=False)
     at_instant: datetime
 
     def __post_init__(self) -> None:

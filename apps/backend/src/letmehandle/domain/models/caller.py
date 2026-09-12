@@ -7,7 +7,7 @@ answer deliberately.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -44,8 +44,10 @@ class Caller:
     user's rules care about rather than an error.
     """
 
-    number: PhoneNumber | None = None
-    display_name: str | None = None
+    # Out of the repr, which is what a debugger, a log line or a failing assertion prints: who
+    # called is as personal as what they said. The category stays, being what a reader debugs by.
+    number: PhoneNumber | None = field(default=None, repr=False)
+    display_name: str | None = field(default=None, repr=False)
     category: CallerCategory = CallerCategory.UNKNOWN
 
     def __post_init__(self) -> None:
