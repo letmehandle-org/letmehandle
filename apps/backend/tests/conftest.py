@@ -30,6 +30,10 @@ SETTINGS_VARIABLES = (
 def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for name in SETTINGS_VARIABLES:
         monkeypatch.delenv(name, raising=False)
+    # The same reason, for the file: a developer's own `.env` would otherwise be read by every
+    # test that builds settings from the environment, and a test proving the process refuses
+    # to start without a catalogue would pass or fail depending on whose machine it ran on.
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
