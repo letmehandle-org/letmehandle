@@ -2,19 +2,15 @@
 
 Rendered from the preference context and nothing else, so what a caller could coax out of the
 model is bounded by what `application/preferences/context.py` lets through — and that file keeps
-contact numbers out. JSON with sorted keys, over tuples the context already sorted: the same call
-renders the same bytes, in every process.
-
-What the assistant may and may not do is said from the call's authority, the grant the tools
-enforce, rather than from the copy the context was built with. A model told it may do something a
-tool will then refuse is a model that promises the caller something and has to take it back.
+contact numbers out. The rendering is `preferences_as_data`, the same one the system prompt carries,
+so the model is never shown two accounts of the same user.
 """
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.agent.prompts import preferences_as_data
 from letmehandle.application.agent.tool import ToolResult, ToolSpec
 from letmehandle.application.agent.tools.arguments import object_schema
 from letmehandle.application.agent.tools.base import CheckedTool
@@ -24,8 +20,6 @@ if TYPE_CHECKING:
 
     from letmehandle.application.agent.ports import CallSoFar
     from letmehandle.application.agent.tool import ToolOutcome
-    from letmehandle.application.preferences.context import PreferenceContext
-    from letmehandle.domain.models.authority import AgentAuthority
 
 _SPEC: Final = ToolSpec(
     name="get_user_preferences",
@@ -36,46 +30,6 @@ _SPEC: Final = ToolSpec(
     ),
     parameters=object_schema({}),
 )
-
-
-def render_preferences(context: PreferenceContext, authority: AgentAuthority) -> str:
-    """The context as the model reads it. Deterministic, and free of any phone number."""
-    return json.dumps(
-        {
-            "locale": context.locale,
-            "tone": context.tone,
-            "length": context.length,
-            "default_handling": context.default_posture.value,
-            "anonymous_caller_handling": context.anonymous_posture.value,
-            "handling_by_caller_category": {
-                category.value: posture.value for category, posture in context.posture_by_category
-            },
-            "blocked_caller_categories": [
-                category.value for category in context.blocked_categories
-            ],
-            "reach_the_user_at_or_above": context.escalate_at_or_above.name.lower(),
-            "in_quiet_hours": context.in_quiet_hours,
-            "in_working_hours": context.in_working_hours,
-            "you_may": [
-                statement.description
-                for statement in context.capabilities
-                if authority.allows(statement.capability)
-            ],
-            "you_may_not": [
-                statement.description
-                for statement in context.capabilities
-                if not authority.allows(statement.capability)
-            ],
-            "important_contacts": [
-                {"label": contact.label, "handling": contact.posture.value}
-                for contact in context.important_contacts
-            ],
-            "topics_the_user_cares_about": list(context.topics),
-            "facts_you_may_share": list(context.disclosable_facts),
-        },
-        sort_keys=True,
-        ensure_ascii=False,
-    )
 
 
 class GetUserPreferences(CheckedTool[None]):
@@ -89,4 +43,4 @@ class GetUserPreferences(CheckedTool[None]):
         return None
 
     async def _act(self, call: CallSoFar, parsed: None) -> ToolOutcome:
-        return ToolResult(render_preferences(call.preferences, call.authority))
+        return ToolResult(preferences_as_data(call.preferences, call.authority))

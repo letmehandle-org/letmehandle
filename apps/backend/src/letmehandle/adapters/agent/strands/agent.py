@@ -107,7 +107,9 @@ class StrandsCallAgent(CallAgent):
         agent = Agent(
             model=self._model,
             tools=[present(tool, call, ledger) for tool in self._tools(ledger.notes)],
-            system_prompt=prompts.system_prompt(call.preferences, assessment_tool=ASSESSMENT_TOOL),
+            system_prompt=prompts.system_prompt(
+                call.preferences, call.authority, assessment_tool=ASSESSMENT_TOOL
+            ),
             # The default handler prints what the model streams, which is the call, to stdout.
             callback_handler=None,
             # The default manager trims history to fit, which would silently drop the start of a
