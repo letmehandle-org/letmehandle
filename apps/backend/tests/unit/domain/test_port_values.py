@@ -10,8 +10,14 @@ from __future__ import annotations
 import pytest
 
 from letmehandle.domain.errors import InvariantError
-from letmehandle.domain.models.identifiers import CallId
-from letmehandle.domain.ports.call_transport import TransportCapabilities
+from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.ports.call_transport import (
+    CallEvent,
+    CallEventKind,
+    ParticipantOutcome,
+    ParticipantRole,
+    TransportCapabilities,
+)
 from letmehandle.domain.ports.llm import Message, Role
 from letmehandle.domain.ports.notification import (
     DevicePlatform,
@@ -64,6 +70,66 @@ class TestTransportCapabilities:
             "supports_three_way_call",
             "supports_native_ringing",
         }
+
+
+class TestCallEvents:
+    """The shapes an event may take, so every consumer reads one the same way."""
+
+    @staticmethod
+    def event(
+        kind: CallEventKind,
+        participant: ParticipantRole | None = None,
+        outcome: ParticipantOutcome | None = None,
+    ) -> CallEvent:
+        return CallEvent(kind, CallId("c"), EventId("e"), participant=participant, outcome=outcome)
+
+    def test_a_participant_event_says_whom_it_is_about(self) -> None:
+        # The assistant's leg dropping and the user hanging up call for opposite responses.
+        with pytest.raises(InvariantError, match="which participant"):
+            self.event(CallEventKind.PARTICIPANT_LEFT)
+
+    def test_an_event_about_the_whole_call_names_no_participant(self) -> None:
+        with pytest.raises(InvariantError, match="which participant"):
+            self.event(CallEventKind.ENDED, ParticipantRole.USER)
+
+    @pytest.mark.parametrize("outcome", [None, ParticipantOutcome.ANSWERED])
+    def test_an_unreachable_participant_says_why(self, outcome: ParticipantOutcome | None) -> None:
+        # A caller is waiting for somebody who is not coming, and what to do depends on why.
+        with pytest.raises(InvariantError, match="outcome other than answered"):
+            self.event(CallEventKind.PARTICIPANT_UNREACHABLE, ParticipantRole.USER, outcome)
+
+    def test_leaving_has_no_dialling_outcome(self) -> None:
+        with pytest.raises(InvariantError, match="dialling outcome"):
+            self.event(
+                CallEventKind.PARTICIPANT_LEFT, ParticipantRole.USER, ParticipantOutcome.BUSY
+            )
+
+    def test_a_participant_who_joined_was_answered(self) -> None:
+        with pytest.raises(InvariantError, match="was answered"):
+            self.event(
+                CallEventKind.PARTICIPANT_JOINED, ParticipantRole.USER, ParticipantOutcome.BUSY
+            )
+
+    def test_only_a_person_can_be_answered_by_a_machine(self) -> None:
+        with pytest.raises(InvariantError, match="machine"):
+            self.event(
+                CallEventKind.PARTICIPANT_UNREACHABLE,
+                ParticipantRole.ASSISTANT,
+                ParticipantOutcome.ANSWERED_BY_MACHINE,
+            )
+
+    def test_the_shapes_that_are_allowed(self) -> None:
+        self.event(CallEventKind.INCOMING)
+        self.event(CallEventKind.PARTICIPANT_JOINED, ParticipantRole.ASSISTANT)
+        self.event(
+            CallEventKind.PARTICIPANT_JOINED, ParticipantRole.USER, ParticipantOutcome.ANSWERED
+        )
+        unreachable = self.event(
+            CallEventKind.PARTICIPANT_UNREACHABLE,
+            ParticipantRole.USER,
+            ParticipantOutcome.ANSWERED_BY_MACHINE,
+        )
+        assert unreachable.outcome is ParticipantOutcome.ANSWERED_BY_MACHINE
 
 
 class TestMessages:

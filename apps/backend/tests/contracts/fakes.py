@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING, TypeVar
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFormat, AudioFrame
 from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
 from letmehandle.domain.ports.call_transport import (
+    AssistantPresence,
     CallEvent,
     CallEventKind,
     CallTransport,
@@ -370,6 +372,7 @@ class StreamingTransport(CallTransport):
         self.removed: list[PhoneNumber] = []
         self.incoming: list[AudioFrame] = []
         self.pending: list[CallEvent] = []
+        self.presences: list[AssistantPresence] = []
 
     @property
     def name(self) -> str:
@@ -404,11 +407,55 @@ class StreamingTransport(CallTransport):
     def audio_format(self) -> AudioFormat:
         return SPEECH_WIDEBAND
 
+    def audio_source(self, call_id: CallId) -> AudioSource:
+        return _ListSource(self.incoming, self.audio_format())
+
+    def audio_sink(self, call_id: CallId) -> AudioSink:
+        return _ListSink(self.injected, self.audio_format())
+
     async def add_participant(self, call_id: CallId, number: PhoneNumber) -> None:
         self.participants.append(number)
 
     async def remove_participant(self, call_id: CallId, number: PhoneNumber) -> None:
         self.removed.append(number)
+
+    async def set_assistant_presence(self, call_id: CallId, presence: AssistantPresence) -> None:
+        self.presences.append(presence)
+
+
+class _ListSource(AudioSource):
+    """A call's audio that is already all there."""
+
+    def __init__(self, frames: list[AudioFrame], audio_format: AudioFormat) -> None:
+        self._frames = frames
+        self._format = audio_format
+
+    @property
+    def format(self) -> AudioFormat:
+        return self._format
+
+    async def frames(self) -> AsyncIterator[AudioFrame]:
+        for frame in self._frames:
+            yield frame
+
+
+class _ListSink(AudioSink):
+    """Plays into a list, and forgets what it has not played when told to."""
+
+    def __init__(self, played: list[AudioFrame], audio_format: AudioFormat) -> None:
+        self._played = played
+        self._format = audio_format
+        self.discards = 0
+
+    @property
+    def format(self) -> AudioFormat:
+        return self._format
+
+    async def write(self, frame: AudioFrame) -> None:
+        self._played.append(frame)
+
+    async def discard(self) -> None:
+        self.discards += 1
 
 
 class LyingTransport(CallTransport):
@@ -427,6 +474,7 @@ class LyingTransport(CallTransport):
     def capabilities(self) -> TransportCapabilities:
         return TransportCapabilities(
             can_bridge_human=True,
+            supports_three_way_call=True,
             can_screen_before_ringing=True,
             can_stream_call_audio_to_ai=True,
             can_inject_ai_audio=True,

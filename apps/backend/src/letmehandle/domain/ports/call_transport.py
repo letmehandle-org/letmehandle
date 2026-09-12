@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.caller import Caller
     from letmehandle.domain.models.identifiers import CallId, EventId
     from letmehandle.domain.models.phone_number import PhoneNumber
+    from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,8 +110,49 @@ class CallEventKind(StrEnum):
     ANSWERED = "answered"
     PARTICIPANT_JOINED = "participant_joined"
     PARTICIPANT_LEFT = "participant_left"
+    # A leg that was dialled and never joined. Its own kind rather than a `FAILED` with a
+    # detail string, because the orchestrator must act on it — the caller is waiting for
+    # somebody who is not coming — and a string is not something code should branch on.
+    PARTICIPANT_UNREACHABLE = "participant_unreachable"
     ENDED = "ended"
     FAILED = "failed"
+
+
+class ParticipantRole(StrEnum):
+    """Who, on a call with more than two parties, an event is about.
+
+    Needed as soon as a call can hold three: the assistant's leg dropping and the user hanging
+    up are both "a participant left", and they call for opposite responses. The caller leaving
+    is not reported with a role; it ends the call, and is reported as `ENDED`.
+    """
+
+    ASSISTANT = "assistant"
+    USER = "user"
+
+
+class ParticipantOutcome(StrEnum):
+    """How dialling a participant turned out.
+
+    Distinct values rather than joined-or-not, because each asks something different of the
+    orchestrator: an unanswered phone may be tried again, a busy one is in use, a failure is
+    not worth retrying, and a voicemail greeting must never be mistaken for the user joining.
+    None of them may leave the caller in silence, so none of them may be silent here.
+    """
+
+    ANSWERED = "answered"
+    NO_ANSWER = "no_answer"
+    BUSY = "busy"
+    FAILED = "failed"
+    ANSWERED_BY_MACHINE = "answered_by_machine"
+
+
+_PARTICIPANT_KINDS = frozenset(
+    {
+        CallEventKind.PARTICIPANT_JOINED,
+        CallEventKind.PARTICIPANT_LEFT,
+        CallEventKind.PARTICIPANT_UNREACHABLE,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +162,10 @@ class CallEvent:
     `event_id` is the provider's own, and it is what makes idempotency possible. Providers
     redeliver; the only reliable way to recognise a repeat is the identifier the provider
     assigned to it, not a heuristic over the contents.
+
+    `participant` says whom a participant event is about, and `outcome` how dialling them
+    turned out. Both are refused where they mean nothing, so that an event cannot be built
+    that one consumer reads one way and another reads the other.
     """
 
     kind: CallEventKind
@@ -127,6 +173,53 @@ class CallEvent:
     event_id: EventId
     caller: Caller | None = None
     detail: str | None = None
+    participant: ParticipantRole | None = None
+    outcome: ParticipantOutcome | None = None
+
+    def __post_init__(self) -> None:
+        is_participant_event = self.kind in _PARTICIPANT_KINDS
+        if is_participant_event != (self.participant is not None):
+            raise InvariantError(
+                "a participant event says which participant it is about, and no other event does"
+            )
+        if self.kind is CallEventKind.PARTICIPANT_UNREACHABLE and (
+            self.outcome is None or self.outcome is ParticipantOutcome.ANSWERED
+        ):
+            raise InvariantError(
+                "an unreachable participant carries an outcome other than answered"
+            )
+        if self.outcome is not None and self.kind not in {
+            CallEventKind.PARTICIPANT_JOINED,
+            CallEventKind.PARTICIPANT_UNREACHABLE,
+        }:
+            raise InvariantError("only joining, or failing to, has a dialling outcome")
+        if self.kind is CallEventKind.PARTICIPANT_JOINED and self.outcome not in {
+            None,
+            ParticipantOutcome.ANSWERED,
+        }:
+            raise InvariantError("a participant who joined was answered")
+        if self.outcome is ParticipantOutcome.ANSWERED_BY_MACHINE and (
+            self.participant is not ParticipantRole.USER
+        ):
+            raise InvariantError("only a person's phone can be answered by a machine")
+
+
+class AssistantPresence(StrEnum):
+    """What the assistant does once the user has joined the call.
+
+    The four things a three-party call allows, as a choice the policy makes rather than a
+    property of any transport. They take effect while the user is on the call; before the user
+    joins, and after the last one leaves, the assistant is audible to the caller, because an
+    assistant muted with nobody else on the line is a caller left in silence.
+
+    `LEAVE` is final for the assistant's leg: the assistant is gone and the call stands between
+    the caller and the user.
+    """
+
+    STAY = "stay"
+    LISTEN_ONLY = "listen_only"
+    SPEAK_TO_USER_ONLY = "speak_to_user_only"
+    LEAVE = "leave"
 
 
 class CallTransport(ABC):
@@ -135,9 +228,9 @@ class CallTransport(ABC):
     Implementations declare their capabilities honestly and implement only what they declare.
     The operations every transport must support are on this class; the ones that depend on a
     capability are on the protocols below, reached by narrowing through `screening`,
-    `audio_streaming` and `bridging`. A caller that has not narrowed cannot name those methods,
-    which is the static half of the guarantee; the narrowing functions are the runtime half,
-    and they catch a transport whose declaration and implementation disagree.
+    `audio_streaming`, `bridging` and `three_way`. A caller that has not narrowed cannot name
+    those methods, which is the static half of the guarantee; the narrowing functions are the
+    runtime half, and they catch a transport whose declaration and implementation disagree.
     """
 
     @property
@@ -197,6 +290,21 @@ class SupportsAudioStreaming(Protocol):
     def audio_format(self) -> AudioFormat:
         """The format this transport speaks, so the speech adapter can convert at its edge."""
 
+    def audio_source(self, call_id: CallId) -> AudioSource:
+        """The caller's audio as a conversation's source.
+
+        Here, and not built over `stream_audio` elsewhere, because the speech layer runs over a
+        source and a sink and should run over a call exactly as it runs over a microphone.
+        """
+
+    def audio_sink(self, call_id: CallId) -> AudioSink:
+        """Where the assistant's voice goes on the call, as a conversation's sink.
+
+        On the port because its `discard` cannot be written anywhere else: dropping audio the
+        call has been given and not yet played is something only the transport can ask of the
+        line. Without it, an interrupted assistant talks over the caller until its buffer drains.
+        """
+
 
 @runtime_checkable
 class SupportsBridging(Protocol):
@@ -212,6 +320,24 @@ class SupportsBridging(Protocol):
 
     async def remove_participant(self, call_id: CallId, number: PhoneNumber) -> None:
         """Take them off it, leaving the call standing."""
+
+
+@runtime_checkable
+class SupportsThreeWayCall(Protocol):
+    """A transport on which the caller, the assistant and the user can all be at once.
+
+    What the assistant does once the user has joined is policy, read from preferences. The
+    transport offers the choices and applies the one it is given; whether the user answered is
+    reported as call events, never returned from here, because a dial takes as long as a phone
+    rings and nothing should be waiting on it.
+    """
+
+    async def set_assistant_presence(self, call_id: CallId, presence: AssistantPresence) -> None:
+        """Choose what the assistant does while the user is on the call.
+
+        Applied at once when the user is already there, and when they join otherwise. Choosing
+        again after `LEAVE` is an illegal transition: that assistant has gone.
+        """
 
 
 def screening(transport: CallTransport) -> SupportsScreening:
@@ -236,4 +362,12 @@ def bridging(transport: CallTransport) -> SupportsBridging:
     transport.require("can_bridge_human")
     if not isinstance(transport, SupportsBridging):
         raise CapabilityNotSupportedError(transport.name, "can_bridge_human")
+    return transport
+
+
+def three_way(transport: CallTransport) -> SupportsThreeWayCall:
+    """Narrow to a transport that can hold the caller, the assistant and the user at once."""
+    transport.require("supports_three_way_call")
+    if not isinstance(transport, SupportsThreeWayCall):
+        raise CapabilityNotSupportedError(transport.name, "supports_three_way_call")
     return transport

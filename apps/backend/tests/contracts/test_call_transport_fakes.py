@@ -7,7 +7,7 @@ import pytest
 from letmehandle.domain.errors import CapabilityNotSupportedError
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.ports.call_transport import audio_streaming, bridging, screening
+from letmehandle.domain.ports.call_transport import audio_streaming, bridging, screening, three_way
 from tests.contracts.call_transport import CallTransportContract
 from tests.contracts.fakes import LyingTransport, ScreeningOnlyTransport, StreamingTransport
 
@@ -64,6 +64,11 @@ class TestDeclarationsAreChecked:
         with pytest.raises(CapabilityNotSupportedError) as failure:
             audio_streaming(LyingTransport())
         assert failure.value.capability == "can_stream_call_audio_to_ai"
+
+    def test_and_for_a_three_way_call(self) -> None:
+        with pytest.raises(CapabilityNotSupportedError) as failure:
+            three_way(LyingTransport())
+        assert failure.value.capability == "supports_three_way_call"
 
     async def test_a_truthful_transport_narrows_to_a_usable_object(self) -> None:
         transport = StreamingTransport()
