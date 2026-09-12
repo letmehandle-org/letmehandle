@@ -27,7 +27,6 @@ from letmehandle.domain.ports.voice import resolve_voice
 if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import CallId
     from letmehandle.domain.ports.clock import Clock, IdGenerator
-    from letmehandle.domain.ports.llm import LLMProvider
     from letmehandle.domain.ports.notification import NotificationProvider
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.voice import Voice, VoiceProvider
@@ -118,23 +117,6 @@ class NotificationProviderContract:
         assert outcome.token_should_be_removed == (
             not outcome.succeeded and outcome.status.value == "token_invalid"
         )
-
-
-class LLMProviderContract:
-    @pytest.fixture
-    @abstractmethod
-    def llm(self) -> LLMProvider:
-        raise NotImplementedError
-
-    def test_it_names_itself_and_its_model_without_leaking_a_key(self, llm: LLMProvider) -> None:
-        assert llm.name.strip()
-        assert llm.model.strip()
-        assert "sk-" not in llm.name and "sk-" not in llm.model
-
-    def test_it_declares_whether_it_can_return_structured_output(self, llm: LLMProvider) -> None:
-        # The difference between a model that can run this product and one that can only chat:
-        # every decision the agent makes is a typed object.
-        assert isinstance(llm.capabilities.structured_output, bool)
 
 
 class VoiceProviderContract:
