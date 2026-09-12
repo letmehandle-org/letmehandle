@@ -39,6 +39,9 @@ harness = [
 # The one way to start this application. The container uses it too, so the command a
 # contributor runs and the command production runs are the same code path.
 letmehandle = "letmehandle.main:main"
+# Deletes transcripts past their owner's retention. Run on a schedule, at least daily; safe to
+# repeat and to run concurrently. Needs DATABASE_URL and no transcript key.
+letmehandle-purge = "letmehandle.purge:main"
 
 [build-system]
 requires = ["hatchling"]
