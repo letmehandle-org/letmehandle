@@ -65,6 +65,17 @@ BASELINE = os.path.join("scripts", "disclosure_baseline.json")
 # the gate. Nothing else in the tree can be excluded.
 SELF = ("scripts/disclosure_audit.py", BASELINE.replace(os.sep, "/"))
 
+# Lockfiles are written by a package manager, not by a person, and they carry whatever upstream
+# put in a package's metadata — including a maintainer's address in a deprecation notice. That
+# is not this project disclosing anything, and blocking it would mean the project cannot have a
+# lockfile.
+#
+# The exemption is from the address rule and from that rule alone. A credential, an account
+# identifier, a phone number or a name in one of these files still fails, and gitleaks reads
+# them too.
+GENERATED = ("pnpm-lock.yaml", "apps/backend/uv.lock", "uv.lock")
+EMAIL_RULE = "an email address"
+
 # Identity terms: names, and the names of unrelated projects whose mention would say more
 # about who wrote this than about the code.
 IDENTITY_B64 = [
@@ -153,7 +164,7 @@ def compiled_tier2():
     return [(re.compile(p, re.I), why) for p, why in VOCABULARY]
 
 
-def scan_line(line, tier1, tier2):
+def scan_line(line, tier1, tier2, path=None):
     """Return (tier1 hits, tier2 hits) for one line."""
     # A permitted fictional number is removed before matching, so the phone rule can be
     # strict without making the test fixtures unwritable.
@@ -163,6 +174,8 @@ def scan_line(line, tier1, tier2):
     # A phone number that survived the fictional substitution is real enough to block.
     if re.search(r"\+\d{9,15}\b", cleaned):
         one.append("a phone number outside the ranges reserved for fiction")
+    if path in GENERATED:
+        one = [why for why in one if why != EMAIL_RULE]
     return one, two
 
 
@@ -212,7 +225,7 @@ def audit_tree():
         except OSError:
             continue
         for number, line in enumerate(lines, 1):
-            one, two = scan_line(line, tier1, tier2)
+            one, two = scan_line(line, tier1, tier2, path)
             for why in one:
                 blocking.append((f"{path}:{number}", why, line))
             if two:
@@ -273,7 +286,7 @@ def audit_range(args):
                 continue
             if path in SELF:
                 continue
-            one, two = scan_line(line[1:], tier1, tier2)
+            one, two = scan_line(line[1:], tier1, tier2, path)
             for why in one + two:
                 findings.append((f"{sha[:8]} {path}", why, line[1:]))
 
@@ -294,7 +307,7 @@ def audit_staged():
             continue
         if path in SELF:
             continue
-        one, two = scan_line(line[1:], tier1, tier2)
+        one, two = scan_line(line[1:], tier1, tier2, path)
         for why in one + two:
             findings.append((path, why, line[1:]))
     return 1 if report(findings, "staged changes carry text that must not be published") else 0
