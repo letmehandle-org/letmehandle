@@ -58,9 +58,11 @@ if TYPE_CHECKING:
 # callback is not the thing using the processor.
 _FRAME_MS = 20
 _SPEAKER_FORMAT = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
-# How much unplayed audio the speaker holds before writing waits. Without a ceiling a model
-# faster than real time fills memory; with one, the conversation feels the backpressure.
-_MAX_BUFFERED_SECONDS = 2.0
+# How much unplayed audio the speaker holds before writing waits. Small on purpose: audio handed to
+# a sink is audio the session counts as heard, and when the caller interrupts, what the speaker
+# was still holding is audio the model believes was said. The session holds the rest, where an
+# interruption can take it back.
+_MAX_BUFFERED_SECONDS = 0.3
 
 
 class MicrophoneSource(AudioSource):
