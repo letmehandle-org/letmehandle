@@ -27,6 +27,7 @@ export type AppStackParamList = {
   Settings: undefined;
   SettingsSection: { section: PreferenceSection };
   Voice: undefined;
+  CallScreening: undefined;
 };
 
 export const AUTH_ROUTES = {
@@ -45,4 +46,5 @@ export const APP_ROUTES = {
   settings: 'Settings',
   settingsSection: 'SettingsSection',
   voice: 'Voice',
+  callScreening: 'CallScreening',
 } as const satisfies Record<string, keyof AppStackParamList>;

@@ -15,12 +15,14 @@ from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
-from letmehandle.domain.models.identifiers import UserId
+from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.onboarding import OnboardingProgress
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import UserPreferences
 from letmehandle.domain.models.user import User
+from letmehandle.domain.ports.call_transport import CallEventKind
 from letmehandle.domain.ports.notification import DevicePlatform, DeviceToken
+from letmehandle.domain.ports.reported_calls import CallReport, CallReportRepository
 from letmehandle.domain.ports.repositories import (
     DeviceRepository,
     OnboardingRepository,
@@ -31,6 +33,7 @@ from letmehandle.domain.ports.repositories import (
 )
 
 from .models import (
+    CallReportRow,
     DeviceRow,
     OnboardingRow,
     OTPChallengeRow,
@@ -362,3 +365,44 @@ class SqlDeviceRepository(DeviceRepository):
             )
         )
         await self._session.flush()
+
+
+class SqlCallReportRepository(CallReportRepository):
+    """What each user's handset has reported, one row per event."""
+
+    def __init__(self, session: AsyncSession, clock: Clock) -> None:
+        self._session = session
+        self._clock = clock
+
+    async def record(self, user_id: UserId, report: CallReport) -> bool:
+        # One statement that either inserts or does nothing, so two deliveries of the same report
+        # racing each other cannot both be counted.
+        result = await self._session.execute(
+            insert(CallReportRow)
+            .values(
+                user_id=user_id.value,
+                event_id=report.event_id.value,
+                call_id=report.call_id.value,
+                kind=report.kind.value,
+                screening=None if report.screening is None else report.screening.value,
+                ending=None if report.ending is None else report.ending.value,
+                caller_number=None if report.caller_number is None else report.caller_number.value,
+                occurred_at=report.occurred_at,
+                received_at=self._clock.now(),
+            )
+            .on_conflict_do_nothing(index_elements=[CallReportRow.user_id, CallReportRow.event_id])
+        )
+        await self._session.flush()
+        return _affected(result) == 1
+
+    async def has_ended(self, user_id: UserId, call_id: CallId) -> bool:
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(CallReportRow)
+            .where(
+                CallReportRow.user_id == user_id.value,
+                CallReportRow.call_id == call_id.value,
+                CallReportRow.kind == CallEventKind.ENDED.value,
+            )
+        )
+        return int(result.scalar_one()) > 0

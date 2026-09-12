@@ -137,6 +137,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report what happened to this handset's calls */
+        post: operations["report_calls_v1_calls_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -285,6 +302,12 @@ export interface components {
             capabilities?: components["schemas"]["Capability"][];
         };
         /**
+         * CallEnding
+         * @description How a reported call ended.
+         * @enum {string}
+         */
+        CallEnding: "screened_out" | "missed" | "completed";
+        /**
          * CallHandlingPayload
          * @description What happens to a call before anybody has spoken to it.
          */
@@ -312,6 +335,38 @@ export interface components {
          * @enum {integer}
          */
         CallImportance: 10 | 20 | 30 | 40 | 50;
+        /** CallReportBatch */
+        CallReportBatch: {
+            /** Reports */
+            reports: components["schemas"]["CallReportPayload"][];
+        };
+        /** CallReportPayload */
+        CallReportPayload: {
+            /** Call Id */
+            call_id: string;
+            /** Caller Number */
+            caller_number?: string | null;
+            ending?: components["schemas"]["CallEnding"] | null;
+            /** Event Id */
+            event_id: string;
+            kind: components["schemas"]["ReportedCallKind"];
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            screening?: components["schemas"]["ScreeningDecision"] | null;
+        };
+        /**
+         * CallReportReceipt
+         * @description Which reports were stored now, and which had been already. The handset forgets both.
+         */
+        CallReportReceipt: {
+            /** Accepted */
+            accepted: string[];
+            /** Duplicates */
+            duplicates: string[];
+        };
         /**
          * CallerCategory
          * @description What kind of call this appears to be.
@@ -531,6 +586,22 @@ export interface components {
             /** Refresh Token */
             refresh_token: string;
         };
+        /**
+         * ReportedCallKind
+         * @description What a handset can observe about its own call. Nothing joins or leaves one visibly.
+         * @enum {string}
+         */
+        ReportedCallKind: "incoming" | "answered" | "ended";
+        /**
+         * ScreeningDecision
+         * @description What was done with a call before the handset rang.
+         *
+         *     Only produced where `can_screen_before_ringing` is declared. `SILENCE` is distinct from
+         *     `REJECT` because they mean different things to the caller: one rings out, the other is
+         *     refused, and a user choosing between them is choosing what the caller learns.
+         * @enum {string}
+         */
+        ScreeningDecision: "allow" | "reject" | "silence";
         /** SignOutRequest */
         SignOutRequest: {
             /** Refresh Token */
@@ -852,6 +923,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_calls_v1_calls_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallReportBatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallReportReceipt"];
                 };
             };
             /** @description Validation Error */

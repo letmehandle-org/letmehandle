@@ -355,3 +355,28 @@ its smallest, and the latency it adds is measured in this phase rather than assu
 What the provider's documentation does not settle — exactly what a participant's inbound audio
 contains, whether a held participant hears anything, the frame size — is verified on the first
 real call and recorded in the verification report, not guessed at in code.
+
+## D-028 — A handset's screening decision is made on the handset
+
+**Accepted.** Android gives a call screening service five seconds from `onScreenCall` to respond,
+and then rings regardless. No decision that needs the backend can be relied on inside that, so
+the handset decides: the app keeps a snapshot of the user's deterministic call rules, written
+whenever the preferences change, and the screening service evaluates it locally. A caller is
+never refused on rules the handset does not have: no snapshot, one older than seven days, one in a
+format the build does not read, a failed evaluation or an exhausted time budget all let the call
+ring.
+
+The backend represents the handset as `AndroidNativeCallTransport`, whose events the handset
+reports afterwards over an authenticated route, stored per user and idempotent by the handset's
+event id. That changes what screening means on the port. `SupportsScreening` states which
+decisions a transport can apply and how long the platform allows, and the decision taken is
+carried on the call's incoming event; there is no screening command, because one sent from the
+backend would arrive after the phone had rung. Answering is gated by
+`can_answer_under_program_control` for the same kind of reason: a handset's call is answered by
+the person holding it, and a port that offered `answer` on every transport would let one claim a
+call was taken while it was still ringing.
+
+What the platform does not give a screening service is not claimed: callers in the user's
+contacts and callers withholding their number are never shown to it and always ring, and the
+handset does not classify callers, so only important contacts and the `unknown` category apply
+there.

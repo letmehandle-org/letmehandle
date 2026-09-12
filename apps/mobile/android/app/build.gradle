@@ -92,6 +92,14 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    testOptions {
+        // The screening codecs are tested against the example documents the TypeScript side is
+        // tested against too, which live beside the app's JavaScript.
+        unitTests.all {
+            systemProperty "wireExamples", file("../../src/calls/wire-examples.json").absolutePath
+        }
     }
     signingConfigs {
         debug {
@@ -118,6 +126,14 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    testImplementation("junit:junit:4.13.2")
+    // The JVM test runtime stubs Android's own org.json; the real library is what the screening
+    // codecs are tested against.
+    testImplementation("org.json:json:20250517")
+
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

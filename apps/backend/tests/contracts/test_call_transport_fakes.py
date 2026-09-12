@@ -7,7 +7,13 @@ import pytest
 from letmehandle.domain.errors import CapabilityNotSupportedError
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.ports.call_transport import audio_streaming, bridging, screening, three_way
+from letmehandle.domain.ports.call_transport import (
+    answering,
+    audio_streaming,
+    bridging,
+    screening,
+    three_way,
+)
 from tests.contracts.call_transport import CallTransportContract
 from tests.contracts.fakes import LyingTransport, ScreeningOnlyTransport, StreamingTransport
 
@@ -26,6 +32,11 @@ class TestScreeningOnlyTransport(CallTransportContract):
         assert not transport.capabilities.can_stream_call_audio_to_ai
         assert not transport.capabilities.supports_agent_conversation
         assert not transport.capabilities.can_bridge_human
+
+    def test_it_cannot_answer_a_call_the_handset_owns(
+        self, transport: ScreeningOnlyTransport
+    ) -> None:
+        assert not transport.capabilities.can_answer_under_program_control
 
 
 class TestStreamingTransport(CallTransportContract):
@@ -53,6 +64,12 @@ class TestDeclarationsAreChecked:
         with pytest.raises(CapabilityNotSupportedError) as failure:
             bridging(LyingTransport())
         assert failure.value.capability == "can_bridge_human"
+
+    def test_the_same_holds_for_answering(self) -> None:
+        # The lying transport declares answering and has no method for it.
+        with pytest.raises(CapabilityNotSupportedError) as failure:
+            answering(LyingTransport())
+        assert failure.value.capability == "can_answer_under_program_control"
 
     def test_the_same_holds_for_screening(self) -> None:
         with pytest.raises(CapabilityNotSupportedError):

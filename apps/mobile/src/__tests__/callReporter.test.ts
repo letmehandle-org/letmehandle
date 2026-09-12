@@ -1,0 +1,153 @@
+/**
+ * Reporting the handset's calls: nothing forgotten before the backend has it, nothing sent twice
+ * at once, and nothing lost when the backend is away.
+ */
+import type {
+  CallReportBatch,
+  CallReportReceipt,
+} from '@letmehandle/api-client';
+
+import { CallReporter, REPORTS_PER_REQUEST } from '../calls/CallReporter';
+import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
+import { FakeNativeCallScreening } from './support/nativeCallScreening';
+
+function event(index: number): Record<string, unknown> {
+  return {
+    event_id: `event-${String(index).padStart(4, '0')}`,
+    call_id: `call-${index}`,
+    kind: 'incoming',
+    occurred_at: '2026-09-13T11:00:00Z',
+    screening: 'allow',
+  };
+}
+
+class RecordingSender {
+  readonly batches: CallReportBatch[] = [];
+  failNext = false;
+  /** Event ids the backend already has, so it answers for them as duplicates. */
+  readonly known = new Set<string>();
+  private release: (() => void) | null = null;
+
+  hold(): void {
+    this.release = null;
+    this.held = new Promise(resolve => {
+      this.release = resolve;
+    });
+  }
+
+  held: Promise<void> | null = null;
+
+  letGo(): void {
+    this.release?.();
+    this.held = null;
+  }
+
+  async reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
+    this.batches.push(batch);
+    if (this.held !== null) {
+      await this.held;
+    }
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('the backend is away');
+    }
+    const ids = batch.reports.map(report => report.event_id);
+    return {
+      accepted: ids.filter(id => !this.known.has(id)),
+      duplicates: ids.filter(id => this.known.has(id)),
+    };
+  }
+}
+
+function setUp(): {
+  native: FakeNativeCallScreening;
+  sender: RecordingSender;
+  reporter: CallReporter;
+} {
+  const native = new FakeNativeCallScreening();
+  const screening = callScreeningFrom(native) as CallScreening;
+  const sender = new RecordingSender();
+  return { native, sender, reporter: new CallReporter(screening, sender) };
+}
+
+describe('reporting what the handset observed', () => {
+  it('sends what is waiting and forgets it once the backend has it', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1), event(2)];
+
+    await reporter.drain();
+
+    expect(sender.batches).toHaveLength(1);
+    expect(sender.batches[0].reports.map(report => report.event_id)).toEqual([
+      'event-0001',
+      'event-0002',
+    ]);
+    expect(native.pending).toEqual([]);
+  });
+
+  it('forgets what the backend already had, too', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1), event(2)];
+    sender.known.add('event-0001');
+
+    await reporter.drain();
+
+    expect(native.pending).toEqual([]);
+  });
+
+  it('keeps everything when the backend is away, and sends it next time', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1)];
+    sender.failNext = true;
+
+    await expect(reporter.drain()).rejects.toThrow('away');
+    expect(native.pending).toHaveLength(1);
+
+    await reporter.drain();
+    expect(native.pending).toEqual([]);
+    expect(sender.batches).toHaveLength(2);
+  });
+
+  it('sends no more in one request than the backend accepts', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = Array.from({ length: REPORTS_PER_REQUEST + 1 }, (_, i) =>
+      event(i),
+    );
+
+    await reporter.drain();
+
+    expect(sender.batches.map(batch => batch.reports.length)).toEqual([
+      REPORTS_PER_REQUEST,
+      1,
+    ]);
+    expect(native.pending).toEqual([]);
+  });
+
+  it('sends nothing when nothing is waiting', async () => {
+    const { sender, reporter } = setUp();
+    await reporter.drain();
+    expect(sender.batches).toEqual([]);
+  });
+
+  it('runs one drain at a time, and once more for what arrived during it', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1)];
+    sender.hold();
+
+    const first = reporter.drain();
+    // Recorded while the first request is still out.
+    native.pending.push(event(2));
+    const second = reporter.drain();
+    expect(second).toBe(first);
+
+    sender.letGo();
+    await first;
+
+    const sent = sender.batches.flatMap(batch =>
+      batch.reports.map(report => report.event_id),
+    );
+    expect(sent.filter(id => id === 'event-0001')).toHaveLength(1);
+    expect(sent).toContain('event-0002');
+    expect(native.pending).toEqual([]);
+  });
+});

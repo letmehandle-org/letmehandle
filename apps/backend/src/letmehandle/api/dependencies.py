@@ -21,6 +21,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from letmehandle.adapters.database.repositories import (
+    SqlCallReportRepository,
     SqlOnboardingRepository,
     SqlOTPChallengeRepository,
     SqlPreferencesRepository,
@@ -29,6 +30,7 @@ from letmehandle.adapters.database.repositories import (
 )
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.calls.reports import CallReporting
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
@@ -169,6 +171,18 @@ def get_preferences_service(
     )
 
 
+def get_call_reporting(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CallReporting:
+    """Accepting a handset's reports about its calls, on this request's session."""
+    container = container_of(request)
+    return CallReporting(
+        reports=SqlCallReportRepository(session, container.clock),
+        sink=container.reported_calls,
+    )
+
+
 def get_voice_provider(request: Request) -> VoiceProvider:
     """The voices this deployment offers.
 
@@ -191,3 +205,4 @@ AuthService = Annotated[AuthenticationService, Depends(get_authentication_servic
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+CallReports = Annotated[CallReporting, Depends(get_call_reporting)]

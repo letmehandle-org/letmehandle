@@ -38,25 +38,54 @@ Capabilities declared: `can_stream_call_audio_to_ai`, `can_inject_ai_audio`,
 ### `AndroidNativeCallTransport` — the on-device path, default on Android
 
 Capabilities declared: `can_screen_before_ringing`, `supports_native_ringing`. Not
-`can_stream_call_audio_to_ai`, not `can_inject_ai_audio`, not `can_bridge_human`.
+`can_answer_under_program_control`, not `can_stream_call_audio_to_ai`, not `can_inject_ai_audio`,
+not `can_bridge_human`.
 
 That declaration is the important part of this phase. The platform's call screening gives an
 application the caller's identity before the handset rings; it does not give it the audio of a
 SIM call. This transport therefore claims no AI conversation, and the product offers none on
 this path rather than offering one that cannot work.
 
-- **`CallScreeningService`.** A Kotlin implementation receiving a call before it rings,
-  consulting the user's rules through the bridge, and responding: allow, reject, or silence.
-- **`InCallService`.** Implemented only where a decision genuinely needs it. It requires the
-  default-dialer role, which is a large thing to ask of a user, so it is not taken on for
-  convenience.
-- **Native call state.** Ringing, active, and ended surfaced as the same domain events the
-  streaming transport produces, so the orchestrator sees one vocabulary.
-- **The bridge.** A typed Kotlin-to-TypeScript boundary. Screening decisions must be returned
-  within the platform's deadline, so the rule evaluation available to it is the deterministic
-  one and never a model call.
-- **Permissions and roles.** Requested with an explanation, declined gracefully, and the
-  product degrades to a documented reduced behaviour rather than breaking.
+**Where the decision is made (D-028).** Android gives a screening service five seconds from
+`onScreenCall` to respond, after which it ignores the response and rings. A decision cannot make
+a round trip to the backend inside that, so it is made on the handset: the app keeps a snapshot
+of the user's deterministic call rules, rewritten whenever the preferences change, and the
+screening service evaluates it locally. The backend holds `AndroidNativeCallTransport`, which
+represents the handset as a transport whose events arrive afterwards over an authenticated API.
+That adapter is what the Python contract suite runs against; the same properties are proven on
+the handset by the Kotlin and TypeScript suites.
+
+- **`CallScreeningService`.** A Kotlin implementation, bound through the call-screening role,
+  that reads the caller's number and presentation, evaluates the rules snapshot through a pure
+  rule evaluator, and responds within a three-second budget: allow, reject, or silence. When the
+  budget runs out, evaluation fails, there is no snapshot, or the snapshot is older than seven
+  days or in a format the build does not read, the call rings. A caller is never refused on
+  rules the handset does not have or cannot vouch for.
+- **What the platform does not show a screening service.** Callers in the user's contacts
+  (unless the app holds the contacts permission, which it does not ask for) and callers who
+  withhold their number. Both always ring on this path, so the anonymous posture cannot be
+  applied here. The handset does not classify callers: it applies important contacts by number
+  and treats everybody else as `unknown`. `handle_with_agent` rings, because this path has no
+  assistant to hand a call to. Quiet hours silence a call that would otherwise ring.
+- **`InCallService`.** Not implemented. It requires the default-dialer role, which means
+  replacing the phone app, and no decision this phase needs depends on it: screening and the
+  call state below cover allow, reject, silence and incoming, answered and ended.
+- **Native call state.** Observed without the dialer role through the phone-state broadcast,
+  which Android still delivers to a manifest receiver and which needs only `READ_PHONE_STATE`.
+  It carries no number and no identifier, so it is joined to the screening decision that
+  preceded it. Reported as the shared vocabulary: incoming (with the decision), answered, ended.
+  Not visible: a call waiting behind one in progress, and anything beyond the decision itself
+  when the permission is refused.
+- **Reporting.** The handset keeps unreported events durably and the app sends them to
+  `POST /v1/calls/reports` whenever it runs. Reports are stored per user, idempotent by the
+  handset's event id, scoped so one account's handset can never speak for another's call, and a
+  report arriving after its call ended is stored and not replayed.
+- **The bridge.** A TurboModule with string payloads whose documents — the snapshot in, call
+  reports out — have one definition each side and one shared set of examples both test suites
+  read.
+- **Permissions and roles.** Requested with an explanation, declined gracefully. Without the
+  role nothing is screened and every call rings as it would without the product; without the
+  phone-state permission screening still works and only the decision is reported.
 
 ### Selection
 
@@ -94,9 +123,9 @@ and no phone number. An instrumented Android harness for the screening path.
 | Contract | The phase 1 `CallTransport` suite passes against **both** transports. One suite, two implementations — that is what proves the abstraction holds rather than describing one vendor. |
 | Capability | Each transport's declared capabilities match what it can actually do. An operation invoked against a transport that declares it false is unreachable, and the failure names the capability. |
 | Unit (streaming) | Signature verification including a tampered payload; idempotency by event id; event-to-domain mapping for every event type; audio conversion round-tripped in both directions. |
-| Unit (native) | Screening decisions for allow, reject and silence; the deadline is met; a missing role or permission degrades as documented; native call state maps to the same domain events. |
+| Unit (native) | Screening decisions for allow, reject and silence; the deadline is met, with the call ringing when it is not; a missing or stale snapshot rings; a missing role or permission degrades as documented; native call state maps to the same domain events. Kotlin on the JVM and TypeScript under Jest. |
 | Integration | Against the callback simulator: inbound answered, media streamed, participant added and removed, every termination path cleaned up, duplicates inert, reordering resolved. |
-| Integration (native) | Instrumented Android tests over the screening service and the bridge. |
+| Integration (native) | Instrumented Android tests over the screening service and the bridge; the backend's report ingestion against a real database: authentication, isolation between users, idempotency, event mapping. |
 | Manual | A real call on each platform. Streaming: pass-through, agent-handled, escalation dialling a real handset and joining the live call. Native: screening before ringing, allow, reject, silence. Recorded in the verification report. |
 
 ## Acceptance criteria

@@ -54,10 +54,10 @@ do rather than which one it is. The flags are `TransportCapabilities` in
 matrix is written up in phase 15.
 
 An operation that depends on a capability is not on `CallTransport` itself. It is reached by
-narrowing — `screening(transport)`, `audio_streaming(transport)`, `bridging(transport)`,
-`three_way(transport)` — so a
-caller that has not checked cannot name the method, and a transport whose declaration and
-implementation disagree fails at the narrowing rather than in the middle of somebody's call.
+narrowing — `answering(transport)`, `screening(transport)`, `audio_streaming(transport)`,
+`bridging(transport)`, `three_way(transport)` — so a caller that has not checked cannot name the
+method, and a transport whose declaration and implementation disagree fails at the narrowing
+rather than in the middle of somebody's call.
 
 ## Offering one
 

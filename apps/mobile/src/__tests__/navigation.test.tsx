@@ -46,6 +46,7 @@ describe('RootNavigator', () => {
       'Settings',
       'SettingsSection',
       'Voice',
+      'CallScreening',
     ]);
     expect(Object.values(ONBOARDING_ROUTES)).toEqual(['Step']);
   });

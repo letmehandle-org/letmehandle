@@ -32,6 +32,7 @@ from letmehandle.adapters.speech.elevenlabs.websocket import (
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
+from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
 from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
 from letmehandle.adapters.transport.twilio.routes import build_router as build_twilio_router
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
+    from letmehandle.domain.ports.reported_calls import CallEventSink
     from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
     from letmehandle.domain.ports.speech import SpeechProvider
     from letmehandle.domain.ports.voice import VoiceProvider
@@ -82,6 +84,10 @@ class Container:
     voices: VoiceProvider
     rate_limiter: RateLimiter
     refresh_token_lifetime: timedelta
+    # Where a handset's reports about its own calls become call events. The transport that
+    # represents handsets is that sink, so the one instance is both what the reporting route
+    # feeds and what anything consuming that transport's events reads.
+    reported_calls: CallEventSink
 
 
 def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
@@ -110,6 +116,7 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
         refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+        reported_calls=AndroidNativeCallTransport(),
     )
 
 

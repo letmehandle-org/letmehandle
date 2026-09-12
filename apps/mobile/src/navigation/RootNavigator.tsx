@@ -1,9 +1,12 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useSession } from '../auth/SessionProvider';
+import { CallScreeningProvider } from '../calls/CallScreeningProvider';
+import { CallScreeningScreen } from '../calls/CallScreeningScreen';
+import { callScreening, type CallScreening } from '../calls/callScreening';
 import {
   PreferencesProvider,
   usePreferences,
@@ -62,8 +65,21 @@ const navigationTheme = {
  * unavailable states are not navigators and a container whose child is not one has no screen to
  * show.
  */
-export function RootNavigator(): React.JSX.Element {
+export function RootNavigator({
+  screening = callScreening,
+}: {
+  /** This handset's call screening, or null where it has none. A parameter so tests can vary it. */
+  readonly screening?: CallScreening | null;
+}): React.JSX.Element {
   const { status } = useSession();
+
+  useEffect(() => {
+    // Whoever signs in next must not be screened by the rules of whoever left, nor have the
+    // previous account's calls reported as theirs.
+    if (status === 'signed-out' && screening !== null) {
+      screening.forgetAccount().catch(() => undefined);
+    }
+  }, [status, screening]);
 
   if (status === 'restoring') {
     // Shown rather than flashing the sign-in screen at somebody who is already signed in.
@@ -84,9 +100,11 @@ export function RootNavigator(): React.JSX.Element {
 
   return (
     <PreferencesProvider>
-      <NavigationContainer theme={navigationTheme}>
-        <SignedIn />
-      </NavigationContainer>
+      <CallScreeningProvider screening={screening}>
+        <NavigationContainer theme={navigationTheme}>
+          <SignedIn screening={screening} />
+        </NavigationContainer>
+      </CallScreeningProvider>
     </PreferencesProvider>
   );
 }
@@ -139,7 +157,11 @@ function SignedOut(): React.JSX.Element {
  * what lets somebody who reinstalls carry on where they were instead of answering everything a
  * second time.
  */
-function SignedIn(): React.JSX.Element {
+function SignedIn({
+  screening,
+}: {
+  readonly screening: CallScreening | null;
+}): React.JSX.Element {
   const { onboarding } = usePreferences();
   const step = onboarding.next_step;
 
@@ -177,6 +199,13 @@ function SignedIn(): React.JSX.Element {
             onOpenVoice={() => {
               navigation.navigate(APP_ROUTES.voice);
             }}
+            onOpenCallScreening={
+              screening === null
+                ? null
+                : () => {
+                    navigation.navigate(APP_ROUTES.callScreening);
+                  }
+            }
           />
         )}
       </AppStack.Screen>
@@ -186,6 +215,11 @@ function SignedIn(): React.JSX.Element {
         )}
       </AppStack.Screen>
       <AppStack.Screen name={APP_ROUTES.voice} component={VoiceScreen} />
+      {screening !== null && (
+        <AppStack.Screen name={APP_ROUTES.callScreening}>
+          {() => <CallScreeningScreen screening={screening} />}
+        </AppStack.Screen>
+      )}
     </AppStack.Navigator>
   );
 }
