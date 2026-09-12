@@ -68,6 +68,24 @@ export const en = {
       'That could not be saved, so your previous setting has been put back.',
   },
   /**
+   * The voice screen, which is not a preference section: it is its own resource on the API,
+   * with its own list of what a deployment's provider offers.
+   */
+  voice: {
+    title: 'The voice it answers in',
+    subtitle: 'What everybody who calls you hears.',
+    choose: 'Voice',
+    default: 'Whichever your assistant picks',
+    inUse: 'Calls are answered in {{voice}}.',
+    notYourChoice:
+      'Calls are being answered in {{voice}}, not the voice you chose. That usually means ' +
+      'the voice you chose is no longer available.',
+    loadFailed: 'Could not load the voices on offer.',
+    saved: 'Saved',
+    saveFailed:
+      'That voice could not be set, so your previous one has been put back.',
+  },
+  /**
    * Keys under `preferences` are named for the API sections they edit, so a screen can look up
    * its own title from the section it was given rather than carrying a second mapping that has
    * to be kept in step with the first.
