@@ -169,9 +169,7 @@ async def escalated_by(call: CallSoFar, arguments: Mapping[str, object]) -> list
 
 
 async def test_a_suspected_scam_does_not_ring_however_it_is_phrased() -> None:
-    call = a_call(
-        transcript=INSTRUCTIONS, authority=AgentAuthority.none(), from_important_contact=True
-    )
+    call = a_call(transcript=INSTRUCTIONS, authority=AgentAuthority.none())
 
     rung = await escalated_by(
         call,

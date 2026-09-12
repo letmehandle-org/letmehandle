@@ -8,9 +8,13 @@ and so a caller who talks the model into believing their call is urgent still me
 
 The decision runs in three steps, each written once:
 
-1. **Never for a suspected scam.** Putting a suspected fraudster through to the person they are
-   trying to reach is the one outcome an assistant screening calls exists to prevent. The call
-   history still says it happened.
+1. **Never for a suspected scam from a stranger.** Putting a suspected fraudster through to the
+   person they are trying to reach is the one outcome an assistant screening calls exists to
+   prevent. The call history still says it happened. A contact the user marked as important is
+   the exception: who they are comes from a number the user trusts, and "fraud" is only the model's
+   reading, which a caller can provoke — a panicked relative sounds a lot like a scam. The rule
+   that exists so a model cannot talk the user's phone into ringing must not become the way a
+   model talks it out of ringing for the people the user said matter most.
 2. **Is there a reason?** Taken in a fixed order, so a call with several reasons always reports
    the same one. A call with no reason to involve the user does not involve them, however
    important the model thinks it is — importance alone *is* a reason, the last in the order.
@@ -78,7 +82,7 @@ def decide_escalation(
     proposal: EscalationProposal, circumstances: CallCircumstances
 ) -> EscalationDecision:
     """Whether to reach the user, why, and how urgently. Pure: the same input, the same answer."""
-    if proposal.intent is CallIntent.SUSPECTED_FRAUD:
+    if proposal.intent is CallIntent.SUSPECTED_FRAUD and not circumstances.from_important_contact:
         return EscalationDecision.not_needed()
 
     reason = _reason(proposal, circumstances)

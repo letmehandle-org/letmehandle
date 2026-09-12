@@ -105,6 +105,17 @@ ESCALATED: Final = [
         id="an important contact clears the threshold whatever the importance",
     ),
     pytest.param(
+        call(
+            intent=CallIntent.SUSPECTED_FRAUD,
+            importance=CallImportance.URGENT,
+            caller_asked_for_the_user=True,
+        ),
+        circumstances(important_contact=True),
+        EscalationReason.CALLER_ASKED_FOR_THE_USER,
+        IMMEDIATE,
+        id="an important contact the model suspects of fraud still reaches the user",
+    ),
+    pytest.param(
         call(),
         circumstances(now=THREE_AM),
         EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT,
@@ -151,7 +162,7 @@ NOT_ESCALATED: Final = [
             importance=CallImportance.URGENT,
             caller_asked_for_the_user=True,
         ),
-        circumstances(important_contact=True),
+        circumstances(),
         id="a suspected scam never reaches the user, however it is dressed up",
     ),
     pytest.param(

@@ -65,9 +65,13 @@ def fallback_proposal() -> EscalationProposal:
     user's phone on every call — through quiet hours, and past the rule that never puts a suspected
     fraudster through, because a broken model has suspected nobody. The user's own threshold is the
     same mistake, since a call at the threshold always clears it. The lowest level grants
-    nothing: the policy still records that the caller could not be understood, a contact the user
-    marked as important still reaches them because that rule never consulted the model, and a user
-    whose threshold is the lowest level has asked to be reached for everything and is.
+    nothing: the policy still records that the caller could not be understood, and a user whose
+    threshold is the lowest level has asked to be reached for everything and is.
+
+    A contact the user marked as important still reaches them on the fallback, because who they are
+    comes from the number the user trusts and not from the model, and not understanding them is a
+    reason. The policy's fraud rule does not apply to them either, so a model that mistakes them for
+    a scammer does not silence them.
     """
     return EscalationProposal(
         importance=CallImportance.IGNORABLE,
