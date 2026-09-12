@@ -86,6 +86,11 @@ def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
+    // Poppins lives once, in apps/mobile/assets/fonts, and reaches both platforms from there:
+    // Android reads fonts from the APK's assets/fonts, and iOS lists the same files in Info.plist.
+    sourceSets {
+        main { assets.srcDirs += ['../../assets'] }
+    }
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
