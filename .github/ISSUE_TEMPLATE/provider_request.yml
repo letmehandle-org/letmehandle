@@ -12,7 +12,7 @@ body:
     id: port
     attributes:
       label: Which port
-      options: [SpeechProvider, LLMProvider, TelephonyProvider, VoiceProvider, NotificationProvider, OTPProvider]
+      options: [CallTransport, SpeechProvider, LLMProvider, VoiceProvider, NotificationProvider, OTPProvider]
     validations: { required: true }
   - type: input
     id: provider

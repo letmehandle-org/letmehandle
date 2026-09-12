@@ -32,28 +32,48 @@ framework, and no database driver. Every outside capability is reached through a
 This is enforced mechanically, not by convention: an import-linter contract fails the
 build if a vendor package is reachable from domain code. A rule with no test is a comment.
 
-## D-004 — Call transport is a port; no transport mechanism is part of the domain
+## D-004 — `CallTransport` is a port; no transport mechanism is part of the domain
 
-**Accepted.** The domain knows that a call exists, that audio flows in and out, that a
-third party can be added to a live call, and that the call can end. It does not know
-whether that is served by programmable telephony, SIP, a native dialer, or a carrier
-integration.
+**Accepted.** The port is named `CallTransport` rather than `TelephonyProvider`, because a
+telephony vendor is one way a call can reach the product and not the general case. The
+domain knows that a call exists, that it may be screened, that audio may flow in and out,
+that a third party may be added, and that the call ends. It does not know whether that is
+served by programmable telephony, a native platform dialer, SIP, or a carrier integration.
 
 Consequences that follow from this and are binding:
 
-- Call forwarding, number provisioning, and webhook shapes are adapter concerns. They do
-  not appear in domain types, and they do not appear in the mobile app's core state.
-- Platform limitations (iOS forbids third-party call answering; Android permits a default
-  dialer role) are capability flags on the adapter, never branches in domain logic.
-- A future carrier/IMS or on-device adapter must be addable without editing the domain.
+- Call forwarding, number provisioning, webhook shapes, and platform service classes are
+  adapter concerns. They appear in no domain type and in no core mobile state.
+- Platform limitations are capability flags on the transport, never branches in domain
+  logic. There is no `if transport == "twilio"` anywhere outside bootstrap.
+- A future carrier, IMS, or SIP transport must be addable without editing the domain.
 
-## D-005 — One telephony adapter is implemented; the rest are documented extension points
+## D-005 — Two transports are implemented, chosen by capability, not by name
 
-**Accepted.** Programmable telephony is the first and only implemented adapter, because it
-is the only option where a third party can provably be bridged into an already-live call
-today. Other adapters named in the architecture (native dialer, SIP, carrier) are
-documented interfaces with no implementation.
+**Superseded the single-adapter decision.** Transports differ in kind, not only in vendor,
+so one implementation cannot represent the product:
 
+| Transport | Where it is the default | What it can do |
+| --- | --- | --- |
+| `AndroidNativeCallTransport` | Android | screen before ringing, allow, reject, silence, read native call state |
+| `TwilioCallTransport` | iOS | stream call audio, inject agent audio, dial a human, bridge into the live call |
+
+Selection happens once, in bootstrap or a factory, from the platform and the configuration.
+Core logic never learns which was chosen; it asks what the transport can do.
+
+Transports declare, at minimum:
+
+```
+can_screen_before_ringing     can_stream_call_audio_to_ai    can_inject_ai_audio
+can_bridge_human              supports_three_way_call        supports_native_ringing
+```
+
+A transport declares a capability only where the platform genuinely provides it. Android's
+call screening does not give an application the audio of a SIM call, so
+`AndroidNativeCallTransport` declares `can_stream_call_audio_to_ai` false — and the product
+therefore offers no AI conversation on that path, rather than offering one that cannot work.
+
+SIP, carrier and IMS transports remain documented extension points with no implementation.
 Half-built adapters are worse than absent ones: they imply a capability that is not there.
 
 ## D-006 — Realtime speech and decision-making are separate ports

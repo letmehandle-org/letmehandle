@@ -38,7 +38,7 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 | --- | --- | --- |
 | `SpeechProvider` | — | interface in phase 1, first adapter in phase 5 |
 | `LLMProvider` | — | interface in phase 1, first adapter in phase 6 |
-| `TelephonyProvider` | — | interface in phase 1, first adapter in phase 7 |
+| `CallTransport` | — | interface in phase 1, two adapters in phase 7 |
 | `VoiceProvider` | — | interface in phase 1, first adapter in phase 4 |
 | `NotificationProvider` | — | interface in phase 1, first adapters in phase 10 |
 | `OTPProvider` | — | interface in phase 1, mock adapter in phase 2 |

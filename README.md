@@ -34,13 +34,19 @@ none of them. That is enforced by the build, not by convention.
 | --- | --- |
 | `SpeechProvider` | the realtime speech model |
 | `LLMProvider` | the model that makes decisions — any OpenAI-compatible endpoint, hosted or local |
-| `TelephonyProvider` | how calls physically reach the system |
+| `CallTransport` | how calls physically reach the system — programmable telephony, the platform's own call screening, or a future SIP or carrier integration |
 | `VoiceProvider` | how the assistant sounds |
 | `NotificationProvider` | how you are alerted |
 | `OTPProvider` | how sign-in codes are delivered |
 
 Providers declare their capabilities. The product adapts to what yours can actually do, and
 never presents a feature your provider does not support.
+
+Call transports differ in kind rather than only in vendor, so this matters most there. Android
+can screen a call before the handset rings but cannot hand an application the audio of a SIM
+call; programmable telephony can stream that audio and bridge a second person into a call
+already in progress. Both are the same interface, and the product asks what a transport can do
+rather than which one it is.
 
 See [`docs/providers/`](docs/providers/) to implement one.
 

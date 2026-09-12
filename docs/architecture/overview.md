@@ -29,7 +29,7 @@ so callers ask what a provider can do rather than assuming.
 | --- | --- |
 | `SpeechProvider` | realtime spoken conversation: audio in, audio out, interruption, context |
 | `LLMProvider` | judgement: intent, importance, structured decisions |
-| `TelephonyProvider` | how a call exists: answer, stream, add a participant, terminate |
+| `CallTransport` | how a call exists: observe, screen, answer, stream, inject, add a participant, terminate |
 | `VoiceProvider` | how the assistant sounds: catalogue, preview, custom voices |
 | `NotificationProvider` | reaching the user's device |
 | `OTPProvider` | delivering a sign-in code |
@@ -46,7 +46,7 @@ production surprise.
   caller
     │
     ▼
-  TelephonyProvider ──────────────► CallOrchestrator ◄──── CallRules, UserPreferences
+  CallTransport ──────────────────► CallOrchestrator ◄──── CallRules, UserPreferences
     │  audio                             │
     │                                    ├─► pass through to the user
     │                                    ├─► reject
@@ -57,7 +57,7 @@ production surprise.
     │                                    │         ▼
     │                                    │    escalation decision
     │                                    │         │
-    │                                    │         ├─► TelephonyProvider.add_participant
+    │                                    │         ├─► CallTransport.add_participant
     │                                    │         │     dials the user, joins the live call
     │                                    │         └─► NotificationProvider
     │                                    │               context for the ring
@@ -74,10 +74,22 @@ The assistant that talks and the assistant that decides are different concerns w
 failure modes. Keeping them apart means the authority decision is auditable without replaying
 audio, and either half can be replaced without touching the other.
 
-The transport a call arrives on is not part of the product. Programmable telephony is what is
-implemented today; a native dialer, a SIP trunk, or a carrier integration are the same port
-with different adapters. Platform limitations are capability flags, never branches in the
-core.
+The transport a call arrives on is not part of the product. Two are implemented — the
+platform's own call screening on Android, programmable telephony on iOS — and a SIP trunk or a
+carrier integration would be the same port with another adapter.
+
+They differ in what they can do, not merely in who provides them, and that is exactly why the
+core asks about capabilities rather than names:
+
+| | screen before ringing | stream call audio | inject agent audio | bridge a human |
+| --- | --- | --- | --- | --- |
+| Android native | yes | no | no | no |
+| Programmable telephony | no | yes | yes | yes |
+
+A transport that cannot stream audio offers no agent conversation; one that cannot bridge
+offers no escalation into a live call. The orchestrator derives which transitions exist from
+those flags when a call begins, so an unsupported path is unreachable rather than guarded.
+Selection happens once, in bootstrap. Nothing downstream of it knows which transport it has.
 
 ## Decisions
 
