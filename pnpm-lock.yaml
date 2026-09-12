@@ -10,6 +10,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@letmehandle/api-client':
+        specifier: workspace:^
+        version: link:../../packages/api-client
       '@react-native/new-app-screen':
         specifier: 0.87.1
         version: 0.87.1(@types/react@19.3.0)(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.2.3))(react@19.2.3)
@@ -34,6 +37,9 @@ importers:
       react-native-config:
         specifier: ^1.7.2
         version: 1.7.2(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.2.3))(react@19.2.3)
+      react-native-keychain:
+        specifier: ^10.0.0
+        version: 10.0.0
       react-native-safe-area-context:
         specifier: ^5.5.2
         version: 5.9.1(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.2.3))(react@19.2.3)
@@ -3173,6 +3179,10 @@ packages:
     peerDependenciesMeta:
       react-native-windows:
         optional: true
+
+  react-native-keychain@10.0.0:
+    resolution: {integrity: sha512-YzPKSAnSzGEJ12IK6CctNLU79T1W15WDrElRQ+1/FsOazGX9ucFPTQwgYe8Dy8jiSEDJKM4wkVa3g4lD2Z+Pnw==}
+    engines: {node: '>=16'}
 
   react-native-safe-area-context@5.9.1:
     resolution: {integrity: sha512-Zpx9Iwg6VhgNarWFpcIM61xK2lUbSfSXemQUmcvOVRpux49lJsUompY1S3E5jKUJbLq233qEpj28DgmXVsgZMQ==}
@@ -7848,6 +7858,8 @@ snapshots:
     dependencies:
       react: 19.2.3
       react-native: 0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.2.3)
+
+  react-native-keychain@10.0.0: {}
 
   react-native-safe-area-context@5.9.1(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@6.0.3))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.2.3))(react@19.2.3):
     dependencies:

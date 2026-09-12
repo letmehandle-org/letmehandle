@@ -1,42 +1,33 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { theme } from '../theme';
+import { Button } from '../components/Button';
+import { Screen } from '../components/Screen';
+
+interface Props {
+  readonly onOpenProfile: () => void;
+}
 
 /**
  * The application shell.
  *
- * Deliberately almost empty. Phase 0 builds the structure; what Home actually communicates is
- * phase 9's work, against a design that does not exist yet.
+ * Deliberately almost empty. What Home communicates — assistant state, handled calls,
+ * escalations — is phase 9's work, against a design that does not exist yet.
  */
-export function HomeScreen(): React.JSX.Element {
+export function HomeScreen({ onOpenProfile }: Props): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
-    <View style={styles.container} testID="home-screen">
-      <Text style={styles.title}>{t('home.title')}</Text>
-      <Text style={styles.subtitle}>{t('home.subtitle')}</Text>
-    </View>
+    <Screen
+      title={t('home.title')}
+      subtitle={t('home.subtitle')}
+      testID="home-screen"
+    >
+      <Button
+        label={t('home.profile')}
+        onPress={onOpenProfile}
+        testID="open-profile"
+      />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colour.background,
-    padding: theme.space.lg,
-  },
-  title: {
-    ...theme.type.title,
-    color: theme.colour.text,
-  },
-  subtitle: {
-    ...theme.type.body,
-    color: theme.colour.textMuted,
-    marginTop: theme.space.sm,
-    textAlign: 'center',
-  },
-});

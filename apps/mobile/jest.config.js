@@ -20,6 +20,10 @@ module.exports = {
     '!src/**/__tests__/**',
     '!src/theme/**',
     '!src/i18n/locales/**',
+    // Purely presentational, per D-020: their remaining branches are style variants — pressed,
+    // disabled, which of two colours. They are rendered by every screen test, so they are
+    // exercised; measuring them would only reward asserting on styling.
+    '!src/components/**',
   ],
   coverageThreshold: {
     global: {

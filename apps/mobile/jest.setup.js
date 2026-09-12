@@ -24,3 +24,17 @@ jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
 );
+
+// The keychain is native. Under Jest there is nothing behind it, so the token store would
+// throw on every read — which its own tests cover deliberately, but which would make every
+// other test fail for a reason unrelated to what it is testing.
+jest.mock('react-native-keychain', () => ({
+  __esModule: true,
+  STORAGE_TYPE: { AES_GCM: 'KeystoreAESGCM' },
+  ACCESSIBLE: {
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AfterFirstUnlockThisDeviceOnly',
+  },
+  setGenericPassword: jest.fn(async () => true),
+  getGenericPassword: jest.fn(async () => false),
+  resetGenericPassword: jest.fn(async () => true),
+}));
