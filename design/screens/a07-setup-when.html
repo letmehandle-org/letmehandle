@@ -1,0 +1,27 @@
+<!--
+title: Setup 2 — when you're called
+group: Getting started
+note: The code's rule as a small graph. The assistant (a bot, not a spinner) answers; a question bubble means it can't resolve the call, a siren means it's urgent; either path rings you. Edges end at node borders, so no line crosses a label.
+-->
+<div class="steps" style="margin-top:14px"><i class="done"></i><i class="on"></i><i></i><i></i></div>
+<div class="pad" style="margin-top:20px"><h1 class="h1">When you're called</h1></div>
+<div class="pad" style="margin-top:28px">
+<div class="graph">
+  <svg class="edges" viewBox="0 0 232 250" aria-hidden="true">
+    <path d="M116 46 C116 68 52 62 52 84"/>
+    <path d="M116 46 C116 68 180 62 180 84"/>
+    <path class="hot" d="M52 162 C52 186 116 178 116 202"/>
+    <path class="hot" d="M180 162 C180 186 116 178 116 202"/>
+    <circle cx="116" cy="46" r="3.5"/>
+    <circle cx="52" cy="84" r="3.5"/><circle cx="180" cy="84" r="3.5"/>
+    <circle class="hot" cx="52" cy="162" r="3.5"/><circle class="hot" cx="180" cy="162" r="3.5"/>
+    <circle class="hot" cx="116" cy="202" r="3.5"/>
+  </svg>
+  <div class="n n-a"><span class="disc"><svg class="ic"><use href="#i-bot"/></svg></span>Assistant answers</div>
+  <div class="n n-b n-b1"><span class="disc acc"><svg class="ic"><use href="#i-bubble-q"/></svg></span>It can&#39;t<br>resolve it</div>
+  <div class="n n-b n-b2"><span class="disc warn"><svg class="ic"><use href="#i-siren"/></svg></span>It&#39;s<br>urgent</div>
+  <div class="n n-c"><span class="disc"><svg class="ic"><use href="#i-phone-ring"/></svg></span>Your phone rings</div>
+</div>
+<p class="graph-else"><span class="disc"><svg class="ic"><use href="#i-inbox"/></svg></span>Anything else waits in Activity</p>
+</div>
+<div class="foot"><button class="btn primary">Next</button></div>

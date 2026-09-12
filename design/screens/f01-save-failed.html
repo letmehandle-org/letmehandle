@@ -1,0 +1,24 @@
+<!--
+title: A change did not save
+group: When things go wrong
+tab: settings
+note: Optimistic update, rolled back in view. The toggle returns to where it was and the failure is visible on the row it belongs to, never silent.
+-->
+<div class="bar nav"><button class="back"><svg class="ic"><use href="#i-chev-l"/></svg></button><span class="t">What it may do</span></div>
+<div class="pad" style="margin-top:12px">
+  <div class="banner bad"><svg class="ic-sm ic"><use href="#i-alert"/></svg>
+    <span style="flex:1">Couldn't save. Put back the way it was.</span>
+    <b style="font-weight:600">Retry</b></div>
+</div>
+<div class="list" style="padding-top:10px">
+  <div class="card">
+    <div class="row"><svg class="ic" style="color:var(--d-acc-deep)"><use href="#i-msg"/></svg>
+      <div class="tx"><b>Take a message</b></div><span class="end"><span class="tgl on"></span></span></div>
+    <div class="row" style="background:var(--d-stop-wash);border-radius:var(--d-r-sm);margin:0 -8px;padding-left:8px;padding-right:8px">
+      <svg class="ic" style="color:var(--d-stop)"><use href="#i-cal"/></svg>
+      <div class="tx"><b>Confirm appointments</b><s style="color:var(--d-stop)">Not saved</s></div>
+      <span class="end"><span class="tgl"></span></span></div>
+    <div class="row"><svg class="ic" style="color:var(--d-dim)"><use href="#i-truck"/></svg>
+      <div class="tx"><b>Give delivery instructions</b></div><span class="end"><span class="tgl"></span></span></div>
+  </div>
+</div>

@@ -38,6 +38,8 @@ export const en = {
     label: 'Code',
     invalid: 'That code is not valid.',
     resend: 'Send another code',
+    // FOR TESTING ONLY — remove before launch, with showsTestingCode.
+    testingHint: 'Testing build: the code is 123456.',
   },
   profile: {
     title: 'Your profile',

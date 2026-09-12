@@ -1,0 +1,36 @@
+<!--
+title: Lock screen
+group: When it needs you
+status: hide
+class: lockscreen
+note: The payload has to explain the call in one reading, before the phone is unlocked: who, why, and the one thing it needs. No transcript, no recording reference.
+-->
+<div class="lockbg"></div>
+<div style="position:relative;z-index:2;padding-top:44px" class="center">
+  <p class="num" style="font-size:62px;font-weight:300;letter-spacing:-.05em;line-height:1;margin:0;color:var(--d-hero-ink)">9:41</p>
+  <p class="sm" style="margin-top:6px;color:var(--d-hero-mut);font-size:12px">Friday 12 September</p>
+</div>
+<div class="pad" style="position:relative;z-index:2;margin-top:32px">
+  <div class="notif">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="disc warn" style="width:22px;height:22px;flex-basis:22px">
+        <svg class="ic" style="width:13px;height:13px"><use href="#i-phone-ring"/></svg></span>
+      <span style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-dim)">LetMeHandle</span>
+      <span style="margin-left:auto;font-size:9.5px;color:var(--d-faint)">now</span>
+    </div>
+    <p style="margin:10px 0 0;font-size:13.5px;font-weight:400;letter-spacing:-.012em">Your bank needs your yes or no</p>
+    <p style="margin:6px 0 0;font-size:11.5px;color:var(--d-dim);line-height:1.5">&#8377;42,000 held from a payment in Pune. Your assistant can't confirm it for you.</p>
+  </div>
+</div>
+<div style="margin-top:auto;position:relative;z-index:2;padding-bottom:26px" class="center">
+  <div style="display:flex;align-items:center;justify-content:center;gap:9px;color:var(--d-warn-deep);font-size:11.5px">
+    <svg class="ic-sm ic"><use href="#i-phone-in"/></svg>Answer to join the call
+  </div>
+</div>
+<style>
+.lockscreen .lockbg{position:absolute;inset:0;background:
+  linear-gradient(168deg,#FFE6CF 0%,#EFE4FF 46%,#F8F6FF 100%)}
+.lockscreen .notif{background:rgba(255,255,255,.82);backdrop-filter:blur(18px);
+  border:1px solid rgba(255,255,255,.9);border-radius:var(--d-r-lg);padding:14px 15px;
+  box-shadow:0 10px 26px rgba(46,31,99,.13)}
+</style>

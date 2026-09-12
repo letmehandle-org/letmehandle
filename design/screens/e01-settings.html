@@ -1,0 +1,50 @@
+<!--
+title: Settings
+group: Settings
+tab: settings
+class: s-settings
+note: Eight rows in three groups. Each shows its current value on the right, so the list answers most questions without being opened.
+-->
+<div class="bar"><span class="t big">Settings</span></div>
+<div class="list" style="padding-top:12px">
+  <p class="lbl">Calls</p>
+  <div class="card">
+    <div class="row tap"><span class="disc acc"><svg class="ic-sm ic"><use href="#i-users"/></svg></span>
+      <div class="tx"><b>Who gets through</b></div>
+      <span class="end"><span class="v">Contacts</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+    <div class="row tap"><span class="disc warn"><svg class="ic-sm ic"><use href="#i-phone-in"/></svg></span>
+      <div class="tx"><b>When you're called</b></div>
+      <span class="end"><span class="v">If needed</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+    <div class="row tap"><span class="disc"><svg class="ic-sm ic"><use href="#i-clock"/></svg></span>
+      <div class="tx"><b>Hours</b></div>
+      <span class="end"><span class="v num">24/7</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+  </div>
+  <p class="lbl" style="margin-top:12px">Your assistant</p>
+  <div class="card">
+    <div class="row tap"><span class="disc"><svg class="ic-sm ic"><use href="#i-key"/></svg></span>
+      <div class="tx"><b>What it may do</b></div>
+      <span class="end"><span class="v">2 of 7</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+    <div class="row tap"><span class="disc"><svg class="ic-sm ic"><use href="#i-eye-off"/></svg></span>
+      <div class="tx"><b>What it may say</b></div>
+      <span class="end"><span class="v">Nothing</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+    <div class="row tap"><span class="disc acc"><svg class="ic-sm ic"><use href="#i-sparkle"/></svg></span>
+      <div class="tx"><b>Personalise</b></div>
+      <span class="end"><span class="v">Asha</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+  </div>
+  <p class="lbl" style="margin-top:12px">You</p>
+  <div class="card">
+    <div class="row tap"><span class="disc"><svg class="ic-sm ic"><use href="#i-lock"/></svg></span>
+      <div class="tx"><b>Privacy</b></div>
+      <span class="end"><span class="v">7 days</span><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+    <div class="row tap"><span class="disc"><svg class="ic-sm ic"><use href="#i-user"/></svg></span>
+      <div class="tx"><b>Account</b></div>
+      <span class="end"><svg class="ic-sm ic chev"><use href="#i-chev-r"/></svg></span></div>
+  </div>
+</div>
+<style>
+.s-settings .row{min-height:38px;padding:4px 0}
+.s-settings .row .tx{flex:1;min-width:0}
+.s-settings .row .tx b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-settings .row .end{flex:0 0 auto}
+.s-settings .row .end .v{font-size:10px;color:var(--d-faint);white-space:nowrap}
+</style>

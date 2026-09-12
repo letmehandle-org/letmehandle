@@ -27,3 +27,8 @@ def test_it_refuses_to_exist_in_production() -> None:
     # nothing about the running service looks wrong.
     with pytest.raises(InvariantError, match="cannot run in production"):
         MockOTPProvider(is_production=True)
+
+
+def test_it_fixes_the_code_for_testing() -> None:
+    # Somebody running the app signs in with this instead of reading the backend log.
+    assert MockOTPProvider(is_production=False).fixed_code == "123456"

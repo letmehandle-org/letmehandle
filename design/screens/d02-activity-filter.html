@@ -1,0 +1,36 @@
+<!--
+title: Activity — filters
+group: Activity and summaries
+tab: activity
+note: The filters are the domain's own outcomes with their counts, plus the human-joined flag the API supports. Selecting is a tap; nothing is typed.
+-->
+<div class="bar"><span class="t big">Activity</span>
+  <span class="r" style="color:var(--d-acc)"><svg class="ic"><use href="#i-filter"/></svg></span></div>
+<div class="list" style="padding-top:14px;opacity:.3">
+  <div class="card">
+    <div class="row"><span class="disc ok"><svg class="ic-sm ic"><use href="#i-truck"/></svg></span>
+      <div class="tx"><b>Courier</b><s>Gate by 6 pm</s></div><span class="end num">10:24</span></div>
+    <div class="row"><span class="disc warn"><svg class="ic-sm ic"><use href="#i-card"/></svg></span>
+      <div class="tx"><b>Your bank</b><s>You joined</s></div><span class="end num">09:12</span></div>
+  </div>
+</div>
+<div class="modal">
+  <div class="grip"></div>
+  <div class="pad" style="padding-bottom:4px">
+    <div class="row" style="border:0"><span class="dot acc"></span><div class="tx"><b>Settled by itself</b></div>
+      <span class="end"><span class="num">24</span><svg class="ic-sm ic" style="color:var(--d-acc)"><use href="#i-check"/></svg></span></div>
+    <div class="row"><span class="dot warn"></span><div class="tx"><b>You joined</b></div>
+      <span class="end"><span class="num">3</span><svg class="ic-sm ic" style="color:var(--d-acc)"><use href="#i-check"/></svg></span></div>
+    <div class="row"><span class="dot acc" style="background:var(--d-acc-lo)"></span><div class="tx"><b>Straight through</b></div>
+      <span class="end"><span class="num">2</span></span></div>
+    <div class="row"><span class="dot off"></span><div class="tx"><b>Spam turned away</b></div>
+      <span class="end"><span class="num">12</span></span></div>
+    <div class="row"><span class="dot off"></span><div class="tx"><b>Caller hung up</b></div>
+      <span class="end"><span class="num">1</span></span></div>
+    <div class="row"><span class="dot stop"></span><div class="tx"><b>Went wrong</b></div>
+      <span class="end"><span class="num">1</span></span></div>
+  </div>
+  <div class="pad" style="padding-top:8px;padding-bottom:18px">
+    <button class="btn primary">Show 27</button>
+  </div>
+</div>

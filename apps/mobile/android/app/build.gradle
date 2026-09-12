@@ -1,6 +1,11 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Reads apps/mobile/.env into BuildConfig, which is where react-native-config looks for it on
+// Android. Without this every value is undefined and the app stops at startup, because
+// src/config/environment.ts refuses to run with a missing variable. iOS needs no equivalent:
+// the pod reads the same file during its build.
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 /**
  * This is the configuration block to customize your React Native Android app.

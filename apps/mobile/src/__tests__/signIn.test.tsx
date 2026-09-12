@@ -92,6 +92,10 @@ describe('signing in', () => {
     await waitFor(() => {
       expect(view.getByTestId('code-screen')).toBeOnTheScreen();
     });
+    // A development build tells the tester the fixed code the mock provider accepts.
+    expect(view.getByTestId('code-testing-hint')).toHaveTextContent(
+      en.code.testingHint,
+    );
 
     await fireEvent.changeText(view.getByTestId('code-input'), '000000');
     await fireEvent.press(view.getByTestId('code-continue'));
