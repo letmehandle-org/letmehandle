@@ -104,8 +104,13 @@ STRUCTURAL = [
     (r"\b[A-Z]{2}[0-9a-f]{32}\b", "a provider account or resource identifier"),
     # An email address. Addresses at reserved documentation domains are the exception,
     # because examples need one.
+    # The final label must be alphabetic, which is what separates an address from the
+    # userinfo of a URL pointing at an IP literal — "nothing@127.0.0.1" is a connection
+    # string in a test fixture, not somebody's address. Reserved documentation domains are
+    # excluded so that examples can have one.
     (
-        r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b)(?!.*\.invalid\b)[\w-]+\.[\w.-]+\b",
+        r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b)(?![\w.-]*\.invalid\b)"
+        r"[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b",
         "an email address",
     ),
     # A street address, loosely. Deliberately loose: a false positive here is cheap and a
