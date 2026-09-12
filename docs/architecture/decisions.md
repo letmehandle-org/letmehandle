@@ -375,3 +375,39 @@ once per call. A caller who persuades the model that their call is urgent can ha
 once, even in quiet hours, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
 limits across calls — per caller, per number, per night — belong to a later hardening phase, not to
 this one.
+
+## D-029 — One orchestrator, one sequential run per call, and a plan derived from capabilities
+
+**Accepted.** A single `CallOrchestrator` owns every call's life. Each live call is a *run*: an
+inbox of inputs — transport events, the agent's judgements, speech failures, timer expiries —
+processed one at a time by that run alone. Nothing else changes a call's state. Two inputs for one
+call cannot interleave, because only one is ever being handled; two calls never wait on each other.
+
+**The plan comes before anything happens.** When a call arrives, the run derives a plan from the
+transport that carried it: whether the assistant can hold a conversation on it, whether the user can
+be bridged in, whether a screening decision was already made on the handset. The steps that plan
+does not include are never constructed — there is no escalation step on a transport that cannot
+bridge, so escalating there is not a refused request but a path that does not exist.
+
+**Routing is one pure function.** Given the caller, the user's preferences and the plan, it returns
+pass-through, the assistant, or rejection. It is the one place the routing rules live, so a change to
+those rules is a change to that function and its table.
+
+**The agent proposes; the run acts.** The run implements the agent's `CallActions`. An escalation
+moves the call to ringing the user, dispatches the notification without waiting on it (D-016), and
+bounds the ring. An unanswered, busy, failed or machine-answered ring returns the call to the
+assistant with that outcome in its context, rather than ending the call.
+
+**Every wait is bounded and every bound is a transition.** A ring that is not answered, a judgement
+that takes too long, a speech session that will not open and a provider call that hangs each move the
+call to a defined state; none is an exception left to escape.
+
+**One teardown.** Every ending — rejected, completed, failed, the caller hanging up, the process
+stopping — reaches the same routine: stop the conversation and the speech session, cancel the
+timers, end the call at the transport, release the escalation service's memory of the call, write the
+summary (the agent's if it recorded one, otherwise the fallback built from the call's facts), store
+the final state, and mark the escalation context ended.
+
+**State is durable; a live call is not resumable.** The call is stored on every transition. After a
+restart the audio stream and the speech session are gone, so a call found unfinished is ended at its
+transport where that is possible and recorded as failed, never left in an indeterminate state.
