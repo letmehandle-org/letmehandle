@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Final, assert_never
 
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.otp.mock import MockOTPProvider
@@ -22,11 +22,18 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
-from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
+from letmehandle.adapters.speech.elevenlabs.protocol import (
+    DEFAULT_WIRE_FORMAT as ELEVENLABS_WIRE_FORMAT,
+)
+from letmehandle.adapters.speech.elevenlabs.provider import ElevenLabsSpeechProvider
+from letmehandle.adapters.speech.elevenlabs.websocket import (
+    websocket_opener as elevenlabs_opener,
+)
+from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
-from letmehandle.adapters.speech.realtime.websocket import websocket_opener
+from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
-from letmehandle.config.settings import OTPProviderName, Settings
+from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
@@ -104,35 +111,61 @@ def build_voice_provider(settings: Settings) -> VoiceProvider:
     )
 
 
+# English only in the first release (D-017). A setting arrives with the second language, not
+# before it.
+_SPEECH_LANGUAGES: Final = ("en",)
+
+# What the speech adapters can convert from: a microphone's wideband audio, and a phone line's.
+_SPEECH_INPUT_FORMATS: Final = (SPEECH_WIDEBAND, TELEPHONY_NARROWBAND)
+
+
 def build_speech_provider(
     settings: Settings,
     *,
     metrics: MetricsRecorder,
     wrap_connection: Callable[[ConnectionOpener], ConnectionOpener] | None = None,
 ) -> SpeechProvider:
-    """The speech service this deployment talks to.
+    """The speech service this deployment talks to, by the protocol it speaks.
 
     `wrap_connection` lets a caller stand between the session and the network — the harness uses
     it to drop a connection on command and watch the session recover — without that caller
     constructing the adapter itself.
+
+    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives: a protocol
+    added to the settings without an adapter chosen here fails to type-check.
     """
-    endpoint, model = settings.require_speech_service()
+    wrap = wrap_connection or _unwrapped
     key = settings.speech_api_key
-    opener = websocket_opener(
-        endpoint, model=model, api_key=None if key is None else key.get_secret_value()
-    )
-    return RealtimeSpeechProvider(
-        opener if wrap_connection is None else wrap_connection(opener),
-        metrics,
-        # English only in the first release (D-017). A setting arrives with the second language,
-        # not before it.
-        languages=("en",),
-        # What this adapter can convert from: a microphone's wideband audio, and a phone line's.
-        input_formats=(SPEECH_WIDEBAND, TELEPHONY_NARROWBAND),
-        # The protocol's own wire format, so that nothing is converted twice on its way out. A
-        # sink converts to what it plays.
-        output_format=WIRE_FORMAT,
-    )
+    api_key = None if key is None else key.get_secret_value()
+    match settings.speech_provider:
+        case SpeechProviderName.REALTIME:
+            endpoint, model = settings.require_speech_service()
+            return RealtimeSpeechProvider(
+                wrap(realtime_opener(endpoint, model=model, api_key=api_key)),
+                metrics,
+                languages=_SPEECH_LANGUAGES,
+                input_formats=_SPEECH_INPUT_FORMATS,
+                # The protocol's own wire format, so that nothing is converted twice on its way
+                # out. A sink converts to what it plays.
+                output_format=REALTIME_WIRE_FORMAT,
+            )
+        case SpeechProviderName.ELEVENLABS:
+            endpoint, agent_id = settings.require_speech_agent()
+            return ElevenLabsSpeechProvider(
+                wrap(elevenlabs_opener(endpoint, agent_id=agent_id, api_key=api_key)),
+                metrics,
+                languages=_SPEECH_LANGUAGES,
+                input_formats=_SPEECH_INPUT_FORMATS,
+                # What an agent speaks unless configured otherwise, so that an agent left at its
+                # default is not converted twice on the way out either.
+                output_format=ELEVENLABS_WIRE_FORMAT,
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
+    return opener
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:

@@ -40,6 +40,13 @@ class OTPProviderName(StrEnum):
     MOCK = "mock"
 
 
+class SpeechProviderName(StrEnum):
+    """Which protocol the speech service speaks, and so which adapter talks to it."""
+
+    REALTIME = "realtime"
+    ELEVENLABS = "elevenlabs"
+
+
 class ConfigurationError(RuntimeError):
     """Configuration is missing or invalid, and the process must not continue.
 
@@ -123,12 +130,16 @@ class Settings(BaseSettings):
     auth_refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=3600)
     otp_provider: OTPProviderName = OTPProviderName.MOCK
 
-    # Realtime speech. All three optional at startup: nothing opens a speech session in a request
-    # yet, and a process that refuses to start for want of a service it never calls is a process
-    # nobody can develop against. The shape is still checked when a value is present, so a typo
-    # fails here rather than on the first call.
+    # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
+    # is optional at startup: nothing opens a speech session in a request yet, and a process that
+    # refuses to start for want of a service it never calls is a process nobody can develop
+    # against. The shape is still checked when a value is present, so a typo fails here rather
+    # than on the first call. The model names what a realtime service runs; the agent id names
+    # which ElevenLabs agent to talk to; each is required only by its own protocol.
+    speech_provider: SpeechProviderName = SpeechProviderName.REALTIME
     speech_endpoint_url: Annotated[AnyWebsocketUrl | None, BeforeValidator(_blank_is_absent)] = None
     speech_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    speech_agent_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
     speech_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
 
     # The voices this deployment offers, and the one a call gets when nobody chose. Required, with
@@ -195,18 +206,26 @@ class Settings(BaseSettings):
         required by whatever does, so that it fails naming the variable rather than connecting to
         nothing.
         """
-        endpoint, model = self.speech_endpoint_url, self.speech_model
-        if endpoint is None or model is None:
+        return self._require_speech(("SPEECH_MODEL", self.speech_model))
+
+    def require_speech_agent(self) -> tuple[str, str]:
+        """The speech endpoint and ElevenLabs agent id, or a failure naming whichever is missing."""
+        return self._require_speech(("SPEECH_AGENT_ID", self.speech_agent_id))
+
+    def _require_speech(self, target: tuple[str, str | None]) -> tuple[str, str]:
+        endpoint = self.speech_endpoint_url
+        name, value = target
+        if endpoint is None or value is None:
             missing = [
-                name
-                for name, value in (("SPEECH_ENDPOINT_URL", endpoint), ("SPEECH_MODEL", model))
-                if value is None
+                each
+                for each, present in (("SPEECH_ENDPOINT_URL", endpoint), (name, value))
+                if present is None
             ]
             raise ConfigurationError(
-                f"{' and '.join(missing)} must be set to hold a spoken conversation. "
-                "Set them in .env; see .env.example."
+                f"{' and '.join(missing)} must be set to hold a spoken conversation with "
+                f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
             )
-        return str(endpoint), model
+        return str(endpoint), value
 
     def require_database_url(self) -> str:
         """The database URL, or a failure that names what is missing.

@@ -10,6 +10,7 @@ from letmehandle.config.settings import (
     Environment,
     LogFormat,
     Settings,
+    SpeechProviderName,
     get_settings,
     parse_voice_catalogue,
 )
@@ -143,12 +144,67 @@ def test_an_endpoint_that_is_not_a_websocket_is_refused_at_startup() -> None:
 @pytest.mark.usefixtures("required_environment")
 def test_blank_speech_variables_count_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     # What a copied `.env.example` supplies before anybody fills it in.
-    for name in ("SPEECH_ENDPOINT_URL", "SPEECH_MODEL", "SPEECH_API_KEY"):
+    for name in ("SPEECH_ENDPOINT_URL", "SPEECH_MODEL", "SPEECH_AGENT_ID", "SPEECH_API_KEY"):
         monkeypatch.setenv(name, "")
     settings = get_settings()
     assert settings.speech_endpoint_url is None
     assert settings.speech_model is None
+    assert settings.speech_agent_id is None
     assert settings.speech_api_key is None
+
+
+def test_the_speech_protocol_defaults_to_the_one_existing_deployments_speak() -> None:
+    settings = Settings(speech_voices=EXAMPLE_VOICES, speech_default_voice=EXAMPLE_DEFAULT_VOICE)
+    assert settings.speech_provider is SpeechProviderName.REALTIME
+    assert settings.speech_agent_id is None
+
+
+@pytest.mark.usefixtures("required_environment")
+def test_elevenlabs_is_chosen_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_PROVIDER", "elevenlabs")
+    monkeypatch.setenv("SPEECH_AGENT_ID", "agent-example")
+    settings = get_settings()
+    assert settings.speech_provider is SpeechProviderName.ELEVENLABS
+    assert settings.speech_agent_id == "agent-example"
+
+
+@pytest.mark.usefixtures("required_environment")
+def test_an_unknown_speech_protocol_is_refused_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_PROVIDER", "carrier-pigeon")
+    with pytest.raises(ConfigurationError, match="SPEECH_PROVIDER"):
+        get_settings()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "agent_id", "missing"),
+    [
+        (None, None, "SPEECH_ENDPOINT_URL and SPEECH_AGENT_ID"),
+        ("wss://speech.example.com/v1/convai/conversation", None, "SPEECH_AGENT_ID must"),
+        (None, "agent-example", "SPEECH_ENDPOINT_URL must"),
+    ],
+)
+def test_talking_to_an_agent_names_whatever_is_missing(
+    endpoint: str | None, agent_id: str | None, missing: str
+) -> None:
+    settings = make_settings(
+        speech_provider=SpeechProviderName.ELEVENLABS,
+        speech_endpoint_url=endpoint,
+        speech_agent_id=agent_id,
+    )
+    with pytest.raises(ConfigurationError, match=missing):
+        settings.require_speech_agent()
+
+
+def test_an_agent_that_is_configured_is_returned_with_its_endpoint() -> None:
+    settings = make_settings(
+        speech_provider=SpeechProviderName.ELEVENLABS,
+        speech_endpoint_url="wss://speech.example.com/v1/convai/conversation",
+        speech_agent_id="agent-example",
+    )
+    assert settings.require_speech_agent() == (
+        "wss://speech.example.com/v1/convai/conversation",
+        "agent-example",
+    )
 
 
 @pytest.mark.usefixtures("required_environment")
