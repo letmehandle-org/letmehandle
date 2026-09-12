@@ -16,6 +16,142 @@
         "title": "AuthorityPayload",
         "type": "object"
       },
+      "CallDetailResponse": {
+        "description": "One call in full.\n\n`transcript_retention_days` is the user's setting as it stands, which is the one the purge\napplies. `transcript_expires_at` is when the last of the transcript is due to go \u2014 null when\nthere is none to go, or while the call is still going.",
+        "properties": {
+          "caller": {
+            "$ref": "#/components/schemas/CallerPayload"
+          },
+          "details": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedDetailPayload"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "escalation_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EscalationReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "human_joined": {
+            "title": "Human Joined",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallImportance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallIntent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CallStatus"
+          },
+          "timings": {
+            "$ref": "#/components/schemas/CallTimingsPayload"
+          },
+          "transcript_available": {
+            "title": "Transcript Available",
+            "type": "boolean"
+          },
+          "transcript_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Expires At"
+          },
+          "transcript_retention_days": {
+            "title": "Transcript Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "status",
+          "caller",
+          "outcome",
+          "headline",
+          "human_joined",
+          "duration_seconds",
+          "intent",
+          "importance",
+          "escalation_reason",
+          "timings",
+          "details",
+          "transcript_available",
+          "transcript_retention_days",
+          "transcript_expires_at"
+        ],
+        "title": "CallDetailResponse",
+        "type": "object"
+      },
       "CallHandlingPayload": {
         "additionalProperties": false,
         "description": "What happens to a call before anybody has spoken to it.",
@@ -67,6 +203,194 @@
         "title": "CallImportance",
         "type": "integer"
       },
+      "CallIntent": {
+        "description": "What the call is for.\n\n`UNDETERMINED` is a real answer: early in a call, or in a call that never made sense, the\nhonest classification is that there is not one yet. A model forced to choose will choose\nsomething, and downstream rules will act on it.",
+        "enum": [
+          "undetermined",
+          "delivery_in_progress",
+          "appointment",
+          "enquiry",
+          "personal",
+          "service_issue",
+          "sales",
+          "suspected_fraud"
+        ],
+        "title": "CallIntent",
+        "type": "string"
+      },
+      "CallListItem": {
+        "description": "One call in the list.\n\n`outcome` and `headline` are null until the call has a summary: while it is in progress, and\nfor the moment between its end and its summary being written.",
+        "properties": {
+          "caller": {
+            "$ref": "#/components/schemas/CallerPayload"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "human_joined": {
+            "title": "Human Joined",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CallStatus"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "status",
+          "caller",
+          "outcome",
+          "headline",
+          "human_joined",
+          "duration_seconds"
+        ],
+        "title": "CallListItem",
+        "type": "object"
+      },
+      "CallOutcome": {
+        "description": "How it ended, in the terms a person would use.\n\nDistinct from `CallState`: the state machine's endings are about the mechanism, and these\nare about what happened. A call that reached COMPLETED could have been resolved, handed\nover, or abandoned, and a user reading their history wants to know which.",
+        "enum": [
+          "resolved_by_agent",
+          "handed_to_user",
+          "passed_through",
+          "rejected_by_rule",
+          "caller_hung_up",
+          "unanswered_escalation",
+          "failed"
+        ],
+        "title": "CallOutcome",
+        "type": "string"
+      },
+      "CallPageResponse": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallListItem"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "calls",
+          "next_cursor"
+        ],
+        "title": "CallPageResponse",
+        "type": "object"
+      },
+      "CallStatus": {
+        "description": "Whether a call is still going. An ended call's summary can arrive a moment after it ends.",
+        "enum": [
+          "in_progress",
+          "ended"
+        ],
+        "title": "CallStatus",
+        "type": "string"
+      },
+      "CallTimingsPayload": {
+        "description": "When each thing happened. A step that never happened is null.",
+        "properties": {
+          "answered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "human_joined_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Joined At"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "received_at",
+          "answered_at",
+          "human_joined_at",
+          "ended_at"
+        ],
+        "title": "CallTimingsPayload",
+        "type": "object"
+      },
       "CallerCategory": {
         "description": "What kind of call this appears to be.\n\nDeliberately coarse. These are the distinctions the user's rules act on \u2014 the difference\nbetween a delivery and a courier is not one anybody would set a different rule for, and a\ncategory nobody can act on is a category that only makes classification harder.",
         "enum": [
@@ -82,6 +406,35 @@
         ],
         "title": "CallerCategory",
         "type": "string"
+      },
+      "CallerPayload": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/CallerCategory"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "number_withheld": {
+            "title": "Number Withheld",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "category",
+          "display_name",
+          "number_withheld"
+        ],
+        "title": "CallerPayload",
+        "type": "object"
       },
       "Capability": {
         "description": "One thing the assistant may be permitted to do.\n\nEach is a distinct decision a user would actually make differently, which is the test for\nwhether a capability belongs here. Splitting further produces a settings screen nobody\nfinishes; merging produces permissions nobody meant to give.",
@@ -129,6 +482,49 @@
           "expires_in_seconds"
         ],
         "title": "ChallengeResponse",
+        "type": "object"
+      },
+      "EscalationReason": {
+        "description": "Why the assistant wants a person.\n\nThese are the reasons it can actually distinguish, and each leads somewhere different: an\nunauthorised action may be resolved by granting a capability, a caller's request may be\nresolved by the user answering, and a failure is an operational problem.",
+        "enum": [
+          "caller_asked_for_the_user",
+          "action_not_authorised",
+          "decision_needs_the_user",
+          "important_enough_to_interrupt",
+          "cannot_understand_the_caller",
+          "user_rule_requires_it"
+        ],
+        "title": "EscalationReason",
+        "type": "string"
+      },
+      "ExtractedDetailPayload": {
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "evidence"
+        ],
+        "title": "ExtractedDetailPayload",
         "type": "object"
       },
       "Formality": {
@@ -656,6 +1052,16 @@
         "title": "SignOutRequest",
         "type": "object"
       },
+      "Speaker": {
+        "description": "Who said something.",
+        "enum": [
+          "caller",
+          "agent",
+          "human"
+        ],
+        "title": "Speaker",
+        "type": "string"
+      },
       "TimeWindowPayload": {
         "additionalProperties": false,
         "description": "A daily window, in the user's own zone.\n\nThe zone travels with the window rather than being applied later. A window compared in the\nwrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of\nday rather than as anything that looks like a bug.",
@@ -711,6 +1117,69 @@
           "expires_in_seconds"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "TranscriptLinePayload": {
+        "properties": {
+          "said_at": {
+            "format": "date-time",
+            "title": "Said At",
+            "type": "string"
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/Speaker"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker",
+          "text",
+          "said_at"
+        ],
+        "title": "TranscriptLinePayload",
+        "type": "object"
+      },
+      "TranscriptResponse": {
+        "description": "What remains of a call's transcript, in the order it was said, and when it goes.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptLinePayload"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "transcript_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Expires At"
+          },
+          "transcript_retention_days": {
+            "title": "Transcript Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "call_id",
+          "entries",
+          "transcript_retention_days",
+          "transcript_expires_at"
+        ],
+        "title": "TranscriptResponse",
         "type": "object"
       },
       "UpdateProfileRequest": {
@@ -1200,6 +1669,275 @@
         "summary": "Exchange a code",
         "tags": [
           "authentication"
+        ]
+      }
+    },
+    "/v1/calls": {
+      "get": {
+        "description": "The user's calls, newest first.\n\n`from` is inclusive and `to` exclusive, both on when the call started, and both must carry a\ntimezone offset. `outcome` and `human_joined` match only calls that have a summary. Calls still\nin progress are listed, with `status` `in_progress` and no outcome yet.",
+        "operationId": "list_calls_v1_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CallOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "human_joined",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Human Joined"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List calls",
+        "tags": [
+          "calls"
+        ]
+      }
+    },
+    "/v1/calls/{call_id}": {
+      "delete": {
+        "description": "Delete the call, its transcript and its summary, immediately. `204` even if already gone.",
+        "operationId": "delete_call_v1_calls__call_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete a call",
+        "tags": [
+          "calls"
+        ]
+      },
+      "get": {
+        "description": "One call in full: its summary, its timeline, and whether its transcript can still be read.",
+        "operationId": "read_call_v1_calls__call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open a call",
+        "tags": [
+          "calls"
+        ]
+      }
+    },
+    "/v1/calls/{call_id}/transcript": {
+      "get": {
+        "description": "What was said, while the user's retention still keeps it.\n\n`410 transcript_purged` once retention has deleted it, `404 transcript_not_recorded` for a\ncall nothing was said on, `404 call_not_found` for no such call.",
+        "operationId": "read_transcript_v1_calls__call_id__transcript_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read a call's transcript",
+        "tags": [
+          "calls"
         ]
       }
     },

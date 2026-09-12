@@ -137,6 +137,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List calls
+         * @description The user's calls, newest first.
+         *
+         *     `from` is inclusive and `to` exclusive, both on when the call started, and both must carry a
+         *     timezone offset. `outcome` and `human_joined` match only calls that have a summary. Calls still
+         *     in progress are listed, with `status` `in_progress` and no outcome yet.
+         */
+        get: operations["list_calls_v1_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open a call
+         * @description One call in full: its summary, its timeline, and whether its transcript can still be read.
+         */
+        get: operations["read_call_v1_calls__call_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a call
+         * @description Delete the call, its transcript and its summary, immediately. `204` even if already gone.
+         */
+        delete: operations["delete_call_v1_calls__call_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a call's transcript
+         * @description What was said, while the user's retention still keeps it.
+         *
+         *     `410 transcript_purged` once retention has deleted it, `404 transcript_not_recorded` for a
+         *     call nothing was said on, `404 call_not_found` for no such call.
+         */
+        get: operations["read_transcript_v1_calls__call_id__transcript_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -285,6 +356,44 @@ export interface components {
             capabilities?: components["schemas"]["Capability"][];
         };
         /**
+         * CallDetailResponse
+         * @description One call in full.
+         *
+         *     `transcript_retention_days` is the user's setting as it stands, which is the one the purge
+         *     applies. `transcript_expires_at` is when the last of the transcript is due to go — null when
+         *     there is none to go, or while the call is still going.
+         */
+        CallDetailResponse: {
+            caller: components["schemas"]["CallerPayload"];
+            /** Details */
+            details: components["schemas"]["ExtractedDetailPayload"][];
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            escalation_reason: components["schemas"]["EscalationReason"] | null;
+            /** Headline */
+            headline: string | null;
+            /** Human Joined */
+            human_joined: boolean;
+            /** Id */
+            id: string;
+            importance: components["schemas"]["CallImportance"] | null;
+            intent: components["schemas"]["CallIntent"] | null;
+            outcome: components["schemas"]["CallOutcome"] | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["CallStatus"];
+            timings: components["schemas"]["CallTimingsPayload"];
+            /** Transcript Available */
+            transcript_available: boolean;
+            /** Transcript Expires At */
+            transcript_expires_at: string | null;
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
+        };
+        /**
          * CallHandlingPayload
          * @description What happens to a call before anybody has spoken to it.
          */
@@ -313,6 +422,81 @@ export interface components {
          */
         CallImportance: 10 | 20 | 30 | 40 | 50;
         /**
+         * CallIntent
+         * @description What the call is for.
+         *
+         *     `UNDETERMINED` is a real answer: early in a call, or in a call that never made sense, the
+         *     honest classification is that there is not one yet. A model forced to choose will choose
+         *     something, and downstream rules will act on it.
+         * @enum {string}
+         */
+        CallIntent: "undetermined" | "delivery_in_progress" | "appointment" | "enquiry" | "personal" | "service_issue" | "sales" | "suspected_fraud";
+        /**
+         * CallListItem
+         * @description One call in the list.
+         *
+         *     `outcome` and `headline` are null until the call has a summary: while it is in progress, and
+         *     for the moment between its end and its summary being written.
+         */
+        CallListItem: {
+            caller: components["schemas"]["CallerPayload"];
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Headline */
+            headline: string | null;
+            /** Human Joined */
+            human_joined: boolean;
+            /** Id */
+            id: string;
+            outcome: components["schemas"]["CallOutcome"] | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["CallStatus"];
+        };
+        /**
+         * CallOutcome
+         * @description How it ended, in the terms a person would use.
+         *
+         *     Distinct from `CallState`: the state machine's endings are about the mechanism, and these
+         *     are about what happened. A call that reached COMPLETED could have been resolved, handed
+         *     over, or abandoned, and a user reading their history wants to know which.
+         * @enum {string}
+         */
+        CallOutcome: "resolved_by_agent" | "handed_to_user" | "passed_through" | "rejected_by_rule" | "caller_hung_up" | "unanswered_escalation" | "failed";
+        /** CallPageResponse */
+        CallPageResponse: {
+            /** Calls */
+            calls: components["schemas"]["CallListItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /**
+         * CallStatus
+         * @description Whether a call is still going. An ended call's summary can arrive a moment after it ends.
+         * @enum {string}
+         */
+        CallStatus: "in_progress" | "ended";
+        /**
+         * CallTimingsPayload
+         * @description When each thing happened. A step that never happened is null.
+         */
+        CallTimingsPayload: {
+            /** Answered At */
+            answered_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Human Joined At */
+            human_joined_at: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+        };
+        /**
          * CallerCategory
          * @description What kind of call this appears to be.
          *
@@ -322,6 +506,14 @@ export interface components {
          * @enum {string}
          */
         CallerCategory: "known_contact" | "delivery" | "healthcare" | "education" | "financial" | "service_provider" | "sales" | "spam" | "unknown";
+        /** CallerPayload */
+        CallerPayload: {
+            category: components["schemas"]["CallerCategory"];
+            /** Display Name */
+            display_name: string | null;
+            /** Number Withheld */
+            number_withheld: boolean;
+        };
         /**
          * Capability
          * @description One thing the assistant may be permitted to do.
@@ -343,6 +535,25 @@ export interface components {
             challenge_id: string;
             /** Expires In Seconds */
             expires_in_seconds: number;
+        };
+        /**
+         * EscalationReason
+         * @description Why the assistant wants a person.
+         *
+         *     These are the reasons it can actually distinguish, and each leads somewhere different: an
+         *     unauthorised action may be resolved by granting a capability, a caller's request may be
+         *     resolved by the user answering, and a failure is an operational problem.
+         * @enum {string}
+         */
+        EscalationReason: "caller_asked_for_the_user" | "action_not_authorised" | "decision_needs_the_user" | "important_enough_to_interrupt" | "cannot_understand_the_caller" | "user_rule_requires_it";
+        /** ExtractedDetailPayload */
+        ExtractedDetailPayload: {
+            /** Evidence */
+            evidence: string | null;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /**
          * Formality
@@ -558,6 +769,12 @@ export interface components {
             refresh_token: string;
         };
         /**
+         * Speaker
+         * @description Who said something.
+         * @enum {string}
+         */
+        Speaker: "caller" | "agent" | "human";
+        /**
          * TimeWindowPayload
          * @description A daily window, in the user's own zone.
          *
@@ -586,6 +803,31 @@ export interface components {
              * @default Bearer
              */
             token_type: string;
+        };
+        /** TranscriptLinePayload */
+        TranscriptLinePayload: {
+            /**
+             * Said At
+             * Format: date-time
+             */
+            said_at: string;
+            speaker: components["schemas"]["Speaker"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * TranscriptResponse
+         * @description What remains of a call's transcript, in the order it was said, and when it goes.
+         */
+        TranscriptResponse: {
+            /** Call Id */
+            call_id: string;
+            /** Entries */
+            entries: components["schemas"]["TranscriptLinePayload"][];
+            /** Transcript Expires At */
+            transcript_expires_at: string | null;
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
         };
         /** UpdateProfileRequest */
         UpdateProfileRequest: {
@@ -873,6 +1115,133 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_calls_v1_calls_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                outcome?: components["schemas"]["CallOutcome"] | null;
+                from?: string | null;
+                to?: string | null;
+                human_joined?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_call_v1_calls__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_call_v1_calls__call_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_transcript_v1_calls__call_id__transcript_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptResponse"];
                 };
             };
             /** @description Validation Error */
