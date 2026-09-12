@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
     log_format: LogFormat = LogFormat.CONSOLE
 
-    database_url: PostgresDsn | None = None
+    database_url: Annotated[PostgresDsn | None, BeforeValidator(_blank_is_absent)] = None
 
     # Authentication. The signing key has no default: a default signing key is a signing key
     # somebody forgets to change, and then anyone who has read this repository can mint a

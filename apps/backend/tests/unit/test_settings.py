@@ -152,6 +152,14 @@ def test_blank_speech_variables_count_as_unset(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.usefixtures("required_environment")
+def test_a_blank_database_url_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `.env.example` ships `DATABASE_URL=`, and copying it must start the application rather
+    # than fail validating an empty string as a connection address.
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert get_settings().database_url is None
+
+
+@pytest.mark.usefixtures("required_environment")
 def test_the_speech_key_is_not_rendered_by_accident(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECH_API_KEY", "speech-key-that-must-stay-out-of-logs")
     settings = get_settings()
