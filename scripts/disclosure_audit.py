@@ -119,13 +119,16 @@ STRUCTURAL = [
     # A private key, in any of the usual wrappers. gitleaks catches these too; two gates
     # with different bypasses is the point.
     (r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY", "a private key"),
+    # Zero tolerance rather than ratcheted: a word about the circumstances the work was done
+    # in says nothing about the product and does not belong in a public repository. Tier 2
+    # would allow it to be baselined; this cannot be.
+    (r"\bhackathon\b", "a reference to the circumstances of the work"),
 ]
 
 # Tier 2: ordinary words that are usually about the product and occasionally about the
 # session that built it. Ratcheted rather than banned.
 VOCABULARY = [
     (r"\bthe operator\b", "session vocabulary"),
-    (r"\bhackathon\b", "session vocabulary"),
     (r"\bcompetitor(?:s|'s)?\b", "positioning"),
     (r"\bgo[\s-]to[\s-]market\b", "strategy"),
     (r"\bmonetis|monetiz", "strategy"),
