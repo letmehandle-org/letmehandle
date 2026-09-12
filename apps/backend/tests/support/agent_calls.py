@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING, Final
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import CallSoFar, ToolRefusal
 from letmehandle.application.agent.tool import AgentTool, ToolResult, ToolSpec
-from letmehandle.application.preferences.context import build_preference_context
 from letmehandle.domain.models.authority import AgentAuthority
 from letmehandle.domain.models.call import Speaker, TranscriptEntry
-from letmehandle.domain.models.caller import Caller
+from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance
-from letmehandle.domain.models.preferences import CallRules, UserPreferences
+from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.preferences import CallRules, ImportantContact, UserPreferences
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -32,6 +32,10 @@ if TYPE_CHECKING:
 # Midday on a weekday, in no quiet hours anybody has set.
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
 
+# Reserved for fiction, never routable.
+STRANGER: Final = Caller(number=PhoneNumber("+12025550101"))
+MUM: Final = ImportantContact(PhoneNumber("+12025550102"), "Mum")
+
 
 def a_call(
     *said: str,
@@ -40,20 +44,28 @@ def a_call(
     from_important_contact: bool = False,
     locale: str = "en",
 ) -> CallSoFar:
-    """A call in which the caller has said each of `said`, in turn."""
-    granted = authority or AgentAuthority.none()
-    rules = CallRules(escalate_at_or_above=escalate_at_or_above)
-    preferences = UserPreferences(rules=rules, authority=granted, locale=locale)
-    return CallSoFar(
+    """A call in which the caller has said each of `said`, in turn.
+
+    Built the way orchestration builds one, from a single `UserPreferences`. The user always has
+    one important contact; `from_important_contact` decides whether that is who is calling.
+    """
+    preferences = UserPreferences(
+        rules=CallRules(escalate_at_or_above=escalate_at_or_above),
+        authority=authority or AgentAuthority.none(),
+        locale=locale,
+        important_contacts=(MUM,),
+    )
+    caller = (
+        Caller(number=MUM.number, category=CallerCategory.KNOWN_CONTACT)
+        if from_important_contact
+        else STRANGER
+    )
+    return CallSoFar.for_user(
         call_id=CallId("call-1"),
-        caller=Caller(),
-        transcript=tuple(TranscriptEntry(Speaker.CALLER, text, MIDDAY) for text in said),
-        preferences=build_preference_context(preferences, now=MIDDAY),
-        authority=granted,
-        rules=rules,
-        from_important_contact=from_important_contact,
+        preferences=preferences,
+        caller=caller,
+        transcript=(TranscriptEntry(Speaker.CALLER, text, MIDDAY) for text in said),
         now=MIDDAY,
-        contact_label=None,
     )
 
 

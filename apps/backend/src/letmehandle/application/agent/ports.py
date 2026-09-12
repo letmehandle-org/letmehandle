@@ -20,9 +20,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from letmehandle.application.preferences.context import build_preference_context
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
 
     from letmehandle.application.preferences.context import PreferenceContext
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.caller import Caller
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.models.identifiers import CallId
-    from letmehandle.domain.models.preferences import CallRules
+    from letmehandle.domain.models.preferences import CallRules, UserPreferences
     from letmehandle.domain.models.summary import CallOutcome, ExtractedDetail
     from letmehandle.domain.policy.escalation import EscalationProposal
 
@@ -47,6 +49,12 @@ class CallSoFar:
     `contact_label` is what the user called this caller in their important contacts, and is set
     only for a caller who is one. It is never taken from anything that arrived with the call: a
     caller's display name is text a stranger or their network chose.
+
+    The user's grant and threshold appear twice: as `authority` and `rules`, and again inside
+    `preferences`, which is what the model reads. The tools enforce `authority` and nothing else,
+    and the escalation policy reads `authority` and `rules`; a copy inside `preferences` that
+    disagreed would be a model told one thing and held to another. Build one with `for_user`,
+    which derives every copy from the same `UserPreferences` so they cannot disagree.
     """
 
     call_id: CallId
@@ -64,6 +72,42 @@ class CallSoFar:
             raise InvariantError("only an important contact carries the label the user gave them")
         if self.contact_label is not None and not self.contact_label.strip():
             raise InvariantError("a contact label is either absent or has something in it")
+
+    @classmethod
+    def for_user(
+        cls,
+        *,
+        call_id: CallId,
+        preferences: UserPreferences,
+        caller: Caller,
+        transcript: Iterable[TranscriptEntry],
+        now: datetime,
+    ) -> CallSoFar:
+        """The call as one user's preferences see it, at `now`.
+
+        Authority, rules, the context the model reads and whether the caller is an important
+        contact — with the label the user gave them — all come from `preferences`. A caller is an
+        important contact when their number is one the user listed; a withheld number never is.
+        """
+        contact = next(
+            (
+                each
+                for each in preferences.important_contacts
+                if caller.number is not None and each.number == caller.number
+            ),
+            None,
+        )
+        return cls(
+            call_id=call_id,
+            caller=caller,
+            transcript=tuple(transcript),
+            preferences=build_preference_context(preferences, now=now),
+            authority=preferences.authority,
+            rules=preferences.rules,
+            from_important_contact=contact is not None,
+            now=now,
+            contact_label=contact.label if contact is not None else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
