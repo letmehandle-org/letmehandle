@@ -17,8 +17,10 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from strands.tools import convert_pydantic_to_tool_spec
 
 from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL
+from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.application.agent.ports import CallEnding
 from letmehandle.bootstrap import call_agent_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
@@ -160,6 +162,25 @@ class TestHandledCalls:
         assert run.judgement.escalation.reason is EscalationReason.CALLER_ASKED_FOR_THE_USER
         assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]
 
+    async def test_a_model_sending_only_what_the_schema_requires_is_judged(self) -> None:
+        # The schema a model is shown leaves the nullable fields out of `required`, so a model that
+        # follows it to the letter omits them. That is an answer, not a failure to give one.
+        required = convert_pydantic_to_tool_spec(CallAssessment)["inputSchema"]["json"]["required"]
+        answer = {
+            "intent": "personal",
+            "importance": "urgent",
+            "understood": True,
+            "caller_asked_for_the_user": True,
+            "needs_the_users_decision": False,
+        }
+        call = a_call("It's her brother, I need to talk to her now.")
+        run = await judged(call, [CallTool(ASSESSMENT_TOOL, answer)])
+
+        assert set(answer) == set(required)
+        assert run.judgement.proposal.understood
+        assert run.judgement.escalation.reason is EscalationReason.CALLER_ASKED_FOR_THE_USER
+        assert len(run.actions.of_kind(Escalated)) == 1
+
 
 class TestWhatTheJudgementReports:
     """Refusals and the ending, as the real tools wrote them down."""
@@ -296,6 +317,10 @@ class TestAModelThatMisbehaves:
             pytest.param([assess(importance="URGENT!!")] * 9, id="an importance outside the set"),
             pytest.param([assess(intent="wire_transfer")] * 9, id="an intent outside the set"),
             pytest.param([assess(understood="yes")] * 9, id="a flag that is not a boolean"),
+            pytest.param(
+                [assess(requested_capability="do_anything")] * 9, id="a capability outside the set"
+            ),
+            pytest.param([assess(caller_summary=7)] * 9, id="a summary that is not text"),
             pytest.param([assess(escalate_now=True)] * 9, id="a field nobody reads"),
             pytest.param([assess(caller_summary="   ")] * 9, id="a summary with nothing in it"),
             pytest.param(
