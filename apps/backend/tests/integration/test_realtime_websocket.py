@@ -118,7 +118,11 @@ async def test_a_protocol_conversation_round_trips_as_json_objects(
 ) -> None:
     connection = await _connected(service)
 
-    await connection.send({"type": "session.update", "session": {"instructions": "be brief"}})
+    # Transcription asked for, because a service transcribes nobody who did not ask.
+    transcription = {"input": {"transcription": {"model": "a-transcriber"}}}
+    await connection.send(
+        {"type": "session.update", "session": {"instructions": "be brief", "audio": transcription}}
+    )
     updated = await _next_of(connection, "session.updated")
     assert updated["session"]["instructions"] == "be brief"
 
