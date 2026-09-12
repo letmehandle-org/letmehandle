@@ -11,13 +11,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import (
+    CapabilityNotSupportedError,
+    DomainError,
+    InvariantError,
+)
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.voice import VoiceSelection
 from letmehandle.domain.ports.notification import (
     DeviceToken,
     EscalationNotification,
 )
-from letmehandle.domain.ports.voice import VoiceSelection, resolve_voice
+from letmehandle.domain.ports.voice import resolve_voice
 
 if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import CallId
@@ -25,7 +30,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.llm import LLMProvider
     from letmehandle.domain.ports.notification import NotificationProvider
     from letmehandle.domain.ports.otp import OTPProvider
-    from letmehandle.domain.ports.voice import VoiceProvider
+    from letmehandle.domain.ports.voice import Voice, VoiceProvider
 
 A_NUMBER = PhoneNumber.parse("+12025550143")
 
@@ -159,11 +164,14 @@ class VoiceProviderContract:
     async def test_a_selected_voice_is_used_when_it_is_available(
         self, voices: VoiceProvider
     ) -> None:
-        available = (await voices.list_voices())[0]
+        # Deliberately not the first voice in the catalogue: for a provider whose default is
+        # also its first, asserting on that one is asserting that the default equals the
+        # default, and a provider that ignored every selection would pass it.
+        chosen_voice = await self._not_the_default(voices)
         chosen = await resolve_voice(
-            voices, VoiceSelection(persona_voice_id=available.id), locale="en"
+            voices, VoiceSelection(persona_voice_id=chosen_voice.id), locale="en"
         )
-        assert chosen == available.id
+        assert chosen == chosen_voice.id
 
     async def test_an_unavailable_selection_falls_through_rather_than_failing(
         self, voices: VoiceProvider
@@ -178,3 +186,30 @@ class VoiceProviderContract:
     async def test_a_missing_locale_is_refused(self, voices: VoiceProvider) -> None:
         with pytest.raises(InvariantError):
             await resolve_voice(voices, VoiceSelection(), locale="  ")
+
+    async def test_preview_matches_what_the_provider_declares(self, voices: VoiceProvider) -> None:
+        # The declaration and the behaviour have to agree in both directions. A provider
+        # declaring preview and then refusing draws a control that plays nothing; one refusing
+        # to declare it while serving samples hides a feature it has.
+        if voices.capabilities.preview:
+            sample = await voices.preview(voices.default_voice_id)
+            assert sample.audio
+            assert sample.media_type.strip()
+        else:
+            with pytest.raises(CapabilityNotSupportedError):
+                await voices.preview(voices.default_voice_id)
+
+    @staticmethod
+    async def _not_the_default(voices: VoiceProvider) -> Voice:
+        """A catalogue voice that is not the fallback, so a test can tell them apart."""
+        catalogue = await voices.list_voices()
+        for voice in catalogue:
+            if voice.id != voices.default_voice_id:
+                return voice
+        pytest.skip("this provider offers only its default voice")
+
+    async def test_an_unknown_voice_is_never_a_key_error(self, voices: VoiceProvider) -> None:
+        # Whatever the provider can do, "there is no such voice" reaches the caller as a domain
+        # error. A KeyError escaping a lookup is a 500 for a request that was merely wrong.
+        with pytest.raises(DomainError):
+            await voices.preview("no-such-voice")

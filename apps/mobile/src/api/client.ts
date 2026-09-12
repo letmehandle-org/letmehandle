@@ -29,6 +29,7 @@ import type {
 
 import { environment } from '../config/environment';
 import { ApiError, NetworkError } from './errors';
+import type { VoiceCatalogue, VoiceSelection } from './voice';
 
 export interface SessionHandle {
   /** The access token to send, or nothing when signed out. */
@@ -40,7 +41,7 @@ export interface SessionHandle {
 }
 
 interface RequestOptions {
-  readonly method: 'GET' | 'POST' | 'PATCH';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH';
   readonly path: string;
   readonly body?: unknown;
   readonly authenticated?: boolean;
@@ -134,6 +135,49 @@ export class ApiClient {
       method: 'PATCH',
       path: '/v1/preferences',
       body: changes,
+      authenticated: true,
+    });
+  }
+
+  // ----------------------------------------------------------------- voice
+
+  /**
+   * The voices on offer, and what the configured provider can do with them.
+   *
+   * Asked of the backend rather than bundled with the app, because which provider a deployment
+   * runs decides both the list and which controls may be drawn at all (D-009).
+   */
+  voices(): Promise<VoiceCatalogue> {
+    return this.send<VoiceCatalogue>({
+      method: 'GET',
+      path: '/v1/voices',
+      authenticated: true,
+    });
+  }
+
+  voiceSelection(): Promise<VoiceSelection> {
+    return this.send<VoiceSelection>({
+      method: 'GET',
+      path: '/v1/preferences/voice',
+      authenticated: true,
+    });
+  }
+
+  /**
+   * Choose a voice, or hand the choice back to the provider with null.
+   *
+   * PUT rather than PATCH, unlike the preferences: there is one field, so starting from the
+   * default cannot reset a section nobody was editing.
+   *
+   * The field is sent even when it is null rather than left out. The wire type makes it
+   * optional, so an omitted field and a cleared one would be the same request, and saying null
+   * out loud is what keeps "use the default" from ever being read as "leave it alone".
+   */
+  chooseVoice(voiceId: string | null): Promise<VoiceSelection> {
+    return this.send<VoiceSelection>({
+      method: 'PUT',
+      path: '/v1/preferences/voice',
+      body: { persona_voice_id: voiceId },
       authenticated: true,
     });
   }

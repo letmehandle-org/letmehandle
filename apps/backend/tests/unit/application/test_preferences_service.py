@@ -13,6 +13,7 @@ import pytest
 from letmehandle.application.preferences.service import (
     CallHandling,
     Hours,
+    PersonaVoice,
     PreferenceChanges,
     PreferencesService,
 )
@@ -24,6 +25,7 @@ from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import ORDER, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
+    PREFERENCES_VERSION,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -33,6 +35,7 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
     Verbosity,
 )
+from letmehandle.domain.models.voice import VoiceSelection
 from tests.contracts.preference_fakes import (
     InMemoryOnboardingRepository,
     InMemoryPreferencesRepository,
@@ -122,6 +125,7 @@ class TestPartialUpdates:
             topics=frozenset({Topic("school run")}),
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
             call_handling=REJECT_UNKNOWN,
+            persona_voice=PersonaVoice("ava"),
         )
         await service.replace_all(USER, full)
 
@@ -136,6 +140,7 @@ class TestPartialUpdates:
         assert after.topics == frozenset({Topic("school run")})
         assert after.important_contacts == full.important_contacts
         assert after.rules.default_posture is HandlingPosture.REJECT
+        assert after.voice.persona_voice_id == "ava"
 
     async def test_an_empty_value_clears_a_section_where_absence_would_not(
         self, service: PreferencesService
@@ -213,6 +218,38 @@ class TestCallHandlingAndHours:
         assert (await service.get(USER)).rules.quiet_hours is None
 
 
+class TestVersion:
+    async def test_a_change_leaves_the_set_at_today_s_version(
+        self, service: PreferencesService
+    ) -> None:
+        # What is handed back says the same thing the row it is about to become will say.
+        updated = await service.apply(USER, PreferenceChanges(locale="en-GB"))
+        assert updated.version == PREFERENCES_VERSION
+
+
+class TestVoice:
+    async def test_a_chosen_voice_is_kept(self, service: PreferencesService) -> None:
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_changing_something_else_leaves_the_voice_alone(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
+
+        await service.apply(USER, PreferenceChanges(formality=Formality.WARM))
+
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_a_voice_can_be_cleared(self, service: PreferencesService) -> None:
+        # Back to the provider's default, which is a thing somebody must be able to do.
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
+
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice()))
+
+        assert (await service.get(USER)).voice == VoiceSelection()
+
+
 class TestReplacing:
     async def test_it_stores_everything_it_was_given(self, service: PreferencesService) -> None:
         await service.replace_all(
@@ -229,6 +266,24 @@ class TestReplacing:
         await service.apply(USER, PreferenceChanges(locale="en-GB"))
         await service.replace_all(USER, PreferenceChanges())
         assert (await service.get(USER)).locale == "en"
+
+    async def test_it_keeps_the_voice_it_cannot_carry(self, service: PreferencesService) -> None:
+        # The one exception, and the reason for it: a replace request has no field for the
+        # voice, so resetting it here is a change nobody asked for and nobody can see coming.
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
+
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
+
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_a_replace_that_does_carry_a_voice_uses_it(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
+
+        await service.replace_all(USER, PreferenceChanges(persona_voice=PersonaVoice("noah")))
+
+        assert (await service.get(USER)).voice.persona_voice_id == "noah"
 
     async def test_it_resets_a_section_it_does_not_mention(
         self, service: PreferencesService

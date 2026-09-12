@@ -276,3 +276,43 @@ opinion about it.
 `PUT /v1/preferences` is the deliberate counterpart: it builds from the defaults, so a section
 it does not mention is reset. A caller that means to replace everything says so rather than
 relying on having remembered every section.
+
+## D-024 — The routes an application has depend on what its providers can do
+
+**Accepted.** The voice router is built from the configured provider. A provider that does not
+declare `preview` leaves the application with no preview route: asking for one is a 404 from the
+router, and the path is absent from the generated OpenAPI schema and therefore from the typed
+client the mobile app compiles against.
+
+The easier alternative is to register every route always and refuse inside the handler. It fails
+in three places at once. The route appears in the schema, so a client generator produces a method
+for it; a method that exists gets called; and somewhere a button is drawn for a thing that can
+only ever return an error. D-009 already says a capability that is false makes a control absent
+rather than disabled — this is the same rule one layer down, applied to the surface the control
+is drawn from.
+
+The shipped configuration exercises it immediately. `BuiltInVoiceProvider` declares `preview`
+true only when it is constructed with sample audio, and nothing in this phase can synthesise
+any: there is no speech provider until the telephony work. So the deployment ships a catalogue
+with no samples, declares `preview` false, registers no preview route, generates no client
+method, and draws no control. The day a provider ships samples, all five change together and
+none of them needs editing.
+
+The cost is that the schema is no longer a single fixed document — two deployments can have
+different APIs. That is true of the product either way; this only makes it legible.
+
+## D-025 — A stored choice is a model; what a provider offers is a port
+
+**Accepted.** `VoiceSelection` — the cloned voice and the persona voice a user picked — lives in
+`domain/models/`, beside every other preference. The catalogue, the capabilities and the sample
+audio live in `domain/ports/voice.py`.
+
+They share a subject and nothing else. One is something the user stored, read back and edited
+like a quiet-hours window; the other is a description of an external system that this deployment
+happens to be configured with. Keeping the selection in the port made every module that merely
+stores a preference import a provider interface, which is how a port stops being a boundary.
+
+The fallback chain — cloned voice, then chosen voice, then the provider's default — stays in the
+port's module, because it is the one piece of logic that needs both halves, and it is written
+once so that no caller invents its own order. Silence is the outcome it exists to prevent: an
+unavailable voice makes a call sound different, never makes it not happen.

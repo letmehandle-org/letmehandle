@@ -20,6 +20,8 @@ from letmehandle.domain.errors import InvariantError
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from letmehandle.domain.models.voice import VoiceSelection
+
 
 @dataclass(frozen=True, slots=True)
 class VoiceCapabilities:
@@ -45,6 +47,11 @@ class Voice:
     id: str
     name: str
     locales: tuple[str, ...]
+    # Whether this particular voice can be listened to. Per voice rather than per provider,
+    # because a provider holding a sample for one voice and not its neighbour declares the
+    # capability and can still only serve one of them — and a client told "preview works" draws
+    # a control for every voice in the list.
+    previewable: bool = False
 
     def __post_init__(self) -> None:
         if not self.id.strip() or not self.name.strip():
@@ -63,16 +70,22 @@ class Voice:
 
 
 @dataclass(frozen=True, slots=True)
-class VoiceSelection:
-    """What a user has chosen.
+class VoiceSample:
+    """A short recording of a voice, for somebody to listen to before choosing it.
 
-    Both fields optional, and both meaning something different from the other: a cloned voice
-    the user trained, and a built-in one they picked. The resolution order between them is the
-    domain's, not a provider's — see `resolve_voice`.
+    The media type travels with the bytes. A caller that has to guess produces a response the
+    client cannot play, and the guess is wrong the first time a provider returns anything but
+    the format that was assumed.
     """
 
-    cloned_voice_id: str | None = None
-    persona_voice_id: str | None = None
+    audio: bytes
+    media_type: str
+
+    def __post_init__(self) -> None:
+        if not self.audio:
+            raise InvariantError("a sample with no audio in it is silence, not a preview")
+        if not self.media_type.strip():
+            raise InvariantError("a sample must say what format it is in")
 
 
 class VoiceProvider(ABC):
@@ -100,6 +113,16 @@ class VoiceProvider(ABC):
     @abstractmethod
     async def list_voices(self, locale: str | None = None) -> Sequence[Voice]:
         """The voices on offer, optionally narrowed to a language."""
+
+    @abstractmethod
+    async def preview(self, voice_id: str) -> VoiceSample:
+        """A sample of this voice.
+
+        Raises `CapabilityNotSupportedError` when the provider does not declare `preview`, and
+        a domain error when the voice is unknown. Never a vendor exception and never a
+        `KeyError`: a caller should be able to tell "this provider cannot do that" from "there
+        is no such voice", and neither is a server fault.
+        """
 
     @abstractmethod
     async def is_available(self, voice_id: str) -> bool:

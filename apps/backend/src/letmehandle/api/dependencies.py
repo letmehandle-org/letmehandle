@@ -34,6 +34,7 @@ from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.repositories import UserRepository
+from letmehandle.domain.ports.voice import VoiceProvider
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -168,6 +169,15 @@ def get_preferences_service(
     )
 
 
+def get_voice_provider(request: Request) -> VoiceProvider:
+    """The voices this deployment offers.
+
+    Held on the container rather than built per request: a catalogue does not change between
+    requests, and the routes that exist were decided from its capabilities at startup.
+    """
+    return container_of(request).voices
+
+
 def get_user_repository(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -180,3 +190,4 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthService = Annotated[AuthenticationService, Depends(get_authentication_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
+Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]

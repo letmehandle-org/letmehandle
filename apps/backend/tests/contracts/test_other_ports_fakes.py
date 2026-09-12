@@ -6,13 +6,14 @@ import pytest
 
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.voice import VoiceSelection
 from letmehandle.domain.ports.notification import (
     DeliveryStatus,
     DevicePlatform,
     DeviceToken,
     EscalationNotification,
 )
-from letmehandle.domain.ports.voice import VoiceSelection, resolve_voice
+from letmehandle.domain.ports.voice import resolve_voice
 from tests.contracts.fakes import (
     CountingIdGenerator,
     FixedClock,

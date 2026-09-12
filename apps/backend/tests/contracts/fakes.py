@@ -43,7 +43,12 @@ from letmehandle.domain.ports.speech import (
     SpeechSession,
     SpeechStarted,
 )
-from letmehandle.domain.ports.voice import Voice, VoiceCapabilities, VoiceProvider
+from letmehandle.domain.ports.voice import (
+    Voice,
+    VoiceCapabilities,
+    VoiceProvider,
+    VoiceSample,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -194,6 +199,11 @@ class StaticVoiceProvider(VoiceProvider):
     async def is_available(self, voice_id: str) -> bool:
         known = {voice.id for voice in self._voices} | {"cloned"}
         return voice_id in known and voice_id not in self._unavailable
+
+    async def preview(self, voice_id: str) -> VoiceSample:
+        if not await self.is_available(voice_id):
+            raise ProviderError(self.name, f"no voice named {voice_id!r}", retryable=False)
+        return VoiceSample(audio=b"a sample of " + voice_id.encode(), media_type="audio/mpeg")
 
 
 @dataclass

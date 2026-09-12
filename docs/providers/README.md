@@ -39,7 +39,7 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 | `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them |
 | `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5 |
 | `LLMProvider` | `ports/llm.py` | `tests/contracts/other_ports.py` | phase 6 |
-| `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4 |
+| `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
 | `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10 |
 | `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 |
 | `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2 |
