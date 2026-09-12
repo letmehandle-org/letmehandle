@@ -1,0 +1,192 @@
+package org.letmehandle.app.calls.rules
+
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class ScreeningRulesTest {
+  // Noon in London, well outside the quiet hours below.
+  private val noon = Instant.parse("2026-09-13T11:00:00Z")
+  // Half past eleven at night in London, inside them.
+  private val lateEvening = Instant.parse("2026-09-13T22:30:00Z")
+
+  private val contact = "+12025550143"
+  private val stranger = ScreenedCaller(CallerNumber.parse("+12025550199"), withheld = false)
+  private val withheld = ScreenedCaller(number = null, withheld = true)
+
+  private fun rules(
+      defaultPosture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT,
+      anonymousPosture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT,
+      postureByCategory: Map<CallerCategory, HandlingPosture> = emptyMap(),
+      blocked: Set<CallerCategory> = emptySet(),
+      quietHours: QuietHours? = null,
+      contacts: List<ImportantContact> = emptyList(),
+      syncedAt: Instant = noon.minusSeconds(3_600),
+  ) =
+      CallRulesSnapshot(
+          syncedAt = syncedAt,
+          defaultPosture = defaultPosture,
+          anonymousPosture = anonymousPosture,
+          postureByCategory = postureByCategory,
+          blockedCategories = blocked,
+          quietHours = quietHours,
+          importantContacts = contacts,
+      )
+
+  private val londonNights = QuietHours(LocalTime.of(22, 0), LocalTime.of(7, 0), ZoneId.of("Europe/London"))
+
+  private fun decide(snapshot: CallRulesSnapshot?, caller: ScreenedCaller = stranger, at: Instant = noon) =
+      ScreeningRules.evaluate(snapshot, caller, at)
+
+  @Test
+  fun `with no rules the call rings`() {
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.NO_RULES), decide(null))
+  }
+
+  @Test
+  fun `rules too old to vouch for never refuse anybody`() {
+    val stale = rules(defaultPosture = HandlingPosture.REJECT, syncedAt = noon.minus(CallRulesSnapshot.MAX_AGE).minusSeconds(1))
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.STALE_RULES), decide(stale))
+  }
+
+  @Test
+  fun `rules exactly at their age limit are still applied`() {
+    val oldest = rules(defaultPosture = HandlingPosture.REJECT, syncedAt = noon.minus(CallRulesSnapshot.MAX_AGE))
+    assertEquals(ScreeningDecision.REJECT, decide(oldest).decision)
+  }
+
+  @Test
+  fun `a withheld number gets the anonymous posture`() {
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, anonymousPosture = HandlingPosture.REJECT)
+    assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.WITHHELD_NUMBER), decide(snapshot, withheld))
+    assertEquals(ScreeningDecision.ALLOW, decide(snapshot, stranger).decision)
+  }
+
+  @Test
+  fun `an unreadable number is not an anonymous one`() {
+    val unreadable = ScreenedCaller(number = null, withheld = false)
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, anonymousPosture = HandlingPosture.REJECT)
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE), decide(snapshot, unreadable))
+  }
+
+  @Test
+  fun `an important contact gets their own posture ahead of the default`() {
+    val snapshot =
+        rules(
+            defaultPosture = HandlingPosture.REJECT,
+            contacts = listOf(ImportantContact(contact, HandlingPosture.PASS_THROUGH)),
+        )
+    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.IMPORTANT_CONTACT), decide(snapshot, caller))
+  }
+
+  @Test
+  fun `a contact to put through rings in quiet hours too`() {
+    val snapshot =
+        rules(
+            quietHours = londonNights,
+            contacts = listOf(ImportantContact(contact, HandlingPosture.PASS_THROUGH)),
+        )
+    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    assertEquals(ScreeningDecision.ALLOW, decide(snapshot, caller, lateEvening).decision)
+  }
+
+  @Test
+  fun `a contact the user rejects is rejected`() {
+    val snapshot = rules(contacts = listOf(ImportantContact(contact, HandlingPosture.REJECT)))
+    val caller = ScreenedCaller(CallerNumber.parse("202-555-0143"), withheld = false)
+    assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.IMPORTANT_CONTACT), decide(snapshot, caller))
+  }
+
+  @Test
+  fun `a contact handled by the assistant is silenced in quiet hours`() {
+    val snapshot =
+        rules(quietHours = londonNights, contacts = listOf(ImportantContact(contact, HandlingPosture.HANDLE_WITH_AGENT)))
+    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    assertEquals(Screening(ScreeningDecision.SILENCE, ScreeningReason.QUIET_HOURS), decide(snapshot, caller, lateEvening))
+  }
+
+  @Test
+  fun `blocking unknown callers rejects everybody the handset cannot place`() {
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, blocked = setOf(CallerCategory.UNKNOWN))
+    assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.BLOCKED_CATEGORY), decide(snapshot))
+  }
+
+  @Test
+  fun `a blocked category the handset cannot recognise does not reject anybody`() {
+    // The handset does not classify callers. Spam blocked on the backend is a rule for the
+    // assistant; applying it here would mean guessing who is spam.
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, blocked = setOf(CallerCategory.SPAM))
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE), decide(snapshot))
+  }
+
+  @Test
+  fun `the unknown category's posture comes before the default`() {
+    val snapshot =
+        rules(
+            defaultPosture = HandlingPosture.PASS_THROUGH,
+            postureByCategory = mapOf(CallerCategory.UNKNOWN to HandlingPosture.REJECT),
+        )
+    assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.CATEGORY_POSTURE), decide(snapshot))
+  }
+
+  @Test
+  fun `a call for the assistant rings, because this path has no assistant`() {
+    val snapshot = rules(defaultPosture = HandlingPosture.HANDLE_WITH_AGENT)
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE), decide(snapshot))
+  }
+
+  @Test
+  fun `quiet hours silence rather than reject`() {
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, quietHours = londonNights)
+    assertEquals(Screening(ScreeningDecision.SILENCE, ScreeningReason.QUIET_HOURS), decide(snapshot, at = lateEvening))
+    assertEquals(ScreeningDecision.ALLOW, decide(snapshot, at = noon).decision)
+  }
+
+  @Test
+  fun `a rejection is not softened by quiet hours`() {
+    val snapshot = rules(defaultPosture = HandlingPosture.REJECT, quietHours = londonNights)
+    assertEquals(ScreeningDecision.REJECT, decide(snapshot, at = lateEvening).decision)
+  }
+
+  @Test
+  fun `quiet hours are read in the user's zone, not the handset's`() {
+    // 22:30 UTC is 23:30 in London in September and 18:30 in New York.
+    val newYorkNights = QuietHours(LocalTime.of(22, 0), LocalTime.of(7, 0), ZoneId.of("America/New_York"))
+    val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, quietHours = newYorkNights)
+    assertEquals(ScreeningDecision.ALLOW, decide(snapshot, at = lateEvening).decision)
+  }
+
+  @Test
+  fun `a window within one day is half open`() {
+    val lunch = QuietHours(LocalTime.of(12, 0), LocalTime.of(13, 0), ZoneId.of("UTC"))
+    assertEquals(true, lunch.contains(Instant.parse("2026-09-13T12:00:00Z")))
+    assertEquals(false, lunch.contains(Instant.parse("2026-09-13T13:00:00Z")))
+    assertEquals(false, lunch.contains(Instant.parse("2026-09-13T11:59:00Z")))
+  }
+
+  @Test
+  fun `a window past midnight covers both sides of it`() {
+    val nights = QuietHours(LocalTime.of(22, 0), LocalTime.of(7, 0), ZoneId.of("UTC"))
+    assertEquals(true, nights.contains(Instant.parse("2026-09-13T23:00:00Z")))
+    assertEquals(true, nights.contains(Instant.parse("2026-09-13T06:59:00Z")))
+    assertEquals(false, nights.contains(Instant.parse("2026-09-13T07:00:00Z")))
+  }
+
+  @Test(expected = IllegalArgumentException::class)
+  fun `a window that starts where it ends is refused`() {
+    QuietHours(LocalTime.of(9, 0), LocalTime.of(9, 0), ZoneId.of("UTC"))
+  }
+
+  @Test(expected = IllegalArgumentException::class)
+  fun `a category both blocked and given a posture is refused`() {
+    rules(blocked = setOf(CallerCategory.UNKNOWN), postureByCategory = mapOf(CallerCategory.UNKNOWN to HandlingPosture.REJECT))
+  }
+
+  @Test(expected = IllegalArgumentException::class)
+  fun `a withheld caller cannot carry a number`() {
+    ScreenedCaller(CallerNumber.parse(contact), withheld = true)
+  }
+}

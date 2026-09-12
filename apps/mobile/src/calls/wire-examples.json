@@ -1,0 +1,93 @@
+{
+  "snapshots": {
+    "readable": [
+      {
+        "version": 1,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "handle_with_agent",
+        "anonymous_posture": "reject",
+        "posture_by_category": { "unknown": "pass_through" },
+        "blocked_categories": ["spam"],
+        "quiet_hours": { "start": "22:00", "end": "07:00", "zone": "Europe/London" },
+        "important_contacts": [
+          { "phone_number": "+12025550143", "posture": "pass_through" }
+        ]
+      },
+      {
+        "version": 1,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
+        "quiet_hours": null,
+        "important_contacts": []
+      }
+    ],
+    "refused": [
+      {
+        "version": 2,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
+        "quiet_hours": null,
+        "important_contacts": []
+      },
+      {
+        "version": 1,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "ring_twice",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
+        "quiet_hours": null,
+        "important_contacts": []
+      },
+      {
+        "version": 1,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": { "spam": "reject" },
+        "blocked_categories": ["spam"],
+        "quiet_hours": null,
+        "important_contacts": []
+      },
+      {
+        "version": 1,
+        "synced_at": "2026-09-13T11:00:00Z",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
+        "quiet_hours": { "start": "22:00", "end": "07:00", "zone": "Nowhere/Atlantis" },
+        "important_contacts": []
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "0b5a6f1e-8d44-4c0e-9c59-1d7e2f0a9b10",
+      "call_id": "6f0c3b1a-2e7d-4a8f-b1c4-5d9e0f1a2b30",
+      "kind": "incoming",
+      "occurred_at": "2026-09-13T11:00:00Z",
+      "caller_number": "+12025550145",
+      "screening": "silence"
+    },
+    {
+      "event_id": "4c2d9e7a-1b3f-4e5d-8a6c-7f0b1e2d3c40",
+      "call_id": "6f0c3b1a-2e7d-4a8f-b1c4-5d9e0f1a2b30",
+      "kind": "answered",
+      "occurred_at": "2026-09-13T11:00:04Z"
+    },
+    {
+      "event_id": "9e8f7a6b-5c4d-4e3f-a2b1-c0d9e8f7a650",
+      "call_id": "6f0c3b1a-2e7d-4a8f-b1c4-5d9e0f1a2b30",
+      "kind": "ended",
+      "occurred_at": "2026-09-13T11:02:10Z",
+      "ending": "completed"
+    }
+  ]
+}
