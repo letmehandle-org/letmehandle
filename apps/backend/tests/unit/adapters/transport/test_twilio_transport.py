@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.adapters.transport.twilio import transport as transport_module
 from letmehandle.adapters.transport.twilio.callbacks import (
     ConferenceEvent,
     ConferenceUpdate,
@@ -96,6 +97,11 @@ class RecordingApi:
 
 
 FAILURE = ProviderError("twilio", "refused", retryable=False)
+
+
+@pytest.fixture(autouse=True)
+def _short_grace(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(transport_module, "LATE_CALLBACK_GRACE_SECONDS", 0.01)
 
 
 @pytest.fixture
@@ -436,10 +442,11 @@ async def test_a_user_who_never_joins_is_reported_by_how_it_turned_out(
     await transport.add_participant(CALL, USER)
     transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.RINGING, 1))
     transport.leg_progressed(CALL.value, "user-2", progress("user-2", status, 2))
+    assert shapes(await drain(transport)) == [("participant_unreachable", "user", outcome)]
     # Anything later about that leg changes nothing: it has been reported.
     transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 3))
     transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 3, "user-2"))
-    assert shapes(await drain(transport)) == [("participant_unreachable", "user", outcome)]
+    assert await drain(transport) == []
 
 
 async def test_a_voicemail_answering_is_reported_and_hung_up(
@@ -505,6 +512,20 @@ async def test_progress_for_a_leg_or_call_nobody_knows_is_ignored(
     transport.leg_progressed("CAsim-gone", "user-2", progress("user-2", LegStatus.BUSY, 1))
     transport.leg_progressed(None, None, progress("user-2", LegStatus.BUSY, 1))
     assert await drain(transport) == []
+
+
+async def test_a_completion_arriving_before_the_join_and_leave_it_followed_waits_for_them(
+    transport: TwilioCallTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(transport_module, "LATE_CALLBACK_GRACE_SECONDS", 0.5)
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 4))
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 6, "user-2"))
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 5, "user-2"))
+    # Not unreachable: the user was on the call, and has left it.
+    assert shapes(await drain(transport)) == [("participant_left", "user", None)]
 
 
 async def test_a_completed_progress_after_joining_leaves_the_leaving_to_the_conference(

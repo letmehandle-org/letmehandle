@@ -97,12 +97,16 @@ ASSISTANT_DIAL_TIMEOUT_SECONDS: Final = 15
 # call that is over cannot start it again. Bounded: a process runs for weeks.
 REMEMBERED_DELIVERIES: Final = 10_000
 
+# A leg reported completed without ever joining may simply have had its conference callbacks
+# delayed: they are separate requests, and a join and a leave can arrive after the completion.
+# The leg is reported unreachable only if nothing about it arrives for this long.
+LATE_CALLBACK_GRACE_SECONDS: Final = 2.0
+
 _OUTCOMES: Final = {
     LegStatus.NO_ANSWER: ParticipantOutcome.NO_ANSWER,
     LegStatus.BUSY: ParticipantOutcome.BUSY,
     LegStatus.FAILED: ParticipantOutcome.FAILED,
     LegStatus.CANCELED: ParticipantOutcome.FAILED,
-    LegStatus.COMPLETED: ParticipantOutcome.FAILED,
 }
 
 
@@ -475,6 +479,9 @@ class TwilioCallTransport(CallTransport):
         if progress.answered_by_machine and leg.role is ParticipantRole.USER:
             self._unreachable(call, leg, ParticipantOutcome.ANSWERED_BY_MACHINE)
             return
+        if progress.status is LegStatus.COMPLETED:
+            self._spawn(call, self._unreachable_unless_heard_of(call, leg))
+            return
         self._unreachable(call, leg, _OUTCOMES[progress.status])
 
     async def media_connected(self, socket: MediaSocket) -> None:
@@ -593,6 +600,11 @@ class TwilioCallTransport(CallTransport):
             outcome=outcome,
         )
         self._end_stream(call, leg)
+
+    async def _unreachable_unless_heard_of(self, call: _Call, leg: _Leg) -> None:
+        await asyncio.sleep(LATE_CALLBACK_GRACE_SECONDS)
+        if not leg.joined and not leg.finished:
+            self._unreachable(call, leg, ParticipantOutcome.FAILED)
 
     async def _apply_presence_locked(self, call: _Call) -> None:
         async with call.lock:
