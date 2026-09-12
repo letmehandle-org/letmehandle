@@ -136,6 +136,7 @@ class SimulatedTwilio:
         self._ids = itertools.count(1)
         self.fail_next_rest: int | None = None
         self.sign_handshake_with_slash = False
+        self.sign_handshake_url: str | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -449,7 +450,9 @@ class SimulatedTwilio:
                     extra = [("AnsweredBy", "human" if human else "machine_start")]
                 await self._progress(leg, "in-progress", extra)
                 assert leg.conference is not None
-                self._join(leg.conference, leg)
+                # Hung up while its answer was being delivered: it never reaches the conference.
+                if not leg.finished:
+                    self._join(leg.conference, leg)
             case Answering.KEEPS_RINGING | Answering.FAILS:
                 pass
 
@@ -475,7 +478,9 @@ class SimulatedTwilio:
             return
         public_url = stream.attrib["url"]
         parameters = {each.attrib["name"]: each.attrib["value"] for each in stream}
-        signed_url = public_url + "/" if self.sign_handshake_with_slash else public_url
+        signed_url = self.sign_handshake_url or (
+            public_url + "/" if self.sign_handshake_with_slash else public_url
+        )
         loopback = self._app_url.replace("http://", "ws://") + urlsplit(public_url).path
         try:
             leg.socket = await connect(
@@ -649,6 +654,13 @@ class SimulatedTwilio:
         task = asyncio.get_running_loop().create_task(work)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+
+async def eventually(condition: Callable[[], bool], *, seconds: float = 5.0) -> None:
+    """Wait for something observed over a socket, which offers nothing to wait on but itself."""
+    async with asyncio.timeout(seconds):
+        while not condition():  # noqa: ASYNC110 - a plain attribute, not an event
+            await asyncio.sleep(0.01)
 
 
 def _fields(params: list[tuple[str, str]]) -> dict[str, list[str]]:
