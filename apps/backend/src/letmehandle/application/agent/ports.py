@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from letmehandle.domain.errors import InvariantError
@@ -132,6 +133,18 @@ class OutcomeRecord:
             raise InvariantError("an outcome with no headline tells the user nothing")
 
 
+class CallEnding(StrEnum):
+    """Which kind of ending a call the assistant hangs up on had.
+
+    A fixed set rather than prose, so orchestration and the call history receive something they can
+    act on, and no caller's words travel with it.
+    """
+
+    RESOLVED = "resolved"
+    HANDED_OVER = "handed_over"
+    DECLINED = "declined"
+
+
 class CallActions(ABC):
     """The only ways the agent's tools can affect a call. Implemented by orchestration."""
 
@@ -148,5 +161,5 @@ class CallActions(ABC):
         """Keep a message the caller left for the user."""
 
     @abstractmethod
-    async def end_call(self, call_id: CallId, reason: str) -> None:
-        """Hang up on the caller."""
+    async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
+        """Hang up on the caller, for the kind of ending the tool was allowed."""

@@ -17,7 +17,7 @@ from letmehandle.domain.errors import IllegalTransitionError, InvariantError
 if TYPE_CHECKING:
     import asyncio
 
-    from letmehandle.application.agent.ports import OutcomeRecord
+    from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.models.identifiers import CallId
 
@@ -43,7 +43,7 @@ class MessageTaken:
 @dataclass(frozen=True, slots=True)
 class Ended:
     call_id: CallId
-    reason: str
+    ending: CallEnding
 
 
 type Action = Escalated | Recorded | MessageTaken | Ended
@@ -83,9 +83,9 @@ class RecordingCallActions(CallActions):
         self._still_on(call_id)
         self.actions.append(MessageTaken(call_id, message))
 
-    async def end_call(self, call_id: CallId, reason: str) -> None:
+    async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
         self._still_on(call_id)
-        self.actions.append(Ended(call_id, reason))
+        self.actions.append(Ended(call_id, ending))
 
     def of_kind[A: Action](self, kind: type[A]) -> list[A]:
         return [action for action in self.actions if isinstance(action, kind)]

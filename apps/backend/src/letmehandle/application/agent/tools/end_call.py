@@ -15,15 +15,14 @@ actually is:
   assistant does not get to decide that a caller goes unheard. It can still take a message, or ask
   for the user, where those are allowed.
 
-The kind is chosen from a fixed set rather than written as prose, so orchestration and the call
-history receive something they can act on, and no caller's words travel with it.
+The kind is a `CallEnding`, chosen from a fixed set rather than written as prose.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.agent.ports import CallEnding
 from letmehandle.application.agent.tool import ToolResult, ToolSpec
 from letmehandle.application.agent.tools.arguments import (
     choice_schema,
@@ -43,15 +42,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.tool import ToolOutcome
 
 
-class Ending(StrEnum):
-    """Why the assistant is ending the call."""
-
-    RESOLVED = "resolved"
-    HANDED_OVER = "handed_over"
-    DECLINED = "declined"
-
-
-ENDING: Final = options_by_value(Ending)
+ENDING: Final = options_by_value(CallEnding)
 
 _SPEC: Final = ToolSpec(
     name="end_call",
@@ -67,7 +58,7 @@ _SPEC: Final = ToolSpec(
 )
 
 
-class EndCall(CheckedTool[Ending]):
+class EndCall(CheckedTool[CallEnding]):
     """Ends the call once, for a reason the grant and the call's history both allow."""
 
     def __init__(
@@ -81,19 +72,19 @@ class EndCall(CheckedTool[Ending]):
     def spec(self) -> ToolSpec:
         return _SPEC
 
-    def _parse(self, arguments: Mapping[str, object]) -> Ending:
+    def _parse(self, arguments: Mapping[str, object]) -> CallEnding:
         return required_choice(arguments, "ending", ENDING)
 
-    def _requires(self, parsed: Ending) -> Capability | None:
-        return Capability.DECLINE_ON_THE_USERS_BEHALF if parsed is Ending.DECLINED else None
+    def _requires(self, parsed: CallEnding) -> Capability | None:
+        return Capability.DECLINE_ON_THE_USERS_BEHALF if parsed is CallEnding.DECLINED else None
 
-    async def _act(self, call: CallSoFar, parsed: Ending) -> ToolOutcome:
+    async def _act(self, call: CallSoFar, parsed: CallEnding) -> ToolOutcome:
         if self._notes.ended:
             return self.refuse("the call has already been ended")
-        if parsed is Ending.HANDED_OVER and not self._escalation.has_escalated(call.call_id):
+        if parsed is CallEnding.HANDED_OVER and not self._escalation.has_escalated(call.call_id):
             return self.refuse(
                 "the user has not been reached for this call, so it was not handed over"
             )
-        await self._actions.end_call(call.call_id, parsed.value)
+        await self._actions.end_call(call.call_id, parsed)
         self._notes.call_ended()
         return ToolResult("The call has ended.")

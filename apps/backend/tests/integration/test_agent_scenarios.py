@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL
+from letmehandle.application.agent.ports import CallEnding
 from letmehandle.bootstrap import call_agent_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.escalation import EscalationReason
@@ -95,7 +96,7 @@ class TestHandledCalls:
         assert run.judgement.refusals == ()
         assert run.actions.actions == [
             MessageTaken(call.call_id, "Dentist confirming Thursday at ten"),
-            Ended(call.call_id, "resolved"),
+            Ended(call.call_id, CallEnding.RESOLVED),
         ]
         assert run.model.unused_steps == 0
 
@@ -151,7 +152,7 @@ class TestWhatTheJudgementReports:
         run = await judged(call, [CallTool("end_call", {"ending": "resolved"}), assess()])
 
         assert run.judgement.ended
-        assert run.actions.of_kind(Ended) == [Ended(call.call_id, "resolved")]
+        assert run.actions.of_kind(Ended) == [Ended(call.call_id, CallEnding.RESOLVED)]
         assert run.judgement.refusals == ()
 
     async def test_refused_tools_are_reported_in_order(self) -> None:

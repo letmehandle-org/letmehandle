@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.application.agent.ports import CallEnding
 from letmehandle.application.agent.tools.end_call import EndCall
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -33,7 +34,9 @@ async def test_a_resolved_call_ends_without_any_grant() -> None:
 
     said = await answered(tool(kit), call, {"ending": "resolved"})
 
-    assert kit.actions.actions == [Ended(call.call_id, "resolved")]
+    assert kit.actions.actions == [Ended(call.call_id, CallEnding.RESOLVED)]
+    # The member itself, not its text: orchestration is handed the type it matches on.
+    assert kit.actions.of_kind(Ended)[0].ending is CallEnding.RESOLVED
     assert said == "The call has ended."
     assert kit.notes.ended
 
@@ -44,7 +47,7 @@ async def test_declining_a_caller_needs_the_users_grant_to_decline() -> None:
 
     await answered(tool(kit), call, {"ending": "declined"})
 
-    assert kit.actions.actions == [Ended(call.call_id, "declined")]
+    assert kit.actions.actions == [Ended(call.call_id, CallEnding.DECLINED)]
 
 
 async def test_without_the_grant_to_decline_the_caller_is_not_turned_away() -> None:
@@ -78,7 +81,7 @@ async def test_a_call_the_user_was_reached_for_can_be_handed_over() -> None:
 
     await answered(tool(kit), call, {"ending": "handed_over"})
 
-    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, "handed_over")]
+    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, CallEnding.HANDED_OVER)]
 
 
 async def test_a_call_is_ended_once() -> None:
@@ -89,7 +92,7 @@ async def test_a_call_is_ended_once() -> None:
     reason = await refused(tool(kit), call, {"ending": "declined"})
 
     assert reason == "the call has already been ended"
-    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, "resolved")]
+    assert kit.actions.of_kind(Ended) == [Ended(call.call_id, CallEnding.RESOLVED)]
     assert [refusal.reason for refusal in kit.notes.refusals] == [reason]
 
 
