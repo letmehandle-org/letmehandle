@@ -207,7 +207,7 @@ def build_escalation_dispatcher(
 
 @runtime_checkable
 class _Closable(Protocol):
-    async def aclose(self) -> None: ...
+    async def aclose(self) -> None: ...  # pragma: no cover - a protocol signature, never run
 
 
 async def close_notification_providers(container: Container) -> None:
