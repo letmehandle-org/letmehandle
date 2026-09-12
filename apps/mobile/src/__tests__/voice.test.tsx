@@ -10,9 +10,10 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
+import type { paths } from '@letmehandle/api-client';
+
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
-import { canPreviewVoices } from '../voice/preview';
 import {
   DEFAULT_VOICE_ID,
   VOICE_CAPABILITIES,
@@ -62,7 +63,9 @@ function inUse(voiceName: string): string {
 describe('the voices on offer', () => {
   it('lists what the server offers, rather than a list shipped with the app', async () => {
     withVoices({
-      voices: [{ id: 'juniper', name: 'Juniper', locales: ['en'] }],
+      voices: [
+        { id: 'juniper', name: 'Juniper', locales: ['en'], previewable: false },
+      ],
     });
     const view = await render(<App />);
     await waitFor(() => {
@@ -143,15 +146,36 @@ describe('what is actually answering calls', () => {
     expect(view.getByText(inUse('Ash'))).toBeOnTheScreen();
   });
 
-  it('says so when the chosen voice is not the one answering', async () => {
-    // The chosen voice was withdrawn by the provider, so the fallback chain has stepped past it.
-    // Silence here means finding out from a caller.
+  it('says plainly when the chosen voice has been withdrawn', async () => {
+    // The provider no longer offers it, so the fallback chain has stepped past it. Silence here
+    // means finding out from a caller; a vaguer message means guessing why.
     const backend = withVoices({ persona: 'briar' });
     backend.withdrawVoice('briar');
     const view = await openVoice();
 
     expect(
-      view.getByText(en.voice.notYourChoice.replace('{{voice}}', 'Ash')),
+      view.getByText(en.voice.withdrawn.replace('{{voice}}', 'Ash')),
+    ).toBeOnTheScreen();
+  });
+
+  it('does not report a cloned voice that is working as a problem', async () => {
+    // A clone outranks a chosen voice. Comparing the answering voice with the chosen one alone
+    // would tell somebody whose clone is doing its job that their choice is being ignored.
+    withVoices({ cloned: 'cove', persona: 'briar' });
+    const view = await openVoice();
+
+    expect(view.getByText(inUse('Cove'))).toBeOnTheScreen();
+  });
+
+  it('says a cloned voice is not answering when the chain has stepped past it', async () => {
+    const backend = withVoices({ cloned: 'cove', persona: 'briar' });
+    backend.withdrawVoice('cove');
+    const view = await openVoice();
+
+    // Not "withdrawn": a cloned voice is never in the catalogue, so its absence proves nothing
+    // about why it is not being used.
+    expect(
+      view.getByText(en.voice.notYourChoice.replace('{{voice}}', 'Briar')),
     ).toBeOnTheScreen();
   });
 });
@@ -172,9 +196,14 @@ describe('what this provider cannot do', () => {
     // Both halves have to agree. A provider that declares preview against a client with no
     // route for it can no more play a sample than one that declares none, and a control drawn
     // on the declaration alone would be a button that 404s.
-    expect(canPreviewVoices({ ...VOICE_CAPABILITIES, preview: true })).toBe(
-      false,
-    );
+    //
+    // The annotation below is the trip-wire. The day the backend registers a preview route,
+    // the generated schema gains the path, `false` stops compiling, and this test — and the
+    // screen — have to be written against a route that exists.
+    const schemaHasPreview: '/v1/voices/{voice_id}/preview' extends keyof paths
+      ? true
+      : false = false;
+    expect(schemaHasPreview).toBe(false);
 
     withVoices({ capabilities: { ...VOICE_CAPABILITIES, preview: true } });
     const view = await openVoice();

@@ -78,8 +78,11 @@ export const en = {
     default: 'Whichever your assistant picks',
     inUse: 'Calls are answered in {{voice}}.',
     notYourChoice:
-      'Calls are being answered in {{voice}}, not the voice you chose. That usually means ' +
-      'the voice you chose is no longer available.',
+      'Calls are being answered in {{voice}}, not the voice you chose, because that voice ' +
+      'is not available right now.',
+    withdrawn:
+      'The voice you chose is no longer offered, so calls are being answered in {{voice}}. ' +
+      'Choose another below.',
     loadFailed: 'Could not load the voices on offer.',
     saved: 'Saved',
     saveFailed:

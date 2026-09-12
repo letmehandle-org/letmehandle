@@ -31,9 +31,11 @@ const NO_CHOICE = '';
  *
  * What is drawn here is what the provider declared it can do, and nothing else (D-009). There
  * is no voice-training flow, because no shipped provider can clone a voice — not a disabled
- * one, not one behind a flag. There is no play control either, and the honest reason is in
- * `preview.ts`: the provider declares it has no samples, and this client has no route to fetch
- * one with, so a button here could only be wired to a request that 404s.
+ * one, not one behind a flag. There is no play control either: the provider declares it has
+ * no samples and the generated client has no route to fetch one with, so a button here could
+ * only be wired to a request that 404s. The voice tests hold a compile-time check on the schema
+ * that fails the day that route exists, which is when a control belongs here — drawn for the
+ * voices marked `previewable`, not for every voice in the list.
  */
 export function VoiceEditor({
   catalogue,
@@ -77,12 +79,9 @@ export function VoiceEditor({
     <>
       <Notice
         tone={isIgnoringTheChoice(selection) ? 'problem' : 'quiet'}
-        message={t(
-          isIgnoringTheChoice(selection)
-            ? 'voice.notYourChoice'
-            : 'voice.inUse',
-          { voice: nameOf(catalogue, selection.resolved_voice_id) },
-        )}
+        message={t(answeringMessage(catalogue, selection), {
+          voice: nameOf(catalogue, selection.resolved_voice_id),
+        })}
         testID="voice-in-use"
       />
 
@@ -120,17 +119,47 @@ export function VoiceEditor({
 }
 
 /**
+ * The voice this user's choices say should be answering.
+ *
+ * A cloned voice outranks a chosen one, in the same order the server resolves them in. Comparing
+ * the answering voice against the chosen one alone would report a working clone as a problem.
+ */
+function expectedVoice(selection: VoiceSelection): string | null {
+  return selection.cloned_voice_id ?? selection.persona_voice_id;
+}
+
+/**
  * Whether the voice answering calls is not the one that was asked for.
  *
- * These differ only when a chosen voice has become unavailable and the fallback chain has
+ * These differ only when an expected voice has become unavailable and the fallback chain has
  * quietly stepped past it. Somebody who picked a voice deserves to be told that, rather than
  * finding out from a caller.
  */
 function isIgnoringTheChoice(selection: VoiceSelection): boolean {
-  return (
-    selection.persona_voice_id !== null &&
-    selection.persona_voice_id !== selection.resolved_voice_id
-  );
+  const expected = expectedVoice(selection);
+  return expected !== null && expected !== selection.resolved_voice_id;
+}
+
+/**
+ * What to tell somebody about the voice their calls are answered in.
+ *
+ * A chosen voice missing from the catalogue has been withdrawn, and that can be said plainly.
+ * Anything else stepped past is only known to be unavailable, so that is all that is said. A
+ * cloned voice is never in the catalogue, so its absence from it proves nothing.
+ */
+function answeringMessage(
+  catalogue: VoiceCatalogue,
+  selection: VoiceSelection,
+): 'voice.inUse' | 'voice.notYourChoice' | 'voice.withdrawn' {
+  if (!isIgnoringTheChoice(selection)) {
+    return 'voice.inUse';
+  }
+  const chosen = selection.persona_voice_id;
+  const withdrawn =
+    selection.cloned_voice_id === null &&
+    chosen !== null &&
+    !catalogue.voices.some(voice => voice.id === chosen);
+  return withdrawn ? 'voice.withdrawn' : 'voice.notYourChoice';
 }
 
 /**

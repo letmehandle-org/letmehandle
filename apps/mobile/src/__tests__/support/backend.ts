@@ -57,9 +57,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
 
 /** What the shipped provider offers: a few voices, and nothing else it can do with them. */
 export const VOICES: readonly Voice[] = [
-  { id: 'ash', name: 'Ash', locales: ['en'] },
-  { id: 'briar', name: 'Briar', locales: ['en'] },
-  { id: 'cove', name: 'Cove', locales: ['en'] },
+  { id: 'ash', name: 'Ash', locales: ['en'], previewable: false },
+  { id: 'briar', name: 'Briar', locales: ['en'], previewable: false },
+  { id: 'cove', name: 'Cove', locales: ['en'], previewable: false },
 ];
 
 export const DEFAULT_VOICE_ID = 'ash';
