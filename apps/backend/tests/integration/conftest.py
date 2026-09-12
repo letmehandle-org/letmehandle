@@ -66,7 +66,7 @@ class Api:
 
 
 @pytest.fixture
-async def api(session: object, database_url: str) -> AsyncIterator[Api]:
+async def api(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
     """The whole application, against the schema the `session` fixture created.
 
     Depends on `session` for the schema and for its skip when no database is reachable, then
@@ -76,7 +76,11 @@ async def api(session: object, database_url: str) -> AsyncIterator[Api]:
 
     settings = make_settings()
     app: FastAPI = create_app(settings)
-    engine: AsyncEngine = create_async_engine(database_url)
+    # Pointed at the same schema the `session` fixture created, so the application under test
+    # and the fixtures that set it up are looking at the same tables.
+    engine: AsyncEngine = create_async_engine(
+        database_url, connect_args={"server_settings": {"search_path": schema}}
+    )
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
