@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.adapters.speech.realtime import telemetry
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
+from letmehandle.adapters.speech.session_support import telemetry
 from letmehandle.domain.errors import CapabilityNotSupportedError, InvariantError, ProviderError
 from letmehandle.domain.models.audio import (
     SPEECH_WIDEBAND,

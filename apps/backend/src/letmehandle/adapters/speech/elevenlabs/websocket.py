@@ -1,9 +1,14 @@
-"""The OpenAI Realtime handshake.
+"""The ElevenLabs Agents handshake.
 
-The model travels as the `model` query parameter of the endpoint URL, and the key as an
-`Authorization: Bearer` header. A self-run compatible server that needs no key gets no header at
-all, rather than an empty one it might reject. Everything after the handshake is the shared
-websocket connection's.
+The agent travels as the `agent_id` query parameter of the endpoint URL, and the key as an
+`xi-api-key` header. A public agent needs no key and gets no header at all.
+
+The header rather than a signed URL, deliberately. A signed URL exists so that a browser or a
+phone can start a conversation without ever holding the key: a server fetches one with the key
+and hands it over. This adapter runs on that server already, so a signed URL would cost an extra
+request before every connection — including every reconnect, since one is only good for fifteen
+minutes — to keep the key from a process that holds it anyway. Everything after the handshake is
+the shared websocket connection's, which never puts a header in a message or a log.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ if TYPE_CHECKING:
 def websocket_opener(
     endpoint_url: str,
     *,
-    model: str,
+    agent_id: str,
     api_key: str | None = None,
     open_timeout: float = DEFAULT_OPEN_TIMEOUT_SECONDS,
 ) -> ConnectionOpener:
@@ -33,8 +38,8 @@ def websocket_opener(
     The URL and headers are settled once, here, so that a reconnection cannot quietly differ
     from the connection it replaces.
     """
-    uri = with_query_parameter(endpoint_url, "model", model)
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    uri = with_query_parameter(endpoint_url, "agent_id", agent_id)
+    headers = {"xi-api-key": api_key} if api_key else {}
 
     async def open_connection() -> EventConnection:
         return await WebsocketConnection.open(uri, headers=headers, open_timeout=open_timeout)

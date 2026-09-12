@@ -9,8 +9,8 @@ import pytest
 
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
-from letmehandle.adapters.speech.realtime.reconnect import ReconnectPolicy
-from letmehandle.adapters.speech.realtime.timing import Timekeeping
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.timing import Timekeeping
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 from tests.support.recording_metrics import RecordingMetrics
 from tests.support.scripted_realtime_connection import ScriptedRealtimeService

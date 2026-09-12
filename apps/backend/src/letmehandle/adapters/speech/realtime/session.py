@@ -29,16 +29,17 @@ from letmehandle.adapters.speech.realtime.protocol import (
     ResponseFinished,
     ResponseStarted,
     ServiceError,
-    Speaker,
     TranscriptDelta,
     TranscriptSettled,
-    Turn,
 )
-from letmehandle.adapters.speech.realtime.telemetry import StreamErrorKind
-from letmehandle.adapters.speech.websocket.connection import (
-    ConnectionFailedError,
-    EventConnectionError,
+from letmehandle.adapters.speech.session_support.history import Speaker, Turn
+from letmehandle.adapters.speech.session_support.recovery import (
+    is_retryable,
+    receive,
+    replace_connection,
 )
+from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
+from letmehandle.adapters.speech.websocket.connection import EventConnectionError
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import AudioFrame
 from letmehandle.domain.ports.speech import (
@@ -56,9 +57,9 @@ if TYPE_CHECKING:
 
     from letmehandle.adapters.speech.realtime.context import SessionContext
     from letmehandle.adapters.speech.realtime.protocol import Event, Inbound
-    from letmehandle.adapters.speech.realtime.reconnect import ReconnectPolicy
-    from letmehandle.adapters.speech.realtime.telemetry import SessionTelemetry
-    from letmehandle.adapters.speech.realtime.timing import Timekeeping
+    from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+    from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
+    from letmehandle.adapters.speech.session_support.timing import Timekeeping
     from letmehandle.adapters.speech.websocket.connection import (
         ConnectionOpener,
         EventConnection,
@@ -168,7 +169,7 @@ class RealtimeSpeechSession(SpeechSession):
         except EventConnectionError as error:
             await self._drop_connection()
             raise ProviderError(
-                self._setup.provider, str(error), retryable=_is_retryable(error)
+                self._setup.provider, str(error), retryable=is_retryable(error)
             ) from error
         except BaseException:
             await self._drop_connection()
@@ -252,7 +253,7 @@ class RealtimeSpeechSession(SpeechSession):
 
     async def _converse(self, connection: EventConnection) -> None:
         while True:
-            received = await _receive(connection)
+            received = await receive(connection)
             if isinstance(received, EventConnectionError):
                 self._telemetry.stream_error(StreamErrorKind.CONNECTION)
                 replacement = await self._recover(received)
@@ -406,31 +407,22 @@ class RealtimeSpeechSession(SpeechSession):
         """Replace a failed connection, or end the session and return `None`."""
         self._live = False
         await self._drop_connection()
-        if not _is_retryable(error):
+        if not is_retryable(error):
             await self._fail(str(error))
             return None
-        self._telemetry.reconnecting()
         self._forget_responses()
-        policy = self._setup.reconnect
-        timekeeping = self._setup.timekeeping
-        for attempt in range(policy.max_attempts):
-            await timekeeping.sleep(policy.delay(attempt, timekeeping.draw()))
-            try:
-                connection = await self._open()
-            except EventConnectionError as failure:
-                await self._drop_connection()
-                self._telemetry.stream_error(StreamErrorKind.CONNECTION)
-                if not _is_retryable(failure):
-                    self._telemetry.reconnected(succeeded=False)
-                    await self._fail(str(failure))
-                    return None
-                continue
-            self._live = True
-            self._telemetry.reconnected(succeeded=True)
-            return connection
-        self._telemetry.reconnected(succeeded=False)
-        await self._fail(f"the connection could not be restored in {policy.max_attempts} attempts")
-        return None
+        replacement = await replace_connection(
+            open_connection=self._open,
+            abandon=self._drop_connection,
+            policy=self._setup.reconnect,
+            timekeeping=self._setup.timekeeping,
+            telemetry=self._telemetry,
+        )
+        if isinstance(replacement, str):
+            await self._fail(replacement)
+            return None
+        self._live = True
+        return replacement
 
     def _forget_responses(self) -> None:
         """A new connection has no responses in progress, whatever the old one had."""
@@ -491,20 +483,3 @@ class RealtimeSpeechSession(SpeechSession):
             raise ProviderError(self._setup.provider, self._failure, retryable=False)
         if self._closed:
             raise ProviderError(self._setup.provider, "the session is closed", retryable=False)
-
-
-async def _receive(connection: EventConnection) -> Event | EventConnectionError:
-    """The next event, or the failure that ended the connection, as a value to act on."""
-    try:
-        event = await connection.receive()
-    except EventConnectionError as error:
-        return error
-    if event is None:
-        # The service ending a connection on its own is how a session-length limit or a restart
-        # looks from here, and both are worth reconnecting through.
-        return ConnectionFailedError("the service closed the connection", retryable=True)
-    return event
-
-
-def _is_retryable(error: EventConnectionError) -> bool:
-    return isinstance(error, ConnectionFailedError) and error.retryable

@@ -1,25 +1,32 @@
-"""A speech provider for any service speaking the OpenAI Realtime-compatible protocol.
+"""A speech provider for ElevenLabs Agents (D-008: a different protocol is a second adapter).
 
-What the service can do is told to this class, not written into it. A compatible server decides
-its own languages and voices, and a list of one vendor's facts in here would be a lie about the
-next server somebody points it at (D-008).
+What the agent can do is told to this class, not written into it. An agent's languages and voices
+are its configuration at the service, and a list of them in here would be a lie about the next
+agent somebody points it at.
 
-The capabilities it declares about itself are the ones this adapter implements rather than the
-ones the protocol allows: barge-in, because the session acts on the service's speech-started
-signal; context updates, because instructions can be sent again mid-session; reconnection,
-because a dropped connection is replaced and told what it missed.
+The capabilities it declares are the ones this adapter implements, with the protocol's limits
+stated rather than smoothed over:
+
+- barge-in, because the service interrupts its own agent when the caller speaks over it and says
+  so, and the session discards what was queued when it does;
+- context updates mid-session, in the protocol's own weaker sense: a non-interrupting update the
+  agent takes into account, added to the conversation rather than replacing its instructions;
+- reconnection, in the only sense the protocol allows. A dropped conversation cannot be resumed,
+  so a replacement is a new conversation opened with the instructions, the updates and a bounded
+  record of what was said written into its prompt, and asked not to greet the caller again. The
+  model is reminded of the conversation; it does not get it back.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.adapters.speech.realtime.context import SessionContext
-from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
-from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession, SessionSetup
+from letmehandle.adapters.speech.elevenlabs.context import ConversationContext
+from letmehandle.adapters.speech.elevenlabs.protocol import DEFAULT_WIRE_FORMAT
+from letmehandle.adapters.speech.elevenlabs.session import ElevenLabsSpeechSession, SessionSetup
 from letmehandle.adapters.speech.session_support.bounds import (
     DEFAULT_HISTORY_TURNS,
-    DEFAULT_QUEUE_SIZE,
+    DEFAULT_OPEN_TIMEOUT_SECONDS,
 )
 from letmehandle.adapters.speech.session_support.offer import (
     check_session_request,
@@ -39,11 +46,16 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechSession
 
-PROVIDER_NAME: Final = "realtime"
+PROVIDER_NAME: Final = "elevenlabs"
+
+# Agent audio held for a consumer before reading stops. Minutes, not seconds: a speaker plays in
+# real time and the service sends faster than that, so a whole long reply is routinely waiting,
+# and reading must go on behind it. Two minutes of wideband audio is a few megabytes.
+DEFAULT_AUDIO_CEILING_SECONDS: Final = 120.0
 
 
-class RealtimeSpeechProvider(SpeechProvider):
-    """Opens realtime speech sessions over connections it is handed a way to open."""
+class ElevenLabsSpeechProvider(SpeechProvider):
+    """Opens conversations with one ElevenLabs agent over connections it is handed a way to open."""
 
     def __init__(
         self,
@@ -53,18 +65,23 @@ class RealtimeSpeechProvider(SpeechProvider):
         languages: Sequence[str],
         input_formats: Sequence[AudioFormat],
         output_format: AudioFormat,
-        transcription_model: str | None = None,
         reconnect: ReconnectPolicy | None = None,
         history_turns: int = DEFAULT_HISTORY_TURNS,
-        queue_size: int = DEFAULT_QUEUE_SIZE,
+        audio_ceiling_seconds: float = DEFAULT_AUDIO_CEILING_SECONDS,
+        initiation_timeout: float = DEFAULT_OPEN_TIMEOUT_SECONDS,
         timekeeping: Timekeeping | None = None,
     ) -> None:
-        if queue_size < 1:
-            raise InvariantError("an event queue must hold at least one event")
+        if audio_ceiling_seconds <= 0:
+            raise InvariantError("a session must be able to hold some audio")
+        if initiation_timeout <= 0:
+            raise InvariantError("a conversation must be given some time to begin")
         self._opener = opener
         self._metrics = metrics
+        # Checked against the agent's default formats. Every format the protocol can name is
+        # linear or μ-law audio, which converts to and from the same things, so an agent
+        # configured otherwise changes no answer here.
         self._capabilities = checked_capabilities(
-            wire_format=WIRE_FORMAT,
+            wire_format=DEFAULT_WIRE_FORMAT,
             languages=languages,
             input_formats=input_formats,
             output_format=output_format,
@@ -73,10 +90,10 @@ class RealtimeSpeechProvider(SpeechProvider):
             reconnection=True,
         )
         self._output_format = output_format
-        self._transcription_model = transcription_model
         self._reconnect = reconnect or ReconnectPolicy()
         self._history_turns = history_turns
-        self._queue_size = queue_size
+        self._audio_ceiling_seconds = audio_ceiling_seconds
+        self._initiation_timeout = initiation_timeout
         self._timekeeping = timekeeping or Timekeeping()
 
     @property
@@ -102,21 +119,21 @@ class RealtimeSpeechProvider(SpeechProvider):
             input_format=input_format,
             voice_id=voice_id,
         )
-        session = RealtimeSpeechSession(
+        session = ElevenLabsSpeechSession(
             SessionSetup(
                 provider=self.name,
                 opener=self._opener,
                 input_format=input_format,
                 output_format=self._output_format,
                 reconnect=self._reconnect,
-                queue_size=self._queue_size,
+                audio_ceiling_seconds=self._audio_ceiling_seconds,
+                initiation_timeout=self._initiation_timeout,
                 timekeeping=self._timekeeping,
             ),
-            SessionContext(
+            ConversationContext(
                 instructions=system_context,
                 voice_id=voice_id,
                 language=locale.split("-")[0],
-                transcription_model=self._transcription_model,
                 history_turns=self._history_turns,
             ),
             SessionTelemetry(self._metrics, self._timekeeping.clock, self.name),

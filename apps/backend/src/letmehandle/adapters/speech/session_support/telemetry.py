@@ -1,4 +1,4 @@
-"""What a realtime session measures about itself.
+"""What a speech session measures about itself.
 
 Latency is the product here — a reply that arrives a second late is a caller talking over it —
 and a regression in it is invisible without a baseline, so these are recorded from the first
@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from letmehandle.adapters.speech.realtime.timing import MonotonicClock
+    from letmehandle.adapters.speech.session_support.timing import MonotonicClock
     from letmehandle.domain.ports.metrics import MetricsRecorder
 
 TIME_TO_FIRST_AUDIO: Final = "speech.time_to_first_audio_seconds"

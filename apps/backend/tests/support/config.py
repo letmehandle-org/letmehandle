@@ -11,6 +11,7 @@ from letmehandle.config.settings import (
     LogFormat,
     OTPProviderName,
     Settings,
+    SpeechProviderName,
     parse_voice_catalogue,
 )
 
@@ -55,8 +56,10 @@ def make_settings(
     auth_signing_key: str | None = TEST_SIGNING_KEY,
     speech_voices: tuple[Voice, ...] = EXAMPLE_VOICES,
     speech_default_voice: str = EXAMPLE_DEFAULT_VOICE,
+    speech_provider: SpeechProviderName = SpeechProviderName.REALTIME,
     speech_endpoint_url: str | None = None,
     speech_model: str | None = None,
+    speech_agent_id: str | None = None,
     speech_api_key: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
@@ -71,10 +74,12 @@ def make_settings(
         database_url=PostgresDsn(database_url) if database_url is not None else None,
         otp_provider=otp_provider,
         auth_signing_key=SecretStr(auth_signing_key) if auth_signing_key is not None else None,
+        speech_provider=speech_provider,
         speech_endpoint_url=(
             AnyWebsocketUrl(speech_endpoint_url) if speech_endpoint_url is not None else None
         ),
         speech_model=speech_model,
+        speech_agent_id=speech_agent_id,
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
