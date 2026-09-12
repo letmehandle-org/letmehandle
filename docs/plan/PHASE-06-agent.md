@@ -110,3 +110,81 @@ prompt edit that lowers the rate fails.
 - **Small local models.** D-007 permits them, and tool-calling reliability varies. The
   evaluation suite reports per-model results so a user can see whether their configured model
   is adequate before trusting it with a call.
+
+---
+
+# Phase 6 verification
+
+```
+PHASE 6 VERIFICATION
+
+Planned tasks:        complete, except the evaluation against a real model
+Acceptance criteria:  8 of 9 passed; 8 held — it needs a configured model endpoint
+Unit tests:           passed   backend 1651 passed, 3 skipped; mobile 179 passed
+Integration tests:    passed   calls judged end to end through the SDK's real agent loop on a
+                               scripted model, with the real tools and the real policy
+Evaluation:           held     suite and runner built; scored against scripted strategies only
+Coverage:             100.00%  backend, floor 98; escalation policy 100% branches
+Lint / Format:        passed
+Typecheck:            passed   mypy --strict, including the evaluation runner
+Static analysis:      passed   import-linter, 4 contracts kept: no agent SDK or model client in
+                               the domain or application layers
+Application runs:     yes      the agent is optional at startup; nothing calls it in a request yet
+Docs updated:         D-026, the phase plan, docs/providers/README.md
+Known issues:         none open in code; criterion 8 held, below
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | Deterministic scenarios produce the expected decisions, repeatably | `tests/integration/test_agent_scenarios.py` drives the real Strands loop with a scripted model: routine resolved, escalation, unsafe request refused, model failures to the fallback |
+| 2 | Escalation rules are testable without a model | `domain/policy/escalation.py` is pure and table-tested, including every importance against every threshold |
+| 3 | Unsafe or unauthorised actions are refused before execution | Every tool parses, then checks the grant from the call's authority, then acts; refusals leave the recording `CallActions` untouched. Instructions inside the transcript are never consulted |
+| 4 | Changing a preference changes the decision for identical input | The same scripted model output with a different grant, and with a different threshold, produces a different judgement, asserted as a difference |
+| 5 | Swapping the model requires no change to agent, tool or policy code | The model is configuration (D-007); the SDK sits behind `CallAgent` (D-026) |
+| 6 | No side effect except through a validated tool | `CallActions` is reached only from tools and from the one conclusion step after the model finishes |
+| 7 | Escalation policy has 100% branch coverage | Coverage report |
+| 8 | The evaluation suite runs and its results are recorded | **Held.** `scripts/agent_evaluation.py` and `tests/evaluation/scenarios.json` run against a configured model; constant strategies are proven to fail every class. No model endpoint is configured yet |
+| 9 | Coverage meets the floors | 100% |
+
+## What changed from the plan
+
+The phase 1 `LLMProvider` port is removed. The agent loop needs tool use, which that port never
+offered, and routing the SDK through it would have grown it into a second framework (D-026).
+
+Tools do not end a call or reach the user while the model is working. They record what the model
+asks for, and one conclusion step acts afterwards, outside the model's time bound: the most pressing
+escalation any reading justified, then the ending only if the rules allow it. A hang-up never
+cancels an escalation that must reach the user now; a note for later holds nobody on the line.
+
+## Reviews, and what they found
+
+Two builders worked in parallel against interfaces written first, and an integration pass closed
+the gaps between them. An adversarial review then reproduced nine defects against a green suite:
+
+- **A hang-up cancelled an escalation the rules required**, even for an important contact reporting
+  an emergency — and a fix made before the review had locked that behaviour in.
+- **A tool used after ending a call crashed the judgement.**
+- **Concurrent escalations on one call could ring the user repeatedly**, or mark a call escalated
+  when nobody was reached.
+- **The assessment schema told the model two fields were optional while validation required them**,
+  so a strict model fell back and an urgent call rang nobody.
+- **After a failed escalation the model could still hang up**, and the judgement was lost.
+- **Reaching the user counted against the model's time bound**, and running out dropped the
+  escalation silently.
+- **A model-invented tool name reached the log**, and a call to a tool that does not exist was not
+  recorded as a refusal.
+- **A suspected-fraud label could silence an important contact.**
+- **The evaluation could be passed by labelling everything fraud.**
+
+## Accepted trade
+
+A caller who persuades the model a call is urgent rings the user once per call, even in quiet hours.
+Limits across calls from the same caller belong to the hardening phase.
+
+## Held until a model endpoint is configured
+
+Criterion 8. Set `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`, then from `apps/backend`:
+`uv run python ../../scripts/agent_evaluation.py --minimum 0.9`, and record the per-class pass rates
+here.
