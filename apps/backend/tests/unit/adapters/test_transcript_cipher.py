@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import base64
+import os
+import subprocess
+import sys
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,6 +19,9 @@ from letmehandle.domain.errors import DecryptionError, InvariantError, UnknownKe
 from letmehandle.domain.ports.security import SealedBytes
 from tests.support.config import make_settings
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 KEY_A = ("key-a", bytes(range(32)))
 KEY_B = ("key-b", bytes(range(32, 64)))
 SAID = b"my parcel reference is 4471"
@@ -23,6 +30,24 @@ CONTEXT = ("transcript", "user-1", "call-1", "caller", "2026-06-01T12:00:00.0000
 
 def encoded(key: bytes) -> str:
     return base64.urlsafe_b64encode(key).decode()
+
+
+# Lists that stop startup while holding at least one real-length key. The first carries a valid
+# key ahead of the broken entry, which is what an error echoing its input leaks the most of.
+MALFORMED_KEY_LISTS = [
+    f"key-a:{encoded(KEY_A[1])},key-b:{encoded(b'sixteen bytes!!!')}",
+    f"{encoded(KEY_B[1])}",
+    f"Key-A:{encoded(KEY_A[1])}",
+    f"key-a:{encoded(KEY_A[1])},key-a:{encoded(KEY_B[1])}",
+]
+
+
+def assert_no_fragment_of(text: str, output: str) -> None:
+    """No eight characters in a row of any key in `text` appear anywhere in `output`."""
+    secrets = [entry.partition(":")[2] or entry for entry in text.split(",")]
+    for secret in (each.strip() for each in secrets):
+        for start in range(len(secret) - 7):
+            assert secret[start : start + 8] not in output
 
 
 class TestConfidentiality:
@@ -174,16 +199,62 @@ class TestConfiguredKeys:
         assert settings.require_transcript_keys() == (KEY_A,)
         assert encoded(KEY_A[1]) not in repr(settings)
 
-    def test_a_malformed_key_stops_startup_without_printing_it(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "text",
+        MALFORMED_KEY_LISTS,
+        ids=["valid-then-short", "without-an-id", "bad-id", "repeated-id"],
+    )
+    def test_a_malformed_key_stops_startup_without_printing_any_part_of_any_key(
+        self, monkeypatch: pytest.MonkeyPatch, text: str
     ) -> None:
         from letmehandle.config.settings import get_settings
 
-        short = base64.urlsafe_b64encode(b"sixteen bytes!!!").decode()
-        monkeypatch.setenv("TRANSCRIPT_ENCRYPTION_KEYS", f"key-a:{short}")
+        monkeypatch.setenv("TRANSCRIPT_ENCRYPTION_KEYS", text)
         with pytest.raises(ConfigurationError, match="TRANSCRIPT_ENCRYPTION_KEYS") as raised:
             get_settings()
-        assert short not in str(raised.value)
+
+        printed = [str(raised.value), repr(raised.value)]
+        cause = raised.value.__cause__
+        while cause is not None:
+            printed += [str(cause), repr(cause)]
+            cause = cause.__cause__
+        assert_no_fragment_of(text, "\n".join(printed))
+
+    def test_a_process_that_fails_to_start_prints_no_part_of_any_key(self, tmp_path: Path) -> None:
+        # The whole traceback, chained causes included, as a scheduler's log would keep it.
+        text = MALFORMED_KEY_LISTS[0]
+        environment = {
+            name: value
+            for name, value in os.environ.items()
+            if name not in {"TRANSCRIPT_ENCRYPTION_KEYS", "APP_ENV"}
+        }
+        environment["TRANSCRIPT_ENCRYPTION_KEYS"] = text
+        finished = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from letmehandle.config.settings import get_settings\nget_settings()",
+            ],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+
+        assert finished.returncode != 0
+        assert "TRANSCRIPT_ENCRYPTION_KEYS" in finished.stderr
+        assert_no_fragment_of(text, finished.stdout + finished.stderr)
+
+    @pytest.mark.parametrize("stray", [" ", "*", "\n", "="])
+    def test_a_key_with_anything_but_base64_in_it_is_refused(self, stray: str) -> None:
+        # Lenient decoding drops what it does not recognise, so a key damaged in pasting could
+        # still decode to thirty-two bytes, just not the thirty-two that sealed anything.
+        valid = encoded(KEY_A[1])
+        damaged = valid[:10] + stray + valid[10:]
+        with pytest.raises(ValueError, match="TRANSCRIPT_ENCRYPTION_KEYS"):
+            parse_transcript_keys(f"key-a:{damaged}")
 
     def test_a_blank_value_counts_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TRANSCRIPT_ENCRYPTION_KEYS", "")

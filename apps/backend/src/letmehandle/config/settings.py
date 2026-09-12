@@ -119,7 +119,10 @@ def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
                 f"{TRANSCRIPT_KEYS_FORMAT!r}; an id is 1-16 lower-case letters, digits, - or _"
             )
         try:
-            key = base64.urlsafe_b64decode(encoded.replace("+", "-").replace("/", "_"))
+            # Strict: lenient decoding drops characters it does not recognise, so a key damaged
+            # in pasting could still come out as thirty-two bytes — just not the ones that
+            # sealed anything, which would surface as every transcript failing to open.
+            key = base64.b64decode(encoded.replace("-", "+").replace("_", "/"), validate=True)
         except (binascii.Error, ValueError):
             key = b""
         if len(key) != TRANSCRIPT_KEY_BYTES:
@@ -162,6 +165,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
+        # A validation error otherwise quotes the value it refused, and a value here can be a
+        # signing key or an encryption key. The variable's name is what anybody needs to fix it;
+        # the message is copied into logs, tickets and chat far more readily than a .env file.
+        hide_input_in_errors=True,
     )
 
     app_env: Environment = Environment.DEVELOPMENT
@@ -263,11 +270,18 @@ class Settings(BaseSettings):
             )
         return self
 
-    @model_validator(mode="after")
-    def _transcript_keys_are_well_formed(self) -> Settings:
-        if self.transcript_encryption_keys is not None:
-            parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
-        return self
+    @field_validator("transcript_encryption_keys", mode="after")
+    @classmethod
+    def _transcript_keys_are_well_formed(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the keys' shape once they are already a `SecretStr`.
+
+        A field validator after the secret is wrapped, rather than a model validator: an error
+        raised from the model sees the whole raw input, and an error that carries its input
+        carries every key in it.
+        """
+        if value is not None:
+            parse_transcript_keys(value.get_secret_value())
+        return value
 
     @property
     def is_production(self) -> bool:
