@@ -40,7 +40,7 @@ class CallScreeningGraph private constructor(context: Context) {
       CallRulesSnapshotCodec.decode(text)
     } catch (invalid: CallRulesSnapshotCodec.InvalidSnapshot) {
       // Refused rather than half-read, and said: the call will ring as if there were no rules.
-      Log.w(TAG, "the stored call rules could not be read", invalid)
+      Log.w(TAG, "the stored call rules could not be read: ${FailureSummary.of(invalid)}")
       null
     }
   }

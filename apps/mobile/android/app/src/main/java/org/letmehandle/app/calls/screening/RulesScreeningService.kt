@@ -9,6 +9,7 @@ import androidx.annotation.RequiresApi
 import java.time.Instant
 import java.util.concurrent.Executors
 import org.letmehandle.app.calls.CallScreeningGraph
+import org.letmehandle.app.calls.FailureSummary
 import org.letmehandle.app.calls.rules.CallerNumber
 import org.letmehandle.app.calls.rules.ScreenedCaller
 import org.letmehandle.app.calls.rules.ScreeningDecision
@@ -37,7 +38,9 @@ class RulesScreeningService : CallScreeningService() {
     val caller = callerOf(callDetails)
     screener.screen(
         evaluate = { ScreeningRules.evaluate(graph.readSnapshot(), caller, Instant.now()) },
-        onFailure = { failure -> Log.e(CallScreeningGraph.TAG, "screening failed", failure) },
+        onFailure = { failure ->
+          Log.e(CallScreeningGraph.TAG, "screening a call failed: ${FailureSummary.of(failure)}")
+        },
     ) { screening ->
       respondToCall(callDetails, responseFor(screening.decision))
       Log.i(CallScreeningGraph.TAG, "screened: ${screening.decision} (${screening.reason})")
