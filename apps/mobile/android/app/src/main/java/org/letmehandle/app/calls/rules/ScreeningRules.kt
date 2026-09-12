@@ -14,6 +14,7 @@ enum class ScreeningReason {
   NO_RULES,
   STALE_RULES,
   WITHHELD_NUMBER,
+  NUMBER_NOT_DELIVERED,
   IMPORTANT_CONTACT,
   BLOCKED_CATEGORY,
   CATEGORY_POSTURE,
@@ -28,15 +29,25 @@ data class Screening(val decision: ScreeningDecision, val reason: ScreeningReaso
 /**
  * Who is calling, as far as a screening service is told.
  *
- * `withheld` is the caller's choice not to present a number. The platform does not normally pass
- * such calls to a screening service at all; the case is still decided rather than assumed away.
- * `number` is null when withheld, and also when a number was presented in a form that cannot be
- * read — which is not the same thing, and is not treated as anonymous.
+ * The platform does not normally pass a call without a presented number to a screening service
+ * at all; those cases are still decided rather than assumed away.
  */
-data class ScreenedCaller(val number: CallerNumber?, val withheld: Boolean) {
-  init {
-    require(!withheld || number == null) { "a withheld number has no number" }
-  }
+sealed interface ScreenedCaller {
+  /**
+   * A number was presented. [number] is null when it was in a form that cannot be read — which
+   * is not the same as having none, and is not treated as anonymous.
+   */
+  data class Presented(val number: CallerNumber?) : ScreenedCaller
+
+  /** The caller chose not to present their number. */
+  data object Withheld : ScreenedCaller
+
+  /**
+   * No number arrived, and not by the caller's choice: the network did not deliver one, or the
+   * call is from a payphone. Nobody decided to be anonymous, so the anonymous posture is not
+   * theirs to be refused by.
+   */
+  data object NotDelivered : ScreenedCaller
 }
 
 /**
@@ -50,7 +61,8 @@ data class ScreenedCaller(val number: CallerNumber?, val withheld: Boolean) {
  *   1. No snapshot, or a stale one (older than [CallRulesSnapshot.MAX_AGE], or dated further in
  *      the future than the clock-skew allowance): the call rings. A caller is never refused on
  *      rules the handset does not have or can no longer vouch for.
- *   2. A withheld number: the anonymous posture.
+ *   2. A withheld number: the anonymous posture. A number that simply did not arrive rings, as a
+ *      caller put through would — silenced in quiet hours, never rejected.
  *   3. An important contact: their own posture. A contact the user asked to put through rings
  *      during quiet hours too — that is what naming them was for.
  *   4. Everybody else is an unknown caller. The handset does not classify callers, so the only
@@ -69,13 +81,18 @@ object ScreeningRules {
       return Screening(ScreeningDecision.ALLOW, ScreeningReason.STALE_RULES)
     }
 
-    if (caller.withheld) {
-      return decide(snapshot, snapshot.anonymousPosture, ScreeningReason.WITHHELD_NUMBER, now)
-    }
+    val presented =
+        when (caller) {
+          ScreenedCaller.Withheld ->
+              return decide(snapshot, snapshot.anonymousPosture, ScreeningReason.WITHHELD_NUMBER, now)
+          ScreenedCaller.NotDelivered ->
+              return decide(snapshot, HandlingPosture.PASS_THROUGH, ScreeningReason.NUMBER_NOT_DELIVERED, now)
+          is ScreenedCaller.Presented -> caller.number
+        }
 
     val contact =
-        caller.number?.let { presented ->
-          snapshot.importantContacts.firstOrNull { presented.matches(it.phoneNumber) }
+        presented?.let { number ->
+          snapshot.importantContacts.firstOrNull { number.matches(it.phoneNumber) }
         }
     if (contact != null) {
       return if (contact.posture == HandlingPosture.PASS_THROUGH) {

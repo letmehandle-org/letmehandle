@@ -132,7 +132,7 @@ class CallScreeningInstrumentedTest {
   fun a_screening_on_this_runtime_answers_well_inside_the_platform_deadline() {
     graph.writeSnapshot(rejectEverybody.format(Instant.now()))
     val responses = LinkedBlockingQueue<Screening>()
-    val screened = ScreenedCaller(CallerNumber.parse(caller), withheld = false)
+    val screened = ScreenedCaller.Presented(CallerNumber.parse(caller))
     val started = System.nanoTime()
 
     DeadlineScreener(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor())
@@ -150,7 +150,7 @@ class CallScreeningInstrumentedTest {
 
   @Test
   fun without_a_snapshot_the_service_lets_the_call_ring() {
-    val screened = ScreenedCaller(CallerNumber.parse(caller), withheld = false)
+    val screened = ScreenedCaller.Presented(CallerNumber.parse(caller))
     assertEquals(
         Screening(ScreeningDecision.ALLOW, ScreeningReason.NO_RULES),
         ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now()),

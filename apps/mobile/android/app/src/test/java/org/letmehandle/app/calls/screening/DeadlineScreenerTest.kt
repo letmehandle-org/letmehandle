@@ -128,7 +128,7 @@ class DeadlineScreenerTest {
 
   @Test
   fun `a handset that has never synced its rules lets the call ring, in time`() {
-    val caller = ScreenedCaller(CallerNumber.parse("+12025550145"), withheld = false)
+    val caller = ScreenedCaller.Presented(CallerNumber.parse("+12025550145"))
 
     DeadlineScreener(worker, timer).screen(
         { ScreeningRules.evaluate(snapshot = null, caller = caller, now = Instant.now()) },

@@ -3,14 +3,12 @@ package org.letmehandle.app.calls.screening
 import android.os.Build
 import android.telecom.Call
 import android.telecom.CallScreeningService
-import android.telecom.TelecomManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import java.time.Instant
 import java.util.concurrent.Executors
 import org.letmehandle.app.calls.CallScreeningGraph
 import org.letmehandle.app.calls.FailureSummary
-import org.letmehandle.app.calls.rules.CallerNumber
 import org.letmehandle.app.calls.rules.ScreenedCaller
 import org.letmehandle.app.calls.rules.ScreeningDecision
 import org.letmehandle.app.calls.rules.ScreeningRules
@@ -35,7 +33,8 @@ class RulesScreeningService : CallScreeningService() {
       return
     }
     val graph = CallScreeningGraph.get(this)
-    val caller = callerOf(callDetails)
+    val caller =
+        HandlePresentation.callerOf(callDetails.handlePresentation, callDetails.handle?.schemeSpecificPart)
     screener.screen(
         evaluate = { ScreeningRules.evaluate(graph.readSnapshot(), caller, Instant.now()) },
         onFailure = { failure ->
@@ -44,21 +43,13 @@ class RulesScreeningService : CallScreeningService() {
     ) { screening ->
       respondToCall(callDetails, responseFor(screening.decision))
       Log.i(CallScreeningGraph.TAG, "screened: ${screening.decision} (${screening.reason})")
-      graph.ledger.screened(caller.number?.e164, screening.decision, Instant.now())
+      graph.ledger.screened((caller as? ScreenedCaller.Presented)?.number?.e164, screening.decision, Instant.now())
     }
   }
 
   companion object {
     private val WORKER = Executors.newSingleThreadExecutor()
     private val TIMER = Executors.newSingleThreadScheduledExecutor()
-
-    fun callerOf(details: Call.Details): ScreenedCaller {
-      val withheld = details.handlePresentation != TelecomManager.PRESENTATION_ALLOWED
-      return ScreenedCaller(
-          number = if (withheld) null else CallerNumber.parse(details.handle?.schemeSpecificPart),
-          withheld = withheld,
-      )
-    }
 
     /**
      * The platform's response for each decision.

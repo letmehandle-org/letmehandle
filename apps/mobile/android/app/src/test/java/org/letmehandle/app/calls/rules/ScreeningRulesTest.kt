@@ -14,8 +14,8 @@ class ScreeningRulesTest {
   private val lateEvening = Instant.parse("2026-09-13T22:30:00Z")
 
   private val contact = "+12025550143"
-  private val stranger = ScreenedCaller(CallerNumber.parse("+12025550199"), withheld = false)
-  private val withheld = ScreenedCaller(number = null, withheld = true)
+  private val stranger = ScreenedCaller.Presented(CallerNumber.parse("+12025550199"))
+  private val withheld = ScreenedCaller.Withheld
 
   private fun rules(
       defaultPosture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT,
@@ -80,8 +80,27 @@ class ScreeningRulesTest {
   }
 
   @Test
+  fun `a number the network did not deliver is never rejected, and is silenced in quiet hours`() {
+    val snapshot =
+        rules(
+            defaultPosture = HandlingPosture.REJECT,
+            anonymousPosture = HandlingPosture.REJECT,
+            blocked = setOf(CallerCategory.UNKNOWN),
+            quietHours = londonNights,
+        )
+    assertEquals(
+        Screening(ScreeningDecision.ALLOW, ScreeningReason.NUMBER_NOT_DELIVERED),
+        decide(snapshot, ScreenedCaller.NotDelivered),
+    )
+    assertEquals(
+        Screening(ScreeningDecision.SILENCE, ScreeningReason.QUIET_HOURS),
+        decide(snapshot, ScreenedCaller.NotDelivered, lateEvening),
+    )
+  }
+
+  @Test
   fun `an unreadable number is not an anonymous one`() {
-    val unreadable = ScreenedCaller(number = null, withheld = false)
+    val unreadable = ScreenedCaller.Presented(number = null)
     val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, anonymousPosture = HandlingPosture.REJECT)
     assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE), decide(snapshot, unreadable))
   }
@@ -93,7 +112,7 @@ class ScreeningRulesTest {
             defaultPosture = HandlingPosture.REJECT,
             contacts = listOf(ImportantContact(contact, HandlingPosture.PASS_THROUGH)),
         )
-    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    val caller = ScreenedCaller.Presented(CallerNumber.parse(contact))
     assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.IMPORTANT_CONTACT), decide(snapshot, caller))
   }
 
@@ -104,14 +123,14 @@ class ScreeningRulesTest {
             quietHours = londonNights,
             contacts = listOf(ImportantContact(contact, HandlingPosture.PASS_THROUGH)),
         )
-    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    val caller = ScreenedCaller.Presented(CallerNumber.parse(contact))
     assertEquals(ScreeningDecision.ALLOW, decide(snapshot, caller, lateEvening).decision)
   }
 
   @Test
   fun `a contact the user rejects is rejected`() {
     val snapshot = rules(contacts = listOf(ImportantContact(contact, HandlingPosture.REJECT)))
-    val caller = ScreenedCaller(CallerNumber.parse("202-555-0143"), withheld = false)
+    val caller = ScreenedCaller.Presented(CallerNumber.parse("202-555-0143"))
     assertEquals(Screening(ScreeningDecision.REJECT, ScreeningReason.IMPORTANT_CONTACT), decide(snapshot, caller))
   }
 
@@ -119,7 +138,7 @@ class ScreeningRulesTest {
   fun `a contact handled by the assistant is silenced in quiet hours`() {
     val snapshot =
         rules(quietHours = londonNights, contacts = listOf(ImportantContact(contact, HandlingPosture.HANDLE_WITH_AGENT)))
-    val caller = ScreenedCaller(CallerNumber.parse(contact), withheld = false)
+    val caller = ScreenedCaller.Presented(CallerNumber.parse(contact))
     assertEquals(Screening(ScreeningDecision.SILENCE, ScreeningReason.QUIET_HOURS), decide(snapshot, caller, lateEvening))
   }
 
@@ -198,10 +217,5 @@ class ScreeningRulesTest {
   @Test(expected = IllegalArgumentException::class)
   fun `a category both blocked and given a posture is refused`() {
     rules(blocked = setOf(CallerCategory.UNKNOWN), postureByCategory = mapOf(CallerCategory.UNKNOWN to HandlingPosture.REJECT))
-  }
-
-  @Test(expected = IllegalArgumentException::class)
-  fun `a withheld caller cannot carry a number`() {
-    ScreenedCaller(CallerNumber.parse(contact), withheld = true)
   }
 }

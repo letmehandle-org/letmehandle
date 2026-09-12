@@ -129,7 +129,10 @@ product reads.
   transport's interest: later reports for that call are still stored, and no longer published.
 
 What the platform does not show a screening service is not claimed: callers in the user's contacts
-and callers withholding their number always ring on this path.
+and callers withholding their number always ring on this path. Should a call without a presented
+number reach the service anyway, only a restricted presentation — the caller's own choice — gets
+the anonymous posture. A number the network did not deliver, or a payphone, rings: nobody chose to
+be anonymous, so nobody is refused for it.
 
 The handset side — the screening service, the phone-state receiver, the rules snapshot and the
 TurboModule — lives in `apps/mobile`, with the payloads on both sides of the bridge defined once
