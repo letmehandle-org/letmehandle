@@ -1,5 +1,8 @@
 # LetMeHandle
 
+[![CI](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml/badge.svg)](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 An AI agent that answers your phone calls, understands what the caller wants, applies your
 preferences, resolves the routine ones on its own, and pulls you into the same live call
 when it genuinely needs you.
