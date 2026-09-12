@@ -68,6 +68,53 @@ export const en = {
       'That could not be saved, so your previous setting has been put back.',
   },
   /**
+   * Call screening on this handset: what it does, what it cannot, and what refusing it means.
+   * Only shown where the handset has a screening service to grant.
+   */
+  screening: {
+    title: 'Screen calls before they ring',
+    subtitle: 'Your rules, applied on this phone.',
+    what:
+      'With the call screening role, Android asks LetMeHandle about each incoming call from a ' +
+      'number that is not in your contacts, before the phone rings. It applies your rules on the ' +
+      'phone itself: it lets the call ring, rings silently during your quiet hours, or refuses it.',
+    whatNot:
+      'It never hears a call, never answers one, and cannot hand one to your assistant. Calls ' +
+      'you asked the assistant to handle ring as normal on this phone. Android does not show it ' +
+      'callers in your contacts or callers who hide their number, so those always ring.',
+    held: 'Call screening is on.',
+    offExplained:
+      'Call screening is off. Every call rings exactly as it would without LetMeHandle.',
+    declined:
+      'You said no, so call screening is off and every call rings as it would without ' +
+      'LetMeHandle. You can turn it on here whenever you like.',
+    notAskedAgain:
+      'If nothing appears when you tap below, Android has stopped asking. You can choose ' +
+      'LetMeHandle as the caller ID and spam app in your phone’s default apps settings.',
+    unavailable:
+      'This phone’s version of Android does not let apps screen calls, so every call rings as ' +
+      'it would without LetMeHandle.',
+    failed: 'Could not tell whether call screening is on.',
+    turnOn: 'Turn on call screening',
+    rulesNotSaved:
+      'Your latest rules could not be saved to this phone, so it is still using the ones before.',
+    activityTitle: 'Call activity',
+    activityWhat:
+      'Lets LetMeHandle see that a call was answered or ended, so it can appear in your history. ' +
+      'It does not see who called and does not hear anything.',
+    activityGranted: 'Call activity is on.',
+    activityOff:
+      'Call activity is off. Screening still works; answered and ended calls are not recorded.',
+    activityTurnOn: 'Allow call activity',
+    activityRationaleTitle: 'See when calls are answered and end',
+    activityRationale:
+      'LetMeHandle records that a call was answered or ended. It does not see who called and ' +
+      'does not hear the call.',
+    activityRationaleAccept: 'Continue',
+    settingsRow: 'Call screening',
+    settingsRowSubtitle: 'Decide calls on this phone before they ring.',
+  },
+  /**
    * The voice screen, which is not a preference section: it is its own resource on the API,
    * with its own list of what a deployment's provider offers.
    */

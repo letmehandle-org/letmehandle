@@ -12,6 +12,8 @@ import { theme } from '../theme';
 interface Props {
   readonly onOpenSection: (section: PreferenceSection) => void;
   readonly onOpenVoice: () => void;
+  /** Absent where the handset cannot screen calls, and then so is the row. */
+  readonly onOpenCallScreening: (() => void) | null;
 }
 
 /**
@@ -29,6 +31,7 @@ interface Props {
 export function SettingsScreen({
   onOpenSection,
   onOpenVoice,
+  onOpenCallScreening,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -57,6 +60,15 @@ export function SettingsScreen({
         testID="settings-open-voice"
         onPress={onOpenVoice}
       />
+
+      {onOpenCallScreening !== null && (
+        <Row
+          title={t('screening.settingsRow')}
+          subtitle={t('screening.settingsRowSubtitle')}
+          testID="settings-open-call-screening"
+          onPress={onOpenCallScreening}
+        />
+      )}
     </Screen>
   );
 }
