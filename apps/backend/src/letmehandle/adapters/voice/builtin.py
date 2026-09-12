@@ -20,7 +20,12 @@ from letmehandle.domain.errors import (
     InvariantError,
     ProviderError,
 )
-from letmehandle.domain.ports.voice import Voice, VoiceCapabilities, VoiceProvider
+from letmehandle.domain.ports.voice import (
+    Voice,
+    VoiceCapabilities,
+    VoiceProvider,
+    VoiceSample,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -45,7 +50,7 @@ class BuiltInVoiceProvider(VoiceProvider):
         voices: Sequence[Voice],
         *,
         default_voice_id: str,
-        samples: Mapping[str, bytes] | None = None,
+        samples: Mapping[str, VoiceSample] | None = None,
     ) -> None:
         if not voices:
             raise InvariantError("a voice provider with an empty catalogue can never be spoken to")
@@ -111,8 +116,8 @@ class BuiltInVoiceProvider(VoiceProvider):
         # of the catalogue is the whole answer.
         return voice_id in self._known
 
-    async def sample_audio(self, voice_id: str) -> bytes:
-        """The audio a preview control plays for one voice.
+    async def preview(self, voice_id: str) -> VoiceSample:
+        """The sample a preview control plays for one voice.
 
         Raises rather than returning nothing, and raises two different things: a provider with
         no samples cannot do this at all, which callers branch on; anything else is a failure to

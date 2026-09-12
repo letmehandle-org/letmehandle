@@ -1,4 +1,9 @@
-"""The voice-provider contract, run against the shipped catalogue."""
+"""The voice-provider contract, run against the shipped catalogue.
+
+Twice, in both of the configurations this provider ships in: with sample audio and without.
+The contract asserts that a provider's declared capabilities match what it does, and that is
+the one assertion a single configuration cannot make on its own.
+"""
 
 from __future__ import annotations
 
@@ -10,31 +15,30 @@ from letmehandle.adapters.voice.builtin import (
     BuiltInVoiceProvider,
     built_in_voice_provider,
 )
-from letmehandle.domain.errors import CapabilityNotSupportedError
+from letmehandle.domain.ports.voice import VoiceSample
 from tests.contracts.other_ports import VoiceProviderContract
 
-SAMPLE = b"a short recording of this voice"
+SAMPLE = VoiceSample(audio=b"a short recording of this voice", media_type="audio/mpeg")
 
 
 class TestBuiltInVoiceProvider(VoiceProviderContract):
+    """What the application actually builds: a catalogue with nothing to play yet."""
+
     @pytest.fixture
     def voices(self) -> BuiltInVoiceProvider:
         return built_in_voice_provider()
 
-    async def test_without_samples_it_declares_no_preview_and_refuses_to_serve_one(
-        self, voices: BuiltInVoiceProvider
-    ) -> None:
-        # The pair that has to stay true together: a declaration of false and a call that
-        # raises. Either one alone lets a preview control reach a caller and play silence.
-        assert not voices.capabilities.preview
-        with pytest.raises(CapabilityNotSupportedError):
-            await voices.sample_audio(voices.default_voice_id)
 
-    async def test_with_samples_it_declares_preview_and_serves_the_audio(self) -> None:
-        provider = BuiltInVoiceProvider(
+class TestBuiltInVoiceProviderWithSamples(VoiceProviderContract):
+    """The same provider given sample audio, which is what turns preview on."""
+
+    @pytest.fixture
+    def voices(self) -> BuiltInVoiceProvider:
+        return BuiltInVoiceProvider(
             SHIPPED_VOICES,
             default_voice_id=SHIPPED_DEFAULT_VOICE_ID,
             samples={SHIPPED_DEFAULT_VOICE_ID: SAMPLE},
         )
-        assert provider.capabilities.preview
-        assert await provider.sample_audio(SHIPPED_DEFAULT_VOICE_ID) == SAMPLE
+
+    async def test_it_serves_the_audio_it_was_given(self, voices: BuiltInVoiceProvider) -> None:
+        assert await voices.preview(SHIPPED_DEFAULT_VOICE_ID) == SAMPLE

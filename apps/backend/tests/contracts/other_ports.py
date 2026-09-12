@@ -11,13 +11,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import (
+    CapabilityNotSupportedError,
+    DomainError,
+    InvariantError,
+)
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.voice import VoiceSelection
 from letmehandle.domain.ports.notification import (
     DeviceToken,
     EscalationNotification,
 )
-from letmehandle.domain.ports.voice import VoiceSelection, resolve_voice
+from letmehandle.domain.ports.voice import resolve_voice
 
 if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import CallId
@@ -178,3 +183,21 @@ class VoiceProviderContract:
     async def test_a_missing_locale_is_refused(self, voices: VoiceProvider) -> None:
         with pytest.raises(InvariantError):
             await resolve_voice(voices, VoiceSelection(), locale="  ")
+
+    async def test_preview_matches_what_the_provider_declares(self, voices: VoiceProvider) -> None:
+        # The declaration and the behaviour have to agree in both directions. A provider
+        # declaring preview and then refusing draws a control that plays nothing; one refusing
+        # to declare it while serving samples hides a feature it has.
+        if voices.capabilities.preview:
+            sample = await voices.preview(voices.default_voice_id)
+            assert sample.audio
+            assert sample.media_type.strip()
+        else:
+            with pytest.raises(CapabilityNotSupportedError):
+                await voices.preview(voices.default_voice_id)
+
+    async def test_an_unknown_voice_is_never_a_key_error(self, voices: VoiceProvider) -> None:
+        # Whatever the provider can do, "there is no such voice" reaches the caller as a domain
+        # error. A KeyError escaping a lookup is a 500 for a request that was merely wrong.
+        with pytest.raises(DomainError):
+            await voices.preview("no-such-voice")
