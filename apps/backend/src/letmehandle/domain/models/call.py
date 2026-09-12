@@ -61,7 +61,10 @@ class Participant:
         return self.left_at is None
 
     def departing(self, at_instant: datetime) -> Participant:
-        return Participant(self.role, self.joined_at, at_instant)
+        # Never before they joined. The two instants can come from different clocks — a carrier's
+        # and this host's — a few milliseconds apart, and a departure that happened must be
+        # recordable; the call's own end is clamped the same way.
+        return Participant(self.role, self.joined_at, max(at_instant, self.joined_at))
 
 
 @dataclass(frozen=True, slots=True)

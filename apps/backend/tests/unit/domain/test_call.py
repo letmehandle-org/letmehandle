@@ -280,3 +280,13 @@ class TestRestore:
                 participants=participants,
                 ended_at=ended_at,
             )
+
+
+def test_a_departure_a_moment_before_the_join_is_recorded_at_the_join() -> None:
+    # Joined by one clock and left by another, a few milliseconds apart. The departure happened, so
+    # it is recorded, at the join rather than before it.
+    joined = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    departed = Participant(ParticipantRole.CALLER, joined).departing(
+        joined - timedelta(milliseconds=5)
+    )
+    assert departed.left_at == joined
