@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from letmehandle.domain.errors import InvariantError
@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from datetime import datetime, time, tzinfo
 
     from letmehandle.domain.models.caller import CallerCategory
+    from letmehandle.domain.models.phone_number import PhoneNumber
+
+# The shape these preferences were written in.
+#
+# Stored beside them, so that a later change can migrate what is there rather than guess what
+# an older row meant. Without it, adding a field leaves every existing row ambiguous: absent
+# because the user declined, or absent because the field did not exist when they answered.
+PREFERENCES_VERSION: Final = 1
 
 
 class HandlingPosture(StrEnum):
@@ -39,6 +47,103 @@ class Formality(StrEnum):
     WARM = "warm"
     NEUTRAL = "neutral"
     FORMAL = "formal"
+
+
+class Verbosity(StrEnum):
+    """How much the assistant says.
+
+    Separate from formality because they vary independently: a warm assistant can be brief, and
+    a formal one can go on. Collapsing them into one dial would make half the combinations
+    people actually want unreachable.
+    """
+
+    BRIEF = "brief"
+    NORMAL = "normal"
+    DETAILED = "detailed"
+
+
+@dataclass(frozen=True, slots=True)
+class Topic:
+    """Something the user cares about, normalised.
+
+    A value object rather than free text, because the agent reads these. Text that reaches a
+    model unvalidated is text somebody can put instructions in, and a caller who learns what a
+    user's topics are has a way to write them.
+
+    Normalised so that "School Run", "school run" and " school run " are one topic rather than
+    three, which is what stops a list nobody can maintain.
+    """
+
+    name: str
+
+    MAX_LENGTH: ClassVar[int] = 60
+
+    def __post_init__(self) -> None:
+        normalised = " ".join(self.name.split()).lower()
+        if not normalised:
+            raise InvariantError("a topic with nothing in it cannot be matched against anything")
+        if len(normalised) > self.MAX_LENGTH:
+            raise InvariantError(
+                f"a topic is at most {self.MAX_LENGTH} characters; longer than that it is a "
+                f"sentence, and a sentence in a list the agent reads is an instruction"
+            )
+        if any(character in normalised for character in "\n\r\t"):
+            raise InvariantError("a topic is a phrase, not several lines")
+        object.__setattr__(self, "name", normalised)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True, slots=True)
+class ImportantContact:
+    """Somebody whose calls are treated differently.
+
+    The number is the identity, as everywhere else in this product. The label is what the
+    assistant calls them to nobody: it is shown to the user, and it is never read out to a
+    caller, because confirming who is in somebody's contacts is a disclosure they did not ask
+    for.
+    """
+
+    number: PhoneNumber
+    label: str
+    posture: HandlingPosture = HandlingPosture.PASS_THROUGH
+
+    MAX_LABEL: ClassVar[int] = 80
+
+    def __post_init__(self) -> None:
+        if not self.label.strip():
+            raise InvariantError("an important contact needs a label, or the list is numbers")
+        if len(self.label) > self.MAX_LABEL:
+            raise InvariantError(f"a label is at most {self.MAX_LABEL} characters")
+
+    def __str__(self) -> str:
+        """The label alone. The number is personal data belonging to somebody else."""
+        return self.label
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationPreferences:
+    """What is worth interrupting somebody for.
+
+    Escalation is not configurable. Being told that the assistant needs you, while it needs
+    you, is the product — a user who turned it off would have a phone ringing with no idea why,
+    which is worse than not having the feature.
+
+    Everything else is off by default. A product that notifies about everything is one people
+    silence, and a silenced product cannot reach them when it matters.
+    """
+
+    on_handled_call: bool = False
+    on_blocked_call: bool = False
+    on_missed_escalation: bool = True
+    daily_summary: bool = False
+    respect_quiet_hours: bool = True
+
+    @property
+    def on_escalation(self) -> bool:
+        """Always true. Kept as a property so callers can ask without special-casing it."""
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,12 +247,47 @@ class UserPreferences:
 
     rules: CallRules = field(default_factory=CallRules)
     authority: AgentAuthority = field(default_factory=AgentAuthority.none)
+    notifications: NotificationPreferences = field(default_factory=NotificationPreferences)
     formality: Formality = Formality.NEUTRAL
+    verbosity: Verbosity = Verbosity.NORMAL
     locale: str = "en"
+    important_contacts: tuple[ImportantContact, ...] = ()
+    topics: frozenset[Topic] = field(default_factory=frozenset)
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
     disclosable_facts: frozenset[str] = field(default_factory=frozenset)
+    version: int = PREFERENCES_VERSION
+
+    MAX_CONTACTS: ClassVar[int] = 200
+    MAX_TOPICS: ClassVar[int] = 50
 
     def __post_init__(self) -> None:
         if not self.locale.strip():
             raise InvariantError("a locale is required; the agent's language is configuration")
+        if self.version < 1:
+            raise InvariantError("preferences are written in a version, and versions start at 1")
+        if len(self.important_contacts) > self.MAX_CONTACTS:
+            raise InvariantError(
+                f"at most {self.MAX_CONTACTS} important contacts. Beyond that the list is an "
+                f"address book, and everything in it stops being important"
+            )
+        if len(self.topics) > self.MAX_TOPICS:
+            raise InvariantError(f"at most {self.MAX_TOPICS} topics")
+
+        numbers = [contact.number for contact in self.important_contacts]
+        duplicates = {number for number in numbers if numbers.count(number) > 1}
+        if duplicates:
+            raise InvariantError(
+                "one number appears twice in the important contacts, so which rule applies "
+                "would depend on which entry is read first"
+            )
+
+    def contact_for(self, number: PhoneNumber) -> ImportantContact | None:
+        """The user's own entry for this number, if they have one."""
+        return next(
+            (contact for contact in self.important_contacts if contact.number == number), None
+        )
+
+    def cares_about(self, topic: str) -> bool:
+        """Whether this is something the user asked to hear about."""
+        return Topic(topic) in self.topics

@@ -16,7 +16,9 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
     from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.onboarding import OnboardingProgress
     from letmehandle.domain.models.phone_number import PhoneNumber
+    from letmehandle.domain.models.preferences import UserPreferences
     from letmehandle.domain.models.user import User
     from letmehandle.domain.ports.notification import DeviceToken
 
@@ -100,6 +102,48 @@ class RefreshTokenRepository(ABC):
     @abstractmethod
     async def revoke_all_for_user(self, user_id: UserId, at_instant: datetime) -> int:
         """Sign the user out everywhere."""
+
+
+class PreferencesRepository(ABC):
+    """How each user wants their calls handled.
+
+    Every method takes the user whose preferences they are. There is no way to ask this
+    interface for "the preferences", because preferences belong to somebody and a query that
+    forgets whose is the most expensive mistake available in a multi-user system.
+    """
+
+    @abstractmethod
+    async def get(self, user_id: UserId) -> UserPreferences | None:
+        """What this user has chosen, or nothing if they have chosen nothing yet.
+
+        Nothing is distinct from the defaults on purpose: a caller that cannot tell them apart
+        cannot tell a user who wants the defaults from one who has not been asked.
+        """
+
+    @abstractmethod
+    async def save(self, user_id: UserId, preferences: UserPreferences) -> None:
+        """Store the whole set, replacing whatever was there.
+
+        Whole rather than partial. A partial write has to decide what an absent field means,
+        and it will eventually decide wrongly; the application layer composes the new set from
+        the old one and writes all of it.
+        """
+
+
+class OnboardingRepository(ABC):
+    """How far through setting up each user is."""
+
+    @abstractmethod
+    async def get(self, user_id: UserId) -> OnboardingProgress:
+        """Where this user is. Somebody who has never started is at the beginning.
+
+        Returns progress rather than `None`, because "has not started" is a real position in
+        the flow rather than an absence — and a caller that has to handle `None` will forget.
+        """
+
+    @abstractmethod
+    async def save(self, user_id: UserId, progress: OnboardingProgress) -> None:
+        """Record where they have reached."""
 
 
 class DeviceRepository(ABC):
