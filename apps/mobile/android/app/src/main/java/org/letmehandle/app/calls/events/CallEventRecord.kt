@@ -1,6 +1,8 @@
 package org.letmehandle.app.calls.events
 
+import java.time.DateTimeException
 import java.time.Instant
+import org.json.JSONException
 import org.json.JSONObject
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
@@ -57,23 +59,40 @@ data class CallEventRecord(
         ending?.let { put("ending", it.wire) }
       }
 
+  /** A stored entry that is not a call event this build can read. Its message quotes nothing. */
+  class UnreadableRecord(cause: Throwable?) :
+      IllegalArgumentException("a stored call event could not be read", cause)
+
   companion object {
+    /** Reads one stored event, or throws [UnreadableRecord] and nothing else. */
     fun fromJson(json: JSONObject): CallEventRecord =
+        try {
+          read(json)
+        } catch (error: JSONException) {
+          throw UnreadableRecord(error)
+        } catch (error: IllegalArgumentException) {
+          throw UnreadableRecord(error)
+        } catch (error: DateTimeException) {
+          throw UnreadableRecord(error)
+        }
+
+    private fun read(json: JSONObject): CallEventRecord =
         CallEventRecord(
             eventId = json.getString("event_id"),
             callId = json.getString("call_id"),
-            kind = CallEventKind.entries.first { it.wire == json.getString("kind") },
+            kind = wireValue(CallEventKind.entries, json.getString("kind")) { it.wire },
             occurredAt = Instant.parse(json.getString("occurred_at")),
             callerNumber = json.optStringOrNull("caller_number"),
             screening =
                 json.optStringOrNull("screening")?.let { value ->
-                  ScreeningDecision.entries.first { it.wire == value }
+                  wireValue(ScreeningDecision.entries, value) { it.wire }
                 },
             ending =
-                json.optStringOrNull("ending")?.let { value ->
-                  CallEnding.entries.first { it.wire == value }
-                },
+                json.optStringOrNull("ending")?.let { value -> wireValue(CallEnding.entries, value) { it.wire } },
         )
+
+    private fun <T> wireValue(values: List<T>, value: String, wire: (T) -> String): T =
+        requireNotNull(values.firstOrNull { wire(it) == value }) { "not a value this build knows" }
 
     private fun JSONObject.optStringOrNull(key: String): String? =
         if (has(key) && !isNull(key)) getString(key) else null

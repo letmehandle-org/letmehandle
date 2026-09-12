@@ -1,9 +1,13 @@
 package org.letmehandle.app.calls.events
 
 import java.time.Instant
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.letmehandle.app.calls.FailureSummary
 import org.letmehandle.app.calls.WireExamples
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
@@ -22,6 +26,7 @@ class CallEventLedgerTest {
   private var counter = 0
   private var changes = 0
   private val overflows = mutableListOf<Int>()
+  private val unreadable = mutableListOf<Throwable>()
   private val now = Instant.parse("2026-09-13T11:00:00Z")
 
   private fun ledger(capacity: Int = CallEventLedger.DEFAULT_CAPACITY) =
@@ -30,6 +35,7 @@ class CallEventLedgerTest {
           tracker = CallStateTracker { "id-${++counter}" },
           onChanged = { changes++ },
           onOverflow = { overflows += it },
+          onUnreadable = { unreadable += it },
           capacity = capacity,
       )
 
@@ -83,6 +89,83 @@ class CallEventLedgerTest {
     ledger.clear()
     assertTrue(ledger.pending().isEmpty())
     assertTrue(store.values.isEmpty())
+  }
+
+  /** Three stored events, `event-1` to `event-3`, with [corrupt] stored at [position] among them. */
+  private fun storeWithCorruptEntryAt(position: Int, corrupt: Any = JSONObject().put("kind", "incoming")) {
+    val entries: MutableList<Any> =
+        (1..3)
+            .map { index ->
+              CallEventRecord("event-$index", "call-$index", CallEventKind.INCOMING, now.plusSeconds(index.toLong()))
+                  .toJson()
+            }
+            .toMutableList()
+    entries.add(position, corrupt)
+    store.values[CallEventLedger.PENDING] = JSONArray(entries).toString()
+  }
+
+  @Test
+  fun `a corrupt first entry is dropped and the events behind it are still delivered`() {
+    storeWithCorruptEntryAt(0)
+    assertEquals(listOf("event-1", "event-2", "event-3"), ledger().pending().map { it.eventId })
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
+  fun `a corrupt entry in the middle is dropped and the rest delivered`() {
+    storeWithCorruptEntryAt(2, corrupt = JSONObject(mapOf("event_id" to "e", "call_id" to "c", "kind" to "vanished")))
+    assertEquals(listOf("event-1", "event-2", "event-3"), ledger().pending().map { it.eventId })
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
+  fun `a corrupt last entry is dropped and the rest delivered`() {
+    storeWithCorruptEntryAt(3, corrupt = "not an event")
+    assertEquals(listOf("event-1", "event-2", "event-3"), ledger().pending().map { it.eventId })
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
+  fun `a dropped entry is written out of the ledger, so it fails one read and not every one`() {
+    storeWithCorruptEntryAt(1)
+    val ledger = ledger()
+    ledger.pending()
+    ledger.pending()
+    assertEquals(1, unreadable.size)
+    assertEquals(3, JSONArray(store.values.getValue(CallEventLedger.PENDING)).length())
+  }
+
+  @Test
+  fun `an event recorded behind a corrupt entry is still delivered and acknowledged`() {
+    storeWithCorruptEntryAt(3)
+    val ledger = ledger()
+    ledger.screened(null, ScreeningDecision.ALLOW, now.plusSeconds(10))
+    val pending = ledger.pending()
+    assertEquals(4, pending.size)
+
+    ledger.acknowledge(pending.map { it.eventId })
+
+    assertTrue(ledger.pending().isEmpty())
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
+  fun `storage that is not a list at all is dropped whole and recording carries on`() {
+    store.values[CallEventLedger.PENDING] = "[{\"caller_number\":\"+12025550145\""
+    val ledger = ledger()
+    assertTrue(ledger.pending().isEmpty())
+    assertEquals(1, unreadable.size)
+
+    ledger.screened(null, ScreeningDecision.REJECT, now)
+    assertEquals(2, ledger.pending().size)
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
+  fun `what is said about a dropped entry names its failure, never the number it held`() {
+    storeWithCorruptEntryAt(0, corrupt = JSONObject(mapOf("caller_number" to "+12025550145")))
+    ledger().pending()
+    assertFalse(FailureSummary.of(unreadable.single()).contains("2025550145"))
   }
 
   @Test

@@ -31,6 +31,9 @@ class CallScreeningGraph private constructor(context: Context) {
           onOverflow = { dropped ->
             Log.w(TAG, "dropped $dropped unreported call events to stay within capacity")
           },
+          onUnreadable = { failure ->
+            Log.w(TAG, "dropped an unreadable unreported call event: ${FailureSummary.of(failure)}")
+          },
       )
 
   /** The rules as last written by the app, or null when there are none it can read. */

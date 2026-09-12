@@ -2,6 +2,7 @@ package org.letmehandle.app.calls.events
 
 import java.time.Instant
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
@@ -22,12 +23,17 @@ interface TextStore {
  *
  * Bounded: a handset whose app is never opened would otherwise grow this without end. The
  * oldest events go first, and [onOverflow] is told how many, so the loss is visible.
+ *
+ * Forgiving on read: an entry that cannot be read is dropped, [onUnreadable] is told why, and the
+ * ledger is written back without it. Refusing the whole list instead would hold every call behind
+ * that one entry on the handset for good, and fail every read after.
  */
 class CallEventLedger(
     private val store: TextStore,
     private val tracker: CallStateTracker,
     private val onChanged: () -> Unit,
     private val onOverflow: (dropped: Int) -> Unit,
+    private val onUnreadable: (failure: Exception) -> Unit,
     private val capacity: Int = DEFAULT_CAPACITY,
 ) {
   private val lock = Any()
@@ -73,8 +79,27 @@ class CallEventLedger(
 
   private fun readPending(): List<CallEventRecord> {
     val text = store.read(PENDING) ?: return emptyList()
-    val array = JSONArray(text)
-    return (0 until array.length()).map { CallEventRecord.fromJson(array.getJSONObject(it)) }
+    val entries =
+        try {
+          JSONArray(text)
+        } catch (unreadable: JSONException) {
+          store.write(PENDING, null)
+          onUnreadable(unreadable)
+          return emptyList()
+        }
+    val events =
+        (0 until entries.length()).mapNotNull { index ->
+          try {
+            CallEventRecord.fromJson(entries.optJSONObject(index) ?: throw CallEventRecord.UnreadableRecord(null))
+          } catch (unreadable: CallEventRecord.UnreadableRecord) {
+            onUnreadable(unreadable)
+            null
+          }
+        }
+    if (events.size < entries.length()) {
+      writePending(events)
+    }
+    return events
   }
 
   private fun writePending(events: List<CallEventRecord>) {
@@ -87,7 +112,7 @@ class CallEventLedger(
 
   companion object {
     const val DEFAULT_CAPACITY = 500
-    private const val PENDING = "pending_call_events"
+    internal const val PENDING = "pending_call_events"
     private const val TRACKED = "tracked_call"
   }
 }
