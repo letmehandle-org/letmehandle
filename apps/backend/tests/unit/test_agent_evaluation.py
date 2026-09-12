@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import ToolsForAJudgement
     from tests.evaluation.suite import Scenario
     from tests.support.scripted_model import Step
 
@@ -69,7 +69,7 @@ def write(path: Path, scenarios: list[dict[str, object]]) -> Path:
     return path
 
 
-def scripted(scenario: Scenario, tools: Sequence[AgentTool]) -> CallAgent:
+def scripted(scenario: Scenario, tools: ToolsForAJudgement) -> CallAgent:
     return StrandsCallAgent(
         ScriptedModel(SCRIPTS[scenario.id]),
         tools=tools,

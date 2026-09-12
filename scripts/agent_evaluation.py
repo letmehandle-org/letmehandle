@@ -30,10 +30,8 @@ sys.path.insert(0, str(BACKEND / "src"))
 sys.path.insert(0, str(BACKEND))
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import ToolsForAJudgement
     from tests.evaluation.suite import Report, Scenario
 
 
@@ -67,7 +65,7 @@ async def evaluate(minimum: float | None) -> int:
     # inside it.
     configure_logging(settings)
 
-    def agent_for(_scenario: Scenario, tools: Sequence[AgentTool]) -> CallAgent:
+    def agent_for(_scenario: Scenario, tools: ToolsForAJudgement) -> CallAgent:
         return build_call_agent(settings, tools=tools, consider=decide_by_policy)
 
     print(f"model {endpoint.model}, prompts {PROMPT_VERSION}\n")

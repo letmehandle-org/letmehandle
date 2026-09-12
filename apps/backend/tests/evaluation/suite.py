@@ -29,13 +29,13 @@ from letmehandle.domain.models.authority import AgentAuthority, Capability
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
 from letmehandle.domain.models.escalation import EscalationReason  # noqa: TC001
 from letmehandle.domain.models.intent import CallIntent  # noqa: TC001
-from tests.support.agent_calls import GuardedTool, a_call
+from tests.support.agent_calls import GuardedTool, a_call, fixed
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from letmehandle.application.agent.ports import AgentJudgement, CallAgent
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import ToolsForAJudgement
 
 SCENARIOS: Final = Path(__file__).with_name("scenarios.json")
 
@@ -157,7 +157,7 @@ class Report:
         ]
 
 
-type AgentFor = Callable[[Scenario, Sequence[AgentTool]], CallAgent]
+type AgentFor = Callable[[Scenario, ToolsForAJudgement], CallAgent]
 
 
 async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
@@ -170,6 +170,6 @@ async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
             authority=AgentAuthority.granting(*scenario.granted),
             from_important_contact=scenario.from_important_contact,
         )
-        judgement = await agent_for(scenario, tools).judge(call)
+        judgement = await agent_for(scenario, fixed(*tools)).judge(call)
         outcomes.append(Outcome(scenario, tuple(misses(scenario, judgement, tools))))
     return Report(tuple(outcomes))

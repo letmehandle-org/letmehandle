@@ -14,7 +14,7 @@ from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL, StrandsCal
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
-from tests.support.agent_calls import a_call, decide_by_policy
+from tests.support.agent_calls import a_call, decide_by_policy, fixed
 from tests.support.scripted_model import Fail, Say, ScriptedModel, Step
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ def test_a_judgement_with_no_time_to_happen_in_is_refused(seconds: float) -> Non
     with pytest.raises(ValueError, match="time"):
         StrandsCallAgent(
             ScriptedModel([]),
-            tools=[],
+            tools=fixed(),
             consider=decide_by_policy,
             timeout=timedelta(seconds=seconds),
         )
@@ -50,7 +50,7 @@ async def test_a_failure_is_logged_by_kind_and_never_by_content(steps: list[Step
     secret = "my card is 4111"
     agent = StrandsCallAgent(
         ScriptedModel(steps),
-        tools=[],
+        tools=fixed(),
         consider=decide_by_policy,
         timeout=timedelta(seconds=5),
     )

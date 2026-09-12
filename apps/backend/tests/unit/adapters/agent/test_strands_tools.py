@@ -44,12 +44,15 @@ async def test_the_models_arguments_reach_the_tool_and_its_answer_comes_back() -
 
 async def test_a_refusal_is_told_to_the_model_and_recorded() -> None:
     ledger = ToolLedger()
-    tool = GuardedTool("share_contact_details", Capability.SHARE_CONTACT_DETAILS)
+    tool = GuardedTool(
+        "share_contact_details", Capability.SHARE_CONTACT_DETAILS, notes=ledger.notes
+    )
     result = await result_of(presented(tool, ledger, authority=AgentAuthority.none()), {})
 
     assert result["status"] == "error"
     assert result["content"][0]["text"].startswith("Refused: ")
-    assert [refusal.tool for refusal in ledger.refusals] == ["share_contact_details"]
+    # Recorded once, by the tool that refused: the wrapper keeps no second copy.
+    assert [refusal.tool for refusal in ledger.notes.refusals] == ["share_contact_details"]
     assert tool.acted == []
 
 
@@ -60,7 +63,7 @@ async def test_arguments_that_are_not_an_object_are_refused_without_reaching_the
 
     assert result["status"] == "error"
     assert tool.acted == []
-    assert [refusal.reason for refusal in ledger.refusals] == [
+    assert [refusal.reason for refusal in ledger.notes.refusals] == [
         "the arguments must be a JSON object"
     ]
 

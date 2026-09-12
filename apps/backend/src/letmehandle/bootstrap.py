@@ -39,12 +39,12 @@ from letmehandle.config.settings import OTPProviderName, Settings, SpeechProvide
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable
 
     from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import ToolsForAJudgement
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
@@ -170,7 +170,7 @@ def build_speech_provider(
 
 
 def build_call_agent(
-    settings: Settings, *, tools: Sequence[AgentTool], consider: ConsiderEscalation
+    settings: Settings, *, tools: ToolsForAJudgement, consider: ConsiderEscalation
 ) -> CallAgent:
     """The agent that judges calls, on the model this deployment is configured with.
 

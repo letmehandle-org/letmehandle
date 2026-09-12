@@ -15,8 +15,9 @@ from typing import TYPE_CHECKING, Any
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
+    from letmehandle.application.agent.notes import JudgementNotes
     from letmehandle.application.agent.ports import CallSoFar, ToolRefusal
 
 
@@ -55,4 +56,13 @@ class AgentTool(ABC):
 
     @abstractmethod
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
-        """Validate, check the user's grant, then act — in that order, every time."""
+        """Validate, check the user's grant, then act — in that order, every time.
+
+        A refusal is written to the judgement's notes by the tool that gives it, as well as
+        returned. The notes are the one record of what was refused; nothing else keeps a copy.
+        """
+
+
+# The tools for one judgement, given the notes that judgement's tools all write to. A function
+# rather than a list, because the notes are new for every judgement and the tools hold them.
+type ToolsForAJudgement = Callable[[JudgementNotes], Sequence[AgentTool]]

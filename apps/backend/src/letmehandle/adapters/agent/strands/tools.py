@@ -4,12 +4,13 @@ A presented tool forwards the model's arguments to `AgentTool.invoke` and hands 
 said. It does not validate, check a grant or decide anything: each tool does that for itself
 (D-026), so what the assistant may do does not depend on this file being right.
 
-Two things are kept for the judgement, in a ledger that lives as long as one: the refusals, in the
-order they happened, so the user can see what was asked of their assistant; and a tool that
-raised. The SDK's own answer to a raising tool is to tell the model the exception's text and carry
-on, which both shows a model — and through it a caller — whatever the exception said, and turns a
-defect into a sentence nobody reads. Here the model is told only that the action did not complete,
-and the agent raises the failure once the model has finished.
+Two things are kept for the judgement, in a ledger that lives as long as one: the judgement's notes,
+which the tools write their refusals and the call's ending to, and which this file writes to only
+for arguments that never reached a tool; and a tool that raised. The SDK's own answer to a raising
+tool is to tell the model the exception's text and carry on, which both shows a model — and through
+it a caller — whatever the exception said, and turns a defect into a sentence nobody reads. Here
+the model is told only that the action did not complete, and the agent raises the failure once the
+model has finished.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING, Final
 
 from strands.tools import PythonAgentTool
 
+from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import ToolRefusal
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ TOOL_FAILED: Final = "The action could not be completed."
 class ToolLedger:
     """What the tools did during one judgement that the judgement has to report."""
 
-    refusals: list[ToolRefusal] = field(default_factory=list)
+    notes: JudgementNotes = field(default_factory=JudgementNotes)
     failure: Exception | None = None
 
 
@@ -47,21 +49,21 @@ def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgent
 
     async def run(tool_use: ToolUse, **_invocation_state: object) -> SDKToolResult:
         arguments = tool_use["input"]
+        if not isinstance(arguments, Mapping):
+            # The SDK hands on whatever JSON the model wrote. A list or a bare string is a
+            # malformed call like any other, refused like one and written down like one.
+            refusal = ToolRefusal(spec.name, "the arguments must be a JSON object")
+            ledger.notes.refused(refusal)
+            return _result(tool_use, f"Refused: {refusal.reason}", succeeded=False)
         try:
-            outcome = (
-                await tool.invoke(call, arguments)
-                if isinstance(arguments, Mapping)
-                # The SDK hands on whatever JSON the model wrote. A list or a bare string is a
-                # malformed call like any other, and refused like one.
-                else ToolRefusal(spec.name, "the arguments must be a JSON object")
-            )
+            outcome = await tool.invoke(call, arguments)
         except Exception as error:  # noqa: BLE001 - kept, and raised by the agent once the model stops
             if ledger.failure is None:
                 ledger.failure = error
             return _result(tool_use, TOOL_FAILED, succeeded=False)
 
         if isinstance(outcome, ToolRefusal):
-            ledger.refusals.append(outcome)
+            # Already in the notes: the tool that refused wrote it there.
             return _result(tool_use, f"Refused: {outcome.reason}", succeeded=False)
         return _result(tool_use, outcome.content, succeeded=True)
 

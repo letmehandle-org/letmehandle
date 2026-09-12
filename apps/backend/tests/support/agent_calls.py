@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import CallSoFar, ToolRefusal
 from letmehandle.application.agent.tool import AgentTool, ToolResult, ToolSpec
 from letmehandle.application.preferences.context import build_preference_context
@@ -27,7 +28,7 @@ from letmehandle.domain.policy.escalation import CallCircumstances, decide_escal
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from letmehandle.application.agent.tool import ToolOutcome
+    from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.policy.escalation import EscalationProposal
@@ -83,6 +84,7 @@ class GuardedTool(AgentTool):
     capability: Capability | None = None
     description: str = "Does what its name says."
     reply: str = "done"
+    notes: JudgementNotes = field(default_factory=JudgementNotes)
     acted: list[Mapping[str, object]] = field(default_factory=list)
 
     @property
@@ -91,7 +93,9 @@ class GuardedTool(AgentTool):
 
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
         if self.capability is not None and not call.authority.allows(self.capability):
-            return ToolRefusal(self.name, f"the user has not allowed {self.capability.value}")
+            refusal = ToolRefusal(self.name, f"the user has not allowed {self.capability.value}")
+            self.notes.refused(refusal)
+            return refusal
         self.acted.append(dict(arguments))
         return ToolResult(self.reply)
 
@@ -109,3 +113,12 @@ class BrokenTool(AgentTool):
 
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
         raise self.error
+
+
+def fixed(*tools: AgentTool) -> ToolsForAJudgement:
+    """The same tools for every judgement, for a test whose point is the wrapper around them."""
+
+    def given(_notes: JudgementNotes) -> tuple[AgentTool, ...]:
+        return tools
+
+    return given

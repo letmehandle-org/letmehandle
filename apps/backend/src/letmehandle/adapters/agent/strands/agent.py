@@ -2,7 +2,9 @@
 
 One SDK agent per judgement, built from the model it is handed, the versioned prompts and the
 application's tools, and thrown away afterwards: a judgement shares no conversation, no tool state
-and no lock with any other call.
+and no lock with any other call. The tools are built afresh for each judgement too, around notes
+of its own, and what the judgement reports as refused and whether the call ended is read from
+those notes and nowhere else.
 
 What the model is given is split along the one line that matters. The instructions and the user's
 preferences are the system prompt. The caller's words are a message of their own, delimited and
@@ -25,6 +27,7 @@ from strands.tools.executors import SequentialToolExecutor
 
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.adapters.agent.strands.tools import ToolLedger, present
+from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import AgentJudgement, CallAgent
 from letmehandle.application.agent.prompts import PROMPT_VERSION, load_prompts
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -32,14 +35,13 @@ from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from datetime import timedelta
 
     from strands.models.model import Model
 
     from letmehandle.application.agent.ports import CallSoFar
     from letmehandle.application.agent.prompts import Prompts
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import ToolsForAJudgement
     from letmehandle.domain.models.escalation import EscalationDecision
 
 # The name the model knows the assessment by, which is the name the SDK gives its tool.
@@ -88,7 +90,7 @@ class StrandsCallAgent(CallAgent):
         self,
         model: Model,
         *,
-        tools: Sequence[AgentTool],
+        tools: ToolsForAJudgement,
         consider: ConsiderEscalation,
         timeout: timedelta,
         prompt_version: str = PROMPT_VERSION,
@@ -96,7 +98,7 @@ class StrandsCallAgent(CallAgent):
         if timeout.total_seconds() <= 0:
             raise ValueError("a judgement needs time to happen in")
         self._model = model
-        self._tools = tuple(tools)
+        self._tools = tools
         self._consider = consider
         self._timeout = timeout
         self._prompt_version = prompt_version
@@ -109,10 +111,10 @@ class StrandsCallAgent(CallAgent):
         either is somebody else's to handle — the model misbehaving is this method's to absorb.
         """
         prompts = load_prompts(call.preferences.locale, self._prompt_version)
-        ledger = ToolLedger()
+        ledger = ToolLedger(JudgementNotes())
         agent = Agent(
             model=self._model,
-            tools=[present(tool, call, ledger) for tool in self._tools],
+            tools=[present(tool, call, ledger) for tool in self._tools(ledger.notes)],
             system_prompt=prompts.system_prompt(call.preferences, assessment_tool=ASSESSMENT_TOOL),
             # The default handler prints what the model streams, which is the call, to stdout.
             callback_handler=None,
@@ -130,7 +132,8 @@ class StrandsCallAgent(CallAgent):
         return AgentJudgement(
             proposal=proposal,
             escalation=await self._consider(call, proposal),
-            refusals=tuple(ledger.refusals),
+            refusals=ledger.notes.refusals,
+            ended=ledger.notes.ended,
         )
 
     async def _assess(self, agent: Agent, prompts: Prompts, call: CallSoFar) -> EscalationProposal:

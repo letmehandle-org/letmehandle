@@ -16,7 +16,7 @@ import pytest
 
 from letmehandle.bootstrap import build_call_agent
 from letmehandle.config.settings import ConfigurationError
-from tests.support.agent_calls import a_call, decide_by_policy
+from tests.support.agent_calls import a_call, decide_by_policy, fixed
 from tests.support.config import make_settings
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
         llm_model="an-example-model",
         llm_headers="X-Title=letmehandle",
     )
-    agent = build_call_agent(settings, tools=[], consider=decide_by_policy)
+    agent = build_call_agent(settings, tools=fixed(), consider=decide_by_policy)
 
     judgement = await agent.judge(a_call("Is she in today?"))
 
@@ -86,4 +86,4 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
 
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
-        build_call_agent(make_settings(), tools=[], consider=decide_by_policy)
+        build_call_agent(make_settings(), tools=fixed(), consider=decide_by_policy)
