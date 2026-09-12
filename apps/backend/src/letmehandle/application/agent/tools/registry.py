@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.escalation import EscalationService
     from letmehandle.application.agent.notes import JudgementNotes
     from letmehandle.application.agent.ports import CallActions
-    from letmehandle.application.agent.tool import AgentTool
+    from letmehandle.application.agent.tool import AgentTool, ToolsForAJudgement
 
 
 def tools_for_a_judgement(
@@ -40,3 +40,12 @@ def tools_for_a_judgement(
         RecordCallOutcome(notes, actions),
         EndCall(notes, actions, escalation),
     )
+
+
+def tools_for_judgements(actions: CallActions, escalation: EscalationService) -> ToolsForAJudgement:
+    """`tools_for_a_judgement`, ready for an agent to call once per judgement with fresh notes."""
+
+    def for_one(notes: JudgementNotes) -> tuple[AgentTool, ...]:
+        return tools_for_a_judgement(actions, escalation, notes)
+
+    return for_one

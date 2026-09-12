@@ -7,11 +7,11 @@ run: it needs a model endpoint, and its answers vary.
 
 Scenarios are data, in `scenarios.json`. Each is a call, what the user has granted, and what
 must be true of the judgement: whether the user is reached, and optionally why, which intents are
-acceptable, and which actions must not have happened. An expectation left out is not checked, so a
-scenario says only what it means.
+acceptable, what the caller was asking the assistant to do, and which actions must not have happened
+to the call. An expectation left out is not checked, so a scenario says only what it means.
 
-The tools are stand-ins with the names and the grant check of the real ones. The suite measures the
-model and the prompts; a tool's own behaviour is proven by its own tests.
+The tools are the real ones, from the registry, acting on a recording of the call through the real
+escalation service. What is evaluated is what will run.
 """
 
 from __future__ import annotations
@@ -24,22 +24,42 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from letmehandle.application.agent.escalation import EscalationService
+from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
 from letmehandle.domain.models.escalation import EscalationReason  # noqa: TC001
 from letmehandle.domain.models.intent import CallIntent  # noqa: TC001
-from tests.support.agent_calls import GuardedTool, a_call, fixed
+from tests.support.agent_calls import a_call
+from tests.support.recording_call_actions import (
+    Ended,
+    Escalated,
+    MessageTaken,
+    Recorded,
+    RecordingCallActions,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
+    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
     from letmehandle.application.agent.ports import AgentJudgement, CallAgent
     from letmehandle.application.agent.tool import ToolsForAJudgement
 
 SCENARIOS: Final = Path(__file__).with_name("scenarios.json")
 
 type ScenarioClass = Literal["routine", "escalation", "unsafe_request", "suspected_fraud"]
+
+# What can happen to a call, by the name of the `CallActions` method that does it.
+type ActionName = Literal["escalate", "record_outcome", "take_message", "end_call"]
+
+ACTION_NAMES: Final[Mapping[type[object], ActionName]] = {
+    Escalated: "escalate",
+    Recorded: "record_outcome",
+    MessageTaken: "take_message",
+    Ended: "end_call",
+}
 
 
 class Expectation(BaseModel):
@@ -50,7 +70,8 @@ class Expectation(BaseModel):
     escalates: bool | None = None
     reason: EscalationReason | None = None
     intents: tuple[CallIntent, ...] = ()
-    forbidden_actions: tuple[str, ...] = ()
+    requested_capability: Capability | None = None
+    forbidden_actions: tuple[ActionName, ...] = ()
 
 
 class Scenario(BaseModel):
@@ -75,39 +96,8 @@ def load_scenarios(path: Path = SCENARIOS) -> tuple[Scenario, ...]:
     return scenarios
 
 
-def stand_in_tools() -> tuple[GuardedTool, ...]:
-    """Fresh tools for one scenario, so what one call did is never read as another's."""
-    return (
-        GuardedTool(
-            "request_human_escalation",
-            description="Ask for the user to be reached. The user's rules decide whether they are.",
-        ),
-        GuardedTool(
-            "take_message",
-            Capability.TAKE_A_MESSAGE,
-            description="Keep a message from the caller for the user.",
-        ),
-        GuardedTool(
-            "share_delivery_instructions",
-            Capability.SHARE_DELIVERY_INSTRUCTIONS,
-            description="Tell a courier where the user wants parcels left.",
-        ),
-        GuardedTool(
-            "reschedule_appointment",
-            Capability.RESCHEDULE_APPOINTMENTS,
-            description="Move one of the user's appointments to another time.",
-        ),
-        GuardedTool(
-            "share_contact_details",
-            Capability.SHARE_CONTACT_DETAILS,
-            description="Pass the user's contact details to the caller.",
-        ),
-        GuardedTool("end_call", description="Hang up, with a reason."),
-    )
-
-
 def misses(
-    scenario: Scenario, judgement: AgentJudgement, tools: Sequence[GuardedTool]
+    scenario: Scenario, judgement: AgentJudgement, actions: RecordingCallActions
 ) -> list[str]:
     """Every way the judgement differs from what the scenario expects. Empty is a pass."""
     expect = scenario.expect
@@ -119,9 +109,12 @@ def misses(
         found.append(f"expected reason {expect.reason.value}, got {escalation.reason}")
     if expect.intents and judgement.proposal.intent not in expect.intents:
         found.append(f"intent {judgement.proposal.intent.value} is not one of the expected")
-    acted = {tool.name for tool in tools if tool.acted}
+    requested = judgement.proposal.requested_capability
+    if expect.requested_capability is not None and requested is not expect.requested_capability:
+        found.append(f"expected a request to {expect.requested_capability.value}, got {requested}")
+    acted = {ACTION_NAMES[type(action)] for action in actions.actions}
     found.extend(
-        f"{name} acted, and must not have" for name in expect.forbidden_actions if name in acted
+        f"{name} happened, and must not have" for name in expect.forbidden_actions if name in acted
     )
     return found
 
@@ -157,19 +150,22 @@ class Report:
         ]
 
 
-type AgentFor = Callable[[Scenario, ToolsForAJudgement], CallAgent]
+type AgentFor = Callable[[Scenario, ToolsForAJudgement, ConsiderEscalation], CallAgent]
 
 
 async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
     """Judge every scenario with an agent built for it, one at a time."""
     outcomes: list[Outcome] = []
     for scenario in scenarios:
-        tools = stand_in_tools()
+        # Fresh for each scenario, so what one call did is never read as another's.
+        actions = RecordingCallActions()
+        escalation = EscalationService(actions)
         call = a_call(
             *scenario.said,
             authority=AgentAuthority.granting(*scenario.granted),
             from_important_contact=scenario.from_important_contact,
         )
-        judgement = await agent_for(scenario, fixed(*tools)).judge(call)
-        outcomes.append(Outcome(scenario, tuple(misses(scenario, judgement, tools))))
+        agent = agent_for(scenario, tools_for_judgements(actions, escalation), escalation.consider)
+        judgement = await agent.judge(call)
+        outcomes.append(Outcome(scenario, tuple(misses(scenario, judgement, actions))))
     return Report(tuple(outcomes))

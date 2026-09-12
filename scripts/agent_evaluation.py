@@ -25,11 +25,12 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "apps" / "backend"
 
-# The backend's sources and its test support, which holds the suite and the stand-in tools.
+# The backend's sources and its test support, which holds the suite and the recording actions.
 sys.path.insert(0, str(BACKEND / "src"))
 sys.path.insert(0, str(BACKEND))
 
 if TYPE_CHECKING:
+    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
     from letmehandle.application.agent.ports import CallAgent
     from letmehandle.application.agent.tool import ToolsForAJudgement
     from tests.evaluation.suite import Report, Scenario
@@ -53,7 +54,6 @@ async def evaluate(minimum: float | None) -> int:
     from letmehandle.config.settings import ConfigurationError, get_settings
     from letmehandle.observability.logging import configure_logging
     from tests.evaluation.suite import load_scenarios, run
-    from tests.support.agent_calls import decide_by_policy
 
     try:
         settings = get_settings()
@@ -65,8 +65,10 @@ async def evaluate(minimum: float | None) -> int:
     # inside it.
     configure_logging(settings)
 
-    def agent_for(_scenario: Scenario, tools: ToolsForAJudgement) -> CallAgent:
-        return build_call_agent(settings, tools=tools, consider=decide_by_policy)
+    def agent_for(
+        _scenario: Scenario, tools: ToolsForAJudgement, consider: ConsiderEscalation
+    ) -> CallAgent:
+        return build_call_agent(settings, tools=tools, consider=consider)
 
     print(f"model {endpoint.model}, prompts {PROMPT_VERSION}\n")
     report = await run(load_scenarios(), agent_for)
