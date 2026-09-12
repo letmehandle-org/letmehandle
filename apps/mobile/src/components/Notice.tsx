@@ -1,13 +1,40 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
+import { Icon, type IconName } from './icon/Icon';
+
+type Tone = 'quiet' | 'problem' | 'done';
 
 interface Props {
   readonly message: string;
-  readonly tone?: 'problem' | 'quiet';
+  readonly tone?: Tone;
   readonly testID?: string;
 }
+
+const LOOK: Record<
+  Tone,
+  { icon: IconName; ink: string; fill: string; text: string }
+> = {
+  quiet: {
+    icon: 'info',
+    ink: theme.colour.textMuted,
+    fill: theme.colour.surface,
+    text: theme.colour.textMuted,
+  },
+  problem: {
+    icon: 'alert',
+    ink: theme.colour.warning,
+    fill: theme.colour.warningWash,
+    text: theme.colour.warning,
+  },
+  done: {
+    icon: 'check-c',
+    ink: theme.colour.accentDeep,
+    fill: theme.colour.accentWash,
+    text: theme.colour.accentDeep,
+  },
+};
 
 /**
  * Something the screen needs to say, announced rather than only drawn.
@@ -22,19 +49,30 @@ export function Notice({
   tone = 'quiet',
   testID,
 }: Props): React.JSX.Element {
+  const look = LOOK[tone];
   return (
-    <Text
-      accessibilityLiveRegion={tone === 'problem' ? 'assertive' : 'polite'}
-      accessibilityRole={tone === 'problem' ? 'alert' : 'text'}
-      testID={testID}
-      style={[styles.base, tone === 'problem' && styles.problem]}
-    >
-      {message}
-    </Text>
+    <View style={[styles.banner, { backgroundColor: look.fill }]}>
+      <Icon name={look.icon} colour={look.ink} size={18} />
+      <Text
+        accessibilityLiveRegion={tone === 'problem' ? 'assertive' : 'polite'}
+        accessibilityRole={tone === 'problem' ? 'alert' : 'text'}
+        testID={testID}
+        style={[styles.text, { color: look.text }]}
+      >
+        {message}
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  base: { ...theme.type.body, fontSize: 14, color: theme.colour.textMuted },
-  problem: { color: theme.colour.warning },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: theme.space.sm,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.row,
+    borderRadius: theme.radius.md,
+  },
+  text: { ...theme.type.caption, flex: 1 },
 });
