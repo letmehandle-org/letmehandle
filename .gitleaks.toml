@@ -1,12 +1,17 @@
 # What gitleaks may find without failing the build.
 #
-# The allowlist is empty and is meant to stay that way. A fixture that must look like a
-# credential is added here by path and by path alone, with a comment saying why — never by
-# widening a rule, and never by regex, because a regex exemption applies to files that do not
-# exist yet.
+# Entries are by path, with a reason. A rule is never widened, and an exemption is never written
+# as a bare regex: a regex applies to files that do not exist yet, which is the opposite of what
+# an exemption should do.
 [extend]
 useDefault = true
 
 [allowlist]
-  description = "Nothing is exempt."
-  paths = []
+  description = "Generated manifests whose checksums have the shape of a credential."
+  paths = [
+    # CocoaPods writes a SHA-1 checksum for every pod it resolves: a name, a colon, and a
+    # high-entropy hex string, two hundred times over. That is precisely the shape of the
+    # generic API key rule. The file is generated from public podspecs and holds no secret.
+    # A real credential committed anywhere else still fails, including elsewhere in ios/.
+    '''apps/mobile/ios/Podfile\.lock''',
+  ]

@@ -38,9 +38,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # 3.4 rather than 3.3: Gemfile.lock is written by a current bundler, and bundler 4
+      # requires a Ruby newer than 3.3. The alternative is pinning an old bundler in a
+      # generated file by hand, which is how the previous attempt failed — macOS's own Ruby
+      # 2.6 wrote "BUNDLED WITH 1.17.2", and bundler 1 calls String#untaint, removed in
+      # Ruby 3.2.
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3'
+          ruby-version: '3.4'
           bundler-cache: true
           working-directory: apps/mobile
 
