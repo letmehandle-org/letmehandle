@@ -17,6 +17,7 @@ dependencies = [
     "alembic>=1.14",
     "pyjwt>=2.14.0",
     "websockets>=17.1,<18",
+    "cryptography>=44",
 ]
 
 [dependency-groups]
