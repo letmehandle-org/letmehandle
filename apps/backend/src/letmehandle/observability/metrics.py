@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 # Every dimension a metric may be broken down by. Adding one is a deliberate edit to this
 # line, which is the review moment at which somebody asks whether its values are bounded.
-LABEL_KEYS: Final = frozenset({"kind", "outcome", "provider", "retryable", "stage"})
+LABEL_KEYS: Final = frozenset({"kind", "outcome", "platform", "provider", "retryable", "stage"})
 
 MAX_LABEL_VALUE_LENGTH: Final = 32
 
