@@ -162,10 +162,121 @@ export interface paths {
         patch: operations["update_me_v1_me_patch"];
         trace?: never;
     };
+    "/v1/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where setup is */
+        get: operations["read_onboarding_v1_onboarding_get"];
+        put?: never;
+        /**
+         * Record a step
+         * @description Record a step as answered, or deliberately passed over.
+         *
+         *     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
+         *     where somebody was instead of asking them everything again.
+         */
+        post: operations["record_onboarding_step_v1_onboarding_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read preferences */
+        get: operations["read_preferences_v1_preferences_get"];
+        /**
+         * Replace preferences
+         * @description Set everything the request mentions, from the defaults.
+         *
+         *     Distinct from the patch below: this starts from the defaults rather than from what is
+         *     stored, so a section left out is reset rather than kept. That is what a client means when
+         *     it says "replace".
+         */
+        put: operations["replace_preferences_v1_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change some of it
+         * @description Change the sections that were sent and leave the rest exactly as they were.
+         *
+         *     The ordinary case: one screen saves one section, and has no idea what the others hold.
+         */
+        patch: operations["update_preferences_v1_preferences_patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AuthorityPayload
+         * @description What the assistant may do on somebody's behalf. Everything opt-in.
+         */
+        AuthorityPayload: {
+            /** Capabilities */
+            capabilities?: components["schemas"]["Capability"][];
+        };
+        /**
+         * CallHandlingPayload
+         * @description What happens to a call before anybody has spoken to it.
+         */
+        CallHandlingPayload: {
+            anonymous_posture: components["schemas"]["HandlingPosture"];
+            /** Blocked Categories */
+            blocked_categories?: components["schemas"]["CallerCategory"][];
+            default_posture: components["schemas"]["HandlingPosture"];
+            escalate_at_or_above: components["schemas"]["CallImportance"];
+            /** Posture By Category */
+            posture_by_category?: {
+                [key: string]: components["schemas"]["HandlingPosture"];
+            };
+        };
+        /**
+         * CallImportance
+         * @description How much this matters to the user, ordered.
+         *
+         *     An `IntEnum` because these are compared — a rule says "escalate at or above this" — and an
+         *     ordering written as a lookup table beside an unordered enum is an ordering that drifts
+         *     from it.
+         *
+         *     The numbers are spaced so that a level can be inserted later without renumbering the ones
+         *     either side, which would silently change the meaning of every stored value.
+         * @enum {integer}
+         */
+        CallImportance: 10 | 20 | 30 | 40 | 50;
+        /**
+         * CallerCategory
+         * @description What kind of call this appears to be.
+         *
+         *     Deliberately coarse. These are the distinctions the user's rules act on — the difference
+         *     between a delivery and a courier is not one anybody would set a different rule for, and a
+         *     category nobody can act on is a category that only makes classification harder.
+         * @enum {string}
+         */
+        CallerCategory: "known_contact" | "delivery" | "healthcare" | "education" | "financial" | "service_provider" | "sales" | "spam" | "unknown";
+        /**
+         * Capability
+         * @description One thing the assistant may be permitted to do.
+         *
+         *     Each is a distinct decision a user would actually make differently, which is the test for
+         *     whether a capability belongs here. Splitting further produces a settings screen nobody
+         *     finishes; merging produces permissions nobody meant to give.
+         * @enum {string}
+         */
+        Capability: "answer_questions_about_availability" | "share_delivery_instructions" | "confirm_appointments" | "reschedule_appointments" | "decline_on_the_users_behalf" | "take_a_message" | "share_contact_details";
         /** ChallengeRequest */
         ChallengeRequest: {
             /** Phone Number */
@@ -178,11 +289,23 @@ export interface components {
             /** Expires In Seconds */
             expires_in_seconds: number;
         };
+        /**
+         * Formality
+         * @description How the assistant should sound.
+         * @enum {string}
+         */
+        Formality: "warm" | "neutral" | "formal";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HandlingPosture
+         * @description What should happen to a call before anyone has spoken to it.
+         * @enum {string}
+         */
+        HandlingPosture: "pass_through" | "handle_with_agent" | "reject";
         /**
          * Health
          * @description Liveness: is this process running.
@@ -196,6 +319,127 @@ export interface components {
             status: "ok";
             /** Version */
             version: string;
+        };
+        /** HoursPayload */
+        HoursPayload: {
+            quiet?: components["schemas"]["TimeWindowPayload"] | null;
+            working?: components["schemas"]["TimeWindowPayload"] | null;
+        };
+        /** ImportantContactPayload */
+        ImportantContactPayload: {
+            /** Label */
+            label: string;
+            /** Phone Number */
+            phone_number: string;
+            /** @default pass_through */
+            posture: components["schemas"]["HandlingPosture"];
+        };
+        /** NotificationsPayload */
+        NotificationsPayload: {
+            /**
+             * Daily Summary
+             * @default false
+             */
+            daily_summary: boolean;
+            /**
+             * On Blocked Call
+             * @default false
+             */
+            on_blocked_call: boolean;
+            /**
+             * On Handled Call
+             * @default false
+             */
+            on_handled_call: boolean;
+            /**
+             * On Missed Escalation
+             * @default true
+             */
+            on_missed_escalation: boolean;
+            /**
+             * Respect Quiet Hours
+             * @default true
+             */
+            respect_quiet_hours: boolean;
+        };
+        /**
+         * OnboardingResponse
+         * @description Where somebody is in the flow, and what is left.
+         */
+        OnboardingResponse: {
+            /** Completed */
+            completed: components["schemas"]["OnboardingStep"][];
+            /** Is Complete */
+            is_complete: boolean;
+            next_step: components["schemas"]["OnboardingStep"] | null;
+            /** Remaining */
+            remaining: components["schemas"]["OnboardingStep"][];
+            /** Skipped */
+            skipped: components["schemas"]["OnboardingStep"][];
+        };
+        /**
+         * OnboardingStep
+         * @description One thing to ask about.
+         *
+         *     One step per group of preferences, because a step is a screen and a screen that asks about
+         *     two unrelated things is one people abandon.
+         * @enum {string}
+         */
+        OnboardingStep: "introduction" | "call_handling" | "important_contacts" | "hours" | "authority" | "notifications" | "personality";
+        /** OnboardingUpdate */
+        OnboardingUpdate: {
+            /**
+             * Skipped
+             * @default false
+             */
+            skipped: boolean;
+            step: components["schemas"]["OnboardingStep"];
+        };
+        /** PersonalityPayload */
+        PersonalityPayload: {
+            /** Disclosable Facts */
+            disclosable_facts?: string[];
+            /** @default neutral */
+            formality: components["schemas"]["Formality"];
+            /** Topics */
+            topics?: string[];
+            /** @default normal */
+            verbosity: components["schemas"]["Verbosity"];
+        };
+        /**
+         * PreferencesResponse
+         * @description Everything, as it stands.
+         */
+        PreferencesResponse: {
+            authority: components["schemas"]["AuthorityPayload"];
+            call_handling: components["schemas"]["CallHandlingPayload"];
+            hours: components["schemas"]["HoursPayload"];
+            /** Important Contacts */
+            important_contacts: components["schemas"]["ImportantContactPayload"][];
+            /** Locale */
+            locale: string;
+            notifications: components["schemas"]["NotificationsPayload"];
+            personality: components["schemas"]["PersonalityPayload"];
+            /** Version */
+            version: number;
+        };
+        /**
+         * PreferencesUpdate
+         * @description A change to some of it.
+         *
+         *     Every section is optional, and an omitted section is left exactly as it was. That is what
+         *     lets one screen save one section without knowing or caring what the others hold.
+         */
+        PreferencesUpdate: {
+            authority?: components["schemas"]["AuthorityPayload"] | null;
+            call_handling?: components["schemas"]["CallHandlingPayload"] | null;
+            hours?: components["schemas"]["HoursPayload"] | null;
+            /** Important Contacts */
+            important_contacts?: components["schemas"]["ImportantContactPayload"][] | null;
+            /** Locale */
+            locale?: string | null;
+            notifications?: components["schemas"]["NotificationsPayload"] | null;
+            personality?: components["schemas"]["PersonalityPayload"] | null;
         };
         /** ProfileResponse */
         ProfileResponse: {
@@ -237,6 +481,22 @@ export interface components {
             /** Refresh Token */
             refresh_token: string;
         };
+        /**
+         * TimeWindowPayload
+         * @description A daily window, in the user's own zone.
+         *
+         *     The zone travels with the window rather than being applied later. A window compared in the
+         *     wrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of
+         *     day rather than as anything that looks like a bug.
+         */
+        TimeWindowPayload: {
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+            /** Zone */
+            zone: string;
+        };
         /** TokenResponse */
         TokenResponse: {
             /** Access Token */
@@ -271,6 +531,16 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * Verbosity
+         * @description How much the assistant says.
+         *
+         *     Separate from formality because they vary independently: a warm assistant can be brief, and
+         *     a formal one can go on. Collapsing them into one dial would make half the combinations
+         *     people actually want unreachable.
+         * @enum {string}
+         */
+        Verbosity: "brief" | "normal" | "detailed";
         /** VerifyRequest */
         VerifyRequest: {
             /** Challenge Id */
@@ -497,6 +767,145 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_onboarding_v1_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingResponse"];
+                };
+            };
+        };
+    };
+    record_onboarding_step_v1_onboarding_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_preferences_v1_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesResponse"];
+                };
+            };
+        };
+    };
+    replace_preferences_v1_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_preferences_v1_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesResponse"];
                 };
             };
             /** @description Validation Error */

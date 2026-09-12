@@ -4,7 +4,11 @@ import React from 'react';
 import { SessionProvider } from '../auth/SessionProvider';
 import { initialiseI18n } from '../i18n';
 import { RootNavigator } from '../navigation/RootNavigator';
-import { APP_ROUTES, AUTH_ROUTES } from '../navigation/routes';
+import {
+  APP_ROUTES,
+  AUTH_ROUTES,
+  ONBOARDING_ROUTES,
+} from '../navigation/routes';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -36,7 +40,13 @@ describe('RootNavigator', () => {
       'PhoneNumber',
       'VerifyCode',
     ]);
-    expect(Object.values(APP_ROUTES)).toEqual(['Home', 'Profile']);
+    expect(Object.values(APP_ROUTES)).toEqual([
+      'Home',
+      'Profile',
+      'Settings',
+      'SettingsSection',
+    ]);
+    expect(Object.values(ONBOARDING_ROUTES)).toEqual(['Step']);
   });
 
   it('keeps the two stacks separate', () => {

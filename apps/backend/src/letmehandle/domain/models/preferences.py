@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from letmehandle.domain.errors import InvariantError
@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from datetime import datetime, time, tzinfo
 
     from letmehandle.domain.models.caller import CallerCategory
+    from letmehandle.domain.models.phone_number import PhoneNumber
+
+# The shape these preferences were written in.
+#
+# Stored beside them, so that a later change can migrate what is there rather than guess what
+# an older row meant. Without it, adding a field leaves every existing row ambiguous: absent
+# because the user declined, or absent because the field did not exist when they answered.
+PREFERENCES_VERSION: Final = 1
 
 
 class HandlingPosture(StrEnum):
@@ -39,6 +47,145 @@ class Formality(StrEnum):
     WARM = "warm"
     NEUTRAL = "neutral"
     FORMAL = "formal"
+
+
+class Verbosity(StrEnum):
+    """How much the assistant says.
+
+    Separate from formality because they vary independently: a warm assistant can be brief, and
+    a formal one can go on. Collapsing them into one dial would make half the combinations
+    people actually want unreachable.
+    """
+
+    BRIEF = "brief"
+    NORMAL = "normal"
+    DETAILED = "detailed"
+
+
+@dataclass(frozen=True, slots=True)
+class Topic:
+    """Something the user cares about, normalised.
+
+    A value object rather than free text, because the agent reads these. Text that reaches a
+    model unvalidated is text somebody can put instructions in, and a caller who learns what a
+    user's topics are has a way to write them.
+
+    Normalised so that "School Run", "school run" and " school run " are one topic rather than
+    three, which is what stops a list nobody can maintain. Splitting on whitespace also means a
+    newline cannot survive into a topic, so a multi-line value cannot be smuggled into something
+    the model reads as a list.
+    """
+
+    name: str
+
+    MAX_LENGTH: ClassVar[int] = 60
+
+    def __post_init__(self) -> None:
+        normalised = " ".join(self.name.split()).lower()
+        if not normalised:
+            raise InvariantError("a topic with nothing in it cannot be matched against anything")
+        if len(normalised) > self.MAX_LENGTH:
+            raise InvariantError(
+                f"a topic is at most {self.MAX_LENGTH} characters; longer than that it is a "
+                f"sentence, and a sentence in a list the agent reads is an instruction"
+            )
+        object.__setattr__(self, "name", normalised)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True, slots=True)
+class DisclosableFact:
+    """Something the assistant is allowed to volunteer about the user.
+
+    "Works from home on Tuesdays", say — the kind of thing that makes an assistant useful and
+    that a user would not want said to just anybody.
+
+    Validated for the same reason a topic is, and more urgently. This text is put in front of
+    the model while an unknown caller is talking to it, so it is both a disclosure the user
+    chose *and* a place somebody could try to write an instruction. Bounded in length and
+    collapsed to a single line: an instruction needs room, and this does not give it any.
+
+    Case is kept, unlike a topic. A topic is matched against, so it is normalised; a fact is
+    read out, so "Tuesdays" should not become "tuesdays".
+    """
+
+    text: str
+
+    MAX_LENGTH: ClassVar[int] = 120
+
+    def __post_init__(self) -> None:
+        collapsed = " ".join(self.text.split())
+        if not collapsed:
+            raise InvariantError("a fact with nothing in it discloses nothing")
+        if len(collapsed) > self.MAX_LENGTH:
+            raise InvariantError(
+                f"a disclosable fact is at most {self.MAX_LENGTH} characters; longer than that "
+                f"it is a paragraph, and a paragraph in front of the model is room for an "
+                f"instruction somebody else wrote"
+            )
+        object.__setattr__(self, "text", collapsed)
+
+    def __str__(self) -> str:
+        return self.text
+
+
+@dataclass(frozen=True, slots=True)
+class ImportantContact:
+    """Somebody whose calls are treated differently.
+
+    The number is the identity, as everywhere else in this product. The label is what the
+    assistant calls them to nobody: it is shown to the user, and it is never read out to a
+    caller, because confirming who is in somebody's contacts is a disclosure they did not ask
+    for.
+    """
+
+    number: PhoneNumber
+    label: str
+    posture: HandlingPosture = HandlingPosture.PASS_THROUGH
+
+    MAX_LABEL: ClassVar[int] = 80
+
+    def __post_init__(self) -> None:
+        # Collapsed the way a topic is, and for the same reason: this label is put in front of
+        # the model, so a value spanning several lines is room for something shaped like an
+        # instruction. The label is the user's own text about their own contact, but on a phone
+        # it usually comes from an address book they did not write either.
+        collapsed = " ".join(self.label.split())
+        if not collapsed:
+            raise InvariantError("an important contact needs a label, or the list is numbers")
+        if len(collapsed) > self.MAX_LABEL:
+            raise InvariantError(f"a label is at most {self.MAX_LABEL} characters")
+        object.__setattr__(self, "label", collapsed)
+
+    def __str__(self) -> str:
+        """The label alone. The number is personal data belonging to somebody else."""
+        return self.label
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationPreferences:
+    """What is worth interrupting somebody for.
+
+    Escalation is not configurable. Being told that the assistant needs you, while it needs
+    you, is the product — a user who turned it off would have a phone ringing with no idea why,
+    which is worse than not having the feature.
+
+    Everything else is off by default. A product that notifies about everything is one people
+    silence, and a silenced product cannot reach them when it matters.
+    """
+
+    on_handled_call: bool = False
+    on_blocked_call: bool = False
+    on_missed_escalation: bool = True
+    daily_summary: bool = False
+    respect_quiet_hours: bool = True
+
+    @property
+    def on_escalation(self) -> bool:
+        """Always true. Kept as a property so callers can ask without special-casing it."""
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +209,14 @@ class TimeWindow:
             raise InvariantError(
                 "a window that starts and ends at the same moment covers nothing; "
                 "for a whole day, use midnight to one minute before it"
+            )
+        if any(moment.second or moment.microsecond for moment in (self.start, self.end)):
+            # Stored to the minute, so anything finer is lost on the way out and different on
+            # the way back. Worse than lossy: two ends that differ only in seconds come back
+            # equal, which this very constructor refuses — so the row saves and can never be
+            # read again, and that user's preferences return a server error for ever.
+            raise InvariantError(
+                "a window is set to the minute; seconds are not stored and would be lost"
             )
         try:
             ZoneInfo(self.zone)
@@ -142,12 +297,53 @@ class UserPreferences:
 
     rules: CallRules = field(default_factory=CallRules)
     authority: AgentAuthority = field(default_factory=AgentAuthority.none)
+    notifications: NotificationPreferences = field(default_factory=NotificationPreferences)
     formality: Formality = Formality.NEUTRAL
+    verbosity: Verbosity = Verbosity.NORMAL
     locale: str = "en"
+    important_contacts: tuple[ImportantContact, ...] = ()
+    topics: frozenset[Topic] = field(default_factory=frozenset)
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
-    disclosable_facts: frozenset[str] = field(default_factory=frozenset)
+    disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
+    version: int = PREFERENCES_VERSION
+
+    MAX_CONTACTS: ClassVar[int] = 200
+    MAX_TOPICS: ClassVar[int] = 50
+    MAX_FACTS: ClassVar[int] = 20
 
     def __post_init__(self) -> None:
         if not self.locale.strip():
             raise InvariantError("a locale is required; the agent's language is configuration")
+        if self.version < 1:
+            raise InvariantError("preferences are written in a version, and versions start at 1")
+        if len(self.important_contacts) > self.MAX_CONTACTS:
+            raise InvariantError(
+                f"at most {self.MAX_CONTACTS} important contacts. Beyond that the list is an "
+                f"address book, and everything in it stops being important"
+            )
+        if len(self.topics) > self.MAX_TOPICS:
+            raise InvariantError(f"at most {self.MAX_TOPICS} topics")
+        if len(self.disclosable_facts) > self.MAX_FACTS:
+            raise InvariantError(
+                f"at most {self.MAX_FACTS} disclosable facts. Every one of them is something a "
+                f"stranger can be told, so the list being short is the point"
+            )
+
+        numbers = [contact.number for contact in self.important_contacts]
+        duplicates = {number for number in numbers if numbers.count(number) > 1}
+        if duplicates:
+            raise InvariantError(
+                "one number appears twice in the important contacts, so which rule applies "
+                "would depend on which entry is read first"
+            )
+
+    def contact_for(self, number: PhoneNumber) -> ImportantContact | None:
+        """The user's own entry for this number, if they have one."""
+        return next(
+            (contact for contact in self.important_contacts if contact.number == number), None
+        )
+
+    def cares_about(self, topic: str) -> bool:
+        """Whether this is something the user asked to hear about."""
+        return Topic(topic) in self.topics

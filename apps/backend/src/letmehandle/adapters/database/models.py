@@ -17,6 +17,7 @@ from __future__ import annotations
 # Not moved into a type-checking block, whatever the linter says: SQLAlchemy's
 # declarative mapper evaluates these annotations at run time to build the columns.
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -93,6 +95,47 @@ class RefreshTokenRow(Base):
         Index("ix_refresh_tokens_family", "family_id"),
         Index("ix_refresh_tokens_user", "user_id"),
     )
+
+
+class PreferencesRow(Base):
+    """How one user wants their calls handled.
+
+    Stored as a document rather than as a table per section. The shape is read and written whole
+    — the application composes a complete set and saves it — and it is never queried across
+    users, so a dozen joined tables would buy nothing and cost a migration every time a
+    preference is added.
+
+    `version` is what makes that safe: it records the shape the document was written in, so a
+    later change can migrate what is there instead of guessing whether an absent field means
+    the user declined or the field did not exist when they answered.
+    """
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OnboardingRow(Base):
+    """How far through setting up a user is.
+
+    Its own table rather than a field on the preferences document: progress changes on every
+    step while preferences change rarely, and a user who skips a step has no preferences to
+    write for it. Keeping them together would mean writing a whole document to record a tap.
+    """
+
+    __tablename__ = "user_onboarding"
+
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    completed: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    skipped: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class DeviceRow(Base):

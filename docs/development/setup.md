@@ -78,13 +78,35 @@ uv run lint-imports           # the architecture boundaries
 uv run letmehandle            # the server, against the DATABASE_URL in your .env
 ```
 
+### Tests that need a database
+
+The suite talks to a real PostgreSQL, because the behaviour it relies on — unique constraints,
+cascading deletes, the row count a bulk update reports, timestamps that keep their timezone —
+differs in a substitute. `make verify` refuses to run without one rather than letting the
+coverage floor look like a failure.
+
+Each run works in a schema of its own, named after its process. Two runs against one database
+therefore do not collide, which matters more than it sounds: without it, a second run arriving
+midway through the first drops the tables the first is asserting on, and the failure looks
+exactly like a real defect in unrelated code.
+
+If you have something else on 5432:
+
+```bash
+POSTGRES_PORT=5433 make up verify
+```
+
 ### Migrations
 
 ```bash
 cd apps/backend
 uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "what it does"
+uv run alembic check                    # fails if the models and the migrations disagree
 ```
+
+`alembic check` runs in CI. A migration written by hand against models that have moved on is a
+migration that passes and leaves the database wrong.
 
 Alembic reads the database URL from the application's own settings, so there is one place this
 project learns where its database is. There are no migrations yet; the first table arrives in

@@ -14,6 +14,7 @@ from letmehandle.api.auth import router as auth_router
 from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
+from letmehandle.api.preferences import router as preferences_router
 from letmehandle.bootstrap import build_container
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
@@ -90,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(preferences_router)
     return app
 
 

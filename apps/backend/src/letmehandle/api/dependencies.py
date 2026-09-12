@@ -21,12 +21,15 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from letmehandle.adapters.database.repositories import (
+    SqlOnboardingRepository,
     SqlOTPChallengeRepository,
+    SqlPreferencesRepository,
     SqlRefreshTokenRepository,
     SqlUserRepository,
 )
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.models.user import User
@@ -153,6 +156,18 @@ async def get_current_user(
     return user
 
 
+def get_preferences_service(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> PreferencesService:
+    """Preferences and onboarding, on this request's session."""
+    clock = container_of(request).clock
+    return PreferencesService(
+        preferences=SqlPreferencesRepository(session, clock),
+        onboarding=SqlOnboardingRepository(session, clock),
+    )
+
+
 def get_user_repository(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -164,3 +179,4 @@ def get_user_repository(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthService = Annotated[AuthenticationService, Depends(get_authentication_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
+Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]

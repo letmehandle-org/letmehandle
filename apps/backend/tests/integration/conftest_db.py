@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from asyncpg.exceptions import PostgresError
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -36,13 +37,29 @@ DATABASE_URL = os.environ.get(
 )
 
 
+# Each test run gets a schema of its own, named after the process that created it.
+#
+# Without this, two runs against one database destroy each other: the fixture below drops and
+# recreates every table, so a second run arriving midway through the first deletes the rows it
+# is in the middle of asserting on. That is not hypothetical — it happened the first time
+# somebody ran the suite while something else was already running it, and the failure looks
+# exactly like a real defect: seven unrelated tests failing with missing rows.
+SCHEMA = f"test_{os.getpid()}"
+
+
 @pytest.fixture(scope="session")
 def database_url() -> str:
     return DATABASE_URL
 
 
+@pytest.fixture(scope="session")
+def schema() -> str:
+    """The schema this run owns. Nothing outside it is touched."""
+    return SCHEMA
+
+
 @pytest.fixture
-async def session(database_url: str) -> AsyncIterator[AsyncSession]:
+async def session(database_url: str, schema: str) -> AsyncIterator[AsyncSession]:
     """A session inside a transaction that is always rolled back.
 
     When no database is reachable this skips with instructions — a developer working on the
@@ -68,14 +85,21 @@ async def session(database_url: str) -> AsyncIterator[AsyncSession]:
             )
 
         async with engine.begin() as connection:
+            # Dropped and recreated rather than emptied: it is faster than deleting rows, and it
+            # means a schema change between runs cannot leave a stale column behind.
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET search_path TO "{schema}"'))
             # create_all rather than running the migrations: this fixture is testing the
             # repositories, and the migrations have a test of their own. Drift between the two
             # is caught by `alembic check`, which is why that runs as well.
-            await connection.run_sync(Base.metadata.drop_all)
             await connection.run_sync(Base.metadata.create_all)
 
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as open_session:
+            # Set per session as well as per connection: the pool hands out new connections,
+            # and one that has not been told which schema it is in silently uses `public`.
+            await open_session.execute(text(f'SET search_path TO "{schema}"'))
             yield open_session
             await open_session.rollback()
     finally:

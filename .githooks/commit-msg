@@ -21,6 +21,16 @@ esac
 
 subject="$(grep -v '^#' "$message_file" | grep -v '^$' | head -1)"
 
+# A merge resolved by hand arrives as COMMIT_EDITMSG rather than MERGE_MSG, so the check above
+# does not catch it. Its subject is written by git and cannot be made conventional without
+# rewriting what git means by a merge, so the format rule is skipped — but the disclosure check
+# below still runs, because a merge message can carry a branch name somebody chose.
+merge='^Merge (branch|remote-tracking branch|commit|pull request|tag) '
+if printf '%s' "$subject" | grep -qE "$merge"; then
+    exec python3 "$root/scripts/disclosure_audit.py" --text --label "the merge message" \
+        < "$message_file"
+fi
+
 pattern='^(feat|fix|refactor|perf|test|docs|build|ci|chore|revert)(\([a-z0-9.-]+\))?!?: .{1,72}$'
 if ! printf '%s' "$subject" | grep -qE "$pattern"; then
     printf '\n\033[31m  the commit was not made: the subject is not a conventional commit\033[0m\n'

@@ -11,6 +11,10 @@ module.exports = {
   // separate extend-expect import was removed upstream.
   setupFiles: ['<rootDir>/jest.setup.js'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  // Fixtures shared between suites live beside them but are not suites themselves, and the
+  // default pattern would treat every file under `__tests__` as one and fail it for having no
+  // test in it.
+  testPathIgnorePatterns: ['/node_modules/', '/__tests__/support/'],
   transformIgnorePatterns: [
     'node_modules/(?!(?:@react-native|react-native|@react-navigation|react-native-.*)/)',
   ],

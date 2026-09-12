@@ -10,6 +10,7 @@ import React from 'react';
 
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
+import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
 
 const NUMBER = '+12025550143';
 
@@ -20,8 +21,12 @@ interface Reply {
 
 function replyWith(replies: Reply[]): jest.Mock {
   const queue = [...replies];
-  const fake = jest.fn(async () => {
-    const reply = queue.shift() ?? { status: 200, body: {} };
+  const fake = jest.fn(async (url: string) => {
+    // Answered from the defaults rather than from the queue. The signed-in tree reads
+    // preferences and onboarding before it renders, and counting those into every queue would
+    // make each of these tests fail whenever a screen gains a request.
+    const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
+    const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
     return {
       ok: reply.status >= 200 && reply.status < 300,
       status: reply.status,
@@ -31,6 +36,11 @@ function replyWith(replies: Reply[]): jest.Mock {
   globalThis.fetch = fake as unknown as typeof fetch;
   return fake;
 }
+
+const SETUP: Record<string, Reply | undefined> = {
+  '/v1/preferences': { status: 200, body: DEFAULT_PREFERENCES },
+  '/v1/onboarding': { status: 200, body: ONBOARDING_COMPLETE },
+};
 
 const TOKENS = {
   access_token: 'an-access-token',
