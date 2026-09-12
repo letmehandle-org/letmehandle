@@ -32,6 +32,17 @@ insufficient.
 - **Rate limits** — on authentication, on webhooks, on all authenticated routes.
 - **Input validation** — every boundary, including audio frames and provider payloads.
 - **Dependencies** — vulnerability audit for both applications, with a policy for response.
+  Two advisories are already open and were deliberately not fixed in phase 0; both are
+  build-time only and neither reaches a running application:
+  - `image-size`, reached through the JavaScript bundler. Two denial-of-service advisories
+    with **no patched version published**. Exploiting either requires a hostile image asset
+    to be inside the repository already, at which point the bundler is not the problem.
+  - `decode-uri-component`, reached through the same toolchain. A patched version exists and
+    was tried: it is ESM only, and overriding to it breaks the test runner. Recorded rather
+    than forced.
+
+  This phase decides whether they are accepted, pinned, or vendored around, and writes the
+  decision down. They are not to be quietly inherited.
 - **Mobile** — secure storage, certificate handling, no sensitive data in logs, screenshot
   and backup exclusion for sensitive screens, jailbreak or root posture stated.
 
