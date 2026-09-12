@@ -2,7 +2,7 @@
 # package manager, and no source it does not need. Smaller is a side effect; the point is that
 # what is not in the image cannot be exploited in it.
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /bin/uv
 
@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # A named, unprivileged user. Root in a container is still root against a kernel escape.
 RUN groupadd --system --gid 1001 app \
