@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import count
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFormat, AudioFrame
@@ -25,7 +25,6 @@ from letmehandle.domain.ports.call_transport import (
     TransportCapabilities,
 )
 from letmehandle.domain.ports.clock import Clock, IdGenerator
-from letmehandle.domain.ports.llm import LLMCapabilities, LLMProvider, Message
 from letmehandle.domain.ports.notification import (
     DeliveryOutcome,
     DeliveryStatus,
@@ -54,8 +53,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
     from letmehandle.domain.models.phone_number import PhoneNumber
-
-T = TypeVar("T")
 
 
 class FixedClock(Clock):
@@ -131,36 +128,6 @@ class RecordingNotificationProvider(NotificationProvider):
             )
         self.sent.append((token, notification))
         return DeliveryOutcome(self.status)
-
-
-class ScriptedLLMProvider(LLMProvider):
-    """Answers from a script, so decisions under test are decisions, not guesses."""
-
-    def __init__(self, replies: Sequence[str] | None = None) -> None:
-        self._replies = list(replies or ["an answer"])
-        self.seen: list[Sequence[Message]] = []
-
-    @property
-    def name(self) -> str:
-        return "scripted"
-
-    @property
-    def model(self) -> str:
-        return "scripted-1"
-
-    @property
-    def capabilities(self) -> LLMCapabilities:
-        return LLMCapabilities(structured_output=True, tool_calling=True, max_context_tokens=8192)
-
-    async def complete(self, messages: Sequence[Message]) -> str:
-        self.seen.append(messages)
-        return self._replies[min(len(self.seen), len(self._replies)) - 1]
-
-    async def complete_structured(self, messages: Sequence[Message], schema: type[T]) -> T:
-        self.seen.append(messages)
-        # A scripted provider cannot know what the caller's schema means, so it returns an
-        # empty instance. Tests that care about the contents supply their own provider.
-        return schema()
 
 
 class StaticVoiceProvider(VoiceProvider):

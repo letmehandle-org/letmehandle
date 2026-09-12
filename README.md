@@ -36,7 +36,7 @@ none of them. That is enforced by the build, not by convention.
 | Port | What you can swap |
 | --- | --- |
 | `SpeechProvider` | the realtime speech model |
-| `LLMProvider` | the model that makes decisions — any OpenAI-compatible endpoint, hosted or local |
+| `CallAgent` | the model that makes decisions — any OpenAI-compatible endpoint, hosted or local |
 | `CallTransport` | how calls physically reach the system — programmable telephony, the platform's own call screening, or a future SIP or carrier integration |
 | `VoiceProvider` | how the assistant sounds |
 | `NotificationProvider` | how you are alerted |

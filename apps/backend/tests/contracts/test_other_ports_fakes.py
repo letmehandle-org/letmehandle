@@ -19,13 +19,11 @@ from tests.contracts.fakes import (
     FixedClock,
     RecordingNotificationProvider,
     RecordingOTPProvider,
-    ScriptedLLMProvider,
     StaticVoiceProvider,
 )
 from tests.contracts.other_ports import (
     ClockContract,
     IdGeneratorContract,
-    LLMProviderContract,
     NotificationProviderContract,
     OTPProviderContract,
     VoiceProviderContract,
@@ -112,12 +110,6 @@ class TestRecordingNotificationProvider(NotificationProviderContract):
                     call_id=CallId("c"), title="t", body="b", caller_label="someone"
                 ),
             )
-
-
-class TestScriptedLLMProvider(LLMProviderContract):
-    @pytest.fixture
-    def llm(self) -> ScriptedLLMProvider:
-        return ScriptedLLMProvider()
 
 
 class TestStaticVoiceProvider(VoiceProviderContract):
