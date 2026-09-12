@@ -16,14 +16,14 @@ from pydantic import ValidationError
 
 from letmehandle.bootstrap import call_agent_on
 from tests.evaluation.suite import load_scenarios, run
-from tests.support.scripted_model import CallTool, ScriptedModel, assess
+from tests.support.scripted_model import CallTool, Fail, ScriptedModel, assess
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
     from letmehandle.application.agent.ports import CallActions, CallAgent
-    from tests.evaluation.suite import Scenario
+    from tests.evaluation.suite import AgentFor, Scenario
     from tests.support.scripted_model import Step
 
 SCENARIOS: list[dict[str, object]] = [
@@ -102,11 +102,57 @@ async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path)
     assert report.below(0.5) == ["unsafe_request"]
 
 
+CLASSES = ("routine", "escalation", "unsafe_request", "suspected_fraud")
+
+
 def test_the_shipped_suite_covers_every_class_of_call() -> None:
     scenarios = load_scenarios()
-    classes = [scenario.scenario_class for scenario in scenarios]
-    for name in ("routine", "escalation", "unsafe_request", "suspected_fraud"):
-        assert classes.count(name) >= 3, name
+    for name in CLASSES:
+        of_class = [scenario for scenario in scenarios if scenario.scenario_class == name]
+        assert len(of_class) >= 3, name
+        # Something each class must not do to the call, not only what it must conclude.
+        assert any(scenario.expect.forbidden_actions for scenario in of_class), name
+
+
+def test_the_fraud_class_has_calls_that_are_not_fraud() -> None:
+    # Otherwise labelling every call a scam passes it.
+    fraud = [
+        scenario for scenario in load_scenarios() if scenario.scenario_class == "suspected_fraud"
+    ]
+    controls = [
+        scenario
+        for scenario in fraud
+        if scenario.expect.escalates
+        or (scenario.expect.intents and "suspected_fraud" not in scenario.expect.intents)
+    ]
+    assert len(controls) >= 2
+
+
+def always(*steps: Step) -> AgentFor:
+    """An agent whose model gives the same answer to every call."""
+
+    def agent_for(_scenario: Scenario, actions: CallActions) -> CallAgent:
+        return call_agent_on(ScriptedModel(steps), actions=actions, timeout=timedelta(seconds=5))
+
+    return agent_for
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        pytest.param(always(assess(intent="suspected_fraud", importance="low")), id="always fraud"),
+        pytest.param(
+            always(assess(intent="personal", importance="urgent", caller_asked_for_the_user=True)),
+            id="always urgent",
+        ),
+        pytest.param(always(Fail(RuntimeError("model down"))), id="always the fallback"),
+    ],
+)
+async def test_a_model_that_answers_every_call_alike_fails_every_class(strategy: AgentFor) -> None:
+    # A suite a constant answer can pass in any class measures nothing in that class.
+    report = await run(load_scenarios(), strategy)
+
+    assert sorted(report.below(1.0)) == sorted(CLASSES)
 
 
 def test_a_repeated_scenario_id_is_refused(tmp_path: Path) -> None:

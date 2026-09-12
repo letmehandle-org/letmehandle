@@ -6,12 +6,13 @@ how a prompt or policy change shows it did not make the assistant worse. It is n
 run: it needs a model endpoint, and its answers vary.
 
 Scenarios are data, in `scenarios.json`. Each is a call, what the user has granted, and what
-must be true of the judgement: whether the user is reached, and optionally why, which intents are
-acceptable, what the caller was asking the assistant to do, and which actions must not have happened
-to the call. An expectation left out is not checked, so a scenario says only what it means.
+must be true of the judgement: whether the user is reached, whether their phone rings now, and
+optionally why, which intents are acceptable, what the caller was asking the assistant to do, and
+which actions must not have happened to the call. A scenario can be set in the user's quiet hours.
+An expectation left out is not checked, so a scenario says only what it means.
 
-The tools are the real ones, from the registry, acting on a recording of the call through the real
-escalation service. What is evaluated is what will run.
+The tools are the real ones, from the registry, acting on a recording of the call, and the
+conclusion acts through the real escalation service. What is evaluated is what will run.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from letmehandle.domain.models.authority import AgentAuthority, Capability
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
 from letmehandle.domain.models.escalation import EscalationReason  # noqa: TC001
 from letmehandle.domain.models.intent import CallIntent  # noqa: TC001
-from tests.support.agent_calls import a_call
+from tests.support.agent_calls import QUIET_AT_MIDDAY, a_call
 from tests.support.recording_call_actions import (
     Ended,
     Escalated,
@@ -64,6 +65,7 @@ class Expectation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     escalates: bool | None = None
+    rings_now: bool | None = None
     reason: EscalationReason | None = None
     intents: tuple[CallIntent, ...] = ()
     requested_capability: Capability | None = None
@@ -80,6 +82,7 @@ class Scenario(BaseModel):
     said: tuple[str, ...] = Field(min_length=1)
     granted: tuple[Capability, ...] = ()
     from_important_contact: bool = False
+    in_quiet_hours: bool = False
     expect: Expectation
 
 
@@ -101,6 +104,8 @@ def misses(
     escalation = judgement.escalation
     if expect.escalates is not None and escalation.required is not expect.escalates:
         found.append(f"expected escalates={expect.escalates}, got {escalation.required}")
+    if expect.rings_now is not None and escalation.is_immediate is not expect.rings_now:
+        found.append(f"expected rings_now={expect.rings_now}, got {escalation.is_immediate}")
     if expect.reason is not None and escalation.reason is not expect.reason:
         found.append(f"expected reason {expect.reason.value}, got {escalation.reason}")
     if expect.intents and judgement.proposal.intent not in expect.intents:
@@ -160,6 +165,7 @@ async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
             *scenario.said,
             authority=AgentAuthority.granting(*scenario.granted),
             from_important_contact=scenario.from_important_contact,
+            quiet_hours=QUIET_AT_MIDDAY if scenario.in_quiet_hours else None,
         )
         judgement = await agent_for(scenario, actions).judge(call)
         outcomes.append(Outcome(scenario, tuple(misses(scenario, judgement, actions))))
