@@ -8,6 +8,7 @@ sample has no route that would.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -206,6 +207,59 @@ class TestChoosing:
         assert (await api.client.get("/v1/voices")).status_code == 401
         assert (await api.client.get("/v1/preferences/voice")).status_code == 401
         assert (await api.client.put("/v1/preferences/voice", json={})).status_code == 401
+
+
+class TestConcurrency:
+    async def test_a_clone_revoked_mid_request_is_not_written_back(self, api: Api) -> None:
+        """Choosing a voice must not resurrect a cloned voice that was revoked meanwhile.
+
+        Deterministic rather than hopeful: a competing transaction holds the row lock, so the
+        request is guaranteed to be inside the service's locked read when the revocation
+        commits. A route that had read the cloned voice before taking the lock would write the
+        revoked one back — and the resolution chain puts a cloned voice first, so the caller
+        would then hear a voice the user had deleted.
+        """
+        tokens = await sign_in(api)
+        await api.client.patch("/v1/preferences", headers=bearer(tokens), json={"locale": "en"})
+
+        factory = api.app.state.session_factory
+        async with factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE user_preferences SET document = "
+                    "jsonb_set(document, '{voice,cloned}', '\"a-clone\"'::jsonb)"
+                )
+            )
+            await session.commit()
+        assert (await selection(api, tokens))["cloned_voice_id"] == "a-clone"
+
+        holder = factory()
+        await holder.execute(text("SELECT 1 FROM user_preferences FOR UPDATE"))
+
+        choosing = asyncio.create_task(
+            api.client.put(
+                "/v1/preferences/voice",
+                headers=bearer(tokens),
+                json={"persona_voice_id": ANOTHER_VOICE},
+            )
+        )
+        await asyncio.sleep(0.5)
+        assert not choosing.done(), "the request should be waiting on the row lock"
+
+        await holder.execute(
+            text(
+                "UPDATE user_preferences SET document = "
+                "jsonb_set(document, '{voice,cloned}', 'null')"
+            )
+        )
+        await holder.commit()
+        await holder.close()
+
+        assert (await choosing).status_code == 200
+
+        after = await selection(api, tokens)
+        assert after["cloned_voice_id"] is None
+        assert after["persona_voice_id"] == ANOTHER_VOICE
 
 
 class TestPreviewFollowsTheProvider:

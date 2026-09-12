@@ -13,6 +13,7 @@ import pytest
 from letmehandle.application.preferences.service import (
     CallHandling,
     Hours,
+    PersonaVoice,
     PreferenceChanges,
     PreferencesService,
 )
@@ -124,7 +125,7 @@ class TestPartialUpdates:
             topics=frozenset({Topic("school run")}),
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
             call_handling=REJECT_UNKNOWN,
-            voice=VoiceSelection(persona_voice_id="ava"),
+            persona_voice=PersonaVoice("ava"),
         )
         await service.replace_all(USER, full)
 
@@ -228,13 +229,13 @@ class TestVersion:
 
 class TestVoice:
     async def test_a_chosen_voice_is_kept(self, service: PreferencesService) -> None:
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
         assert (await service.get(USER)).voice.persona_voice_id == "ava"
 
     async def test_changing_something_else_leaves_the_voice_alone(
         self, service: PreferencesService
     ) -> None:
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
         await service.apply(USER, PreferenceChanges(formality=Formality.WARM))
 
@@ -242,9 +243,9 @@ class TestVoice:
 
     async def test_a_voice_can_be_cleared(self, service: PreferencesService) -> None:
         # Back to the provider's default, which is a thing somebody must be able to do.
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection()))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice()))
 
         assert (await service.get(USER)).voice == VoiceSelection()
 
@@ -269,7 +270,7 @@ class TestReplacing:
     async def test_it_keeps_the_voice_it_cannot_carry(self, service: PreferencesService) -> None:
         # The one exception, and the reason for it: a replace request has no field for the
         # voice, so resetting it here is a change nobody asked for and nobody can see coming.
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
         await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
 
@@ -278,10 +279,10 @@ class TestReplacing:
     async def test_a_replace_that_does_carry_a_voice_uses_it(
         self, service: PreferencesService
     ) -> None:
-        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+        await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
         await service.replace_all(
-            USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="noah"))
+            USER, PreferenceChanges(persona_voice=PersonaVoice("noah"))
         )
 
         assert (await service.get(USER)).voice.persona_voice_id == "noah"

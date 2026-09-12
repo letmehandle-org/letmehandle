@@ -30,12 +30,12 @@ from letmehandle.api.voice_schemas import (
     VoiceSelectionResponse,
     VoiceSelectionUpdate,
 )
-from letmehandle.application.preferences.service import PreferenceChanges
+from letmehandle.application.preferences.service import PersonaVoice, PreferenceChanges
 from letmehandle.domain.errors import DomainError
-from letmehandle.domain.models.voice import VoiceSelection
 from letmehandle.domain.ports.voice import resolve_voice
 
 if TYPE_CHECKING:
+    from letmehandle.domain.models.voice import VoiceSelection
     from letmehandle.domain.ports.voice import VoiceProvider
 
 # Every route here is a signed-in one. Declared on the routes rather than taken as an
@@ -125,9 +125,11 @@ def _add_always(router: APIRouter) -> None:
         A voice the provider does not offer is refused rather than stored. Storing it would
         mean a selection that silently falls through to the default on every call, which looks
         to the user exactly like their choice being ignored.
-        """
-        current = await preferences.get(user.id)
 
+        Only the half this request is about is sent. The cloned voice is left to the service to
+        carry, under the lock it takes: read here instead, a clone revoked while this request
+        was in flight would be written back from a read taken before it.
+        """
         if body.persona_voice_id is not None and not await voices.is_available(
             body.persona_voice_id
         ):
@@ -137,11 +139,9 @@ def _add_always(router: APIRouter) -> None:
                 "That voice is not one this assistant offers.",
             )
 
-        chosen = VoiceSelection(
-            cloned_voice_id=current.voice.cloned_voice_id,
-            persona_voice_id=body.persona_voice_id,
+        updated = await preferences.apply(
+            user.id, PreferenceChanges(persona_voice=PersonaVoice(body.persona_voice_id))
         )
-        updated = await preferences.apply(user.id, PreferenceChanges(voice=chosen))
         return await _selection_response(updated.voice, voices, locale=updated.locale)
 
 
