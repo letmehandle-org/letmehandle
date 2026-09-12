@@ -183,8 +183,16 @@ class SimulatedFCM:
             rsa_key().public_key(),
             algorithms=["RS256"],
             audience=EXAMPLE_TOKEN_URI,
-            options={"require": ["iss", "iat", "exp", "scope"]},
+            # The tests run on a fixed clock, so the times are checked against each other rather
+            # than against the machine's.
+            options={
+                "require": ["iss", "iat", "exp", "scope"],
+                "verify_exp": False,
+                "verify_iat": False,
+            },
         )
+        assert claims["exp"] - claims["iat"] <= 3600
+        assert jwt.get_unverified_header(form["assertion"][0])["kid"] == "example-key-id"
         assert claims["iss"] == EXAMPLE_CLIENT_EMAIL
         assert claims["scope"] == "https://www.googleapis.com/auth/firebase.messaging"
         access = f"example-access-{self.token_requests}"
