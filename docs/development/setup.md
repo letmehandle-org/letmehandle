@@ -10,6 +10,7 @@
 | pnpm | 9 | the workspace |
 | Docker | any recent | PostgreSQL, and the backend image |
 | Xcode | 16 or later | iOS builds. macOS only. |
+| Ruby | 3.4 or later | CocoaPods, for iOS. macOS ships 2.6, which is too old. |
 | Android Studio | any recent, with JDK 17 | Android builds |
 
 Only Python, uv, Node, pnpm and Docker are needed to work on the backend.
@@ -108,8 +109,15 @@ cd ios && bundle exec pod install
 ```
 
 The Ruby toolchain is pinned by `Gemfile.lock` and installs into `apps/mobile/vendor`, which is
-ignored. If CocoaPods fails with an encoding error, your shell has no UTF-8 locale — run it with
-`LANG=en_US.UTF-8`.
+ignored.
+
+macOS ships Ruby 2.6, which is too old: its bundler calls a method removed from the language in
+3.2, and the failure names neither Ruby nor bundler. Install a current one — `brew install ruby`
+— and put it ahead of the system's on your `PATH`.
+
+If CocoaPods fails with `Unicode Normalization not appropriate for ASCII-8BIT`, your shell has no
+UTF-8 locale. Run it with `LANG=en_US.UTF-8`. That error is CocoaPods failing while reporting a
+different error, so it never says what actually went wrong.
 
 **Android** needs JDK 17. A newer JDK will fail in ways that do not name the cause.
 
