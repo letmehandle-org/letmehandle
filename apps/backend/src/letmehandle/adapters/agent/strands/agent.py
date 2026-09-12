@@ -30,6 +30,7 @@ from letmehandle.adapters.agent.strands.tools import ToolLedger, present
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import AgentJudgement, CallAgent
 from letmehandle.application.agent.prompts import PROMPT_VERSION, load_prompts
+from letmehandle.domain.models.escalation import EscalationDecision
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.observability.logging import get_logger
@@ -123,9 +124,17 @@ class StrandsCallAgent(CallAgent):
         proposal = await self._assess(agent, prompts, call)
         if ledger.failure is not None:
             raise ledger.failure
+        # A call the agent has already ended has nobody left to bring the user to. Considering it
+        # would ring the user for a caller who is gone, or fail on an action orchestration rightly
+        # refuses; the judgement records how the call ended and the proposal it ended on.
+        escalation = (
+            EscalationDecision.not_needed()
+            if ledger.notes.ended
+            else await self._escalation.consider(call, proposal)
+        )
         return AgentJudgement(
             proposal=proposal,
-            escalation=await self._escalation.consider(call, proposal),
+            escalation=escalation,
             refusals=ledger.notes.refusals,
             ended=ledger.notes.ended,
         )

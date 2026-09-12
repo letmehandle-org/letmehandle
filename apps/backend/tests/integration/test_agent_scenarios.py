@@ -100,6 +100,23 @@ class TestHandledCalls:
         ]
         assert run.model.unused_steps == 0
 
+    async def test_a_call_the_agent_has_ended_is_not_escalated_afterwards(self) -> None:
+        # The model hung up and only then assessed the call as needing the user. There is no call
+        # left to bring anybody into, so the judgement says it ended and rings nobody, rather than
+        # failing because orchestration refuses an action on a call that is over.
+        call = a_call("It's the school again, please get her.")
+        run = await judged(
+            call,
+            [
+                CallTool("end_call", {"ending": "resolved"}),
+                assess(intent="personal", importance="urgent", caller_asked_for_the_user=True),
+            ],
+        )
+
+        assert run.judgement.ended
+        assert not run.judgement.escalation.required
+        assert run.actions.of_kind(Escalated) == []
+
     async def test_a_caller_asking_for_the_user_is_put_through(self) -> None:
         call = a_call("This is the school. I need to speak to her about her son, now please.")
         summary = "The school is calling about her son."
