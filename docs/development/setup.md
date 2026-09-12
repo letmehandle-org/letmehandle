@@ -2,17 +2,17 @@
 
 ## What you need
 
-| Tool | Version | Why |
+| Tool | Version | Needed for |
 | --- | --- | --- |
 | Python | 3.12 | backend. Pinned in `.python-version`. |
-| uv | latest | Python dependencies and virtual environment |
-| Node | 22 | mobile tooling. Pinned in `.nvmrc`. |
-| pnpm | 9 | workspace package manager |
-| Docker | latest | PostgreSQL, and the backend image |
-| Xcode | latest | iOS builds. macOS only. |
-| Android Studio | latest | Android builds |
+| uv | 0.5 or later | Python dependencies and the virtual environment |
+| Node | 22 or later | mobile tooling. `.nvmrc` names 22. |
+| pnpm | 9 | the workspace |
+| Docker | any recent | PostgreSQL, and the backend image |
+| Xcode | 16 or later | iOS builds. macOS only. |
+| Android Studio | any recent, with JDK 17 | Android builds |
 
-You need only Python, uv, Node, pnpm and Docker to work on the backend.
+Only Python, uv, Node, pnpm and Docker are needed to work on the backend.
 
 ## First run
 
@@ -22,53 +22,115 @@ cd letmehandle
 make setup
 ```
 
-`make setup` installs both dependency trees and, importantly, the git hooks. Hooks are not
-cloned with a repository, so without this step nothing checks your commits until CI does.
+`make setup` installs both dependency trees and the git hooks. Hooks are not cloned with a
+repository, so without this step nothing checks your commits until CI does.
 
 ```bash
 cp .env.example .env
+cp apps/mobile/.env.example apps/mobile/.env
 ```
 
-Fill in `.env`. The backend validates it at startup and refuses to run with a message naming
-the variable rather than failing later somewhere confusing.
+Neither example file carries a real value, and neither ever will (D-021). The backend validates
+its configuration at startup and refuses to run with a message naming the offending variable;
+the mobile app does the same.
 
 ```bash
 make up
 curl localhost:8000/health
+curl localhost:8000/health/ready
 ```
+
+`/health` answers whether the process is alive and touches nothing. `/health/ready` answers
+whether it can reach the database, and returns 503 when it cannot.
+
+### If port 8000 or 5432 is already taken
+
+Both host ports are configurable, because they are popular ports and a clash should not require
+editing a tracked file:
+
+```bash
+BACKEND_PORT=8100 POSTGRES_PORT=5433 make up
+```
+
+Set them in your `.env` to make it permanent.
 
 ## Working
 
 ```bash
-make verify      # everything: audit, lint, typecheck, test, coverage. What CI runs.
+make verify      # audit, lint, format, types, architecture boundaries, tests, coverage
 make test        # just the tests
 make format      # apply formatting
 make down        # stop the local services
 ```
 
-`make verify` is the same set of commands CI runs. If it passes locally it passes in CI,
-which is the point of routing everything through the Makefile.
+`make verify` runs exactly what CI runs — CI calls these targets rather than reimplementing
+them, so a local pass means a CI pass.
+
+## The backend on its own
+
+```bash
+cd apps/backend
+uv run pytest                 # tests
+uv run pytest --cov           # with coverage
+uv run mypy src tests         # types
+uv run lint-imports           # the architecture boundaries
+uv run letmehandle            # the server, against the DATABASE_URL in your .env
+```
+
+### Migrations
+
+```bash
+cd apps/backend
+uv run alembic upgrade head
+uv run alembic revision --autogenerate -m "what it does"
+```
+
+Alembic reads the database URL from the application's own settings, so there is one place this
+project learns where its database is. There are no migrations yet; the first table arrives in
+phase 2.
 
 ## The mobile app
 
 ```bash
 pnpm --filter mobile ios       # simulator
 pnpm --filter mobile android   # emulator
+pnpm --filter mobile test
 ```
 
 Bare React Native: `ios/` and `android/` are part of the repository and are yours to change.
-After changing native dependencies, `cd apps/mobile/ios && pod install`.
+
+**iOS**, first run and after any native dependency changes:
+
+```bash
+cd apps/mobile
+bundle install
+cd ios && bundle exec pod install
+```
+
+The Ruby toolchain is pinned by `Gemfile.lock` and installs into `apps/mobile/vendor`, which is
+ignored. If CocoaPods fails with an encoding error, your shell has no UTF-8 locale — run it with
+`LANG=en_US.UTF-8`.
+
+**Android** needs JDK 17. A newer JDK will fail in ways that do not name the cause.
+
+**Reaching the backend from a device or simulator.** On an iOS simulator `localhost` is the host
+machine. On an Android emulator the host is `10.0.2.2`. Set `API_BASE_URL` in
+`apps/mobile/.env` accordingly.
 
 ## Troubleshooting
 
-**`make setup` fails on the Python step.** Check `python3 --version` is 3.12. uv can install
-it for you: `uv python install 3.12`.
+**`make setup` fails on the Python step.** Check `python3 --version` is 3.12. uv will install it:
+`uv python install 3.12`.
 
-**The backend will not start.** It names the configuration variable it is unhappy about. If it
-names none, the database is probably not up: `make up`.
+**The backend will not start.** It names the variable it is unhappy about. If it names none, the
+database is probably not up: `make up`.
 
-**A commit is rejected.** The hooks explain what they found. They run before anything is
-permanent, which is the only moment the fix is free.
+**A commit is rejected.** The hooks say what they found. They run before anything is permanent,
+which is the only moment the fix is free. See D-021 for what they look for.
 
 **Tests need a phone number.** Use a range reserved for fiction — `+1 NPA 555-01xx`, or
-`+44 7700 900xxx`. The audit rejects anything else.
+`+44 7700 900xxx`. The audit rejects anything else, including your own number.
+
+**Metro cannot find a module.** The workspace uses hoisted linking (`.npmrc`) because Metro and
+the native build systems do not understand pnpm's symlinked store. If you have changed that
+setting, change it back.

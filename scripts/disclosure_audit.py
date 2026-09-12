@@ -119,8 +119,15 @@ STRUCTURAL = [
     # userinfo of a URL pointing at an IP literal — "nothing@127.0.0.1" is a connection
     # string in a test fixture, not somebody's address. Reserved documentation domains are
     # excluded so that examples can have one.
+    # Excluded, in order: reserved documentation domains, so examples can have an address;
+    # .invalid, likewise; and the forge's own service addresses, which appear in the
+    # Signed-off-by trailer of every automated dependency commit. Without the last one the gate
+    # blocks every bot pull request, and a gate that blocks routine work is a gate somebody
+    # switches off. A forge noreply address identifies an account that is already public in the
+    # history anyway.
     (
         r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b)(?![\w.-]*\.invalid\b)"
+        r"(?![\w.-]*\bnoreply\.github\.com\b)(?!github\.com\b)"
         r"[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b",
         "an email address",
     ),
