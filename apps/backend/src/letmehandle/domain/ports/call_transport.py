@@ -282,13 +282,18 @@ class CallTransport(ABC):
 class SupportsAnswering(Protocol):
     """A transport that can take a call under program control.
 
+    Taking a call means the assistant is on it afterwards, whatever the transport had to do to
+    get there. Where the call waits to be picked up, that is picking it up; where the caller
+    was already held in a conference when the call arrived (D-027), it is bringing the
+    assistant into that conference. The orchestrator asks for the outcome, not the mechanism.
+
     Not every transport can. A handset's own call is answered by the person holding it, and a
     transport representing one that claimed otherwise would report a call as taken while it
     was still ringing.
     """
 
     async def answer(self, call_id: CallId) -> None:
-        """Take the call."""
+        """Put the assistant on the call. Changes nothing while the assistant is already on it."""
 
 
 @runtime_checkable

@@ -21,6 +21,7 @@ from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.ports.call_transport import (
     AssistantPresence,
     CallEventKind,
+    answering,
     audio_streaming,
     bridging,
     three_way,
@@ -68,7 +69,7 @@ def assert_nothing_held(deployment: Deployment) -> None:
 async def answered(deployment: Deployment) -> None:
     """A call arrived, the assistant joined and its stream is up."""
     await deployment.provider.place_call(CALL.value)
-    await deployment.transport.answer(CALL)
+    await answering(deployment.transport).answer(CALL)
     await deployment.settle()
 
 
@@ -277,7 +278,7 @@ async def test_the_assistants_socket_dropping_mid_call_is_reported_and_recoverab
     assert deployment.transport.open_media_sockets == 0
     assert [frame async for frame in deployment.transport.stream_audio(CALL)] == []
     # The caller is still there; answering again brings a new assistant.
-    await deployment.transport.answer(CALL)
+    await answering(deployment.transport).answer(CALL)
     await deployment.settle()
     assert deployment.kinds()[-1] == ("participant_joined", "assistant", None)
     assert deployment.transport.open_media_sockets == 1
@@ -420,7 +421,7 @@ async def test_a_forged_media_handshake_is_refused(deployment: Deployment) -> No
     await deployment.provider.place_call(CALL.value)
     # Signing the handshake over another URL is as good as not signing it.
     deployment.provider.sign_handshake_url = "wss://elsewhere.example.com/telephony/media"
-    await deployment.transport.answer(CALL)
+    await answering(deployment.transport).answer(CALL)
     await deployment.settle()
     assert deployment.provider.handshake_statuses == [403]
     assert deployment.transport.open_media_sockets == 0

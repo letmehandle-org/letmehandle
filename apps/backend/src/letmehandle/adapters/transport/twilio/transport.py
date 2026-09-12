@@ -209,7 +209,7 @@ class _Remembered:
 
 
 class TwilioCallTransport(CallTransport):
-    """The streaming transport: conversation, injection, bridging and three-party calls."""
+    """The streaming transport: answering, conversation, bridging and three-party calls."""
 
     def __init__(
         self,
@@ -240,6 +240,7 @@ class TwilioCallTransport(CallTransport):
     @property
     def capabilities(self) -> TransportCapabilities:
         return TransportCapabilities(
+            can_answer_under_program_control=True,
             can_stream_call_audio_to_ai=True,
             can_inject_ai_audio=True,
             can_bridge_human=True,

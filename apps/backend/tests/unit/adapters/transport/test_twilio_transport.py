@@ -207,6 +207,7 @@ async def test_identity_and_declared_capabilities(transport: TwilioCallTransport
     assert transport.name == "twilio"
     assert transport.audio_format() == TELEPHONY_NARROWBAND
     assert transport.account_id == "account-for-tests"
+    assert transport.capabilities.can_answer_under_program_control
     assert transport.capabilities.supports_agent_conversation
     assert transport.capabilities.supports_three_way_call
     assert not transport.capabilities.can_screen_before_ringing

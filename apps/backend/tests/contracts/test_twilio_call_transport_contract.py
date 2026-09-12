@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.domain.ports.call_transport import answering
 from tests.contracts.call_transport import A_CALL, CallTransportContract
 from tests.support.simulated_twilio import simulated_deployment
 
@@ -26,7 +27,7 @@ class TestTwilioCallTransport(CallTransportContract):
     async def transport(self) -> AsyncIterator[TwilioCallTransport]:
         async with simulated_deployment(collect_events=False) as deployment:
             await deployment.provider.place_call(A_CALL.value)
-            await deployment.transport.answer(A_CALL)
+            await answering(deployment.transport).answer(A_CALL)
             await deployment.settle()
             await deployment.provider.send_caller_audio(A_CALL.value, b"\xff" * 160)
             yield deployment.transport
@@ -36,6 +37,7 @@ class TestTwilioCallTransport(CallTransportContract):
         self, transport: TwilioCallTransport
     ) -> None:
         capabilities = transport.capabilities
+        assert capabilities.can_answer_under_program_control
         assert capabilities.supports_agent_conversation
         assert capabilities.can_bridge_human
         assert capabilities.supports_three_way_call
