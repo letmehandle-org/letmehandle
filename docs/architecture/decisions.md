@@ -110,6 +110,13 @@ turn-taking and barge-in are the model service's job rather than a pipeline this
 have to own and tune. And the endpoint may not exist yet: the service is expected to be chosen or
 built later, and an adapter written against one vendor's SDK would have to be rewritten when it is.
 
+A second adapter speaks the ElevenLabs Agents protocol, and `SPEECH_PROVIDER` chooses between
+them. It is the same port with a different honest answer to one question: that service does not
+resume a dropped conversation, so reconnecting starts a new conversation whose prompt carries the
+instructions and a bounded recent history. The realtime protocol restores the same things into a
+fresh session. Neither hides the difference from the caller's side of the port, and both run the
+same contract suite.
+
 Supported languages, voices, audio formats and whether it supports barge-in are declared as
 capabilities rather than assumed by callers. Because a compatible server decides its own voices,
 the voice catalogue is configuration, never a list written into the adapter.
