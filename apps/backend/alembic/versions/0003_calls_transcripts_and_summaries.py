@@ -34,9 +34,7 @@ def upgrade() -> None:
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         # Whether a line was ever written, which outlives the lines: purged versus never said.
-        sa.Column(
-            "transcript_recorded", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
+        sa.Column("transcript_recorded", sa.Boolean(), nullable=False, server_default=sa.false()),
         # What every transcript and summary points at, so the database refuses a row attached
         # to another user's call.
         sa.UniqueConstraint("id", "user_id", name="uq_calls_id_user"),
