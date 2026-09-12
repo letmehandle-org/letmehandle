@@ -18,6 +18,10 @@
  */
 import type {
   ChallengeResponse,
+  Onboarding,
+  OnboardingStep,
+  Preferences,
+  PreferencesUpdate,
   Profile,
   TokenPair,
   UpdateProfileRequest,
@@ -105,6 +109,59 @@ export class ApiClient {
       method: 'PATCH',
       path: '/v1/me',
       body: changes,
+      authenticated: true,
+    });
+  }
+
+  // ----------------------------------------------------------- preferences
+
+  preferences(): Promise<Preferences> {
+    return this.send<Preferences>({
+      method: 'GET',
+      path: '/v1/preferences',
+      authenticated: true,
+    });
+  }
+
+  /**
+   * Change some of it.
+   *
+   * PATCH rather than PUT throughout: PUT starts from the defaults, so a screen that saves one
+   * section would reset every section it did not mention.
+   */
+  updatePreferences(changes: PreferencesUpdate): Promise<Preferences> {
+    return this.send<Preferences>({
+      method: 'PATCH',
+      path: '/v1/preferences',
+      body: changes,
+      authenticated: true,
+    });
+  }
+
+  // ------------------------------------------------------------ onboarding
+
+  onboarding(): Promise<Onboarding> {
+    return this.send<Onboarding>({
+      method: 'GET',
+      path: '/v1/onboarding',
+      authenticated: true,
+    });
+  }
+
+  /**
+   * Record a step as answered, or deliberately passed over.
+   *
+   * `skipped` is sent rather than inferred from an empty body, because the backend refuses to
+   * skip a step that has no safe default and needs to be told which of the two this is.
+   */
+  recordOnboardingStep(
+    step: OnboardingStep,
+    skipped: boolean,
+  ): Promise<Onboarding> {
+    return this.send<Onboarding>({
+      method: 'POST',
+      path: '/v1/onboarding',
+      body: { step, skipped },
       authenticated: true,
     });
   }
