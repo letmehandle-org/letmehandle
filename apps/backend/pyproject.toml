@@ -30,6 +30,9 @@ dev = [
     "import-linter>=2.1",
     "aiosqlite>=0.20",
 ]
+harness = [
+    "sounddevice>=0.5.6,<0.6",
+]
 
 [project.scripts]
 # The one way to start this application. The container uses it too, so the command a
