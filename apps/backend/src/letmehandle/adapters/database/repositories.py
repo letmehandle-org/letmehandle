@@ -336,22 +336,24 @@ class SqlDeviceRepository(DeviceRepository):
         self._clock = clock
 
     async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # Removed from wherever it was first. A handset changes hands, and two accounts sharing
-        # a token would send one person's call context to the other's phone.
+        # One statement that moves the token to this account if another holds it. A handset
+        # changes hands, and two accounts sharing a token would send one person's call context to
+        # the other's phone. Not a delete and then an insert: an app registers on every launch,
+        # and two launches racing through a delete-then-insert both insert, and one fails on the
+        # unique constraint.
+        now = self._clock.now()
+        statement = insert(DeviceRow).values(
+            user_id=user_id.value,
+            platform=token.platform.value,
+            token=token.value,
+            registered_at=now,
+        )
         await self._session.execute(
-            delete(DeviceRow).where(
-                DeviceRow.platform == token.platform.value, DeviceRow.token == token.value
+            statement.on_conflict_do_update(
+                constraint="uq_user_devices_platform_token",
+                set_={"user_id": user_id.value, "registered_at": now},
             )
         )
-        self._session.add(
-            DeviceRow(
-                user_id=user_id.value,
-                platform=token.platform.value,
-                token=token.value,
-                registered_at=self._clock.now(),
-            )
-        )
-        await self._session.flush()
 
     async def tokens_for(self, user_id: UserId) -> list[DeviceToken]:
         result = await self._session.execute(
