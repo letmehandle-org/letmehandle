@@ -53,13 +53,13 @@ type Action = Escalated | Recorded | MessageTaken | Ended
 class RecordingCallActions(CallActions):
     """Every action, in order.
 
-    `escalation_failure`, when set, is raised by the next escalation instead of reaching anyone,
-    once. `escalation_gate`, when set, holds every escalation until it is opened — which is how a
-    test puts two escalations in flight at the same moment without sleeping.
+    `escalation_failures` are raised, one per escalation and in order, instead of reaching anyone.
+    `escalation_gate`, when set, holds every escalation until it is opened — which is how a test
+    puts two escalations in flight at the same moment without sleeping.
     """
 
     actions: list[Action] = field(default_factory=list)
-    escalation_failure: Exception | None = None
+    escalation_failures: list[Exception] = field(default_factory=list)
     escalation_gate: asyncio.Event | None = None
     escalations_started: int = 0
 
@@ -70,9 +70,8 @@ class RecordingCallActions(CallActions):
         self.escalations_started += 1
         if self.escalation_gate is not None:
             await self.escalation_gate.wait()
-        if self.escalation_failure is not None:
-            failure, self.escalation_failure = self.escalation_failure, None
-            raise failure
+        if self.escalation_failures:
+            raise self.escalation_failures.pop(0)
         self.actions.append(Escalated(call_id, decision))
 
     async def record_outcome(self, call_id: CallId, record: OutcomeRecord) -> None:

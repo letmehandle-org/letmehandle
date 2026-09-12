@@ -16,10 +16,17 @@ call reaches the user at most once for each level of urgency, and only ever upwa
   can do, and a caller who keeps insisting is not a reason to keep ringing.
 
 So the user's phone rings at most twice for one call, however the model is talked into it.
+
+Looks at the same call take turns. Deciding whether a decision is new, reaching the user and writing
+down that they were reached happen under one lock per call, so two looks in flight at once cannot
+each read the memory before the other has written it — which is how a failure restores a memory an
+upgrade has since replaced, and a call reads as escalated when nobody was reached.
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from letmehandle.application.agent.ports import ConsiderEscalation
@@ -49,6 +56,7 @@ class EscalationService(ConsiderEscalation):
         self._actions = actions
         # Per call, whether the escalation already made was immediate. Absent means none was made.
         self._escalated_immediately: dict[CallId, bool] = {}
+        self._turns: defaultdict[CallId, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     def has_escalated(self, call_id: CallId) -> bool:
         """Whether the user has been asked to join this call."""
@@ -57,28 +65,25 @@ class EscalationService(ConsiderEscalation):
     async def consider(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
         """The policy's decision on this proposal, acted on if it is one nobody has acted on yet."""
         decision = decide_escalation(proposal, circumstances_of(call))
-        if not decision.required or not self._is_new(call.call_id, decision):
+        if not decision.required:
             return decision
-
-        # Marked before the await, so a second look at the same call arriving while the first is
-        # still reaching the user finds it already escalated rather than ringing twice.
-        previous = self._escalated_immediately.get(call.call_id)
-        self._escalated_immediately[call.call_id] = decision.is_immediate
-        try:
-            await self._actions.escalate(call.call_id, decision)
-        except BaseException:
-            # The user was not reached, so the call must not read as escalated: a mark left behind
-            # by a failure is a call that can never reach the user again.
-            self._forget(call.call_id, previous)
-            raise
+        async with self._turns[call.call_id]:
+            if self._is_new(call.call_id, decision):
+                # Written only once the user was reached. A mark left behind by a failure is a call
+                # that can never reach the user again.
+                await self._actions.escalate(call.call_id, decision)
+                self._escalated_immediately[call.call_id] = decision.is_immediate
         return decision
+
+    def forget(self, call_id: CallId) -> None:
+        """Let go of everything kept about a call, once nothing will judge it again.
+
+        Called by orchestration (Phase 8) when a call is over. Without it, every call this process
+        ever handled is remembered for as long as the process runs.
+        """
+        self._escalated_immediately.pop(call_id, None)
+        self._turns.pop(call_id, None)
 
     def _is_new(self, call_id: CallId, decision: EscalationDecision) -> bool:
         previous = self._escalated_immediately.get(call_id)
         return previous is None or (not previous and decision.is_immediate)
-
-    def _forget(self, call_id: CallId, previous: bool | None) -> None:
-        if previous is None:
-            del self._escalated_immediately[call_id]
-        else:
-            self._escalated_immediately[call_id] = previous

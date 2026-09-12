@@ -112,7 +112,7 @@ async def test_a_call_already_rung_immediately_is_never_downgraded_into_another_
 async def test_a_failed_escalation_leaves_the_call_able_to_reach_the_user() -> None:
     escalation, actions = service()
     call = a_call()
-    actions.escalation_failure = ConnectionError("the notification did not send")
+    actions.escalation_failures = [ConnectionError("the notification did not send")]
 
     with pytest.raises(ConnectionError):
         await escalation.consider(call, URGENT)
@@ -126,7 +126,7 @@ async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing() -> None
     escalation, actions = service()
     night = a_call(now=THREE_AM)
     await escalation.consider(night, NOTABLE)
-    actions.escalation_failure = ConnectionError("the notification did not send")
+    actions.escalation_failures = [ConnectionError("the notification did not send")]
 
     with pytest.raises(ConnectionError):
         await escalation.consider(night, URGENT)
@@ -137,6 +137,12 @@ async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing() -> None
     assert len(actions.actions) == 2
 
 
+async def settle() -> None:
+    """Let every task run until each is waiting on something that has not happened yet."""
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
 async def test_two_looks_at_the_same_moment_ring_once() -> None:
     escalation, actions = service()
     actions.escalation_gate = asyncio.Event()
@@ -144,9 +150,69 @@ async def test_two_looks_at_the_same_moment_ring_once() -> None:
 
     first = asyncio.create_task(escalation.consider(call, URGENT))
     second = asyncio.create_task(escalation.consider(replace(call), URGENT))
-    await asyncio.wait({first, second}, return_when=asyncio.FIRST_COMPLETED)
+    await settle()
     actions.escalation_gate.set()
     await asyncio.gather(first, second)
 
     assert actions.escalations_started == 1
     assert len(actions.actions) == 1
+
+
+async def test_an_upgrade_that_reached_the_user_survives_an_earlier_look_failing() -> None:
+    # The first look is still ringing "while convenient" when the urgent one arrives. The first
+    # fails; the urgent one reaches the user. The call has been escalated immediately, and asking
+    # again must not ring a third time.
+    escalation, actions = service()
+    actions.escalation_gate = asyncio.Event()
+    actions.escalation_failures = [ConnectionError("the notification did not send")]
+    night = a_call(now=THREE_AM)
+
+    earlier = asyncio.create_task(escalation.consider(night, NOTABLE))
+    upgrade = asyncio.create_task(escalation.consider(night, URGENT))
+    await settle()
+    actions.escalation_gate.set()
+    failed, reached = await asyncio.gather(earlier, upgrade, return_exceptions=True)
+
+    assert isinstance(failed, ConnectionError)
+    assert not isinstance(reached, BaseException)
+    assert reached.is_immediate
+    await escalation.consider(night, URGENT)
+    assert [each.decision for each in actions.of_kind(Escalated)] == [reached]
+
+
+async def test_two_looks_that_both_fail_leave_the_call_able_to_reach_the_user() -> None:
+    escalation, actions = service()
+    actions.escalation_gate = asyncio.Event()
+    actions.escalation_failures = [ConnectionError("first"), ConnectionError("second")]
+    night = a_call(now=THREE_AM)
+
+    looks = [
+        asyncio.create_task(escalation.consider(night, NOTABLE)),
+        asyncio.create_task(escalation.consider(night, URGENT)),
+    ]
+    await settle()
+    actions.escalation_gate.set()
+    outcomes = await asyncio.gather(*looks, return_exceptions=True)
+
+    assert all(isinstance(outcome, ConnectionError) for outcome in outcomes)
+    # Nobody was reached, so a call that merits only a later note still gets one.
+    later = await escalation.consider(night, NOTABLE)
+    assert actions.of_kind(Escalated) == [Escalated(night.call_id, later)]
+
+
+async def test_a_forgotten_call_can_reach_the_user_again() -> None:
+    # What orchestration does when a call is over: nothing about it is kept, per call, for ever.
+    escalation, actions = service()
+    call = a_call()
+    await escalation.consider(call, URGENT)
+
+    escalation.forget(call.call_id)
+    await escalation.consider(call, URGENT)
+
+    assert len(actions.of_kind(Escalated)) == 2
+
+
+def test_forgetting_a_call_nothing_remembers_is_harmless() -> None:
+    escalation, _ = service()
+
+    escalation.forget(a_call().call_id)

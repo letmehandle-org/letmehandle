@@ -364,7 +364,7 @@ class TestABrokenTool:
     async def test_a_tool_that_raises_is_raised_not_narrated(self) -> None:
         # Orchestration failing to reach the user: the tool raises, and so must the judgement.
         actions = RecordingCallActions(
-            escalation_failure=LookupError("row 42 missing from secrets")
+            escalation_failures=[LookupError("row 42 missing from secrets")]
         )
         model = ScriptedModel(
             [
