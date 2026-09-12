@@ -113,6 +113,18 @@ class TestParticipants:
         assert call.has_participant(ParticipantRole.HUMAN)
         assert len(call.participants) == 2
 
+    def test_removing_the_second_of_several_leaves_the_others_alone(self) -> None:
+        # Exercises the search past a non-matching participant, which is the ordinary case
+        # during an escalation: the caller is already on the call when the human leaves.
+        call = a_call()
+        call.add_participant(ParticipantRole.CALLER, START)
+        call.add_participant(ParticipantRole.HUMAN, later(5))
+
+        call.remove_participant(ParticipantRole.HUMAN, later(10))
+
+        assert call.has_participant(ParticipantRole.CALLER)
+        assert not call.has_participant(ParticipantRole.HUMAN)
+
     def test_removing_somebody_who_is_not_there_is_an_error(self) -> None:
         # Silence would hide a caller believing the call has a shape it does not.
         with pytest.raises(InvariantError, match="not on this call"):
