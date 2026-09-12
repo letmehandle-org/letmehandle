@@ -26,7 +26,7 @@ from strands.agent.conversation_manager import NullConversationManager
 from strands.tools.executors import SequentialToolExecutor
 
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
-from letmehandle.adapters.agent.strands.tools import ToolLedger, present
+from letmehandle.adapters.agent.strands.tools import ToolLedger, UnknownToolRefusals, present
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import AgentJudgement, CallAgent
 from letmehandle.application.agent.prompts import PROMPT_VERSION, load_prompts
@@ -108,6 +108,7 @@ class StrandsCallAgent(CallAgent):
         agent = Agent(
             model=self._model,
             tools=[present(tool, call, ledger) for tool in self._tools(ledger.notes)],
+            hooks=[UnknownToolRefusals(ledger)],
             system_prompt=prompts.system_prompt(
                 call.preferences, call.authority, assessment_tool=ASSESSMENT_TOOL
             ),

@@ -11,6 +11,11 @@ tool is to tell the model the exception's text and carry on, which both shows a 
 it a caller — whatever the exception said, and turns a defect into a sentence nobody reads. Here
 the model is told only that the action did not complete, and the agent raises the failure once the
 model has finished.
+
+A tool the model asks for that does not exist never reaches this file's wrappers, and the SDK's own
+answer is an error the judgement never hears of. `UnknownToolRefusals` records it as a refusal like
+any other, so the user sees what their assistant was asked to do even when there was nothing to do
+it with.
 """
 
 from __future__ import annotations
@@ -19,12 +24,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from strands.tools import PythonAgentTool
+from strands.hooks import BeforeToolCallEvent, HookProvider, MessageAddedEvent
+from strands.tools import InvalidToolUseNameException, PythonAgentTool
+from strands.tools.tools import validate_tool_use_name
 
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import ToolRefusal
 
 if TYPE_CHECKING:
+    from strands.hooks import HookRegistry
     from strands.types.tools import ToolResult as SDKToolResult
     from strands.types.tools import ToolUse
 
@@ -34,6 +42,11 @@ if TYPE_CHECKING:
 # What the model reads when a tool raised. Deliberately says nothing about why.
 TOOL_FAILED: Final = "The action could not be completed."
 
+# How a request for a tool nobody has is written down. The name is kept only when the SDK accepts it
+# as a tool name at all; anything else is text the model wrote, which a caller may have dictated.
+NO_SUCH_TOOL: Final = "there is no tool by that name"
+UNKNOWN_TOOL: Final = "unknown_tool"
+
 
 @dataclass(slots=True)
 class ToolLedger:
@@ -41,6 +54,41 @@ class ToolLedger:
 
     notes: JudgementNotes = field(default_factory=JudgementNotes)
     failure: Exception | None = None
+
+
+class UnknownToolRefusals(HookProvider):
+    """Refuses, and records, a request for a tool the judgement was not given.
+
+    Two hooks, because the SDK turns such a request away at two points. A name that is not a valid
+    tool name is answered before any tool runs, so it is caught as the model's message arrives. A
+    valid name nobody registered reaches the executor with no tool selected, and is cancelled there.
+    """
+
+    def __init__(self, ledger: ToolLedger) -> None:
+        self._ledger = ledger
+
+    def register_hooks(self, registry: HookRegistry, **_kwargs: object) -> None:
+        registry.add_callback(MessageAddedEvent, self._refuse_malformed_names)
+        registry.add_callback(BeforeToolCallEvent, self._refuse_if_unknown)
+
+    def _refuse_malformed_names(self, event: MessageAddedEvent) -> None:
+        if event.message["role"] != "assistant":
+            return
+        for block in event.message["content"]:
+            if "toolUse" not in block:
+                continue
+            try:
+                validate_tool_use_name(block["toolUse"])
+            except InvalidToolUseNameException:
+                self._ledger.notes.refused(ToolRefusal(UNKNOWN_TOOL, NO_SUCH_TOOL))
+
+    def _refuse_if_unknown(self, event: BeforeToolCallEvent) -> None:
+        if event.selected_tool is not None:
+            return
+        refusal = ToolRefusal(event.tool_use["name"], NO_SUCH_TOOL)
+        self._ledger.notes.refused(refusal)
+        # Cancelled, so the model reads a refusal like any other rather than the SDK's own error.
+        event.cancel_tool = f"Refused: {refusal.reason}"
 
 
 def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgentTool:
