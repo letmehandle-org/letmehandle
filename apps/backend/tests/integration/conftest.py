@@ -20,7 +20,7 @@ from letmehandle.adapters.database.session import create_session_factory
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.bootstrap import build_container
 from letmehandle.main import create_app
-from tests.support.config import make_settings
+from tests.support.config import TEST_TRANSCRIPT_KEYS, make_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -77,7 +77,8 @@ async def running(
     voice provider with other capabilities, say — assembles it the same way rather than by
     building a second, subtly different one of its own.
     """
-    settings = make_settings()
+    # With transcript keys, as a deployment that serves call history has.
+    settings = make_settings(transcript_encryption_keys=TEST_TRANSCRIPT_KEYS)
     app: FastAPI = create_app(settings, voices=voices)
     # Pointed at the same schema the `session` fixture created, so the application under test
     # and the fixtures that set it up are looking at the same tables.

@@ -20,6 +20,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 # first request rather than at import.
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from letmehandle.adapters.database.call_repositories import (
+    SqlCallRepository,
+    SqlSummaryRepository,
+    SqlTranscriptRepository,
+)
 from letmehandle.adapters.database.repositories import (
     SqlOnboardingRepository,
     SqlOTPChallengeRepository,
@@ -29,6 +34,7 @@ from letmehandle.adapters.database.repositories import (
 )
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.calls.history import CallHistoryService
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
@@ -169,6 +175,31 @@ def get_preferences_service(
     )
 
 
+def get_call_history_service(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CallHistoryService:
+    """A user's calls, on this request's session, or a 503 when nothing here can open them.
+
+    Every call record is sealed, down to who called, so without the keys there is no history to
+    serve — only rows nobody can read. Saying so beats a 500 on every call a user opens.
+    """
+    container = container_of(request)
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "call_history_unavailable",
+            "This service cannot read call history: it has no transcript keys configured.",
+        )
+    return CallHistoryService(
+        calls=SqlCallRepository(session, cipher, container.clock),
+        summaries=SqlSummaryRepository(session, cipher, container.clock),
+        transcripts=SqlTranscriptRepository(session, cipher),
+        preferences=SqlPreferencesRepository(session, container.clock),
+    )
+
+
 def get_voice_provider(request: Request) -> VoiceProvider:
     """The voices this deployment offers.
 
@@ -191,3 +222,4 @@ AuthService = Annotated[AuthenticationService, Depends(get_authentication_servic
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+CallHistory = Annotated[CallHistoryService, Depends(get_call_history_service)]

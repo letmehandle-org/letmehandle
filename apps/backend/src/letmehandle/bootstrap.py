@@ -22,6 +22,7 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
+from letmehandle.adapters.security.transcript_cipher import AesGcmTranscriptCipher
 from letmehandle.adapters.speech.elevenlabs.protocol import (
     DEFAULT_WIRE_FORMAT as ELEVENLABS_WIRE_FORMAT,
 )
@@ -44,7 +45,12 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
-    from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+    from letmehandle.domain.ports.security import (
+        SecretGenerator,
+        SecretHasher,
+        TokenSigner,
+        TranscriptCipher,
+    )
     from letmehandle.domain.ports.speech import SpeechProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
@@ -69,6 +75,9 @@ class Container:
     voices: VoiceProvider
     rate_limiter: RateLimiter
     refresh_token_lifetime: timedelta
+    # None when no transcript keys are configured. Call history cannot be read without them, and
+    # its routes say so; everything else, which never opens a sealed record, runs regardless.
+    transcript_cipher: TranscriptCipher | None
 
 
 def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
@@ -97,6 +106,11 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
         refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+        transcript_cipher=(
+            None
+            if settings.transcript_encryption_keys is None
+            else AesGcmTranscriptCipher(settings.require_transcript_keys())
+        ),
     )
 
 

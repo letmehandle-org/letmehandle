@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import TYPE_CHECKING, Final
 
 from pydantic import AnyWebsocketUrl, PostgresDsn, SecretStr
@@ -27,6 +28,10 @@ UNREACHABLE_DATABASE = "postgresql+asyncpg://nobody:nothing@127.0.0.1:1/absent"
 # Long enough to satisfy the signer, and obviously not a real key. Tests that care about the
 # key's own rules supply their own.
 TEST_SIGNING_KEY = "test-signing-key-that-is-long-enough-to-be-accepted"
+
+
+# Thirty-two bytes counting up from zero: a key nobody would choose, under an id that says so.
+TEST_TRANSCRIPT_KEYS: Final = f"test-key:{base64.b64encode(bytes(range(32))).decode()}"
 
 
 # A voice catalogue that says what it is. No speech service speaks these: they exist so that the
@@ -62,6 +67,7 @@ def make_settings(
     speech_agent_id: str | None = None,
     speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
+    transcript_encryption_keys: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -85,4 +91,9 @@ def make_settings(
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
+        transcript_encryption_keys=(
+            SecretStr(transcript_encryption_keys)
+            if transcript_encryption_keys is not None
+            else None
+        ),
     )

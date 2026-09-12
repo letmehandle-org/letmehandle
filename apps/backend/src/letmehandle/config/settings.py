@@ -217,9 +217,10 @@ class Settings(BaseSettings):
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
     # The keys transcripts are encrypted under, newest first (D-014). Optional at startup, like
-    # the database URL: nothing in the running service stores a transcript yet, and a migration
-    # or the purge, which never read one, must not need them. Checked for shape whenever present,
-    # so a truncated key fails at startup rather than on the first call.
+    # the database URL: call history cannot be read without them and answers 503 instead, while
+    # a migration or the purge, which never read a sealed record, must not need them. Checked
+    # for shape whenever present, so a truncated key fails at startup rather than on the first
+    # call.
     transcript_encryption_keys: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = (
         None
     )

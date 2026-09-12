@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.calls.participation import first_joined
+from letmehandle.application.calls.participation import first_joined, human_joined_at
 from letmehandle.application.preferences.context import DEFAULT_LOCALE, closest_phrasebook
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.call import ParticipantRole
@@ -142,12 +142,10 @@ def fallback_summary(facts: CallFacts, *, locale: str) -> CallSummary:
 
 
 def _human_joined_at(facts: CallFacts, *, ended_at: datetime) -> datetime | None:
-    # Only after an escalation. A user on a call put straight through to them answered their
-    # phone; they did not join a call the assistant was handling, and a summary says so.
-    if facts.escalation_reason is None:
-        return None
-    joined = first_joined(facts.call, ParticipantRole.HUMAN)
-    if joined is None:
+    # Only with the escalation that brought them: a summary refuses a join with no reason, and
+    # the reason is what the history shows the user about why they were asked.
+    joined = human_joined_at(facts.call)
+    if facts.escalation_reason is None or joined is None:
         return None
     # Inside the call. A join is timed by this host and the start by the carrier, so a join a
     # few milliseconds early is skew rather than a join before the call, and a summary refuses
