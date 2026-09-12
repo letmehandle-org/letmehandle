@@ -13,12 +13,22 @@ import type {
   Onboarding,
   OnboardingStep,
   Preferences,
+  PreferencesUpdate,
 } from '@letmehandle/api-client';
+
+import { applyChanges } from '../../preferences/changes';
 
 export interface Reply {
   readonly status: number;
   readonly body?: unknown;
 }
+
+export const PROFILE = {
+  id: 'u1',
+  phone_number: '+12025550143',
+  display_name: null,
+  locale: 'en',
+};
 
 /** What the backend returns for somebody who has chosen nothing. */
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -75,47 +85,101 @@ export const ONBOARDING_COMPLETE: Onboarding = {
   is_complete: true,
 };
 
-export type Handler = (body: unknown) => Reply;
-
-/**
- * Answer requests by `METHOD /path`, and fail loudly on anything else.
- *
- * Loudly, because a request nobody wrote a handler for is either a screen doing something
- * unexpected or a test that has drifted from it, and both are worth failing over. Answering it
- * with an empty 200 would hide the first and make the second pass.
- */
-export function backend(handlers: Record<string, Handler>): jest.Mock {
-  const fake = jest.fn(async (url: string, init?: RequestInit) => {
-    const method = init?.method ?? 'GET';
-    const path = url.replace(/^https?:\/\/[^/]+/, '');
-    const handler = handlers[`${method} ${path}`];
-
-    if (handler === undefined) {
-      throw new Error(`no handler for ${method} ${path}`);
-    }
-
-    const reply = handler(
-      typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-    );
-    return {
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status,
-      json: async () => reply.body ?? {},
-    } as Response;
-  });
-
-  globalThis.fetch = fake as unknown as typeof fetch;
-  return fake;
+/** A backend that remembers, for tests that walk through more than one request. */
+export interface RunningBackend {
+  /** Every change the app asked to save, in order. */
+  readonly patches: PreferencesUpdate[];
+  preferences(): Preferences;
+  onboarding(): Onboarding;
+  /** Refuse the next save, as the server does when it disagrees with the draft. */
+  refuseNextSave(reply: Reply): void;
 }
 
-/** The handlers every signed-in test needs, whatever it is actually about. */
-export function signedInHandlers(
-  profile: unknown,
-  onboarding: Onboarding = ONBOARDING_COMPLETE,
-): Record<string, Handler> {
+/**
+ * Stand in for the real thing, keeping what it is told.
+ *
+ * Stateful rather than a list of canned replies, because the behaviours worth testing here are
+ * about what happens across requests: a step recorded changing which question comes next, a
+ * refused save leaving what was stored alone.
+ */
+export function runningBackend(options?: {
+  readonly startAt?: OnboardingStep | null;
+  readonly preferences?: Preferences;
+}): RunningBackend {
+  const start = options?.startAt === undefined ? null : options.startAt;
+  const settled = new Set<OnboardingStep>(
+    start === null ? ORDER : ORDER.slice(0, ORDER.indexOf(start)),
+  );
+  let stored = options?.preferences ?? DEFAULT_PREFERENCES;
+  let refusal: Reply | null = null;
+  const patches: PreferencesUpdate[] = [];
+
+  const progress = (): Onboarding => {
+    const remaining = ORDER.filter(step => !settled.has(step));
+    return {
+      completed: ORDER.filter(step => settled.has(step)),
+      skipped: [],
+      remaining,
+      next_step: remaining[0] ?? null,
+      is_complete: remaining.length === 0,
+    };
+  };
+
+  const answer = (status: number, payload: unknown): Response =>
+    ({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => payload,
+    } as Response);
+
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const path = url.replace(/^https?:\/\/[^/]+/, '');
+    const method = init?.method ?? 'GET';
+    const body: unknown =
+      typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+
+    if (path === '/v1/me') {
+      return answer(200, PROFILE);
+    }
+    if (path === '/v1/preferences' && method === 'GET') {
+      return answer(200, stored);
+    }
+    if (path === '/v1/preferences' && method === 'PATCH') {
+      const changes = body as PreferencesUpdate;
+      patches.push(changes);
+      if (refusal !== null) {
+        const reply = refusal;
+        refusal = null;
+        return answer(reply.status, reply.body ?? {});
+      }
+      stored = applyChanges(stored, changes);
+      return answer(200, stored);
+    }
+    if (path === '/v1/onboarding' && method === 'GET') {
+      return answer(200, progress());
+    }
+    if (path === '/v1/onboarding' && method === 'POST') {
+      const update = body as { step: OnboardingStep; skipped: boolean };
+      if (update.step === 'call_handling' && update.skipped) {
+        // What the real backend does. There is no safe default for an unknown caller, so the
+        // step cannot be passed over, and a client that offered the button would get this.
+        return answer(422, { error: 'invalid_request', message: 'no' });
+      }
+      settled.add(update.step);
+      return answer(200, progress());
+    }
+
+    // Loudly, because a request nobody wrote a handler for is either a screen doing something
+    // unexpected or a test that has drifted from it, and both are worth failing over.
+    throw new Error(`no handler for ${method} ${path}`);
+  }) as unknown as typeof fetch;
+
   return {
-    'GET /v1/me': () => ({ status: 200, body: profile }),
-    'GET /v1/preferences': () => ({ status: 200, body: DEFAULT_PREFERENCES }),
-    'GET /v1/onboarding': () => ({ status: 200, body: onboarding }),
+    patches,
+    preferences: () => stored,
+    onboarding: progress,
+    refuseNextSave: reply => {
+      refusal = reply;
+    },
   };
 }
