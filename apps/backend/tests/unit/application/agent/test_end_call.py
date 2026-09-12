@@ -54,7 +54,7 @@ async def test_without_the_grant_to_decline_the_caller_is_not_turned_away() -> N
         tool(kit), a_call(authority=EVERYTHING_BUT_DECLINING), {"ending": "declined"}
     )
 
-    assert reason == "the assistant is not authorised to decline on the users behalf"
+    assert reason == "the assistant is not authorised to decline something on the user's behalf"
     assert kit.actions.actions == []
     assert not kit.notes.ended
 

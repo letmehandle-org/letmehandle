@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from letmehandle.application.agent.ports import ToolRefusal
 from letmehandle.application.agent.tool import AgentTool
 from letmehandle.application.agent.tools.arguments import MalformedArgumentsError, expect_only
-from letmehandle.domain.errors import NotAuthorisedError
+from letmehandle.application.preferences.context import phrasebook_for
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -38,14 +38,17 @@ class CheckedTool[Parsed](AgentTool):
         try:
             expect_only(arguments, self.spec.parameters["properties"])
             parsed = self._parse(arguments)
-            required = self._requires(parsed)
-            # The grant is read from the call's authority and nothing else. Not the transcript,
-            # not the arguments, not anything the model was told: a caller can put words in all
-            # of those, and the user's settings are the one input they cannot reach.
-            if required is not None:
-                call.authority.require(required)
-        except (MalformedArgumentsError, NotAuthorisedError) as error:
+        except MalformedArgumentsError as error:
             return self.refuse(str(error))
+        required = self._requires(parsed)
+        # The grant is read from the call's authority and nothing else. Not the transcript, not
+        # the arguments, not anything the model was told: a caller can put words in all of those,
+        # and the user's settings are the one input they cannot reach.
+        if required is not None and not call.authority.allows(required):
+            # Worded from the user's phrasebook, in their language, because the user reads this
+            # in their call history.
+            action = phrasebook_for(call.preferences.locale).capability[required]
+            return self.refuse(f"the assistant is not authorised to {action}")
         return await self._act(call, parsed)
 
     def refuse(self, reason: str) -> ToolRefusal:
