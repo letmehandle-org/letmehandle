@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+
 from letmehandle.config.settings import Settings, get_settings
 from tests.support.config import make_settings
 
