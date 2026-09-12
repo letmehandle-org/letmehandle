@@ -1,0 +1,158 @@
+[project]
+name = "letmehandle-backend"
+version = "0.1.0"
+description = "LetMeHandle backend: the agent, the call orchestration, and the provider adapters"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "aiosqlite>=0.20",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/letmehandle"]
+
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import sorting
+    "N",         # naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "A",         # shadowed builtins
+    "C4",        # comprehensions
+    "T20",       # print, which is not how this application talks
+    "SIM",       # simplification
+    "TCH",       # type-checking imports
+    "RUF",
+    "ASYNC",
+    "S",         # security
+    "BLE",       # blind except: a swallowed exception is on the never-accept list
+    "TRY",       # exception handling
+    "ERA",       # commented-out code
+]
+ignore = [
+    "TRY003",    # long messages in raises: a message that explains is worth the line
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert; a bare assert is the point. S101 is about production code.
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["letmehandle", "tests"]
+
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_return_any = true
+disallow_any_generics = true
+# disallow_any_explicit is deliberately off. Every pydantic model declares an ``Any`` in the
+# __init__ signature the plugin generates, so the rule fires once per model and never once for
+# a defect. A rule whose every hit is noise trains people to ignore the ones that are not.
+no_implicit_reexport = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+# A test may assign to a frozen model to prove that it cannot.
+warn_unreachable = false
+
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: needs a database or another live dependency",
+]
+
+[tool.coverage.run]
+source = ["src/letmehandle"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "@overload",
+    "raise NotImplementedError",
+]
+
+# ---------------------------------------------------------------------------
+# The boundary that keeps this project replaceable. D-003.
+#
+# These contracts are the reason the domain layer stays clean: a vendor import added to it
+# fails the build rather than waiting to be noticed in review.
+[tool.importlinter]
+root_package = "letmehandle"
+# Required to forbid third-party packages, not just internal ones.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The layers point one way"
+type = "layers"
+layers = [
+    "letmehandle.api",
+    "letmehandle.application",
+    "letmehandle.domain",
+]
+exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "The domain knows nothing of any adapter"
+type = "forbidden"
+source_modules = ["letmehandle.domain"]
+forbidden_modules = ["letmehandle.adapters", "letmehandle.api"]
+
+[[tool.importlinter.contracts]]
+name = "The domain imports no framework, driver or vendor SDK"
+type = "forbidden"
+source_modules = ["letmehandle.domain"]
+forbidden_modules = [
+    "fastapi",
+    "starlette",
+    "sqlalchemy",
+    "asyncpg",
+    "alembic",
+    "boto3",
+    "botocore",
+    "httpx",
+    "requests",
+]
