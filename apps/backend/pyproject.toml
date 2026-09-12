@@ -16,6 +16,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "pyjwt>=2.14.0",
+    "websockets>=17.1,<18",
 ]
 
 [dependency-groups]
@@ -181,4 +182,5 @@ forbidden_modules = [
     "botocore",
     "httpx",
     "requests",
+    "websockets",
 ]
