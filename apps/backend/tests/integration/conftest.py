@@ -7,6 +7,7 @@ and two suites disagreeing about how the application is assembled is worse than 
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from letmehandle.config.settings import Settings
+    from letmehandle.domain.ports.voice import VoiceProvider
 
 NUMBER = "+12025550143"
 ANOTHER_NUMBER = "+12025550144"
@@ -65,17 +67,18 @@ class Api:
         return provider
 
 
-@pytest.fixture
-async def api(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
-    """The whole application, against the schema the `session` fixture created.
+@asynccontextmanager
+async def running(
+    database_url: str, schema: str, *, voices: VoiceProvider | None = None
+) -> AsyncIterator[Api]:
+    """The whole application, on its own engine, against one schema.
 
-    Depends on `session` for the schema and for its skip when no database is reachable, then
-    runs the application on its own engine so that requests commit for real — which is the
-    point: a sign-in that is rolled back proves nothing about a sign-in.
+    Separate from the fixture so that a test needing a differently configured application — a
+    voice provider with other capabilities, say — assembles it the same way rather than by
+    building a second, subtly different one of its own.
     """
-
     settings = make_settings()
-    app: FastAPI = create_app(settings)
+    app: FastAPI = create_app(settings, voices=voices)
     # Pointed at the same schema the `session` fixture created, so the application under test
     # and the fixtures that set it up are looking at the same tables.
     engine: AsyncEngine = create_async_engine(
@@ -84,7 +87,7 @@ async def api(session: object, database_url: str, schema: str) -> AsyncIterator[
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
-    app.state.container = build_container(settings)
+    app.state.container = build_container(settings, voices=app.state.voices)
 
     try:
         transport = ASGITransport(app=app)
@@ -92,6 +95,18 @@ async def api(session: object, database_url: str, schema: str) -> AsyncIterator[
             yield Api(client=client, app=app)
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+async def api(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
+    """The application every integration suite talks to.
+
+    Depends on `session` for the schema and for its skip when no database is reachable, then
+    runs the application on its own engine so that requests commit for real — which is the
+    point: a sign-in that is rolled back proves nothing about a sign-in.
+    """
+    async with running(database_url, schema) as ready:
+        yield ready
 
 
 async def code_for(api: Api, number: str = NUMBER) -> tuple[str, str]:
