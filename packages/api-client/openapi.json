@@ -131,6 +131,155 @@
         "title": "ChallengeResponse",
         "type": "object"
       },
+      "DevicePayload": {
+        "additionalProperties": false,
+        "description": "One device, as its platform identifies it.",
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/DevicePlatform"
+          },
+          "token": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "token"
+        ],
+        "title": "DevicePayload",
+        "type": "object"
+      },
+      "DevicePlatform": {
+        "description": "Which delivery path a device needs.",
+        "enum": [
+          "ios",
+          "android"
+        ],
+        "title": "DevicePlatform",
+        "type": "string"
+      },
+      "EscalationContextResponse": {
+        "description": "An escalation as the app shows it \u2014 the same words the notification carried.\n\n`title`, `caller_label` and `body` are exactly what a notification would display, untrimmed.\nThe structured fields beside them are for the app to lay out itself: `caller` is absent when\nnobody knows who is calling, where `caller_label` says so in words. `status` says whether the\ncall is still going; an `ended` escalation is shown as what happened, not as a call to join.\n`delivery` says what became of the push, so a failure can be surfaced rather than hidden.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "caller": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller"
+          },
+          "caller_label": {
+            "title": "Caller Label",
+            "type": "string"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/NotificationDelivery"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "established": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Established"
+          },
+          "needed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needed"
+          },
+          "raised_at": {
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/EscalationReason"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EscalationStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "status",
+          "reason",
+          "title",
+          "caller_label",
+          "body",
+          "caller",
+          "established",
+          "needed",
+          "raised_at",
+          "ended_at",
+          "delivery"
+        ],
+        "title": "EscalationContextResponse",
+        "type": "object"
+      },
+      "EscalationReason": {
+        "description": "Why the assistant wants a person.\n\nThese are the reasons it can actually distinguish, and each leads somewhere different: an\nunauthorised action may be resolved by granting a capability, a caller's request may be\nresolved by the user answering, and a failure is an operational problem.",
+        "enum": [
+          "caller_asked_for_the_user",
+          "action_not_authorised",
+          "decision_needs_the_user",
+          "important_enough_to_interrupt",
+          "cannot_understand_the_caller",
+          "user_rule_requires_it"
+        ],
+        "title": "EscalationReason",
+        "type": "string"
+      },
+      "EscalationStatus": {
+        "description": "Whether the call the escalation belongs to is still going.\n\nA notification can arrive after the call has ended, and that is a designed state: the app\nshows what happened instead of a live context for a call nobody can join.",
+        "enum": [
+          "live",
+          "ended"
+        ],
+        "title": "EscalationStatus",
+        "type": "string"
+      },
       "Formality": {
         "description": "How the assistant should sound.",
         "enum": [
@@ -237,6 +386,17 @@
         ],
         "title": "ImportantContactPayload",
         "type": "object"
+      },
+      "NotificationDelivery": {
+        "description": "What became of telling the user, surfaced in the app rather than raised anywhere.",
+        "enum": [
+          "pending",
+          "delivered",
+          "failed",
+          "no_devices"
+        ],
+        "title": "NotificationDelivery",
+        "type": "string"
       },
       "NotificationsPayload": {
         "additionalProperties": false,
@@ -595,9 +755,55 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "RegisterDeviceRequest": {
+        "additionalProperties": false,
+        "description": "This device's current push token.\n\n`previous_token` is the token the platform rotated away from, when the app knows it. It is\nremoved from this user's devices so the old one does not linger until a delivery fails.",
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/DevicePlatform"
+          },
+          "previous_token": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Token"
+          },
+          "token": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "token"
+        ],
+        "title": "RegisterDeviceRequest",
+        "type": "object"
+      },
       "SignOutRequest": {
         "additionalProperties": false,
         "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DevicePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "refresh_token": {
             "maxLength": 512,
             "minLength": 1,
@@ -1083,7 +1289,7 @@
     },
     "/v1/auth/signout": {
       "post": {
-        "description": "End the session this refresh token belongs to.\n\nAlways succeeds. Somebody signing out has nothing to gain from being told their token was\nalready invalid, and saying so would tell an attacker whether a token they hold is real.",
+        "description": "End the session this refresh token belongs to, and forget the device signing out.\n\nAlways succeeds. Somebody signing out has nothing to gain from being told their token was\nalready invalid, and saying so would tell an attacker whether a token they hold is real.\n\nThe device is removed only from the account the refresh token belonged to, so a request can\nnever remove somebody else's device by naming it.",
         "operationId": "sign_out_v1_auth_signout_post",
         "requestBody": {
           "content": {
@@ -1155,6 +1361,136 @@
         "summary": "Exchange a code",
         "tags": [
           "authentication"
+        ]
+      }
+    },
+    "/v1/devices": {
+      "put": {
+        "description": "Record this device's push token for the signed-in user.\n\nIdempotent: the app calls it on every launch and whenever its platform issues a new token. A\ntoken previously registered to another account moves to this one.",
+        "operationId": "register_device_v1_devices_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register this device for escalation notifications",
+        "tags": [
+          "escalation"
+        ]
+      }
+    },
+    "/v1/devices/unregister": {
+      "post": {
+        "description": "Forget this device for the signed-in user. Succeeds whether or not it was registered.\n\nA POST with a body rather than a DELETE with the token in the path: a push token identifies a\nhandset, and a path is what access logs keep.",
+        "operationId": "unregister_device_v1_devices_unregister_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stop sending escalation notifications to this device",
+        "tags": [
+          "escalation"
+        ]
+      }
+    },
+    "/v1/escalations/{call_id}": {
+      "get": {
+        "description": "What the user was, or would have been, told about this escalation.\n\nFor the app opened without a notification, or opened long after one: the same words, from\nthe backend rather than from the lock screen.",
+        "operationId": "read_escalation_v1_escalations__call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EscalationContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The context of an escalation",
+        "tags": [
+          "escalation"
         ]
       }
     },

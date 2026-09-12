@@ -110,6 +110,19 @@ class NotificationProvider(ABC):
     def platform(self) -> DevicePlatform:
         """Which platform's devices this provider can reach."""
 
+    @property
+    @abstractmethod
+    def payload_limit_bytes(self) -> int:
+        """The largest payload this provider's platform accepts, in bytes."""
+
+    @abstractmethod
+    def payload_size(self, notification: EscalationNotification) -> int:
+        """How many bytes of that limit this notification would use, as this provider encodes it.
+
+        Asked rather than estimated elsewhere, so that whatever trims a notification to fit
+        measures the payload that is actually sent rather than a guess at it.
+        """
+
     @abstractmethod
     async def send(
         self, token: DeviceToken, notification: EscalationNotification

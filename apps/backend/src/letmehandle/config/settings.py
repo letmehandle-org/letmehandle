@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Final
@@ -45,6 +46,37 @@ class SpeechProviderName(StrEnum):
 
     REALTIME = "realtime"
     ELEVENLABS = "elevenlabs"
+
+
+class APNsEnvironmentName(StrEnum):
+    """Which of Apple's push servers a deployment talks to.
+
+    No default. A device token belongs to one environment and is `BadDeviceToken` to the other,
+    and that response removes the token — so a production deployment left pointing at the sandbox
+    would quietly delete every user's device. It is safer to refuse to guess.
+    """
+
+    SANDBOX = "sandbox"
+    PRODUCTION = "production"
+
+
+@dataclass(frozen=True, slots=True)
+class APNsCredentials:
+    """Everything direct delivery to iOS needs, once it is known to be complete."""
+
+    key_id: str
+    team_id: str
+    private_key: str
+    topic: str
+    environment: APNsEnvironmentName
+
+
+@dataclass(frozen=True, slots=True)
+class FCMCredentials:
+    """Everything direct delivery to Android needs, once it is known to be complete."""
+
+    project_id: str
+    service_account_json: str
 
 
 class ConfigurationError(RuntimeError):
@@ -161,6 +193,24 @@ class Settings(BaseSettings):
     ] = None
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
+    # Push notifications for escalations (D-015). Each platform is optional and independent: a
+    # deployment with neither still escalates, because the phone ringing is the escalation (D-016)
+    # and the app fetches the context when no push arrives. Setting any variable of a platform
+    # commits to that platform, and a missing companion stops the process naming it.
+    #
+    # Keys are given as their content rather than a path. A secret store or a container runtime
+    # injects a value, not a file; a path would need a mounted volume as well as a variable, and a
+    # second place for the secret to be left behind.
+    apns_key_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_team_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_private_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    apns_topic: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_environment: Annotated[APNsEnvironmentName | None, BeforeValidator(_blank_is_absent)] = (
+        None
+    )
+    fcm_project_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    fcm_service_account_json: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+
     @field_validator("log_level")
     @classmethod
     def _known_level(cls, value: str) -> str:
@@ -257,6 +307,76 @@ class Settings(BaseSettings):
                 f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
             )
         return str(endpoint), value
+
+    @property
+    def apns_configured(self) -> bool:
+        """Whether any APNs variable is set, which commits the deployment to all of them."""
+        return any(
+            value is not None
+            for value in (
+                self.apns_key_id,
+                self.apns_team_id,
+                self.apns_private_key,
+                self.apns_topic,
+                self.apns_environment,
+            )
+        )
+
+    @property
+    def fcm_configured(self) -> bool:
+        """Whether any FCM variable is set, which commits the deployment to both."""
+        return self.fcm_project_id is not None or self.fcm_service_account_json is not None
+
+    def require_apns(self) -> APNsCredentials:
+        """Direct delivery to iOS, or a failure naming every variable still missing."""
+        key = self.apns_private_key
+        named = (
+            ("APNS_KEY_ID", self.apns_key_id),
+            ("APNS_TEAM_ID", self.apns_team_id),
+            ("APNS_PRIVATE_KEY", key),
+            ("APNS_TOPIC", self.apns_topic),
+            ("APNS_ENVIRONMENT", self.apns_environment),
+        )
+        missing = [name for name, value in named if value is None]
+        if (
+            missing
+            or self.apns_key_id is None
+            or self.apns_team_id is None
+            or key is None
+            or self.apns_topic is None
+            or self.apns_environment is None
+        ):
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to deliver notifications to iOS devices. "
+                "Set every APNS_ variable or none; see .env.example."
+            )
+        return APNsCredentials(
+            key_id=self.apns_key_id,
+            team_id=self.apns_team_id,
+            private_key=key.get_secret_value(),
+            topic=self.apns_topic,
+            environment=self.apns_environment,
+        )
+
+    def require_fcm(self) -> FCMCredentials:
+        """Direct delivery to Android, or a failure naming whichever variable is missing."""
+        account = self.fcm_service_account_json
+        if self.fcm_project_id is None or account is None:
+            missing = [
+                name
+                for name, value in (
+                    ("FCM_PROJECT_ID", self.fcm_project_id),
+                    ("FCM_SERVICE_ACCOUNT_JSON", account),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{' and '.join(missing)} must be set to deliver notifications to Android "
+                "devices. Set both or neither; see .env.example."
+            )
+        return FCMCredentials(
+            project_id=self.fcm_project_id, service_account_json=account.get_secret_value()
+        )
 
     def require_database_url(self) -> str:
         """The database URL, or a failure that names what is missing.

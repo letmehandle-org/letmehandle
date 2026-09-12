@@ -15,8 +15,14 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
     "alembic>=1.14",
-    "pyjwt>=2.14.0",
+    # The crypto extra brings `cryptography`, which PyJWT needs for anything but HMAC: push
+    # delivery signs with ES256 (the only algorithm APNs accepts) and RS256 (a service account's
+    # token request).
+    "pyjwt[crypto]>=2.14.0",
     "websockets>=17.1,<18",
+    # A runtime dependency since push delivery, not only a test client. The http2 extra brings
+    # `h2`: APNs accepts nothing but HTTP/2.
+    "httpx[http2]>=0.28",
 ]
 
 [dependency-groups]
@@ -24,7 +30,6 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
-    "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
     "import-linter>=2.1",
