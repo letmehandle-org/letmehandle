@@ -237,3 +237,42 @@ Never tracked, in any file, commit message, pull request title or body:
 
 `.env.example` lists variable names with empty values and a comment for each. It never
 carries a real value, including a "harmless" one.
+
+## D-022 — Preferences are stored as one versioned document, not a table per section
+
+**Accepted.** `user_preferences` holds a `JSONB` document and the schema version it was written
+in. Onboarding progress is a separate table.
+
+Preferences are read and written whole — the application composes a complete set and saves it —
+and they are never queried across users. A dozen joined tables would buy nothing and cost a
+migration every time a preference is added, which in a phase that adds preferences is a
+migration per week.
+
+The version beside the document is what makes this safe rather than sloppy. Without it, adding a
+field leaves every existing row ambiguous: absent because the user declined, or absent because
+the field did not exist when they answered. With it, a reader supplies today's defaults for what
+the document does not mention and a migration can tell the two apart.
+
+Reading is forgiving and writing is exact. A value this version does not recognise is dropped —
+it was written by a newer deployment, and refusing to load somebody's settings over a field they
+never set would lock them out of their own account. A value that is *corrupt* is not dropped: a
+malformed time or phone number raises, because quiet hours that silently disappear mean a phone
+ringing at three in the morning with nothing anywhere to say why.
+
+Onboarding progress is separate because it changes on every step while preferences change
+rarely, and because a skipped step has no preferences to write. Keeping them together would mean
+writing a whole document to record a tap.
+
+## D-023 — Absent means "leave it"; empty means "clear it"
+
+**Accepted.** Every section of a preferences update is optional. A section the client did not
+send is left exactly as it was; a section sent with an empty value is cleared.
+
+Without both, one of two things is impossible: either a screen cannot save one section without
+knowing the others, or a user can add an important contact and never remove the last one. The
+rule is stated once, in `PreferencesService.apply`, and the API layer does not get to have an
+opinion about it.
+
+`PUT /v1/preferences` is the deliberate counterpart: it builds from the defaults, so a section
+it does not mention is reset. A caller that means to replace everything says so rather than
+relying on having remembered every section.
