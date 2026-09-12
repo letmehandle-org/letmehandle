@@ -9,8 +9,8 @@ websocket connection's.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from letmehandle.adapters.speech.websocket.endpoint import with_query_parameter
 from letmehandle.adapters.speech.websocket.socket import WebsocketConnection
 
 if TYPE_CHECKING:
@@ -36,18 +36,10 @@ def websocket_opener(
     The URL and headers are settled once, here, so that a reconnection cannot quietly differ
     from the connection it replaces.
     """
-    uri = _with_model(endpoint_url, model)
+    uri = with_query_parameter(endpoint_url, "model", model)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def open_connection() -> EventConnection:
         return await WebsocketConnection.open(uri, headers=headers, open_timeout=open_timeout)
 
     return open_connection
-
-
-def _with_model(endpoint_url: str, model: str) -> str:
-    """The endpoint with the model as its `model` query parameter, replacing any already there."""
-    parts = urlsplit(endpoint_url)
-    query = [(name, value) for name, value in parse_qsl(parts.query) if name != "model"]
-    query.append(("model", model))
-    return urlunsplit(parts._replace(query=urlencode(query)))
