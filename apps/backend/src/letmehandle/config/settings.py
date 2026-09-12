@@ -140,6 +140,10 @@ class Settings(BaseSettings):
     speech_endpoint_url: Annotated[AnyWebsocketUrl | None, BeforeValidator(_blank_is_absent)] = None
     speech_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
     speech_agent_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    # Which model transcribes the caller, for a protocol that is told. Optional, and consequential:
+    # without it the service answers the caller without writing down what they said, so the
+    # conversation's record holds only one side of it.
+    speech_transcription_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
     speech_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
 
     # The voices this deployment offers, and the one a call gets when nobody chose. Required, with

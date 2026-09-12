@@ -148,6 +148,7 @@ def build_speech_provider(
                 # The protocol's own wire format, so that nothing is converted twice on its way
                 # out. A sink converts to what it plays.
                 output_format=REALTIME_WIRE_FORMAT,
+                transcription_model=settings.speech_transcription_model,
             )
         case SpeechProviderName.ELEVENLABS:
             endpoint, agent_id = settings.require_speech_agent()

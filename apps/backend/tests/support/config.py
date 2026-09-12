@@ -60,6 +60,7 @@ def make_settings(
     speech_endpoint_url: str | None = None,
     speech_model: str | None = None,
     speech_agent_id: str | None = None,
+    speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
@@ -80,6 +81,7 @@ def make_settings(
         ),
         speech_model=speech_model,
         speech_agent_id=speech_agent_id,
+        speech_transcription_model=speech_transcription_model,
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
