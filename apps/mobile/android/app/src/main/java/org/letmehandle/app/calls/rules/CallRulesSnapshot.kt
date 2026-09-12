@@ -31,8 +31,12 @@ data class CallRulesSnapshot(
     }
   }
 
-  /** Whether these rules are too old to refuse a caller on. */
-  fun isStaleAt(now: Instant): Boolean = Duration.between(syncedAt, now) > MAX_AGE
+  /**
+   * Whether these rules are too old to refuse a caller on, or dated by a clock that cannot be
+   * trusted to say how old they are.
+   */
+  fun isStaleAt(now: Instant): Boolean =
+      syncedAt > now + CLOCK_SKEW_ALLOWANCE || Duration.between(syncedAt, now) > MAX_AGE
 
   companion object {
     /**
@@ -42,6 +46,17 @@ data class CallRulesSnapshot(
      * be carrying rules the user has since changed, and ringing is the recoverable mistake.
      */
     val MAX_AGE: Duration = Duration.ofDays(7)
+
+    /**
+     * How far in the future a snapshot's sync time may be before the snapshot counts as stale.
+     *
+     * The app dates a snapshot by the handset's clock, and that clock can later be corrected
+     * backwards — by the network's time, or by the user. Without this, a snapshot written while
+     * the clock ran ahead would never reach [MAX_AGE] and would refuse callers indefinitely. Five
+     * minutes absorbs the small corrections network time makes all the time; anything larger means
+     * the age cannot be known, and the call rings until the app writes the rules again.
+     */
+    val CLOCK_SKEW_ALLOWANCE: Duration = Duration.ofMinutes(5)
   }
 }
 

@@ -364,8 +364,8 @@ real call and recorded in the verification report, not guessed at in code.
 and then rings regardless. No decision that needs the backend can be relied on inside that, so
 the handset decides: the app keeps a snapshot of the user's deterministic call rules, written
 whenever the preferences change, and the screening service evaluates it locally. A caller is
-never refused on rules the handset does not have: no snapshot, one older than seven days, one in a
-format the build does not read, a failed evaluation or an exhausted time budget all let the call
+never refused on rules the handset does not have: no snapshot, one older than seven days or dated
+more than five minutes ahead of the handset's clock, one in a format the build does not read, a failed evaluation or an exhausted time budget all let the call
 ring.
 
 The backend represents the handset as `AndroidNativeCallTransport`, whose events the handset

@@ -108,7 +108,9 @@ The decision is taken on the handset (D-028). Android gives a call screening ser
 from `onScreenCall` to respond and then rings regardless, so the app keeps a snapshot of the user's
 deterministic call rules and the screening service evaluates it locally, within a three-second
 budget. No snapshot, a stale or unreadable one, a failed evaluation or an exhausted budget all let
-the call ring.
+the call ring. A snapshot is stale when it is older than seven days, or when its sync time is more
+than five minutes ahead of the handset's clock: the snapshot is dated by that clock, and a clock
+corrected backwards afterwards would otherwise leave rules that never age.
 
 The backend represents the handset as a transport whose events arrive afterwards. The handset
 reports what happened to `POST /v1/calls/reports`; reports are stored per user, a repeat of the

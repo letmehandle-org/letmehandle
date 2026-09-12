@@ -1,5 +1,6 @@
 package org.letmehandle.app.calls.rules
 
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
@@ -55,6 +56,20 @@ class ScreeningRulesTest {
   fun `rules exactly at their age limit are still applied`() {
     val oldest = rules(defaultPosture = HandlingPosture.REJECT, syncedAt = noon.minus(CallRulesSnapshot.MAX_AGE))
     assertEquals(ScreeningDecision.REJECT, decide(oldest).decision)
+  }
+
+  @Test
+  fun `rules synced in the future, by a clock since corrected, never refuse anybody`() {
+    val ahead = rules(defaultPosture = HandlingPosture.REJECT, syncedAt = noon.plus(Duration.ofDays(30)))
+    assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.STALE_RULES), decide(ahead))
+  }
+
+  @Test
+  fun `rules synced just past the skew allowance are stale, and just within it are applied`() {
+    val beyond = noon.plus(CallRulesSnapshot.CLOCK_SKEW_ALLOWANCE).plusSeconds(1)
+    assertEquals(ScreeningReason.STALE_RULES, decide(rules(defaultPosture = HandlingPosture.REJECT, syncedAt = beyond)).reason)
+    val within = noon.plus(CallRulesSnapshot.CLOCK_SKEW_ALLOWANCE)
+    assertEquals(ScreeningDecision.REJECT, decide(rules(defaultPosture = HandlingPosture.REJECT, syncedAt = within)).decision)
   }
 
   @Test

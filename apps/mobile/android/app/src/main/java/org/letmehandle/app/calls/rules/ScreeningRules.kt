@@ -47,8 +47,9 @@ data class ScreenedCaller(val number: CallerNumber?, val withheld: Boolean) {
  *
  * The order, and the reasons for it:
  *
- *   1. No snapshot, or one older than [CallRulesSnapshot.MAX_AGE]: the call rings. A caller is
- *      never refused on rules the handset does not have or can no longer vouch for.
+ *   1. No snapshot, or a stale one (older than [CallRulesSnapshot.MAX_AGE], or dated further in
+ *      the future than the clock-skew allowance): the call rings. A caller is never refused on
+ *      rules the handset does not have or can no longer vouch for.
  *   2. A withheld number: the anonymous posture.
  *   3. An important contact: their own posture. A contact the user asked to put through rings
  *      during quiet hours too — that is what naming them was for.
