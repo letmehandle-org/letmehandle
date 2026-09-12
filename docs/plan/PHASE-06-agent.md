@@ -8,7 +8,9 @@ This phase owns judgement. Phase 5 owns conversation. They stay apart (D-006).
 ## In scope
 
 ### The agent
-Built on the agent framework, configured with an OpenAI-compatible LLM provider (D-007).
+Built on the Strands Agents SDK behind the `CallAgent` port, with the model configured as an
+OpenAI-compatible endpoint (D-007, D-026). The phase 1 `LLMProvider` port is removed: the agent
+loop needs tool use, which it never offered.
 
 Responsibilities:
 - Consume the conversation so far and the normalised preference context from Phase 3.
@@ -102,6 +104,9 @@ prompt edit that lowers the rate fails.
 - **Non-determinism.** Model output varies. Mitigated by deterministic tests using a
   scripted provider for logic, and a separate evaluation suite with a pass-rate threshold for
   the real model. Logic correctness never depends on a live model.
+- **No model endpoint exists yet.** Everything but the evaluation against a real model
+  (acceptance criterion 8) runs against a scripted model; that one is held until an endpoint is
+  configured, and the verification report says so.
 - **Small local models.** D-007 permits them, and tool-calling reliability varies. The
   evaluation suite reports per-model results so a user can see whether their configured model
   is adequate before trusting it with a call.
