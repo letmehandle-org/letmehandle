@@ -10,18 +10,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import io
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
+from websockets.asyncio.server import ServerConnection, serve
 
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener
 from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
     ConnectionFailedError,
 )
+from letmehandle.adapters.speech.websocket.socket import CLOSE_TIMEOUT_SECONDS
 from letmehandle.observability.logging import configure_logging
 from tests.support.config import make_settings
 from tests.support.simulated_realtime_service import (
@@ -355,3 +358,32 @@ async def test_debug_logging_never_prints_the_key_or_what_was_said(
 
     assert SIMULATED_API_KEY not in captured.getvalue()
     assert "a secret" not in captured.getvalue()
+
+
+async def test_closing_is_prompt_when_the_service_has_stopped_reading() -> None:
+    # A service that stops reading fills the socket's buffers until a send cannot finish. Closing
+    # must still return promptly: it is what a cancelled call and a quitting harness wait on.
+    async def stops_reading(connection: ServerConnection) -> None:
+        await connection.recv()
+        await asyncio.sleep(60)
+
+    async with serve(stops_reading, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        connection = await websocket_opener(f"ws://127.0.0.1:{port}/", model=SIMULATED_MODEL)()
+        await connection.send({"type": "session.update"})
+
+        async def flood() -> None:
+            with contextlib.suppress(ConnectionClosedError, ConnectionFailedError):
+                while True:
+                    await connection.send(
+                        {"type": "input_audio_buffer.append", "audio": "A" * 65_536}
+                    )
+
+        sending = asyncio.create_task(flood())
+        await asyncio.sleep(0.5)
+        assert not sending.done(), "the send should be stuck behind a service that stopped reading"
+
+        async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS + 3):
+            await connection.close()
+        sending.cancel()
+        await asyncio.gather(sending, return_exceptions=True)

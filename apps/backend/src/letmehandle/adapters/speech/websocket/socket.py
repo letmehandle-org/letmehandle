@@ -16,6 +16,7 @@ reports them.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Final
 
@@ -41,6 +42,11 @@ if TYPE_CHECKING:
 
     from websockets.asyncio.client import ClientConnection
 
+
+# How long closing waits for the service before the socket is simply dropped. A service that has
+# stopped reading otherwise turns closing into half a minute during which a cancelled call, or a
+# harness told to quit, hangs.
+CLOSE_TIMEOUT_SECONDS: Final = 1.0
 
 # Refusals at the handshake that another attempt will not change: bad request, bad key, not
 # allowed, no such model. Everything else a server answers with — a timeout, a rate limit, a
@@ -70,6 +76,7 @@ class WebsocketConnection:
                 uri,
                 additional_headers=dict(headers),
                 open_timeout=open_timeout,
+                close_timeout=CLOSE_TIMEOUT_SECONDS,
             )
         except InvalidStatus as error:
             status = error.response.status_code
@@ -130,7 +137,14 @@ class WebsocketConnection:
         # The library's close is idempotent too; the flag is what makes a send after it a typed
         # error of ours rather than whatever the library happens to say.
         self._closed = True
-        await self._socket.close()
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                await self._socket.close()
+        except TimeoutError:
+            # The library's own close waits behind a send that cannot finish before its timeout
+            # even starts, so it is bounded here as well. A service that will not take a close
+            # frame gets its socket dropped instead.
+            self._socket.transport.abort()
 
 
 def _parse(frame: str | bytes) -> Mapping[str, Any]:
