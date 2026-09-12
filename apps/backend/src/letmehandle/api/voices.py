@@ -20,7 +20,7 @@ from letmehandle.api.dependencies import (
     CurrentUser,
     Preferences,
     Voices,
-    get_authenticated_user,
+    get_current_user,
 )
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.voice_schemas import (
@@ -40,7 +40,11 @@ if TYPE_CHECKING:
 
 # Every route here is a signed-in one. Declared on the routes rather than taken as an
 # argument they do not use, so that adding a route without deciding this is not possible.
-SIGNED_IN = [Depends(get_authenticated_user)]
+#
+# The user, not the token: a token outlives the account it names, and a deleted account
+# reading the catalogue for the rest of an access token's life is a weaker answer than the
+# one every other route in this API gives.
+SIGNED_IN = [Depends(get_current_user)]
 
 
 def build_voice_router(provider: VoiceProvider) -> APIRouter:

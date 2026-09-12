@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from sqlalchemy import text
 
 from letmehandle.adapters.voice.builtin import (
     SHIPPED_DEFAULT_VOICE_ID,
@@ -184,6 +185,22 @@ class TestChoosing:
 
         theirs = await sign_in(api, ANOTHER_NUMBER)
         assert (await selection(api, theirs))["persona_voice_id"] is None
+
+    async def test_a_token_for_a_deleted_account_is_refused_everywhere(self, api: Api) -> None:
+        # A token outlives the account it names. Checking only the signature would leave a
+        # deleted account reading the catalogue for the rest of that token's life, which is a
+        # weaker answer than the one every other route in this API gives.
+        tokens = await sign_in(api)
+        factory = api.app.state.session_factory
+        async with factory() as session:
+            await session.execute(text("DELETE FROM refresh_tokens"))
+            await session.execute(text("DELETE FROM users"))
+            await session.commit()
+
+        assert (await api.client.get("/v1/voices", headers=bearer(tokens))).status_code == 401
+        assert (
+            await api.client.get("/v1/preferences/voice", headers=bearer(tokens))
+        ).status_code == 401
 
     async def test_it_needs_a_token(self, api: Api) -> None:
         assert (await api.client.get("/v1/voices")).status_code == 401
