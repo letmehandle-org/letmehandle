@@ -99,6 +99,11 @@ anything in it is read, over the URL built from `TELEPHONY_WEBHOOK_BASE_URL` —
 request arrived with, which behind a tunnel is not what was signed. A genuine signature from another
 account is refused too.
 
+The handshake's signature is the same for every call, and a leg's call identifier is no secret, so
+neither decides which leg a socket carries. The assistant's instructions carry a random token as a
+stream parameter; the stream's `start` must present it, it is compared in constant time, and it is
+good for one `start`. A socket that has not sent `start` five seconds after the handshake is closed.
+
 The provider duplicates, reorders and drops callbacks. Repeats are recognised by the idempotency
 token header and by the provider's own identifiers (conference and sequence number; call, sequence
 number and status). State is resolved by sequence number, not arrival: a join arriving after the

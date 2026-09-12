@@ -19,6 +19,8 @@ started as a task this transport owns, and every such task is gone when the call
 from __future__ import annotations
 
 import asyncio
+import hmac
+import secrets
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -29,6 +31,7 @@ from letmehandle.adapters.transport.twilio import twiml
 from letmehandle.adapters.transport.twilio.callbacks import (
     CALL_PARAMETER,
     LEG_PARAMETER,
+    TOKEN_PARAMETER,
     ConferenceEvent,
     ConferenceUpdate,
     IncomingCall,
@@ -103,6 +106,10 @@ REMEMBERED_DELIVERIES: Final = 10_000
 # The leg is reported unreachable only if nothing about it arrives for this long.
 LATE_CALLBACK_GRACE_SECONDS: Final = 2.0
 
+# How long an accepted media websocket has to name the stream it carries. A socket that never
+# does is refused, rather than held open for as long as whoever opened it likes.
+MEDIA_START_SECONDS: Final = 5.0
+
 # How long shutdown waits for the provider to end the calls still in progress. Bounded, because a
 # deployment waiting on an API that does not answer is not shutting down; long enough for a
 # handful of requests per call when the API is well.
@@ -153,6 +160,11 @@ class _Leg:
     last_progress: int = -1
     last_conference: int = -1
     applied: _Applied = field(default_factory=_Applied)
+    # What this leg's stream must present to be attached, and whether anything has presented it.
+    # The handshake's signature is the same for every call and a leg's identifier is no secret,
+    # so without this any signed socket could name any leg.
+    media_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    media_token_spent: bool = False
 
 
 @dataclass(eq=False)
@@ -474,7 +486,11 @@ class TwilioCallTransport(CallTransport):
         leg.call_sid = leg.call_sid or call_sid
         return twiml.assistant_stream(
             stream_url=self._verifier.websocket_url(MEDIA_PATH),
-            parameters={CALL_PARAMETER: call.call_id.value, LEG_PARAMETER: leg.label},
+            parameters={
+                CALL_PARAMETER: call.call_id.value,
+                LEG_PARAMETER: leg.label,
+                TOKEN_PARAMETER: leg.media_token,
+            },
         )
 
     def conference_updated(self, call_value: str | None, update: ConferenceUpdate) -> None:
@@ -543,7 +559,12 @@ class TwilioCallTransport(CallTransport):
         self._sockets.add(socket)
         stream: MediaStream | None = None
         try:
-            stream = await self._attach(socket)
+            try:
+                async with asyncio.timeout(MEDIA_START_SECONDS):
+                    stream = await self._attach(socket)
+            except TimeoutError:
+                logger.warning("telephony.media.never_started")
+                return
             if stream is None:
                 return
             while (text := await socket.receive()) is not None:
@@ -574,8 +595,9 @@ class TwilioCallTransport(CallTransport):
             stream = leg.stream if leg is not None else None
             if (
                 leg is None
-                or leg.finished
+                or not self._spend_token(leg, message.parameters.get(TOKEN_PARAMETER))
                 or stream is None
+                or leg.finished
                 or stream.has_ended
                 or stream.is_connected
                 or (leg.call_sid is not None and leg.call_sid != message.call_sid)
@@ -586,6 +608,16 @@ class TwilioCallTransport(CallTransport):
             stream.attach(socket, message.stream_sid)
             return stream
         return None
+
+    @staticmethod
+    def _spend_token(leg: _Leg, presented: str | None) -> bool:
+        """Whether the leg's token was presented, spending it if so: it is good for one start."""
+        if leg.media_token_spent or presented is None:
+            return False
+        if not hmac.compare_digest(presented.encode(), leg.media_token.encode()):
+            return False
+        leg.media_token_spent = True
+        return True
 
     async def _dial(
         self, call: _Call, leg: _Leg, target: str, ring_seconds: int, *, detect_machine: bool

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import fromstring
 
 import pytest
 
@@ -38,7 +39,7 @@ from letmehandle.domain.ports.call_transport import (
 from tests.support.media_socket import MemoryMediaSocket
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from letmehandle.adapters.transport.twilio.rest import EndStatus, ParticipantRequest
 
@@ -932,9 +933,23 @@ async def test_closing_cancels_work_still_in_flight(
 # ------------------------------------------------------------------------------ the media
 
 
+def token_for(transport: TwilioCallTransport, call: CallId = CALL, leg: str = "assistant-1") -> str:
+    """The stream token the leg's instructions carry, as the provider would read it."""
+    document = transport.assistant_joining({"call": call.value, "leg": leg}, f"CAsim-{leg}")
+    stream = fromstring(document).find("./Connect/Stream")  # noqa: S314 - the transport wrote it
+    assert stream is not None
+    return next(each.attrib["value"] for each in stream if each.attrib["name"] == "token")
+
+
 def start_message(
-    leg: str = "assistant-1", call_sid: str = "CAsim-assistant-1"
+    leg: str = "assistant-1",
+    call_sid: str = "CAsim-assistant-1",
+    *,
+    token: str | None,
 ) -> dict[str, object]:
+    parameters = {"call": CALL.value, "leg": leg}
+    if token is not None:
+        parameters["token"] = token
     return {
         "event": "start",
         "streamSid": "MZsim-1",
@@ -943,7 +958,7 @@ def start_message(
             "callSid": call_sid,
             "tracks": ["inbound"],
             "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
-            "customParameters": {"call": CALL.value, "leg": leg},
+            "customParameters": parameters,
         },
     }
 
@@ -962,7 +977,7 @@ async def test_a_media_socket_carries_the_callers_audio_until_the_stream_stops(
     socket = MemoryMediaSocket()
     socket.provider_sends({"event": "connected"})
     socket.provider_sends({"event": "mark", "mark": {"name": "m"}})
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     socket.provider_sends(media_message())
     socket.provider_sends(media_message("outbound"))
     socket.provider_sends({"event": "dtmf", "dtmf": {"digit": "1"}})
@@ -981,7 +996,7 @@ async def test_a_socket_closing_without_a_stop_ends_the_stream_too(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await transport.inject_audio(CALL, AudioFrame(b"\x10" * 160, TELEPHONY_NARROWBAND))
     await transport.audio_sink(CALL).discard()
@@ -994,26 +1009,65 @@ async def test_a_socket_closing_without_a_stop_ends_the_stream_too(
 @pytest.mark.parametrize(
     "opening",
     [
-        [start_message(leg="assistant-9")],
-        [start_message(leg="user-2")],
-        [start_message(call_sid="CAsim-impostor")],
-        [{"event": "start", "start": {}}],
-        [media_message()],
-        ["not json"],
-        [],
+        lambda token: [start_message(leg="assistant-9", token=token)],
+        lambda token: [start_message(leg="user-2", token=token)],
+        lambda token: [start_message(call_sid="CAsim-impostor", token=token)],
+        lambda token: [start_message(token=None)],
+        lambda token: [start_message(token="a-guessed-token")],
+        lambda token: [{"event": "start", "start": {}}],
+        lambda token: [media_message()],
+        lambda token: ["not json"],
+        lambda token: [],
     ],
 )
 async def test_a_socket_that_is_not_the_expected_stream_is_closed(
-    transport: TwilioCallTransport, opening: list[object]
+    transport: TwilioCallTransport, opening: Callable[[str], list[object]]
 ) -> None:
     await answered_call(transport)
-    transport.assistant_joining({"call": CALL.value, "leg": "assistant-1"}, "CAsim-assistant-1")
+    token = token_for(transport)
     await transport.add_participant(CALL, USER)
     socket = MemoryMediaSocket()
-    for message in opening:
+    for message in opening(token):
         socket.provider_sends(message)
     socket.provider_closes()
     await transport.media_connected(socket)
+    assert socket.closed
+    assert transport.open_media_sockets == 0
+
+
+async def test_a_stream_token_is_its_own_legs_and_is_good_for_one_start_only(
+    transport: TwilioCallTransport,
+) -> None:
+    # The handshake's signature is the same for every call, and a leg's identifier is no
+    # secret, so neither says which leg a socket may carry. Only the token its instructions
+    # carried does, and only once.
+    await answered_call(transport)
+    other = CallId("CAsim-2")
+    transport.incoming_call(incoming(other.value))
+    await transport.answer(other)
+    borrowed, token = token_for(transport, other, "assistant-1"), token_for(transport)
+    openings = [
+        start_message(token=borrowed),
+        start_message(call_sid="CAsim-impostor", token=token),
+        start_message(token=token),
+    ]
+    for opening in openings:
+        socket = MemoryMediaSocket()
+        socket.provider_sends(opening)
+        await transport.media_connected(socket)
+        assert socket.closed
+    assert transport.open_media_sockets == 0
+
+
+async def test_a_socket_that_never_starts_a_stream_is_closed_after_a_deadline(
+    transport: TwilioCallTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "MEDIA_START_SECONDS", 0.05)
+    await answered_call(transport)
+    socket = MemoryMediaSocket()
+    socket.provider_sends({"event": "connected"})
+    async with asyncio.timeout(2):
+        await transport.media_connected(socket)
     assert socket.closed
     assert transport.open_media_sockets == 0
 
@@ -1023,10 +1077,10 @@ async def test_a_second_socket_for_a_stream_already_connected_is_refused(
 ) -> None:
     await answered_call(transport)
     first, second = MemoryMediaSocket(), MemoryMediaSocket()
-    first.provider_sends(start_message())
+    first.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(first))
     await asyncio.sleep(0.01)
-    second.provider_sends(start_message())
+    second.provider_sends(start_message(token=token_for(transport)))
     await transport.media_connected(second)
     assert second.closed
     assert not first.closed
@@ -1040,7 +1094,7 @@ async def test_the_assistant_leaving_ends_its_stream_and_closes_its_socket(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "assistant-1"))
@@ -1055,7 +1109,7 @@ async def test_the_caller_hanging_up_closes_the_assistants_socket(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "caller"))
@@ -1070,7 +1124,7 @@ async def test_a_listening_only_assistant_sends_nothing_to_the_call(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await with_user(transport)
     await transport.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)

@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 # and which leg it is about before any provider identifier is known.
 CALL_PARAMETER: Final = "call"
 LEG_PARAMETER: Final = "leg"
+# A stream parameter only: the secret an assistant leg's stream must present to be attached.
+TOKEN_PARAMETER: Final = "token"
 
 
 class CallbackMalformedError(Exception):
