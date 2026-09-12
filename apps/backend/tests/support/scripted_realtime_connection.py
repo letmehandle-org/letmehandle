@@ -25,7 +25,7 @@ from letmehandle.adapters.speech.websocket.connection import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 # Ten milliseconds of 16-bit audio at 24 kHz.
 DELTA_BYTES = 480
@@ -50,6 +50,9 @@ class ScriptedRealtimeService:
         self.refusals: deque[ConnectionFailedError] = deque()
         # When set, every send waits for it: a service that has stopped answering mid-handshake.
         self.stalled: asyncio.Event | None = None
+        # How many more connections to acknowledge and then end at once, and anything said first.
+        self.hang_ups_after_configuring = 0
+        self.last_words: Sequence[Mapping[str, Any]] = ()
         self._activity = asyncio.Event()
         self._ids = itertools.count(1)
 
@@ -130,6 +133,11 @@ class ScriptedRealtimeConnection:
         match event.get("type"):
             case "session.update":
                 self._push({"type": "session.updated", "session": event["session"]})
+                if self._service.hang_ups_after_configuring:
+                    self._service.hang_ups_after_configuring -= 1
+                    for last_word in self._service.last_words:
+                        self._push(last_word)
+                    self.hang_up()
             case "input_audio_buffer.append" if self._service.answer_audio:
                 self.reply()
             case "response.cancel":

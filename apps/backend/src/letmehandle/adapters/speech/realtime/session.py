@@ -9,6 +9,10 @@ it is held than any reply (see `outbox`). A consumer playing in real time is sec
 service, and the caller's speech-started signal behind a held reply is acted on the moment it
 arrives rather than once the speaker catches up. A consumer that stops taking audio altogether
 does stop the reader, and the service's own flow control does the rest; nothing grows.
+
+A dropped connection is replaced and told what it missed, and a replacement is only trusted once
+the service does something on it beyond acknowledging its configuration: one that is accepted
+and then drops at once spends the same attempts as one refused.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from letmehandle.adapters.speech.realtime.protocol import (
 )
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.adapters.speech.session_support.outbox import Outbox
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.recovery import (
     is_retryable,
     receive,
@@ -128,6 +133,8 @@ class RealtimeSpeechSession(SpeechSession):
         self._live = False
         self._closed = False
         self._failure: str | None = None
+        self._budget = ReconnectBudget()
+        self._unproven = False
         self._active_response: str | None = None
         self._latest_response: str | None = None
         self._silenced_response: str | None = None
@@ -235,8 +242,13 @@ class RealtimeSpeechSession(SpeechSession):
                 # counted, and a server that sends nothing else shows up as a wall of them.
                 self._telemetry.stream_error(StreamErrorKind.MALFORMED)
                 continue
-            if signal is not None:
-                await self._handle(signal)
+            if signal is None:
+                continue
+            if self._unproven and not isinstance(signal, ServiceError):
+                # The service acted on this replacement rather than acknowledging or refusing it.
+                self._unproven = False
+                self._budget.proven()
+            await self._handle(signal)
 
     async def _handle(self, signal: Inbound) -> None:
         match signal:
@@ -377,10 +389,12 @@ class RealtimeSpeechSession(SpeechSession):
             policy=self._setup.reconnect,
             timekeeping=self._setup.timekeeping,
             telemetry=self._telemetry,
+            budget=self._budget,
         )
         if isinstance(replacement, str):
             self._fail(replacement)
             return None
+        self._unproven = True
         self._live = True
         return replacement
 

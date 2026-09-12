@@ -654,6 +654,52 @@ async def test_reconnection_gives_up_after_its_attempts(
     assert service.open_connections == 0
 
 
+@pytest.mark.parametrize(
+    "last_words",
+    [
+        [],
+        # A refusal is not the service working either, nor is an event this adapter ignores.
+        [{"type": "error", "error": {"code": "insufficient_quota"}}, {"type": "rate_limits"}],
+    ],
+)
+async def test_a_service_that_accepts_and_drops_every_replacement_runs_out_of_attempts(
+    provider: RealtimeSpeechProvider,
+    service: ScriptedRealtimeService,
+    metrics: RecordingMetrics,
+    last_words: list[dict[str, object]],
+) -> None:
+    async with await connect(provider) as session:
+        # Far more than three: a session that never runs out is still reconnecting afterwards.
+        service.hang_ups_after_configuring = 10
+        service.last_words = last_words
+        service.current.hang_up()
+        (failed,) = await remaining(session.events())
+
+    # Each replacement was accepted and acknowledged its configuration, and none did anything
+    # else: three attempts, not one after another for as long as the service keeps answering.
+    assert failed == SessionFailed("the connection could not be restored in 3 attempts", False)
+    assert len(service.connections) == 1 + 3
+    assert metrics.counted(telemetry.RECONNECTIONS, outcome="succeeded") == 3
+    assert service.open_connections == 0
+
+
+async def test_a_replacement_that_delivers_something_earns_back_its_attempts(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    async with await connect(provider) as session:
+        events = session.events()
+        for count in range(2, 7):
+            service.current.drop()
+            await service.wait_for_sent("session.update", connection=count)
+            service.current.caller_said(f"still here {count}")
+            assert await take(events, 2) == [
+                TranscriptProduced(f"still here {count}", speaker_is_caller=True, is_final=False),
+                TranscriptProduced(f"still here {count}", speaker_is_caller=True, is_final=True),
+            ]
+
+    assert len(service.connections) == 6
+
+
 async def test_a_refusal_that_will_not_change_stops_reconnecting_at_once(
     provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, sleep: RecordedSleep
 ) -> None:
