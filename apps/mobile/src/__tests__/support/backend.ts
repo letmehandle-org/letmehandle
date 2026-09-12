@@ -16,6 +16,7 @@ import type {
   PreferencesUpdate,
 } from '@letmehandle/api-client';
 
+import type { Voice, VoiceCapabilities } from '../../api/voice';
 import { applyChanges } from '../../preferences/changes';
 
 export interface Reply {
@@ -53,6 +54,34 @@ export const DEFAULT_PREFERENCES: Preferences = {
   },
   personality: { formality: 'neutral', verbosity: 'normal', topics: [] },
 };
+
+/** What the shipped provider offers: a few voices, and nothing else it can do with them. */
+export const VOICES: readonly Voice[] = [
+  { id: 'ash', name: 'Ash', locales: ['en'] },
+  { id: 'briar', name: 'Briar', locales: ['en'] },
+  { id: 'cove', name: 'Cove', locales: ['en'] },
+];
+
+export const DEFAULT_VOICE_ID = 'ash';
+
+export const VOICE_CAPABILITIES: VoiceCapabilities = {
+  builtin_voices: true,
+  preview: false,
+  custom_voice: false,
+  cloning: false,
+  local_inference: false,
+  realtime_streaming: false,
+};
+
+/** How a deployment's voice provider is set up, for a test that cares. */
+export interface VoiceSetup {
+  readonly voices?: readonly Voice[];
+  readonly capabilities?: VoiceCapabilities;
+  /** The voice this user has chosen, if any. */
+  readonly persona?: string | null;
+  /** A cloned voice, which takes precedence over a chosen one where a provider has them. */
+  readonly cloned?: string | null;
+}
 
 const ORDER: readonly OnboardingStep[] = [
   'introduction',
@@ -93,6 +122,15 @@ export interface RunningBackend {
   onboarding(): Onboarding;
   /** Refuse the next save, as the server does when it disagrees with the draft. */
   refuseNextSave(reply: Reply): void;
+  /** The voice this user has chosen, or null when they have left it to the provider. */
+  chosenVoice(): string | null;
+  /**
+   * Stop offering a voice, without telling the app.
+   *
+   * What happens when a provider withdraws one: a client holding the old catalogue still offers
+   * it, and the server refuses it with a 422 when somebody picks it.
+   */
+  withdrawVoice(voiceId: string): void;
 }
 
 /**
@@ -105,6 +143,7 @@ export interface RunningBackend {
 export function runningBackend(options?: {
   readonly startAt?: OnboardingStep | null;
   readonly preferences?: Preferences;
+  readonly voice?: VoiceSetup;
 }): RunningBackend {
   const start = options?.startAt === undefined ? null : options.startAt;
   const settled = new Set<OnboardingStep>(
@@ -113,6 +152,33 @@ export function runningBackend(options?: {
   let stored = options?.preferences ?? DEFAULT_PREFERENCES;
   let refusal: Reply | null = null;
   const patches: PreferencesUpdate[] = [];
+
+  const capabilities = options?.voice?.capabilities ?? VOICE_CAPABILITIES;
+  let offered = [...(options?.voice?.voices ?? VOICES)];
+  const cloned = options?.voice?.cloned ?? null;
+  let persona = options?.voice?.persona ?? null;
+
+  const offers = (voiceId: string): boolean =>
+    offered.some(voice => voice.id === voiceId);
+
+  // The fallback chain from D-009: the cloned voice, then the chosen one, then the default.
+  // Each step falls through when the voice is not on offer, which is what the screen is meant
+  // to be able to show.
+  const resolved = (): string => {
+    if (cloned !== null && offers(cloned)) {
+      return cloned;
+    }
+    if (persona !== null && offers(persona)) {
+      return persona;
+    }
+    return DEFAULT_VOICE_ID;
+  };
+
+  const selection = (): unknown => ({
+    cloned_voice_id: cloned,
+    persona_voice_id: persona,
+    resolved_voice_id: resolved(),
+  });
 
   const progress = (): Onboarding => {
     const remaining = ORDER.filter(step => !settled.has(step));
@@ -155,6 +221,29 @@ export function runningBackend(options?: {
       stored = applyChanges(stored, changes);
       return answer(200, stored);
     }
+    if (path === '/v1/voices' && method === 'GET') {
+      return answer(200, {
+        provider: 'catalogue',
+        default_voice_id: DEFAULT_VOICE_ID,
+        capabilities,
+        voices: offered,
+      });
+    }
+    if (path === '/v1/preferences/voice' && method === 'GET') {
+      return answer(200, selection());
+    }
+    if (path === '/v1/preferences/voice' && method === 'PUT') {
+      const chosen = (body as { persona_voice_id: string | null })
+        .persona_voice_id;
+      if (chosen !== null && !offers(chosen)) {
+        return answer(422, {
+          error: 'invalid_request',
+          message: 'not on offer',
+        });
+      }
+      persona = chosen;
+      return answer(200, selection());
+    }
     if (path === '/v1/onboarding' && method === 'GET') {
       return answer(200, progress());
     }
@@ -180,6 +269,10 @@ export function runningBackend(options?: {
     onboarding: progress,
     refuseNextSave: reply => {
       refusal = reply;
+    },
+    chosenVoice: () => persona,
+    withdrawVoice: voiceId => {
+      offered = offered.filter(voice => voice.id !== voiceId);
     },
   };
 }
