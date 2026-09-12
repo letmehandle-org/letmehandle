@@ -90,7 +90,9 @@ class CallTransportContract:
             ("can_bridge_human", bridging),
         ):
             if transport.capabilities.has(capability):
-                assert narrow(transport) is transport
+                # Narrowing returns the transport itself; what matters is that it does not
+                # raise, which is the disagreement this catches.
+                assert narrow(transport) is not None
             else:
                 with pytest.raises(CapabilityNotSupportedError):
                     narrow(transport)

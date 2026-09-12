@@ -403,7 +403,12 @@ class LyingTransport(CallTransport):
 
     @property
     def capabilities(self) -> TransportCapabilities:
-        return TransportCapabilities(can_bridge_human=True, can_screen_before_ringing=True)
+        return TransportCapabilities(
+            can_bridge_human=True,
+            can_screen_before_ringing=True,
+            can_stream_call_audio_to_ai=True,
+            can_inject_ai_audio=True,
+        )
 
     async def events(self) -> AsyncIterator[CallEvent]:
         yield CallEvent(CallEventKind.INCOMING, CallId("c"), EventId("e"))

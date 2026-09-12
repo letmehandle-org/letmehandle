@@ -185,7 +185,10 @@ class SupportsScreening(Protocol):
 class SupportsAudioStreaming(Protocol):
     """A transport that can carry the call's audio to and from the assistant."""
 
-    async def stream_audio(self, call_id: CallId) -> AsyncIterator[AudioFrame]:
+    # Not `async def`: this returns the iterator, it is not awaited for one. Declared the
+    # other way, every implementer writes an async generator and every caller has to await
+    # before iterating, which reads as a mistake because it is one.
+    def stream_audio(self, call_id: CallId) -> AsyncIterator[AudioFrame]:
         """The caller's audio, as it arrives."""
 
     async def inject_audio(self, call_id: CallId, frame: AudioFrame) -> None:

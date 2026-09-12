@@ -7,7 +7,7 @@ import pytest
 from letmehandle.domain.errors import CapabilityNotSupportedError
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.ports.call_transport import bridging, screening
+from letmehandle.domain.ports.call_transport import audio_streaming, bridging, screening
 from tests.contracts.call_transport import CallTransportContract
 from tests.contracts.fakes import LyingTransport, ScreeningOnlyTransport, StreamingTransport
 
@@ -57,6 +57,13 @@ class TestDeclarationsAreChecked:
     def test_the_same_holds_for_screening(self) -> None:
         with pytest.raises(CapabilityNotSupportedError):
             screening(LyingTransport())
+
+    def test_and_for_audio_streaming(self) -> None:
+        # A transport declaring it can carry audio, with no methods to do it. Without this
+        # check the failure arrives as an attribute error, mid-call, in front of a caller.
+        with pytest.raises(CapabilityNotSupportedError) as failure:
+            audio_streaming(LyingTransport())
+        assert failure.value.capability == "can_stream_call_audio_to_ai"
 
     async def test_a_truthful_transport_narrows_to_a_usable_object(self) -> None:
         transport = StreamingTransport()
