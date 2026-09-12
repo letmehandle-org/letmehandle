@@ -1,4 +1,9 @@
-"""A metrics recorder that keeps what it is given, so a test can read it back."""
+"""A metrics recorder that keeps what it is given, so a test can read it back.
+
+It refuses the same labels the real recorder refuses. A recorder that accepted anything is how
+a label the production recorder rejects — and raises on — reached a stream-error path with
+every test still passing.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from letmehandle.domain.ports.metrics import MetricsRecorder
+from letmehandle.observability.metrics import checked_labels
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -28,10 +34,10 @@ class RecordingMetrics(MetricsRecorder):
     counts: list[Recorded] = field(default_factory=list)
 
     def observe(self, name: str, value: float, labels: Mapping[str, str] | None = None) -> None:
-        self.observations.append(Recorded(name, value, dict(labels or {})))
+        self.observations.append(Recorded(name, value, checked_labels(name, labels)))
 
     def increment(self, name: str, labels: Mapping[str, str] | None = None) -> None:
-        self.counts.append(Recorded(name, 1, dict(labels or {})))
+        self.counts.append(Recorded(name, 1, checked_labels(name, labels)))
 
     def observed(self, name: str) -> list[float]:
         return [each.value for each in self.observations if each.name == name]

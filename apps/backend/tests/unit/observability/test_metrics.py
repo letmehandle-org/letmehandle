@@ -14,7 +14,7 @@ from letmehandle.observability.metrics import (
     LoggingMetricsRecorder,
     MetricLabelError,
 )
-from tests.support.metrics import InMemoryMetricsRecorder
+from tests.support.recording_metrics import RecordingMetrics
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -80,9 +80,9 @@ CONTENT = [
 
 
 @pytest.mark.parametrize("labels", CONTENT)
-@pytest.mark.parametrize("recorder", [LoggingMetricsRecorder, InMemoryMetricsRecorder])
+@pytest.mark.parametrize("recorder", [LoggingMetricsRecorder, RecordingMetrics])
 def test_labels_that_could_carry_content_are_refused_and_nothing_is_emitted(
-    recorder: type[LoggingMetricsRecorder | InMemoryMetricsRecorder], labels: dict[str, str]
+    recorder: type[LoggingMetricsRecorder | RecordingMetrics], labels: dict[str, str]
 ) -> None:
     with capture_logs() as events:
         with pytest.raises(MetricLabelError):
@@ -103,12 +103,12 @@ def test_a_refused_value_is_not_repeated_in_the_error() -> None:
 
 
 def test_the_longest_dimension_allowed_is_accepted() -> None:
-    recorder = InMemoryMetricsRecorder()
+    recorder = RecordingMetrics()
     longest = "a" * MAX_LABEL_VALUE_LENGTH
 
     recorder.increment("speech.ended", {"outcome": longest})
 
-    assert recorder.count("speech.ended", outcome=longest) == 1
+    assert recorder.counted("speech.ended", outcome=longest) == 1
 
 
 @pytest.mark.parametrize("name", ["Speech.Ended", "speech ended", "speech..ended", "", "9lives"])

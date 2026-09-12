@@ -36,7 +36,7 @@ from letmehandle.domain.ports.speech import (
 )
 from tests.contracts.fakes import EchoSpeechProvider, EchoSpeechSession, FixedClock
 from tests.support.audio import RecordingSink, ToneSource, tone_frame
-from tests.support.metrics import InMemoryMetricsRecorder
+from tests.support.recording_metrics import RecordingMetrics
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -50,7 +50,7 @@ class Harness:
         self.source = source
         self.sink = sink
         self.transcript = Transcript()
-        self.metrics = InMemoryMetricsRecorder()
+        self.metrics = RecordingMetrics()
         self.clock = FixedClock()
 
     def conversation(self) -> Conversation:
@@ -103,7 +103,7 @@ async def test_a_conversation_runs_with_no_call_transport_or_phone_number_presen
     assert parts.sink.written == parts.source.said()
     assert parts.sink.discarded_after == []
     assert not session.is_closed
-    assert parts.metrics.count(CONVERSATION_ENDED, outcome="speaker_gone") == 1
+    assert parts.metrics.counted(CONVERSATION_ENDED, outcome="speaker_gone") == 1
 
 
 async def test_the_source_ending_ends_the_conversation(session: EchoSpeechSession) -> None:
@@ -125,7 +125,7 @@ async def test_the_session_ending_ends_the_conversation() -> None:
 
         assert await parts.conversation().run() is ConversationEnd.SESSION_ENDED
     assert other_tasks() == before
-    assert parts.metrics.count(CONVERSATION_ENDED, outcome="session_ended") == 1
+    assert parts.metrics.counted(CONVERSATION_ENDED, outcome="session_ended") == 1
 
 
 async def test_the_caller_starting_to_speak_discards_what_the_sink_was_about_to_play(
@@ -182,7 +182,8 @@ async def test_how_long_an_interruption_took_to_go_quiet_is_measured(
     await parts.conversation().run()
 
     [observed] = parts.metrics.observations
-    assert (observed.name, observed.value, observed.labels) == (INTERRUPTION_TO_SILENCE, 0.25, ())
+    assert (observed.name, observed.value) == (INTERRUPTION_TO_SILENCE, 0.25)
+    assert not observed.labels
 
 
 async def test_only_settled_transcript_turns_are_kept(session: EchoSpeechSession) -> None:
@@ -220,9 +221,9 @@ async def test_a_failed_session_ends_the_conversation_with_a_typed_error(
     # What was said before the failure is still there to read, which is when it matters most.
     assert parts.transcript.turns == (TranscriptTurn("hello", speaker_is_caller=True),)
     assert other_tasks() == before
+    retryable_label = str(retryable).lower()
     assert (
-        parts.metrics.count(CONVERSATION_ENDED, outcome="failed", retryable=str(retryable).lower())
-        == 1
+        parts.metrics.counted(CONVERSATION_ENDED, outcome="failed", retryable=retryable_label) == 1
     )
 
 
@@ -242,7 +243,7 @@ async def test_a_failing_sink_surfaces_its_own_error_and_leaves_nothing_running(
         await parts.conversation().run()
 
     assert other_tasks() == before
-    assert parts.metrics.count(CONVERSATION_ENDED, outcome="error") == 1
+    assert parts.metrics.counted(CONVERSATION_ENDED, outcome="error") == 1
 
 
 async def test_a_slow_sink_holds_the_source_back_rather_than_buffering(
@@ -333,7 +334,7 @@ async def test_cancelling_the_conversation_leaves_no_task_alive(
 
     assert other_tasks() == before
     assert not session.is_closed
-    assert parts.metrics.count(CONVERSATION_ENDED, outcome="cancelled") == 1
+    assert parts.metrics.counted(CONVERSATION_ENDED, outcome="cancelled") == 1
 
 
 async def test_cancelling_before_it_starts_leaves_no_task_alive(
