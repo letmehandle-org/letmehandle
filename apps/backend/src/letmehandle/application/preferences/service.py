@@ -15,7 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from letmehandle.domain.models.preferences import CallRules, UserPreferences
+from letmehandle.domain.models.preferences import (
+    PREFERENCES_VERSION,
+    CallRules,
+    UserPreferences,
+)
+from letmehandle.domain.models.voice import VoiceSelection
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -61,6 +66,20 @@ class Hours:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonaVoice:
+    """The half of the voice selection a user picks from a catalogue.
+
+    Carried on its own rather than as a whole `VoiceSelection`, for the reason call handling
+    and hours are carried apart: the other half is a cloned voice, which the screen making this
+    change knows nothing about. A caller that had to build a whole selection would first have
+    to read the stored one — outside whatever lock the write takes — and would then write back
+    a cloned voice that may have been revoked in between.
+    """
+
+    voice_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PreferenceChanges:
     """What to change, with absent meaning "leave it alone".
 
@@ -79,6 +98,7 @@ class PreferenceChanges:
     hours: Hours | None = None
     authority: AgentAuthority | None = None
     notifications: NotificationPreferences | None = None
+    persona_voice: PersonaVoice | None = None
     formality: Formality | None = None
     verbosity: Verbosity | None = None
     topics: frozenset[Topic] | None = None
@@ -100,6 +120,7 @@ class PreferenceChanges:
                 "hours",
                 "authority",
                 "notifications",
+                "persona_voice",
                 "formality",
                 "verbosity",
                 "topics",
@@ -137,6 +158,20 @@ def _merge_rules(current: CallRules, changes: PreferenceChanges) -> CallRules:
         ),
         working_hours=current.working_hours if hours is None else hours.working,
         quiet_hours=current.quiet_hours if hours is None else hours.quiet,
+    )
+
+
+def _merge_voice(current: VoiceSelection, changes: PreferenceChanges) -> VoiceSelection:
+    """The stored selection with whichever half was sent replaced.
+
+    The cloned voice is never carried through a request, so it is read here, under the same
+    lock as the write. That is the whole point: a clone revoked while this request was in
+    flight stays revoked instead of being written back from a read taken before it.
+    """
+    persona = changes.persona_voice
+    return VoiceSelection(
+        cloned_voice_id=current.cloned_voice_id,
+        persona_voice_id=current.persona_voice_id if persona is None else persona.voice_id,
     )
 
 
@@ -183,8 +218,15 @@ class PreferencesService:
 
         The only difference between the two is what they compose against — the defaults here,
         what is stored there — which is why the composing itself is shared.
+
+        The chosen voice is the exception, and survives. It is chosen through a different route,
+        because choosing one needs the provider's catalogue to validate against, so a replace
+        request has no way to carry it — and a field a caller cannot send is a field a caller
+        cannot have meant to clear. Without this, replacing every other preference silently
+        changes how the assistant sounds, and nothing in the request says so.
         """
-        replaced = self._compose(UserPreferences(), changes)
+        current = await self.get(user_id, for_update=True)
+        replaced = self._compose(replace(UserPreferences(), voice=current.voice), changes)
         await self._preferences.save(user_id, replaced)
         return replaced
 
@@ -198,12 +240,17 @@ class PreferencesService:
         """
         return replace(
             base,
+            # Composing produces today's shape, whatever shape the stored row was in, so
+            # the set that is handed back says the same thing the row it is about to
+            # become will say.
+            version=PREFERENCES_VERSION,
             locale=base.locale if changes.locale is None else changes.locale,
             rules=_merge_rules(base.rules, changes),
             authority=base.authority if changes.authority is None else changes.authority,
             notifications=(
                 base.notifications if changes.notifications is None else changes.notifications
             ),
+            voice=_merge_voice(base.voice, changes),
             formality=base.formality if changes.formality is None else changes.formality,
             verbosity=base.verbosity if changes.verbosity is None else changes.verbosity,
             topics=base.topics if changes.topics is None else changes.topics,

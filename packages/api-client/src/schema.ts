@@ -217,6 +217,61 @@ export interface paths {
         patch: operations["update_preferences_v1_preferences_patch"];
         trace?: never;
     };
+    "/v1/preferences/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The chosen voice */
+        get: operations["read_selection_v1_preferences_voice_get"];
+        /**
+         * Choose a voice
+         * @description Set or clear the chosen voice.
+         *
+         *     A voice the provider does not offer is refused rather than stored. Storing it would
+         *     mean a selection that silently falls through to the default on every call, which looks
+         *     to the user exactly like their choice being ignored.
+         *
+         *     Only the half this request is about is sent. The cloned voice is left to the service to
+         *     carry, under the lock it takes: read here instead, a clone revoked while this request
+         *     was in flight would be written back from a read taken before it.
+         */
+        put: operations["choose_voice_v1_preferences_voice_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The voices on offer
+         * @description What the configured provider offers, and what it can do with it.
+         *
+         *     The client renders from this rather than from a bundled list, so a deployment that
+         *     changes provider changes the screen without shipping an app.
+         *
+         *     Behind a token like everything else: this is a signed-in screen, and which provider a
+         *     deployment runs is not something to tell whoever asks.
+         */
+        get: operations["read_catalogue_v1_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -547,6 +602,89 @@ export interface components {
             challenge_id: string;
             /** Code */
             code: string;
+        };
+        /**
+         * VoiceCapabilitiesPayload
+         * @description What the configured provider can do.
+         *
+         *     The interface renders from these. Everything absent means the control is not drawn at all —
+         *     not disabled, not labelled as unavailable — because a control that cannot work teaches
+         *     people to distrust the ones that can.
+         */
+        VoiceCapabilitiesPayload: {
+            /** Builtin Voices */
+            builtin_voices: boolean;
+            /** Cloning */
+            cloning: boolean;
+            /** Custom Voice */
+            custom_voice: boolean;
+            /** Local Inference */
+            local_inference: boolean;
+            /** Preview */
+            preview: boolean;
+            /** Realtime Streaming */
+            realtime_streaming: boolean;
+        };
+        /**
+         * VoiceCatalogueResponse
+         * @description Everything a client needs to draw the voice screen.
+         */
+        VoiceCatalogueResponse: {
+            capabilities: components["schemas"]["VoiceCapabilitiesPayload"];
+            /** Default Voice Id */
+            default_voice_id: string;
+            /** Provider */
+            provider: string;
+            /** Voices */
+            voices: components["schemas"]["VoicePayload"][];
+        };
+        /**
+         * VoicePayload
+         * @description One voice, and whether this one in particular can be heard.
+         *
+         *     Per voice rather than per provider: a provider holding a sample for one voice and not
+         *     another declares the capability and can still serve only the one, and a client drawing a
+         *     control from the capability alone draws two that fail.
+         */
+        VoicePayload: {
+            /** Id */
+            id: string;
+            /** Locales */
+            locales: string[];
+            /** Name */
+            name: string;
+            /** Previewable */
+            previewable: boolean;
+        };
+        /**
+         * VoiceSelectionResponse
+         * @description What the user has chosen, and what a call would actually use.
+         *
+         *     `resolved_voice_id` is the answer the fallback chain gives right now — the cloned voice if
+         *     it is still available, otherwise the chosen one, otherwise the provider's default. It is
+         *     returned alongside the choice because those differ exactly when something has gone wrong
+         *     with a voice, and that is the moment a user should be able to see it.
+         */
+        VoiceSelectionResponse: {
+            /** Cloned Voice Id */
+            cloned_voice_id: string | null;
+            /** Persona Voice Id */
+            persona_voice_id: string | null;
+            /** Resolved Voice Id */
+            resolved_voice_id: string;
+        };
+        /**
+         * VoiceSelectionUpdate
+         * @description A change to the chosen voice.
+         *
+         *     The field is required and may be `null`, and the difference from optional is the point.
+         *     `null` clears the choice and returns to the provider's default, which somebody must be able
+         *     to do; a request that simply left the field out would otherwise mean the same thing, and a
+         *     client reading the schema could not tell "clear it" from "I forgot to send it".
+         */
+        VoiceSelectionUpdate: {
+            /** Persona Voice Id */
+            persona_voice_id: string | null;
         };
     };
     responses: never;
@@ -915,6 +1053,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_selection_v1_preferences_voice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceSelectionResponse"];
+                };
+            };
+        };
+    };
+    choose_voice_v1_preferences_voice_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceSelectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceSelectionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_catalogue_v1_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCatalogueResponse"];
                 };
             };
         };

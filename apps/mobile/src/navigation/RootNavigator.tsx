@@ -17,6 +17,7 @@ import { SettingsSectionScreen } from '../screens/SettingsSectionScreen';
 import { VerifyCodeScreen } from '../screens/VerifyCodeScreen';
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { theme } from '../theme';
+import { VoiceScreen } from '../voice/VoiceScreen';
 import {
   APP_ROUTES,
   AUTH_ROUTES,
@@ -173,6 +174,9 @@ function SignedIn(): React.JSX.Element {
             onOpenSection={section => {
               navigation.navigate(APP_ROUTES.settingsSection, { section });
             }}
+            onOpenVoice={() => {
+              navigation.navigate(APP_ROUTES.voice);
+            }}
           />
         )}
       </AppStack.Screen>
@@ -181,6 +185,7 @@ function SignedIn(): React.JSX.Element {
           <SettingsSectionScreen section={route.params.section} />
         )}
       </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.voice} component={VoiceScreen} />
     </AppStack.Navigator>
   );
 }

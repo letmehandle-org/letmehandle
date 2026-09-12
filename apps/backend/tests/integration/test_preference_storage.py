@@ -42,6 +42,7 @@ from letmehandle.domain.models.preferences import (
     Verbosity,
 )
 from letmehandle.domain.models.user import User
+from letmehandle.domain.models.voice import VoiceSelection
 from tests.contracts.fakes import FixedClock
 
 if TYPE_CHECKING:
@@ -84,6 +85,7 @@ def everything() -> UserPreferences:
                 number=ANOTHER, label="The school", posture=HandlingPosture.HANDLE_WITH_AGENT
             ),
         ),
+        voice=VoiceSelection(cloned_voice_id="a-clone", persona_voice_id="ava"),
         rules=CallRules(
             default_posture=HandlingPosture.REJECT,
             anonymous_posture=HandlingPosture.PASS_THROUGH,
@@ -119,6 +121,17 @@ class TestMapping:
         assert read.formality is Formality.NEUTRAL
         assert read.notifications == NotificationPreferences()
         assert read.rules.escalate_at_or_above is CallImportance.NOTABLE
+        # Written before voices existed, so nothing was chosen — which resolves to the
+        # provider's default rather than to a call with no voice at all.
+        assert read.voice == VoiceSelection()
+
+    def test_a_voice_stored_as_something_other_than_a_name_reads_as_no_choice(self) -> None:
+        # Not corruption worth refusing a sign-in over: an unusable identifier resolves to the
+        # default, which is a call that sounds wrong rather than one that does not happen.
+        document = preferences_to_document(everything())
+        document["voice"] = {"cloned": 7, "persona": "   "}
+
+        assert document_to_preferences(document).voice == VoiceSelection()
 
     def test_an_unrecognised_value_is_dropped_rather_than_fatal(self) -> None:
         # Written by a newer deployment. Refusing to load somebody's settings over a field they
@@ -142,6 +155,18 @@ class TestMapping:
 
     def test_the_version_is_recorded(self) -> None:
         assert preferences_to_document(everything())["version"] == PREFERENCES_VERSION
+
+    def test_a_document_read_at_an_older_version_is_written_back_at_this_one(self) -> None:
+        # The field describes the shape of the document, not where the row came from. A row
+        # that gained a version-2 field while still labelled 1 is a row no later migration can
+        # reason about: it cannot tell a value the user chose from one that did not exist when
+        # they answered.
+        older = preferences_to_document(everything())
+        older["version"] = 1
+
+        rewritten = preferences_to_document(document_to_preferences(older))
+
+        assert rewritten["version"] == PREFERENCES_VERSION
 
 
 class TestPreferencesRepository:

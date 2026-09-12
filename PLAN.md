@@ -23,8 +23,8 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 1 | Domain model and core contracts | **complete** |
 | 2 | Authentication and user foundation | **complete** |
 | 3 | Onboarding and preferences | **complete** |
-| 4 | Voice configuration | next |
-| 5 | Realtime speech foundation | not started |
+| 4 | Voice configuration | **complete** |
+| 5 | Realtime speech foundation | next |
 | 6 | Agent and decision-making | not started |
 | 7 | Call transport | not started |
 | 8 | Call orchestration | not started |

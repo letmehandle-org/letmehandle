@@ -19,7 +19,7 @@ from letmehandle.domain.ports.notification import (
     EscalationNotification,
 )
 from letmehandle.domain.ports.speech import SpeechCapabilities, TranscriptProduced
-from letmehandle.domain.ports.voice import Voice
+from letmehandle.domain.ports.voice import Voice, VoiceSample
 
 
 class TestTransportCapabilities:
@@ -134,3 +134,15 @@ class TestVoiceValues:
         assert voice.speaks("en-GB")
         assert not voice.speaks("fr")
         assert not voice.speaks("english")
+
+    def test_a_sample_with_no_audio_is_refused(self) -> None:
+        # A preview control that plays nothing is worse than no control: it reads as the
+        # product being broken rather than as a feature this deployment does not have.
+        with pytest.raises(InvariantError, match="silence"):
+            VoiceSample(audio=b"", media_type="audio/mpeg")
+
+    def test_a_sample_must_say_what_format_it_is_in(self) -> None:
+        # A caller that has to guess gets it wrong the first time a provider returns anything
+        # other than the format that was assumed, and the symptom is silence again.
+        with pytest.raises(InvariantError, match="what format"):
+            VoiceSample(audio=b"audio", media_type="  ")

@@ -15,12 +15,15 @@ from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
-from letmehandle.bootstrap import build_container
+from letmehandle.api.voices import build_voice_router
+from letmehandle.bootstrap import build_container, build_voice_provider
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from letmehandle.domain.ports.voice import VoiceProvider
 
 logger = get_logger(__name__)
 
@@ -44,13 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # Built once, at startup, so that a misconfiguration is a process that does not start
         # rather than a request that fails in front of somebody.
-        app.state.container = build_container(settings)
+        app.state.container = build_container(settings, voices=app.state.voices)
 
         logger.info(
             "startup",
             environment=settings.app_env.value,
             version=__version__,
             otp_provider=app.state.container.otp.name,
+            voice_provider=app.state.voices.name,
         )
         yield
     finally:
@@ -62,15 +66,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("shutdown")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None = None) -> FastAPI:
     """Build the application.
 
     Settings are a parameter so that a test can build an app with a configuration of its own
     without reaching into a global. Production passes nothing and gets the validated
     environment.
+
+    The voice provider is a parameter for the same reason and one more: which routes exist
+    depends on what it can do, and there is no configuration that selects a second provider
+    yet — so a test of that behaviour has no other way in.
     """
     resolved = settings or get_settings()
     configure_logging(resolved)
+
+    # Chosen here rather than at startup because the routes below are decided from what it
+    # can do, and routing is settled before the application ever runs. The container is handed
+    # this same instance, so nothing can answer the question twice and differently.
+    chosen_voices = voices or build_voice_provider(resolved)
 
     app = FastAPI(
         title="LetMeHandle",
@@ -86,12 +99,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = None
     app.state.session_factory = None
     app.state.container = None
+    app.state.voices = chosen_voices
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(preferences_router)
+    app.include_router(build_voice_router(chosen_voices))
     return app
 
 

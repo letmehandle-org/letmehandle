@@ -22,6 +22,7 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
+from letmehandle.adapters.voice.builtin import built_in_voice_provider
 from letmehandle.config.settings import OTPProviderName, Settings
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+    from letmehandle.domain.ports.voice import VoiceProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,12 +50,19 @@ class Container:
     token_hasher: SecretHasher
     signer: TokenSigner
     otp: OTPProvider
+    voices: VoiceProvider
     rate_limiter: RateLimiter
     refresh_token_lifetime: timedelta
 
 
-def build_container(settings: Settings) -> Container:
-    """Choose the implementations for this configuration."""
+def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
+    """Choose the implementations for this configuration.
+
+    The voice provider is passed in rather than chosen here because it is needed earlier
+    than the rest: which routes the application has depends on what it can do, and routing
+    is settled before anything starts. Handing the same instance on is what stops a second
+    one being built that could answer differently.
+    """
     clock = SystemClock()
     signing_key = settings.require_signing_key()
 
@@ -69,9 +78,21 @@ def build_container(settings: Settings) -> Container:
             clock=clock,
         ),
         otp=_build_otp_provider(settings),
+        voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
         refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
     )
+
+
+def build_voice_provider(settings: Settings) -> VoiceProvider:
+    """Which voices this deployment offers.
+
+    Takes the settings it does not yet read, because the day a second provider exists the
+    choice belongs here — and a function that has to grow an argument first is a function
+    every caller has to be found and changed.
+    """
+    del settings
+    return built_in_voice_provider()
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:
