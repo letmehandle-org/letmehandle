@@ -25,7 +25,7 @@ from letmehandle.api.preference_schemas import (
     PersonalityPayload,
     PreferencesResponse,
     PreferencesUpdate,
-    PrivacyPayload,
+    PrivacyResponse,
     TimeWindowPayload,
 )
 from letmehandle.application.preferences.service import (
@@ -253,7 +253,7 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
             topics=sorted(topic.name for topic in preferences.topics),
             disclosable_facts=sorted(fact.text for fact in preferences.disclosable_facts),
         ),
-        privacy=PrivacyPayload(transcript_retention_days=preferences.transcript_retention_days),
+        privacy=PrivacyResponse(transcript_retention_days=preferences.transcript_retention_days),
     )
 
 

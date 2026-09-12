@@ -30,6 +30,7 @@ from letmehandle.application.retention.purge import (
     PURGE_DELETED,
     PURGE_RUNS,
     PURGE_SKIPPED,
+    PURGE_USER_SKIPPED,
     PURGE_USERS,
     PurgeResult,
 )
@@ -380,6 +381,30 @@ class TestObservability:
         assert (result.users_skipped, result.entries_deleted) == (1, 1)
         assert not result.is_complete
         assert metrics.counted(PURGE_RUNS, outcome="incomplete") == 1
+
+    async def test_a_retention_above_this_version_s_ceiling_skips_that_user(
+        self, engine: AsyncEngine
+    ) -> None:
+        world = World(engine)
+        await world.user(ALICE, retention_days=7)
+        await world.user(BOB, retention_days=7)
+        await world.call(ALICE, "call-alice", [ago(100)])
+        await world.call(BOB, "call-bob", [ago(100)])
+        async with unit_of_work(world.factory) as session:
+            await session.execute(
+                text(
+                    "UPDATE user_preferences SET document = jsonb_set(document, "
+                    "'{transcript_retention_days}', '365') WHERE user_id = 'alice'"
+                )
+            )
+        metrics = RecordingMetrics()
+
+        result = await purge(engine, metrics=metrics)
+
+        assert await world.remaining(ALICE, "call-alice") == [ago(100)]
+        assert await world.remaining(BOB, "call-bob") == []
+        assert (result.users_skipped, result.entries_deleted) == (1, 1)
+        assert metrics.counted(PURGE_USER_SKIPPED, kind="retention_beyond_ceiling") == 1
 
     @pytest.mark.parametrize(
         "corruption",

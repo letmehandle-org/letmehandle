@@ -127,6 +127,16 @@ class PrivacyPayload(Request):
     ] = TRANSCRIPT_RETENTION_DEFAULT_DAYS
 
 
+class PrivacyResponse(Response):
+    """What is kept, and for how long, as stored.
+
+    Unbounded above, unlike the request: a deployment with a higher ceiling may have stored a
+    longer retention, and it is reported as it is rather than refused or quietly lowered.
+    """
+
+    transcript_retention_days: int
+
+
 class PreferencesResponse(Response):
     """Everything, as it stands."""
 
@@ -138,7 +148,7 @@ class PreferencesResponse(Response):
     authority: AuthorityPayload
     notifications: NotificationsPayload
     personality: PersonalityPayload
-    privacy: PrivacyPayload
+    privacy: PrivacyResponse
 
 
 class PreferencesUpdate(Request):

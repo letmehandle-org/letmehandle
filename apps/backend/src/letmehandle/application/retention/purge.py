@@ -153,8 +153,14 @@ class TranscriptPurge:
             # about one user, such as the database going away, fails the next statement anyway.
             self._skip(counts, kind="unreadable_preferences")
             return
-        retention = (stored or UserPreferences()).transcript_retention_days
-        cutoff = now - timedelta(days=retention)
+        preferences = stored or UserPreferences()
+        if preferences.retention_exceeds_ceiling:
+            # Chosen under a deployment with a higher ceiling. Purging at this version's ceiling
+            # would delete earlier than the user chose, which cannot be undone; keeping them
+            # until a deployment that honours the setting runs can be.
+            self._skip(counts, kind="retention_beyond_ceiling")
+            return
+        cutoff = now - timedelta(days=preferences.transcript_retention_days)
         while True:
             async with self._open_scope() as scope:
                 deleted = await scope.retention.delete_expired(

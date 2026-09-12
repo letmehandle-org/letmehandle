@@ -25,6 +25,7 @@ from letmehandle.domain.models.preferences import (
     TimeWindow,
     Topic,
     UserPreferences,
+    check_retention_choice,
 )
 
 NUMBER = PhoneNumber.parse("+12025550143")
@@ -363,9 +364,22 @@ class TestTranscriptRetention:
     def test_the_floor_and_the_ceiling_are_both_allowed(self, days: int) -> None:
         assert UserPreferences(transcript_retention_days=days).transcript_retention_days == days
 
+    def test_below_the_floor_is_refused(self) -> None:
+        with pytest.raises(InvariantError, match="at least"):
+            UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_FLOOR_DAYS - 1)
+
+    def test_above_the_ceiling_is_held_and_says_so(self) -> None:
+        # Stored by a deployment with a higher ceiling: kept as it is, and marked as more than
+        # this version can honour, so nothing here deletes earlier than the user chose.
+        longer = UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_CEILING_DAYS + 1)
+        assert longer.retention_exceeds_ceiling
+        assert not UserPreferences(
+            transcript_retention_days=TRANSCRIPT_RETENTION_CEILING_DAYS
+        ).retention_exceeds_ceiling
+
     @pytest.mark.parametrize(
         "days", [TRANSCRIPT_RETENTION_FLOOR_DAYS - 1, TRANSCRIPT_RETENTION_CEILING_DAYS + 1]
     )
-    def test_beyond_either_is_refused(self, days: int) -> None:
+    def test_choosing_beyond_either_is_refused(self, days: int) -> None:
         with pytest.raises(InvariantError, match="kept for between"):
-            UserPreferences(transcript_retention_days=days)
+            check_retention_choice(days)

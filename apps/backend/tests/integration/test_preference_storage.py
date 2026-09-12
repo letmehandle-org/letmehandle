@@ -132,15 +132,23 @@ class TestMapping:
         document["version"] = 2
         assert document_to_preferences(document).transcript_retention_days == 7
 
-    @pytest.mark.parametrize(("stored", "read"), [(0, 1), (-5, 1), (365, 90), (45, 45)])
-    def test_a_retention_outside_today_s_bounds_is_brought_inside_them(
-        self, stored: int, read: int
-    ) -> None:
-        # Written by a deployment with other bounds. The nearest permitted value, rather than
-        # locking somebody out of every other setting over this one.
+    @pytest.mark.parametrize(("stored", "read"), [(0, 1), (-5, 1), (45, 45)])
+    def test_a_retention_below_the_floor_is_raised_to_it(self, stored: int, read: int) -> None:
+        # Keeping a transcript a little longer is the recoverable direction.
         document = preferences_to_document(everything())
         document["transcript_retention_days"] = stored
         assert document_to_preferences(document).transcript_retention_days == read
+
+    def test_a_retention_above_the_ceiling_is_kept_as_stored(self) -> None:
+        # Written by a deployment with a higher ceiling. Reading it as this version's ceiling
+        # would delete transcripts earlier than the user chose, which cannot be undone.
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = 365
+
+        read = document_to_preferences(document)
+
+        assert read.transcript_retention_days == 365
+        assert preferences_to_document(read)["transcript_retention_days"] == 365
 
     @pytest.mark.parametrize("stored", ["7", 7.5, True, {"days": 7}])
     def test_a_retention_that_is_not_a_whole_number_is_corruption(self, stored: object) -> None:

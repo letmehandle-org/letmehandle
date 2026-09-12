@@ -22,7 +22,6 @@ from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingS
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
-    TRANSCRIPT_RETENTION_CEILING_DAYS,
     TRANSCRIPT_RETENTION_DEFAULT_DAYS,
     TRANSCRIPT_RETENTION_FLOOR_DAYS,
     CallRules,
@@ -314,20 +313,22 @@ def _optional_text(value: object) -> str | None:
 
 
 def _retention_days(raw: object) -> int:
-    """How long this user keeps transcripts, as far as this version can honour it.
+    """How long this user keeps transcripts, as stored.
 
-    Absent — a document from before retention was a setting — is the default. A whole number
-    outside today's bounds was written by a deployment with other bounds, and is brought inside
-    them rather than refused: the nearest permitted value is what the user would have been told
-    they could have, and refusing would lock them out of every other setting over this one.
-    Anything that is not a whole number is corruption and raises, because a retention silently
-    reset is a transcript kept for a length of time nobody chose.
+    Absent — a document from before retention was a setting — is the default. Below the floor
+    is raised to it: keeping a transcript a day longer is recoverable, and refusing would lock
+    somebody out of every other setting over this one. Above the ceiling is kept exactly as
+    stored, never lowered: a deployment with a higher ceiling wrote it, and reading it as this
+    version's ceiling would purge transcripts earlier than the user chose and write the lower
+    number back on the next unrelated save. Anything that is not a whole number is corruption
+    and raises, because a retention silently reset is a transcript kept for a length of time
+    nobody chose.
     """
     if raw is None:
         return TRANSCRIPT_RETENTION_DEFAULT_DAYS
     if not isinstance(raw, int) or isinstance(raw, bool):
         raise InvariantError("a stored transcript retention is not a whole number of days")
-    return max(TRANSCRIPT_RETENTION_FLOOR_DAYS, min(TRANSCRIPT_RETENTION_CEILING_DAYS, raw))
+    return max(TRANSCRIPT_RETENTION_FLOOR_DAYS, raw)
 
 
 def _notifications_from_document(document: dict[str, Any]) -> NotificationPreferences:

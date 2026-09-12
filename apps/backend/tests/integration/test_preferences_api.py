@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from sqlalchemy import text
 
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
 
@@ -517,6 +518,28 @@ class TestTranscriptRetention:
         await patch(api, tokens, {"privacy": {"transcript_retention_days": 1}})
         await patch(api, tokens, {"locale": "en-GB"})
         assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 1
+
+    async def test_a_longer_retention_from_a_newer_deployment_survives_an_unrelated_change(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+        async with api.app.state.engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE user_preferences SET document = "
+                    "jsonb_set(document, '{transcript_retention_days}', '365')"
+                )
+            )
+
+        await patch(api, tokens, {"locale": "en-GB"})
+
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 365
+        async with api.app.state.engine.connect() as connection:
+            stored = await connection.execute(
+                text("SELECT document->'transcript_retention_days' FROM user_preferences")
+            )
+            assert stored.scalar_one() == 365
 
     @pytest.mark.parametrize("days", [1, 90])
     async def test_the_floor_and_ceiling_are_accepted(self, api: Api, days: int) -> None:

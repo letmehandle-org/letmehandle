@@ -19,6 +19,7 @@ from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
     UserPreferences,
+    check_retention_choice,
 )
 from letmehandle.domain.models.voice import VoiceSelection
 
@@ -105,6 +106,11 @@ class PreferenceChanges:
     disclosable_facts: frozenset[DisclosableFact] | None = None
     important_contacts: tuple[ImportantContact, ...] | None = None
     transcript_retention_days: int | None = None
+
+    def __post_init__(self) -> None:
+        # A stored set may hold more than the ceiling; a change may not ask for it.
+        if self.transcript_retention_days is not None:
+            check_retention_choice(self.transcript_retention_days)
 
     @property
     def is_empty(self) -> bool:

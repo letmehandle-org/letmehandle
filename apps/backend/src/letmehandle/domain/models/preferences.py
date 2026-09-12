@@ -55,9 +55,24 @@ PREFERENCES_VERSION: Final = 3
 # The ceiling is ninety days. The summary is what outlives a call; a transcript kept past a
 # quarter has no use left that the summary does not serve, and is only a larger thing to lose.
 # It also bounds how long a retired encryption key must be kept for transcripts sealed under it.
+#
+# The ceiling bounds what somebody can choose here, not what a stored set may hold. A deployment
+# with a higher ceiling may have written a longer retention, and reading it as ninety would have
+# this version delete transcripts earlier than the user chose — the one direction that cannot be
+# undone. Such a set is held as stored and marked as beyond what this version honours.
 TRANSCRIPT_RETENTION_DEFAULT_DAYS: Final = 7
 TRANSCRIPT_RETENTION_FLOOR_DAYS: Final = 1
 TRANSCRIPT_RETENTION_CEILING_DAYS: Final = 90
+
+
+def check_retention_choice(days: int) -> int:
+    """A retention somebody is choosing now: between the floor and the ceiling, or refused."""
+    if not TRANSCRIPT_RETENTION_FLOOR_DAYS <= days <= TRANSCRIPT_RETENTION_CEILING_DAYS:
+        raise InvariantError(
+            f"transcripts are kept for between {TRANSCRIPT_RETENTION_FLOOR_DAYS} and "
+            f"{TRANSCRIPT_RETENTION_CEILING_DAYS} days"
+        )
+    return days
 
 
 class HandlingPosture(StrEnum):
@@ -337,7 +352,8 @@ class UserPreferences:
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
     disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
-    # Whole days, between the floor and the ceiling above.
+    # Whole days, at least the floor above. Beyond the ceiling only when a deployment with a
+    # higher one stored it; see `retention_exceeds_ceiling`.
     transcript_retention_days: int = TRANSCRIPT_RETENTION_DEFAULT_DAYS
     version: int = PREFERENCES_VERSION
 
@@ -350,14 +366,9 @@ class UserPreferences:
             raise InvariantError("a locale is required; the agent's language is configuration")
         if self.version < 1:
             raise InvariantError("preferences are written in a version, and versions start at 1")
-        if not (
-            TRANSCRIPT_RETENTION_FLOOR_DAYS
-            <= self.transcript_retention_days
-            <= TRANSCRIPT_RETENTION_CEILING_DAYS
-        ):
+        if self.transcript_retention_days < TRANSCRIPT_RETENTION_FLOOR_DAYS:
             raise InvariantError(
-                f"transcripts are kept for between {TRANSCRIPT_RETENTION_FLOOR_DAYS} and "
-                f"{TRANSCRIPT_RETENTION_CEILING_DAYS} days"
+                f"transcripts are kept for at least {TRANSCRIPT_RETENTION_FLOOR_DAYS} day"
             )
         if len(self.important_contacts) > self.MAX_CONTACTS:
             raise InvariantError(
@@ -379,6 +390,15 @@ class UserPreferences:
                 "one number appears twice in the important contacts, so which rule applies "
                 "would depend on which entry is read first"
             )
+
+    @property
+    def retention_exceeds_ceiling(self) -> bool:
+        """Whether this set keeps transcripts for longer than this version lets anyone choose.
+
+        True only of a set a deployment with a higher ceiling stored. Nothing here may purge on
+        its behalf: honouring it is beyond this version, and the alternative is deleting early.
+        """
+        return self.transcript_retention_days > TRANSCRIPT_RETENTION_CEILING_DAYS
 
     def contact_for(self, number: PhoneNumber) -> ImportantContact | None:
         """The user's own entry for this number, if they have one."""
