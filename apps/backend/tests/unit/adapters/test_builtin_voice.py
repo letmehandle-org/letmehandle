@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from letmehandle.adapters.voice.builtin import (
-    SHIPPED_DEFAULT_VOICE_ID,
-    SHIPPED_VOICES,
-    BuiltInVoiceProvider,
-    built_in_voice_provider,
-)
+from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
+from letmehandle.bootstrap import build_voice_provider
 from letmehandle.domain.errors import (
     CapabilityNotSupportedError,
     InvariantError,
     ProviderError,
 )
 from letmehandle.domain.ports.voice import Voice, VoiceSample
+from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES, make_settings
 
 CALM = Voice(id="calm", name="Calm", locales=("en",))
 BRIGHT = Voice(id="bright", name="Bright", locales=("en", "fr"))
@@ -124,9 +121,9 @@ async def test_a_catalogue_voice_with_no_sample_says_so() -> None:
     assert not raised.value.retryable
 
 
-async def test_the_shipped_catalogue_speaks_english_and_declares_no_preview() -> None:
-    provider = built_in_voice_provider()
-    assert provider.default_voice_id == SHIPPED_DEFAULT_VOICE_ID
-    assert await provider.list_voices("en") == SHIPPED_VOICES
-    # No speech model ships in this phase, so there is nothing to synthesise a preview with.
+async def test_the_application_offers_the_configured_catalogue_and_declares_no_preview() -> None:
+    provider = build_voice_provider(make_settings())
+    assert provider.default_voice_id == EXAMPLE_DEFAULT_VOICE
+    assert await provider.list_voices() == EXAMPLE_VOICES
+    # Configuration names voices and no sample audio, so there is nothing to play as a preview.
     assert not provider.capabilities.preview

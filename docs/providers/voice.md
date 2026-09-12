@@ -27,7 +27,7 @@ Capabilities decide the API surface, not only the interface — see D-024. A pro
 not declare `preview` leaves the application with no preview route at all, so the path is absent
 from the OpenAPI schema and from the generated client.
 
-## What the shipped provider declares
+## What the built-in provider declares
 
 `BuiltInVoiceProvider` is a catalogue supplied through its constructor, with a default. It
 declares `builtin_voices`, and `preview` only when it was given sample audio.
@@ -36,9 +36,17 @@ declares `builtin_voices`, and `preview` only when it was given sample audio.
 can train a voice, and a `true` there renders a training flow in front of somebody it will fail
 for — which is the outcome D-009 exists to prevent.
 
-The application ships it with no samples, because there is nothing to synthesise them with until
-a speech provider exists. So the first release has a catalogue, a default and no preview control
-anywhere. That is the capability model working rather than a gap in it.
+The project ships no catalogue of its own. A compatible speech service decides which voices exist
+(D-008), so the application builds the provider from configuration: `SPEECH_VOICES` lists the
+voices as `id:Display name:locale|locale`, comma-separated, and `SPEECH_DEFAULT_VOICE` names one of
+them. Both are required — the process refuses to start without them, naming the variable — and a
+malformed entry, a repeated id or a default outside the list is refused the same way.
+`.env.example`, the development compose file and the test settings carry example values that say
+they are examples, so that the application starts; no service speaks them.
+
+Configuration names no sample audio, so the application builds the provider without any. It
+therefore offers a catalogue, a default and no preview control anywhere. That is the capability
+model working rather than a gap in it.
 
 ## Resolution
 

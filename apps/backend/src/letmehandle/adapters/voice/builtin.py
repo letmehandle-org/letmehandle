@@ -1,8 +1,8 @@
 """A fixed catalogue of voices, and nothing it cannot back up.
 
-The catalogue arrives through the constructor rather than being written into the class, so a
-deployment that has licensed different voices changes a configuration value instead of this
-file. `SHIPPED_VOICES` is what the application builds when it has been told nothing.
+The catalogue arrives through the constructor rather than being written into the class. The
+voices are the speech service's, not this project's: a compatible server decides which it can
+speak, so the list is configuration and this file holds none of its own.
 
 The declaration is the part that matters. Cloning and custom voices are false permanently, not
 pending: nothing in this project can train a voice, and a true there renders a training flow in
@@ -14,7 +14,7 @@ nothing to play is a button that produces silence.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from letmehandle.domain.errors import (
     CapabilityNotSupportedError,
@@ -30,17 +30,6 @@ from letmehandle.domain.ports.voice import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-
-# The voices every installation gets. Small on purpose: each one is a licence and an asset, and
-# a catalogue listing voices the deployment does not hold is a selection screen that ends in a
-# call nobody can hear. English only, which is what the first release supports.
-SHIPPED_VOICES: Final[tuple[Voice, ...]] = (
-    Voice(id="ava", name="Ava", locales=("en",)),
-    Voice(id="noah", name="Noah", locales=("en",)),
-    Voice(id="iris", name="Iris", locales=("en",)),
-)
-
-SHIPPED_DEFAULT_VOICE_ID: Final = "ava"
 
 
 class BuiltInVoiceProvider(VoiceProvider):
@@ -141,12 +130,3 @@ class BuiltInVoiceProvider(VoiceProvider):
             raise ProviderError(
                 self.name, f"no sample audio for voice {voice_id!r}", retryable=False
             ) from None
-
-
-def built_in_voice_provider() -> BuiltInVoiceProvider:
-    """The provider the application builds when nothing has been configured.
-
-    A function rather than an instance so the catalogue and its default are paired in one place;
-    two constants exported separately eventually get combined wrongly.
-    """
-    return BuiltInVoiceProvider(SHIPPED_VOICES, default_voice_id=SHIPPED_DEFAULT_VOICE_ID)

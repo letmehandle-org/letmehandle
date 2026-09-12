@@ -22,7 +22,7 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
-from letmehandle.adapters.voice.builtin import built_in_voice_provider
+from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.config.settings import OTPProviderName, Settings
 
 if TYPE_CHECKING:
@@ -85,14 +85,14 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
-    """Which voices this deployment offers.
+    """Which voices this deployment offers: the catalogue its speech service speaks.
 
-    Takes the settings it does not yet read, because the day a second provider exists the
-    choice belongs here — and a function that has to grow an argument first is a function
-    every caller has to be found and changed.
+    Read from configuration rather than written anywhere in code, because the service decides
+    which voices exist and a list of its own here would offer voices it cannot speak.
     """
-    del settings
-    return built_in_voice_provider()
+    return BuiltInVoiceProvider(
+        settings.speech_voices, default_voice_id=settings.speech_default_voice
+    )
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:
