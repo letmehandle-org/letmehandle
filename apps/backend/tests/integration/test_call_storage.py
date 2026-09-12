@@ -576,6 +576,36 @@ class TestSummaries:
         await assert_nowhere_in(session, "call_summaries", 1, SECRET_EVIDENCE)
         await assert_nowhere_in(session, "call_summaries", 1, "where to leave a parcel")
 
+    @pytest.mark.parametrize(
+        "change",
+        [
+            "intent = 'enquiry'",
+            "importance = importance - 1",
+            "outcome = 'resolved_by_agent'",
+            "escalation_reason = NULL",
+            "started_at = started_at - interval '1 second'",
+            "ended_at = ended_at + interval '1 second'",
+            "human_joined_at = NULL",
+            "human_joined_at = human_joined_at + interval '1 microsecond'",
+        ],
+    )
+    async def test_a_summary_with_any_column_changed_no_longer_opens(
+        self,
+        session: AsyncSession,
+        calls: SqlCallRepository,
+        summaries: SqlSummaryRepository,
+        change: str,
+    ) -> None:
+        # Each of these is what the summary says happened: an urgent call made routine, or an
+        # escalation erased, is as much a forgery as a changed headline.
+        await users(session)
+        await calls.save(a_call(state=CallState.COMPLETED))
+        await summaries.add(ME, a_summary())
+        await session.execute(text(f"UPDATE call_summaries SET {change}"))  # noqa: S608
+
+        with pytest.raises(DecryptionError):
+            await summaries.get(ME, CallId("call-1"))
+
     async def test_a_summary_moved_onto_another_user_no_longer_opens(
         self, session: AsyncSession, calls: SqlCallRepository, summaries: SqlSummaryRepository
     ) -> None:

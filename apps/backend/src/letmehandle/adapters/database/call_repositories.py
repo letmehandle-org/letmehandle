@@ -224,13 +224,17 @@ def _transcript_context(
     The speaker and the moment as well as the owner and the call: a row whose speaker column is
     changed — so that the caller's "yes" becomes the assistant's — no longer opens.
     """
-    if said_at.tzinfo is None:
+    return ("transcript", user_id, call_id, speaker, _moment(said_at))
+
+
+def _moment(instant: datetime) -> str:
+    """An instant as bound into a context: the same text for the same instant in any zone."""
+    if instant.tzinfo is None:
         raise InvariantError(
-            "a transcript entry needs a timezone-aware time; a naive one means whatever the "
+            "a sealed record needs a timezone-aware time; a naive one means whatever the "
             "server is set to, and would not open again after a move between regions"
         )
-    moment = said_at.astimezone(UTC).isoformat(timespec="microseconds")
-    return ("transcript", user_id, call_id, speaker, moment)
+    return instant.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 class SqlTranscriptRepository(TranscriptRepository):
@@ -338,6 +342,39 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
         return _affected(result)
 
 
+def _summary_context(
+    user_id: str,
+    call_id: str,
+    *,
+    outcome: str,
+    intent: str,
+    importance: int,
+    escalation_reason: str | None,
+    started_at: datetime,
+    ended_at: datetime,
+    human_joined_at: datetime | None,
+) -> tuple[str, ...]:
+    """What a summary's ciphertext is bound to: its owner, its call, and every readable column.
+
+    The columns are what the summary says happened, kept readable only so history can filter on
+    them. Bound here, a row changed to make an urgent call routine, to erase an escalation or to
+    move when somebody joined no longer opens. An absent value is the empty string, which no
+    present one can be.
+    """
+    return (
+        "summary",
+        user_id,
+        call_id,
+        outcome,
+        intent,
+        str(importance),
+        escalation_reason or "",
+        _moment(started_at),
+        _moment(ended_at),
+        "" if human_joined_at is None else _moment(human_joined_at),
+    )
+
+
 def _summary_to_document(summary: CallSummary) -> dict[str, Any]:
     caller = summary.caller
     return {
@@ -360,24 +397,27 @@ class SqlSummaryRepository(SummaryRepository):
         call_id = summary.call_id
         if not await _owns_call(self._session, user_id, call_id):
             raise RecordNotFoundError("call", call_id.value)
+        columns: dict[str, Any] = {
+            "outcome": summary.outcome.value,
+            "intent": summary.intent.value,
+            "importance": int(summary.importance),
+            "escalation_reason": (
+                None if summary.escalation_reason is None else summary.escalation_reason.value
+            ),
+            "started_at": summary.started_at,
+            "ended_at": summary.ended_at,
+            "human_joined_at": summary.human_joined_at,
+        }
         sealed = self._cipher.seal(
             json.dumps(_summary_to_document(summary)).encode(),
-            ("summary", user_id.value, call_id.value),
+            _summary_context(user_id.value, call_id.value, **columns),
         )
         result = await self._session.execute(
             insert(CallSummaryRow)
             .values(
                 call_id=call_id.value,
                 user_id=user_id.value,
-                outcome=summary.outcome.value,
-                intent=summary.intent.value,
-                importance=int(summary.importance),
-                escalation_reason=(
-                    None if summary.escalation_reason is None else summary.escalation_reason.value
-                ),
-                started_at=summary.started_at,
-                ended_at=summary.ended_at,
-                human_joined_at=summary.human_joined_at,
+                **columns,
                 key_id=sealed.key_id,
                 ciphertext=sealed.ciphertext,
                 created_at=self._clock.now(),
@@ -400,7 +440,18 @@ class SqlSummaryRepository(SummaryRepository):
             return None
         document = json.loads(
             self._cipher.open(
-                SealedBytes(row.key_id, row.ciphertext), ("summary", row.user_id, row.call_id)
+                SealedBytes(row.key_id, row.ciphertext),
+                _summary_context(
+                    row.user_id,
+                    row.call_id,
+                    outcome=row.outcome,
+                    intent=row.intent,
+                    importance=row.importance,
+                    escalation_reason=row.escalation_reason,
+                    started_at=row.started_at,
+                    ended_at=row.ended_at,
+                    human_joined_at=row.human_joined_at,
+                ),
             )
         )
         caller = document["caller"]
