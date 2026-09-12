@@ -50,7 +50,9 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
 
 1. A call arrives. The number's voice webhook answers it straight into a conference of its own:
    no beep, a silent wait, the smallest jitter buffer, never recorded, and the conference ends when
-   the caller leaves. The caller's leg is never touched again.
+   the caller leaves. The caller's leg is never touched again. The dial's action,
+   `/telephony/voice/caller-left`, is requested on the caller's own leg when their time in the
+   conference is over, so the call ends even when every conference callback saying so is lost.
 2. `answer` dials the assistant into the conference as a participant whose destination is a
    provider-side application. On this transport that is what answering under program control
    means: the caller was answered on arrival, and answering puts the assistant on the call. The application's voice webhook returns a bidirectional stream to

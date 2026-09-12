@@ -33,6 +33,7 @@ from letmehandle.adapters.transport.twilio.signature import (
 from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import (
     ASSISTANT_PATH,
+    CALLER_PATH,
     CONFERENCE_PATH,
     INCOMING_PATH,
     LEG_PATH,
@@ -120,6 +121,16 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             }
             return _twiml(transport.assistant_joining(identifiers, params.require("CallSid")))
 
+        return await handle(request, respond, skip_repeats=False)
+
+    @router.post(CALLER_PATH)
+    async def caller(request: Request) -> Response:
+        def respond(params: Parameters, query: dict[str, str]) -> Response:
+            return _twiml(
+                transport.caller_left(query.get(CALL_PARAMETER), params.require("CallSid"))
+            )
+
+        # Instructions are owed on every delivery; ending a call twice is inert.
         return await handle(request, respond, skip_repeats=False)
 
     @router.post(CONFERENCE_PATH)

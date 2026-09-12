@@ -400,6 +400,24 @@ async def test_a_dropped_caller_leave_still_ends_the_call_by_the_conference_endi
     assert_nothing_held(deployment)
 
 
+async def test_the_caller_leaving_ends_the_call_when_every_conference_callback_is_lost(
+    deployment: Deployment,
+) -> None:
+    await answered(deployment)
+    provider = deployment.provider
+    provider.hold()
+    await provider.caller_hangs_up(CALL.value)
+    await deployment.settle()
+    # Only what the caller's own dial reports when it ends gets through.
+    await provider.release(
+        lambda held: [each for each in held if "/telephony/conference/" not in each.path_and_query]
+    )
+    await deployment.settle()
+    assert deployment.kinds()[-1] == ("ended", None, None)
+    assert [event.kind for event in deployment.events].count(CallEventKind.ENDED) == 1
+    assert_nothing_held(deployment)
+
+
 async def test_a_forged_callback_is_refused_and_changes_nothing(deployment: Deployment) -> None:
     await answered(deployment)
     response = await deployment.provider.post_signed(

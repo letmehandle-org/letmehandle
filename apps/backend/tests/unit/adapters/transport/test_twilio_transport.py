@@ -238,6 +238,9 @@ async def test_an_arriving_call_is_answered_into_its_own_conference(
     assert "<Conference" in document
     assert "call-CAsim-1" in document
     assert "https://calls.example.com/telephony/conference/status?call=CAsim-1" in document
+    assert 'action="https://calls.example.com/telephony/voice/caller-left?call=CAsim-1"' in (
+        document
+    )
     [event] = await drain(transport)
     assert event.kind is CallEventKind.INCOMING
     assert event.call_id == CALL
@@ -747,6 +750,24 @@ async def test_the_caller_hanging_up_ends_the_call(transport: TwilioCallTranspor
     assert events[0].detail == "the caller hung up"
 
 
+async def test_the_callers_dial_ending_ends_the_call_without_any_conference_callback(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    # Another leg's identifier, or no call at all, is not this caller leaving.
+    assert "<Hangup" in transport.caller_left(CALL.value, "CAsim-assistant-1")
+    assert "<Hangup" in transport.caller_left(None, CALL.value)
+    assert await drain(transport) == []
+    assert "<Hangup" in transport.caller_left(CALL.value, CALL.value)
+    transport.caller_left(CALL.value, CALL.value)
+    events = await drain(transport)
+    assert shapes(events) == [("ended", None, None)]
+    assert events[0].detail == "the caller hung up"
+    assert api.ended_calls == [("CAsim-user-2", "canceled")]
+    assert transport.active_calls == 0
+
+
 async def test_callbacks_for_another_conference_or_no_call_are_ignored(
     transport: TwilioCallTransport,
 ) -> None:
@@ -1090,7 +1111,9 @@ async def test_terminating_while_a_dial_is_being_placed_ends_that_leg_once_it_ex
 
     api.create_participant = slow_create  # type: ignore[method-assign]
     dialling = asyncio.create_task(
-        transport.add_participant(CALL, USER) if dial == "add_participant" else transport.answer(CALL)
+        transport.add_participant(CALL, USER)
+        if dial == "add_participant"
+        else transport.answer(CALL)
     )
     await placing.wait()
     terminating = asyncio.create_task(transport.terminate(CALL))

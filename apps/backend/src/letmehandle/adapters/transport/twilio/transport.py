@@ -82,6 +82,7 @@ INCOMING_PATH: Final = "/telephony/voice/incoming"
 ASSISTANT_PATH: Final = "/telephony/voice/assistant"
 CONFERENCE_PATH: Final = "/telephony/conference/status"
 LEG_PATH: Final = "/telephony/leg/status"
+CALLER_PATH: Final = "/telephony/voice/caller-left"
 MEDIA_PATH: Final = "/telephony/media"
 
 CALLER_LABEL: Final = "caller"
@@ -439,7 +440,19 @@ class TwilioCallTransport(CallTransport):
             conference_name=call.conference_name,
             status_callback_url=self._callback_url(CONFERENCE_PATH, call),
             participant_label=CALLER_LABEL,
+            dial_action_url=self._callback_url(CALLER_PATH, call),
         )
+
+    def caller_left(self, call_value: str | None, call_sid: str) -> str:
+        """The caller's dial into their conference is over, so their call is.
+
+        The provider asks this of the caller's own leg whether they hung up or the conference
+        ended around them. The answer is to hang up: there is nothing left to put them in.
+        """
+        call = self._calls.get(CallId(call_value)) if call_value else None
+        if call is not None and call.call_id.value == call_sid and not call.ended:
+            self._ended_by_provider(call, "the caller hung up")
+        return twiml.hang_up()
 
     def assistant_joining(self, params: dict[str, str], call_sid: str) -> str:
         """The assistant's leg asks what to do: stream, if it is the leg this call is expecting."""

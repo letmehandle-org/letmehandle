@@ -92,6 +92,8 @@ class SimulatedLeg:
     to: str
     status_callback: str | None
     conference: SimulatedConference | None
+    # Where the caller's dial reports its end: the provider asks it what next once they leave.
+    dial_action: str | None = None
     in_conference: bool = False
     finished: bool = False
     answered: bool = False
@@ -184,8 +186,9 @@ class SimulatedTwilio:
         response = await self.post_signed("/telephony/voice/incoming", params)
         document = response.text
         root = fromstring(document)  # noqa: S314 - the application under test wrote it
+        dial = root.find("./Dial")
         conference_element = root.find("./Dial/Conference")
-        if conference_element is None:
+        if dial is None or conference_element is None:
             return document
         name = conference_element.text or ""
         conference = self.conferences.get(name)
@@ -202,6 +205,7 @@ class SimulatedTwilio:
             to=OUR_NUMBER.value,
             status_callback=None,
             conference=conference,
+            dial_action=dial.attrib.get("action"),
         )
         self.legs[call_sid] = leg
         self._join(conference, leg)
@@ -571,6 +575,16 @@ class SimulatedTwilio:
             await self._conference_event(conference, "participant-leave", leg)
         if completed and leg.status_callback is not None:
             await self._progress(leg, "completed")
+        if leg.dial_action is not None:
+            await self._send(
+                leg.dial_action,
+                [
+                    ("AccountSid", SIMULATED_ACCOUNT),
+                    ("CallSid", leg.call_sid),
+                    ("CallStatus", "completed"),
+                    ("DialCallStatus", "completed"),
+                ],
+            )
 
     async def _close_conference(
         self, conference: SimulatedConference, reason: str, ending: SimulatedLeg | None

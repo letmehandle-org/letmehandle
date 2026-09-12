@@ -97,6 +97,7 @@ async def test_a_redelivered_arrival_still_gets_its_instructions(client: AsyncCl
     [
         "/telephony/voice/incoming",
         "/telephony/voice/assistant",
+        "/telephony/voice/caller-left?call=CAsim-1",
         "/telephony/conference/status?call=CAsim-1",
         "/telephony/leg/status?call=CAsim-1&leg=user-2",
     ],
@@ -125,6 +126,21 @@ async def test_a_genuine_callback_missing_what_is_needed_is_unprocessable(
 ) -> None:
     response = await signed_post(client, "/telephony/voice/incoming", [("AccountSid", ACCOUNT)])
     assert response.status_code == 422
+
+
+async def test_the_callers_dial_ending_is_answered_by_hanging_up_and_ends_the_call(
+    client: AsyncClient, transport: TwilioCallTransport
+) -> None:
+    await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
+    await drain(transport)
+    response = await signed_post(
+        client,
+        "/telephony/voice/caller-left?call=CAsim-1",
+        [("AccountSid", ACCOUNT), ("CallSid", "CAsim-1"), ("DialCallStatus", "completed")],
+    )
+    assert response.status_code == 200
+    assert "<Hangup" in response.text
+    assert [event.kind.value for event in await drain(transport)] == ["ended"]
 
 
 async def test_the_assistant_route_reads_the_call_from_the_form_or_the_query(
