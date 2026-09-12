@@ -340,3 +340,80 @@ class TestPhrasebooksAreCompleteAtImport:
             pytest.raises(InvariantError, match="no phrasing for"),
         ):
             _every_phrasebook_is_complete()
+
+
+# A fixed, timezone-aware moment. Any instant will do; what matters is that it is the same
+# one on both sides of every comparison below.
+AN_INSTANT = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+
+
+class TestPreferencesMateriallyChangeTheContext:
+    """Nothing about the assistant's behaviour may be a constant in the code.
+
+    The acceptance criterion for this phase is that no preference value is hard-coded anywhere.
+    A builder that ignored half of what it was given would still pass every determinism and
+    disclosure test above, so this drives each field separately and insists the output moves.
+    """
+
+    @pytest.mark.parametrize(
+        ("one", "other"),
+        [
+            (
+                UserPreferences(formality=Formality.WARM),
+                UserPreferences(formality=Formality.FORMAL),
+            ),
+            (
+                UserPreferences(verbosity=Verbosity.BRIEF),
+                UserPreferences(verbosity=Verbosity.DETAILED),
+            ),
+            (UserPreferences(locale="en"), UserPreferences(locale="fr")),
+        ],
+    )
+    def test_a_personality_field_changes_what_the_model_is_told(
+        self, one: UserPreferences, other: UserPreferences
+    ) -> None:
+        assert build_preference_context(one, now=AN_INSTANT) != build_preference_context(
+            other, now=AN_INSTANT
+        )
+
+    def test_granting_a_capability_changes_it(self) -> None:
+        granted = build_preference_context(
+            UserPreferences(authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE)),
+            now=AN_INSTANT,
+        )
+        withheld = build_preference_context(UserPreferences(), now=AN_INSTANT)
+        assert granted.granted_capabilities != withheld.granted_capabilities
+
+    def test_the_routing_rules_change_it(self) -> None:
+        strict = build_preference_context(
+            UserPreferences(rules=CallRules(default_posture=HandlingPosture.REJECT)),
+            now=AN_INSTANT,
+        )
+        assert (
+            strict.default_posture
+            is not build_preference_context(UserPreferences(), now=AN_INSTANT).default_posture
+        )
+
+    def test_topics_and_facts_change_it(self) -> None:
+        with_topics = build_preference_context(
+            UserPreferences(
+                topics=frozenset({Topic("school run")}),
+                disclosable_facts=frozenset({DisclosableFact("works from home")}),
+            ),
+            now=AN_INSTANT,
+        )
+        bare = build_preference_context(UserPreferences(), now=AN_INSTANT)
+
+        assert with_topics.topics != bare.topics
+        assert with_topics.disclosable_facts != bare.disclosable_facts
+
+    def test_an_important_contact_changes_it(self) -> None:
+        known = build_preference_context(
+            UserPreferences(
+                important_contacts=(
+                    ImportantContact(number=PhoneNumber.parse("+12025550143"), label="Mum"),
+                )
+            ),
+            now=AN_INSTANT,
+        )
+        assert known.important_contacts != ()
