@@ -21,6 +21,12 @@ the first release.
   backend image, and native builds for both platforms.
 - Domain model: calls and their state machine, callers, users, preferences and deterministic
   call rules, agent authority, intent and importance, escalation decisions, and call summaries.
+- Authentication: phone-number identity with one-time codes, rotating refresh tokens with
+  reuse detection, rate limits, and a mock code provider that refuses to run in production.
+- The first migration: users, devices, refresh tokens and one-time challenges.
+- Mobile sign-in: welcome, number, code and profile screens, a session restored on cold start,
+  and an API client that renews once for concurrent requests.
+- A generated TypeScript client, with a build that fails when it drifts from the backend.
 - Provider ports with declared capabilities — `CallTransport`, `SpeechProvider`, `LLMProvider`,
   `VoiceProvider`, `NotificationProvider`, `OTPProvider`, `Clock` and `IdGenerator` — each with
   a contract suite any implementation must pass.
