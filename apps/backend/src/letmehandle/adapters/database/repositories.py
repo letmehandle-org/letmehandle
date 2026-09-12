@@ -12,21 +12,38 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import CursorResult, delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 
 from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
 from letmehandle.domain.models.identifiers import UserId
+from letmehandle.domain.models.onboarding import OnboardingProgress
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import UserPreferences
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.notification import DevicePlatform, DeviceToken
 from letmehandle.domain.ports.repositories import (
     DeviceRepository,
+    OnboardingRepository,
     OTPChallengeRepository,
+    PreferencesRepository,
     RefreshTokenRepository,
     UserRepository,
 )
 
-from .models import DeviceRow, OTPChallengeRow, RefreshTokenRow, UserRow
+from .models import (
+    DeviceRow,
+    OnboardingRow,
+    OTPChallengeRow,
+    PreferencesRow,
+    RefreshTokenRow,
+    UserRow,
+)
+from .preference_mapping import (
+    document_to_preferences,
+    document_to_progress,
+    preferences_to_document,
+    progress_to_document,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -228,6 +245,81 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         )
         await self._session.flush()
         return _affected(result)
+
+
+class SqlPreferencesRepository(PreferencesRepository):
+    """Preferences, stored as one document per user."""
+
+    def __init__(self, session: AsyncSession, clock: Clock) -> None:
+        self._session = session
+        self._clock = clock
+
+    async def get(self, user_id: UserId) -> UserPreferences | None:
+        row = await self._session.get(PreferencesRow, user_id.value)
+        if row is None:
+            return None
+        return document_to_preferences(row.document)
+
+    async def save(self, user_id: UserId, preferences: UserPreferences) -> None:
+        """Insert or replace, in one statement.
+
+        One statement rather than read-then-write: two requests saving different sections at the
+        same time would otherwise race, and the loser's change would disappear with nothing to
+        show for it. The application composes a whole set before calling this, so replacing is
+        the correct operation.
+        """
+        document = preferences_to_document(preferences)
+        now = self._clock.now()
+        statement = insert(PreferencesRow).values(
+            user_id=user_id.value,
+            version=preferences.version,
+            document=document,
+            updated_at=now,
+        )
+        await self._session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[PreferencesRow.user_id],
+                set_={"version": preferences.version, "document": document, "updated_at": now},
+            )
+        )
+        await self._session.flush()
+
+
+class SqlOnboardingRepository(OnboardingRepository):
+    """How far through setting up each user is."""
+
+    def __init__(self, session: AsyncSession, clock: Clock) -> None:
+        self._session = session
+        self._clock = clock
+
+    async def get(self, user_id: UserId) -> OnboardingProgress:
+        row = await self._session.get(OnboardingRow, user_id.value)
+        if row is None:
+            # Never started is a position in the flow, not an absence. Returning empty progress
+            # rather than nothing means no caller has to remember to handle the first visit.
+            return OnboardingProgress()
+        return document_to_progress(row.completed, row.skipped)
+
+    async def save(self, user_id: UserId, progress: OnboardingProgress) -> None:
+        document = progress_to_document(progress)
+        now = self._clock.now()
+        statement = insert(OnboardingRow).values(
+            user_id=user_id.value,
+            completed=document["completed"],
+            skipped=document["skipped"],
+            updated_at=now,
+        )
+        await self._session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[OnboardingRow.user_id],
+                set_={
+                    "completed": document["completed"],
+                    "skipped": document["skipped"],
+                    "updated_at": now,
+                },
+            )
+        )
+        await self._session.flush()
 
 
 class SqlDeviceRepository(DeviceRepository):
