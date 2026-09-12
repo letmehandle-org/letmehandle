@@ -17,6 +17,10 @@ import org.letmehandle.app.calls.rules.ScreeningReason
  * races it, and whichever finishes first is the answer. When the timer wins, the call rings: a
  * decision that is late is not applied by the platform anyway, and ringing is the one that can
  * never refuse somebody wrongly.
+ *
+ * A failure after the decision — recording it, say, when storage cannot be written — is given to
+ * `onFailure` too. On the worker it would otherwise reach the top of the thread and end the
+ * process; on the timer it would vanish into a future nobody reads.
  */
 class DeadlineScreener(
     private val worker: Executor,
@@ -31,7 +35,11 @@ class DeadlineScreener(
     val answered = AtomicBoolean(false)
     val once = { screening: Screening ->
       if (answered.compareAndSet(false, true)) {
-        respond(screening)
+        try {
+          respond(screening)
+        } catch (failure: RuntimeException) {
+          onFailure(failure)
+        }
       }
     }
     val deadline =

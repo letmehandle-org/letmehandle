@@ -80,6 +80,53 @@ class DeadlineScreenerTest {
   }
 
   @Test
+  fun `a response that fails is reported, and does not escape onto the worker`() {
+    // What recording a decision does when shared preferences cannot commit. On a handset an
+    // exception that reaches a thread's top ends the whole process.
+    val unwritable = IllegalStateException("call screening state could not be written")
+    val escaped = LinkedBlockingQueue<Throwable>()
+    val worker =
+        Executors.newSingleThreadExecutor { task ->
+          Thread(task).apply { setUncaughtExceptionHandler { _, failure -> escaped.add(failure) } }
+        }
+
+    try {
+      DeadlineScreener(worker, timer, budgetMillis = 1_000).screen(
+          { Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE) },
+          failures::add,
+      ) { throw unwritable }
+
+      assertEquals(unwritable, failures.poll(1, TimeUnit.SECONDS))
+      assertNull(escaped.poll(200, TimeUnit.MILLISECONDS))
+    } finally {
+      worker.shutdownNow()
+    }
+  }
+
+  @Test
+  fun `a response that fails after the deadline is reported rather than lost in the timer`() {
+    val release = CountDownLatch(1)
+    val unwritable = IllegalStateException("call screening state could not be written")
+    // A scheduled task's exception is kept in its future, which nothing reads.
+    val timer = Executors.newSingleThreadScheduledExecutor()
+
+    try {
+      DeadlineScreener(worker, timer, budgetMillis = 100).screen(
+          {
+            release.await()
+            Screening(ScreeningDecision.REJECT, ScreeningReason.DEFAULT_POSTURE)
+          },
+          failures::add,
+      ) { throw unwritable }
+
+      assertEquals(unwritable, failures.poll(1, TimeUnit.SECONDS))
+    } finally {
+      release.countDown()
+      timer.shutdownNow()
+    }
+  }
+
+  @Test
   fun `a handset that has never synced its rules lets the call ring, in time`() {
     val caller = ScreenedCaller(CallerNumber.parse("+12025550145"), withheld = false)
 
