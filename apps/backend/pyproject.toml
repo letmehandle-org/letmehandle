@@ -94,6 +94,12 @@ show_error_codes = true
 pretty = true
 
 [[tool.mypy.overrides]]
+# asyncpg ships no type information. The import is one exception class, used to recognise a
+# database that is not reachable in a test fixture.
+module = ["asyncpg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["tests.*"]
 # A test may assign to a frozen model to prove that it cannot.
 warn_unreachable = false
