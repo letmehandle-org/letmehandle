@@ -17,6 +17,7 @@ dependencies = [
     "alembic>=1.14",
     "pyjwt>=2.14.0",
     "websockets>=17.1,<18",
+    "strands-agents[openai]>=1.55.1,<2",
 ]
 
 [dependency-groups]
