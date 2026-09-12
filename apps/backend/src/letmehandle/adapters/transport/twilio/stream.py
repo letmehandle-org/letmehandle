@@ -66,9 +66,11 @@ class MediaStream:
         *,
         monotonic: Callable[[], float],
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        is_muted: Callable[[], bool] = lambda: False,
     ) -> None:
         self._monotonic = monotonic
         self._sleep = sleep
+        self._is_muted = is_muted
         self._frames: asyncio.Queue[AudioFrame | None] = asyncio.Queue(INBOUND_QUEUE_FRAMES)
         self._settled = asyncio.Event()
         self._socket: MediaSocket | None = None
@@ -77,7 +79,6 @@ class MediaStream:
         self._play_until = 0.0
         self._converter: tuple[AudioFormat, AudioConverter] | None = None
         self.dropped_frames = 0
-        self.muted = False
 
     @property
     def is_connected(self) -> bool:
@@ -125,7 +126,7 @@ class MediaStream:
 
     async def play(self, frame: AudioFrame) -> None:
         socket, stream_sid = await self._connected()
-        if self.muted:
+        if self._is_muted():
             # Listening only: the conference already stops anyone hearing this leg, and sending
             # audio nobody will hear is load for nothing.
             return

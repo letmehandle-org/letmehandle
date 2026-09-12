@@ -144,8 +144,9 @@ async def test_discarding_before_anything_connected_or_after_the_end_does_nothin
 
 
 async def test_a_listening_only_leg_sends_nothing() -> None:
-    stream, socket = connected()
-    stream.muted = True
+    stream = MediaStream(monotonic=Clock(), is_muted=lambda: True)
+    socket = MemoryMediaSocket()
+    stream.attach(socket, "MZsim-1")
     await stream.play(narrowband())
     assert socket.sent == []
 
