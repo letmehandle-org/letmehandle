@@ -16,13 +16,14 @@ from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
-from letmehandle.bootstrap import build_container, build_voice_provider
+from letmehandle.bootstrap import build_call_transport, build_container, build_voice_provider
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from letmehandle.bootstrap import CallTransportBinding
     from letmehandle.domain.ports.voice import VoiceProvider
 
 logger = get_logger(__name__)
@@ -58,6 +59,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         yield
     finally:
+        telephony: CallTransportBinding | None = app.state.telephony
+        if telephony is not None:
+            await telephony.close()
         if engine is not None:
             await engine.dispose()
             app.state.engine = None
@@ -66,7 +70,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("shutdown")
 
 
-def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    voices: VoiceProvider | None = None,
+    telephony: CallTransportBinding | None = None,
+) -> FastAPI:
     """Build the application.
 
     Settings are a parameter so that a test can build an app with a configuration of its own
@@ -76,6 +85,9 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     The voice provider is a parameter for the same reason and one more: which routes exist
     depends on what it can do, and there is no configuration that selects a second provider
     yet — so a test of that behaviour has no other way in.
+
+    The call transport is chosen here for the same reason as the voices: its provider's routes
+    exist only when it does. A test passes one wired to a simulated provider.
     """
     resolved = settings or get_settings()
     configure_logging(resolved)
@@ -84,6 +96,7 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     # can do, and routing is settled before the application ever runs. The container is handed
     # this same instance, so nothing can answer the question twice and differently.
     chosen_voices = voices or build_voice_provider(resolved)
+    chosen_telephony = telephony if telephony is not None else build_call_transport(resolved)
 
     app = FastAPI(
         title="LetMeHandle",
@@ -100,6 +113,7 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     app.state.session_factory = None
     app.state.container = None
     app.state.voices = chosen_voices
+    app.state.telephony = chosen_telephony
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
@@ -107,6 +121,8 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     app.include_router(auth_router)
     app.include_router(preferences_router)
     app.include_router(build_voice_router(chosen_voices))
+    if chosen_telephony is not None:
+        app.include_router(chosen_telephony.router)
     return app
 
 
@@ -119,7 +135,10 @@ def main() -> None:
     try:
         # The catalogue as well as the settings: every request for voices needs it, and a service
         # that starts without it fails in front of somebody instead of here.
-        get_settings().require_voice_catalogue()
+        settings = get_settings()
+        settings.require_voice_catalogue()
+        if settings.telephony_provider is not None:
+            settings.require_streaming_telephony()
     except ConfigurationError as error:
         raise SystemExit(str(error)) from error
 

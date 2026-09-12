@@ -32,14 +32,27 @@ from letmehandle.adapters.speech.elevenlabs.websocket import (
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
+from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
+from letmehandle.adapters.transport.twilio.routes import build_router as build_twilio_router
+from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
+from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
-from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
+from letmehandle.config.settings import (
+    OTPProviderName,
+    Settings,
+    SpeechProviderName,
+    TelephonyProviderName,
+)
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
+
+    import httpx
+    from fastapi import APIRouter
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
+    from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
@@ -159,6 +172,58 @@ def build_speech_provider(
                 # What an agent speaks unless configured otherwise, so that an agent left at its
                 # default is not converted twice on the way out either.
                 output_format=ELEVENLABS_WIRE_FORMAT,
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+@dataclass(frozen=True, slots=True)
+class CallTransportBinding:
+    """A call transport, the routes its provider calls, and how to release it.
+
+    Handed to the application as one value so that what mounts the routes and what closes the
+    transport never have to know which transport it is.
+    """
+
+    transport: CallTransport
+    router: APIRouter
+    close: Callable[[], Awaitable[None]]
+
+
+def build_call_transport(
+    settings: Settings, *, http_transport: httpx.AsyncBaseTransport | None = None
+) -> CallTransportBinding | None:
+    """The streaming call transport this deployment is configured for, if any.
+
+    `None` is a supported answer: a deployment with no telephony account carries no streaming
+    calls, and none of the provider's routes exist in it. `http_transport` lets a test put a
+    simulated provider where the provider's API would be, without constructing the adapter.
+    """
+    match settings.telephony_provider:
+        case None:
+            return None
+        case TelephonyProviderName.TWILIO:
+            telephony = settings.require_streaming_telephony()
+            transport = TwilioCallTransport(
+                config=TwilioConfig(
+                    account_id=telephony.account_id,
+                    app_id=telephony.app_id,
+                    numbers=telephony.numbers,
+                ),
+                api=HttpTelephonyApi(
+                    account_id=telephony.account_id,
+                    auth_token=telephony.auth_token,
+                    transport=http_transport,
+                ),
+                verifier=SignatureVerifier(
+                    auth_token=telephony.auth_token,
+                    public_base_url=telephony.webhook_base_url,
+                ),
+            )
+            return CallTransportBinding(
+                transport=transport,
+                router=build_twilio_router(transport),
+                close=transport.close,
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
