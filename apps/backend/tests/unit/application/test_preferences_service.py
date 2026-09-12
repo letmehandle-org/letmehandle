@@ -281,9 +281,7 @@ class TestReplacing:
     ) -> None:
         await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
-        await service.replace_all(
-            USER, PreferenceChanges(persona_voice=PersonaVoice("noah"))
-        )
+        await service.replace_all(USER, PreferenceChanges(persona_voice=PersonaVoice("noah")))
 
         assert (await service.get(USER)).voice.persona_voice_id == "noah"
 
