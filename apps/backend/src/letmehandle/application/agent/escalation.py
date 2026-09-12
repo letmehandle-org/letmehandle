@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from letmehandle.application.agent.ports import ConsiderEscalation
 from letmehandle.domain.policy.escalation import CallCircumstances, decide_escalation
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def circumstances_of(call: CallSoFar) -> CallCircumstances:
     )
 
 
-class EscalationService:
+class EscalationService(ConsiderEscalation):
     """Decides on a proposal and, when the decision is to escalate, reaches the user once."""
 
     def __init__(self, actions: CallActions) -> None:

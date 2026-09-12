@@ -35,16 +35,18 @@ from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIM
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
+from letmehandle.application.agent.escalation import EscalationService
+from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
+    from strands.models.model import Model
+
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
-    from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import ToolsForAJudgement
+    from letmehandle.application.agent.ports import CallActions, CallAgent
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
@@ -169,20 +171,32 @@ def build_speech_provider(
             assert_never(unknown)
 
 
-def build_call_agent(
-    settings: Settings, *, tools: ToolsForAJudgement, consider: ConsiderEscalation
-) -> CallAgent:
+def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:
     """The agent that judges calls, on the model this deployment is configured with.
 
-    The tools and the escalation check are handed in rather than built here, because both act on a
-    call and only orchestration holds one. What is chosen here is the framework and the model.
+    The call's actions are handed in rather than built here, because only orchestration holds a
+    call. What is chosen here is the framework and the model.
     """
     endpoint = settings.require_llm()
-    return StrandsCallAgent(
+    return call_agent_on(
         openai_compatible_model(endpoint),
-        tools=tools,
-        consider=consider,
+        actions=actions,
         timeout=timedelta(seconds=endpoint.timeout_seconds),
+    )
+
+
+def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallAgent:
+    """The agent on `model`, its tools and its end-of-turn check sharing one escalation service.
+
+    Built once, here, so no wiring can hand the tools one memory of whether the user was reached and
+    the agent another. Tests reach the same wiring with a scripted model.
+    """
+    escalation = EscalationService(actions)
+    return StrandsCallAgent(
+        model,
+        tools=tools_for_judgements(actions, escalation),
+        escalation=escalation,
+        timeout=timeout,
     )
 
 

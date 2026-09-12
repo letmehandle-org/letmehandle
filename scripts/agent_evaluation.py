@@ -30,9 +30,7 @@ sys.path.insert(0, str(BACKEND / "src"))
 sys.path.insert(0, str(BACKEND))
 
 if TYPE_CHECKING:
-    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
-    from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import ToolsForAJudgement
+    from letmehandle.application.agent.ports import CallActions, CallAgent
     from tests.evaluation.suite import Report, Scenario
 
 
@@ -65,10 +63,8 @@ async def evaluate(minimum: float | None) -> int:
     # inside it.
     configure_logging(settings)
 
-    def agent_for(
-        _scenario: Scenario, tools: ToolsForAJudgement, consider: ConsiderEscalation
-    ) -> CallAgent:
-        return build_call_agent(settings, tools=tools, consider=consider)
+    def agent_for(_scenario: Scenario, actions: CallActions) -> CallAgent:
+        return build_call_agent(settings, actions=actions)
 
     print(f"model {endpoint.model}, prompts {PROMPT_VERSION}\n")
     report = await run(load_scenarios(), agent_for)

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
+from letmehandle.bootstrap import call_agent_on
 from tests.evaluation.suite import load_scenarios, run
 from tests.support.scripted_model import CallTool, ScriptedModel, assess
 
@@ -22,9 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
-    from letmehandle.application.agent.ports import CallAgent
-    from letmehandle.application.agent.tool import ToolsForAJudgement
+    from letmehandle.application.agent.ports import CallActions, CallAgent
     from tests.evaluation.suite import Scenario
     from tests.support.scripted_model import Step
 
@@ -79,14 +77,9 @@ def write(path: Path, scenarios: list[dict[str, object]]) -> Path:
     return path
 
 
-def scripted(
-    scenario: Scenario, tools: ToolsForAJudgement, consider: ConsiderEscalation
-) -> CallAgent:
-    return StrandsCallAgent(
-        ScriptedModel(SCRIPTS[scenario.id]),
-        tools=tools,
-        consider=consider,
-        timeout=timedelta(seconds=5),
+def scripted(scenario: Scenario, actions: CallActions) -> CallAgent:
+    return call_agent_on(
+        ScriptedModel(SCRIPTS[scenario.id]), actions=actions, timeout=timedelta(seconds=5)
     )
 
 

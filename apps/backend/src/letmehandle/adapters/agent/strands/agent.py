@@ -11,15 +11,15 @@ preferences are the system prompt. The caller's words are a message of their own
 labelled as a record of what was said. Nothing from the call is ever written into the instructions.
 
 The model proposes; it does not decide. Its assessment is validated into a proposal, and the
-proposal goes through the escalation check this agent is handed — the same check whether or not the
-model asked for the user, so a model that forgot to still cannot skip an escalation the user's rules
-require.
+proposal goes through the escalation service this agent is handed — the same instance the
+escalation tool uses, so a model that forgot to ask for the user still cannot skip an escalation
+the user's rules require, and a model that did ask cannot make the user's phone ring twice.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final
 
 from strands import Agent
 from strands.agent.conversation_manager import NullConversationManager
@@ -39,10 +39,9 @@ if TYPE_CHECKING:
 
     from strands.models.model import Model
 
-    from letmehandle.application.agent.ports import CallSoFar
+    from letmehandle.application.agent.ports import CallSoFar, ConsiderEscalation
     from letmehandle.application.agent.prompts import Prompts
     from letmehandle.application.agent.tool import ToolsForAJudgement
-    from letmehandle.domain.models.escalation import EscalationDecision
 
 # The name the model knows the assessment by, which is the name the SDK gives its tool.
 ASSESSMENT_TOOL: Final = CallAssessment.__name__
@@ -51,13 +50,6 @@ ASSESSMENT_TOOL: Final = CallAssessment.__name__
 # assessment, and two for a model that has to be asked for it again. A model still going after that
 # is looping, and the bound on time would otherwise be the only thing to stop it.
 MAX_TURNS: Final = 8
-
-
-class ConsiderEscalation(Protocol):
-    """The end-of-turn escalation check this agent is handed."""
-
-    async def __call__(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
-        """Whether the user is needed, given what the model proposed. The policy decides."""
 
 
 def fallback_proposal() -> EscalationProposal:
@@ -91,7 +83,7 @@ class StrandsCallAgent(CallAgent):
         model: Model,
         *,
         tools: ToolsForAJudgement,
-        consider: ConsiderEscalation,
+        escalation: ConsiderEscalation,
         timeout: timedelta,
         prompt_version: str = PROMPT_VERSION,
     ) -> None:
@@ -99,7 +91,7 @@ class StrandsCallAgent(CallAgent):
             raise ValueError("a judgement needs time to happen in")
         self._model = model
         self._tools = tools
-        self._consider = consider
+        self._escalation = escalation
         self._timeout = timeout
         self._prompt_version = prompt_version
         self._logger = get_logger(__name__)
@@ -131,7 +123,7 @@ class StrandsCallAgent(CallAgent):
             raise ledger.failure
         return AgentJudgement(
             proposal=proposal,
-            escalation=await self._consider(call, proposal),
+            escalation=await self._escalation.consider(call, proposal),
             refusals=ledger.notes.refusals,
             ended=ledger.notes.ended,
         )

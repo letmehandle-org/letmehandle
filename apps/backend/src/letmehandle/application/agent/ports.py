@@ -4,6 +4,10 @@ Two ports, facing opposite ways. `CallAgent` is what orchestration asks for a ju
 so far; an implementation runs a model and the tools below. `CallActions` is what those tools use
 to affect the call; orchestration implements it, because only orchestration holds the call.
 
+Beside `CallAgent` sits `ConsiderEscalation`, the one path by which a call reaches the user. An
+agent is handed it for its end-of-turn check, and the escalation tool is handed the same instance,
+so a call has one memory of whether the user's phone has already rung.
+
 Neither names a framework or a model. D-026 puts the SDK in an adapter behind `CallAgent`, so that
 everything a user relies on — what the assistant may do, when the user's phone rings — lives here
 and in the domain, where it can be read and tested without one.
@@ -13,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from letmehandle.domain.errors import InvariantError
 
@@ -78,6 +82,17 @@ class AgentJudgement:
     escalation: EscalationDecision
     refusals: tuple[ToolRefusal, ...] = field(default_factory=tuple)
     ended: bool = False
+
+
+class ConsiderEscalation(Protocol):
+    """Whether the user is needed on a call, decided by the policy and acted on at most once.
+
+    Implemented by `application.agent.escalation.EscalationService`. An agent and the tools it is
+    given must share one instance: two would each think the other had not rung the user.
+    """
+
+    async def consider(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
+        """The policy's decision on `proposal`, with the user reached if nobody has yet."""
 
 
 class CallAgent(ABC):

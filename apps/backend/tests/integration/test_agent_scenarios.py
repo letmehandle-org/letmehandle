@@ -18,9 +18,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL, StrandsCallAgent
-from letmehandle.application.agent.escalation import EscalationService
-from letmehandle.application.agent.tools.registry import tools_for_judgements
+from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL
+from letmehandle.bootstrap import call_agent_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -37,7 +36,7 @@ from tests.support.scripted_model import CallTool, CutOff, Fail, Hang, Say, Scri
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from letmehandle.application.agent.ports import AgentJudgement, CallSoFar
+    from letmehandle.application.agent.ports import AgentJudgement, CallAgent, CallSoFar
     from tests.support.scripted_model import Step
 
 TIMEOUT = timedelta(seconds=5)
@@ -58,15 +57,9 @@ class Judged:
 
 def an_agent(
     model: ScriptedModel, actions: RecordingCallActions, *, bound: timedelta = TIMEOUT
-) -> StrandsCallAgent:
-    """The agent over the registry's tools, sharing one escalation service with its own check."""
-    escalation = EscalationService(actions)
-    return StrandsCallAgent(
-        model,
-        tools=tools_for_judgements(actions, escalation),
-        consider=escalation.consider,
-        timeout=bound,
-    )
+) -> CallAgent:
+    """The agent as the composition root wires it, on a scripted model."""
+    return call_agent_on(model, actions=actions, timeout=bound)
 
 
 async def judged(

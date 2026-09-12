@@ -12,9 +12,11 @@ from structlog.testing import capture_logs
 
 from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL, StrandsCallAgent
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
+from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
-from tests.support.agent_calls import a_call, decide_by_policy, fixed
+from tests.support.agent_calls import a_call, fixed
+from tests.support.recording_call_actions import RecordingCallActions
 from tests.support.scripted_model import Fail, Say, ScriptedModel, Step
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ def test_a_judgement_with_no_time_to_happen_in_is_refused(seconds: float) -> Non
         StrandsCallAgent(
             ScriptedModel([]),
             tools=fixed(),
-            consider=decide_by_policy,
+            escalation=EscalationService(RecordingCallActions()),
             timeout=timedelta(seconds=seconds),
         )
 
@@ -51,7 +53,7 @@ async def test_a_failure_is_logged_by_kind_and_never_by_content(steps: list[Step
     agent = StrandsCallAgent(
         ScriptedModel(steps),
         tools=fixed(),
-        consider=decide_by_policy,
+        escalation=EscalationService(RecordingCallActions()),
         timeout=timedelta(seconds=5),
     )
     with capture_logs() as events:

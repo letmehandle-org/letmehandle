@@ -16,8 +16,9 @@ import pytest
 
 from letmehandle.bootstrap import build_call_agent
 from letmehandle.config.settings import ConfigurationError
-from tests.support.agent_calls import a_call, decide_by_policy, fixed
+from tests.support.agent_calls import a_call
 from tests.support.config import make_settings
+from tests.support.recording_call_actions import RecordingCallActions
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -66,7 +67,7 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
         llm_model="an-example-model",
         llm_headers="X-Title=letmehandle",
     )
-    agent = build_call_agent(settings, tools=fixed(), consider=decide_by_policy)
+    agent = build_call_agent(settings, actions=RecordingCallActions())
 
     judgement = await agent.judge(a_call("Is she in today?"))
 
@@ -82,8 +83,13 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
     assert roles == ["system", "user"]
     assert "Is she in today?" not in json.dumps(messages[0])
     assert "Is she in today?" in json.dumps(messages[1])
+    # The model is offered the registry's tools beside the assessment.
+    tools = request.body["tools"]
+    assert isinstance(tools, list)
+    offered = {tool["function"]["name"] for tool in tools}
+    assert {"request_human_escalation", "end_call", "CallAssessment"} <= offered
 
 
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
-        build_call_agent(make_settings(), tools=fixed(), consider=decide_by_policy)
+        build_call_agent(make_settings(), actions=RecordingCallActions())

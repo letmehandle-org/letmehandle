@@ -24,8 +24,6 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from letmehandle.application.agent.escalation import EscalationService
-from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
@@ -43,9 +41,7 @@ from tests.support.recording_call_actions import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
-    from letmehandle.application.agent.ports import AgentJudgement, CallAgent
-    from letmehandle.application.agent.tool import ToolsForAJudgement
+    from letmehandle.application.agent.ports import AgentJudgement, CallActions, CallAgent
 
 SCENARIOS: Final = Path(__file__).with_name("scenarios.json")
 
@@ -150,7 +146,8 @@ class Report:
         ]
 
 
-type AgentFor = Callable[[Scenario, ToolsForAJudgement, ConsiderEscalation], CallAgent]
+# Given the call's actions, because the agent wires its tools and its escalation check around them.
+type AgentFor = Callable[[Scenario, CallActions], CallAgent]
 
 
 async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
@@ -159,13 +156,11 @@ async def run(scenarios: Sequence[Scenario], agent_for: AgentFor) -> Report:
     for scenario in scenarios:
         # Fresh for each scenario, so what one call did is never read as another's.
         actions = RecordingCallActions()
-        escalation = EscalationService(actions)
         call = a_call(
             *scenario.said,
             authority=AgentAuthority.granting(*scenario.granted),
             from_important_contact=scenario.from_important_contact,
         )
-        agent = agent_for(scenario, tools_for_judgements(actions, escalation), escalation.consider)
-        judgement = await agent.judge(call)
+        judgement = await agent_for(scenario, actions).judge(call)
         outcomes.append(Outcome(scenario, tuple(misses(scenario, judgement, actions))))
     return Report(tuple(outcomes))

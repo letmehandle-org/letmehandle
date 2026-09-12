@@ -1,10 +1,9 @@
-"""Calls, tools and the escalation check, for exercising the agent without orchestration.
+"""Calls, and stand-in tools, for exercising the agent without orchestration.
 
-The tools here are small but not hollow. A guarded tool checks the user's grant before it acts and
-does nothing when it refuses, which is the one behaviour every real tool must share, so a test that
-passes against it has exercised the refusal path rather than a stand-in that always says yes.
-
-The escalation check is the real policy. Only the call is invented.
+The stand-ins are for tests whose point is the wrapper that presents a tool to a framework; every
+other test uses the registry's real tools. They are small but not hollow. A guarded tool checks the
+user's grant before it acts, writes its refusal down and does nothing more, which is the one
+behaviour every real tool must share.
 """
 
 from __future__ import annotations
@@ -23,15 +22,12 @@ from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.preferences import CallRules, UserPreferences
-from letmehandle.domain.policy.escalation import CallCircumstances, decide_escalation
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
-    from letmehandle.domain.models.escalation import EscalationDecision
-    from letmehandle.domain.policy.escalation import EscalationProposal
 
 # Midday on a weekday, in no quiet hours anybody has set.
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
@@ -57,19 +53,6 @@ def a_call(
         rules=rules,
         from_important_contact=from_important_contact,
         now=MIDDAY,
-    )
-
-
-async def decide_by_policy(call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
-    """The escalation check, as the real policy makes it."""
-    return decide_escalation(
-        proposal,
-        CallCircumstances(
-            rules=call.rules,
-            authority=call.authority,
-            now=call.now,
-            from_important_contact=call.from_important_contact,
-        ),
     )
 
 
