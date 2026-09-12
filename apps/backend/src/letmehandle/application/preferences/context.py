@@ -88,6 +88,35 @@ DEFAULT_LOCALE: Final = "en"
 PHRASEBOOKS: Final[Mapping[str, Phrasebook]] = {DEFAULT_LOCALE: _ENGLISH}
 
 
+def _every_phrasebook_is_complete() -> None:
+    """Fail at import if a phrasebook is missing a phrase.
+
+    Checked here rather than where the phrase is read. A lookup that raises at read time raises
+    while somebody is on a call, and only for the user whose formality happens to be the
+    missing one — so the gap could sit unnoticed until the worst moment. A process that will
+    not start is a gap somebody finds immediately.
+
+    This is what makes adding a language safe: a new entry that forgets a member cannot be
+    deployed.
+    """
+    for locale, book in PHRASEBOOKS.items():
+        for kind, phrases in (
+            (Formality, book.tone),
+            (Verbosity, book.length),
+            (Capability, book.capability),
+        ):
+            missing = set(kind) - set(phrases)
+            if missing:
+                raise InvariantError(
+                    f"the {locale} phrasebook has no phrasing for "
+                    f"{', '.join(sorted(str(member) for member in missing))}; "
+                    f"the assistant would have nothing to say about it"
+                )
+
+
+_every_phrasebook_is_complete()
+
+
 @dataclass(frozen=True, slots=True)
 class CapabilityStatement:
     """One thing the assistant may or may not do, said either way.

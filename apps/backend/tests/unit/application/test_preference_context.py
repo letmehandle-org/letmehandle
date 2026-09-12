@@ -9,6 +9,7 @@ and no test that only checks membership would notice.
 from __future__ import annotations
 
 from datetime import UTC, datetime, time
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -18,7 +19,9 @@ from letmehandle.application.preferences.context import (
     PHRASEBOOKS,
     CapabilityStatement,
     ContactStatement,
+    Phrasebook,
     PreferenceContext,
+    _every_phrasebook_is_complete,
     build_preference_context,
     normalise_locale,
     phrasebook_for,
@@ -308,3 +311,29 @@ def test_the_whole_shape_of_the_context() -> None:
         topics=("boiler repair", "school run"),
         disclosable_facts=("is travelling this week", "prefers email"),
     )
+
+
+class TestPhrasebooksAreCompleteAtImport:
+    """A missing phrase must stop the process, not a call."""
+
+    def test_the_shipped_phrasebooks_pass_the_check(self) -> None:
+        # The check runs at import, so reaching this line already proves it. Calling it again
+        # is what makes the guard itself covered rather than merely executed.
+        _every_phrasebook_is_complete()
+
+    def test_a_phrasebook_missing_a_phrase_is_refused(self) -> None:
+        # Without this the gap surfaces mid-call, and only for the user whose formality happens
+        # to be the missing one — so it could sit unnoticed until the worst possible moment.
+        incomplete = Phrasebook(
+            tone={Formality.WARM: "warm"},
+            length=dict(PHRASEBOOKS[DEFAULT_LOCALE].length),
+            capability=dict(PHRASEBOOKS[DEFAULT_LOCALE].capability),
+        )
+        with (
+            patch.dict(
+                "letmehandle.application.preferences.context.PHRASEBOOKS",
+                {"xx": incomplete},
+            ),
+            pytest.raises(InvariantError, match="no phrasing for"),
+        ):
+            _every_phrasebook_is_complete()

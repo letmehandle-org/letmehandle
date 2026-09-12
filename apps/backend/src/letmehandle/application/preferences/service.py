@@ -19,8 +19,8 @@ from letmehandle.domain.models.preferences import UserPreferences
 
 if TYPE_CHECKING:
     from letmehandle.domain.models.authority import AgentAuthority
-    from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
     from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
     from letmehandle.domain.models.preferences import (
         CallRules,
         Formality,
