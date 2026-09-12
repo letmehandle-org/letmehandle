@@ -17,7 +17,12 @@ from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
-from letmehandle.bootstrap import build_call_transport, build_container, build_voice_provider
+from letmehandle.bootstrap import (
+    build_call_transport,
+    build_container,
+    build_reported_calls,
+    build_voice_provider,
+)
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
 
@@ -49,7 +54,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # Built once, at startup, so that a misconfiguration is a process that does not start
         # rather than a request that fails in front of somebody.
-        app.state.container = build_container(settings, voices=app.state.voices)
+        app.state.container = build_container(
+            settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+        )
 
         logger.info(
             "startup",
@@ -97,7 +104,14 @@ def create_app(
     # can do, and routing is settled before the application ever runs. The container is handed
     # this same instance, so nothing can answer the question twice and differently.
     chosen_voices = voices or build_voice_provider(resolved)
-    chosen_telephony = telephony if telephony is not None else build_call_transport(resolved)
+    # One for the life of the application, for the same reason: the container's reporting route
+    # and a handset transport chosen below must be the same instance.
+    reported_calls = build_reported_calls()
+    chosen_telephony = (
+        telephony
+        if telephony is not None
+        else build_call_transport(resolved, reported_calls=reported_calls)
+    )
 
     app = FastAPI(
         title="LetMeHandle",
@@ -114,6 +128,7 @@ def create_app(
     app.state.session_factory = None
     app.state.container = None
     app.state.voices = chosen_voices
+    app.state.reported_calls = reported_calls
     app.state.telephony = chosen_telephony
 
     app.add_middleware(CorrelationMiddleware)
@@ -139,8 +154,7 @@ def main() -> None:
         # that starts without it fails in front of somebody instead of here.
         settings = get_settings()
         settings.require_voice_catalogue()
-        if settings.telephony_provider is not None:
-            settings.require_streaming_telephony()
+        settings.require_telephony_configuration()
     except ConfigurationError as error:
         raise SystemExit(str(error)) from error
 

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, assert_never
 
+from fastapi import APIRouter
+
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
@@ -50,7 +52,6 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     import httpx
-    from fastapi import APIRouter
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.domain.ports.call_transport import CallTransport
@@ -90,13 +91,19 @@ class Container:
     reported_calls: CallEventSink
 
 
-def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
+def build_container(
+    settings: Settings, *, voices: VoiceProvider, reported_calls: CallEventSink
+) -> Container:
     """Choose the implementations for this configuration.
 
     The voice provider is passed in rather than chosen here because it is needed earlier
     than the rest: which routes the application has depends on what it can do, and routing
     is settled before anything starts. Handing the same instance on is what stops a second
     one being built that could answer differently.
+
+    Where handsets' reports go is passed in for the same reason: the call transport is chosen
+    before routing too, and when it is the handset transport it must be this very instance, or
+    the reports would feed one feed while the product read another.
     """
     clock = SystemClock()
     signing_key = settings.require_signing_key()
@@ -116,7 +123,7 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
         refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
-        reported_calls=AndroidNativeCallTransport(),
+        reported_calls=reported_calls,
     )
 
 
@@ -197,18 +204,41 @@ class CallTransportBinding:
     close: Callable[[], Awaitable[None]]
 
 
-def build_call_transport(
-    settings: Settings, *, http_transport: httpx.AsyncBaseTransport | None = None
-) -> CallTransportBinding | None:
-    """The streaming call transport this deployment is configured for, if any.
+def build_reported_calls() -> AndroidNativeCallTransport:
+    """Where handsets' reports about their own calls become call events.
 
-    `None` is a supported answer: a deployment with no telephony account carries no streaming
-    calls, and none of the provider's routes exist in it. `http_transport` lets a test put a
-    simulated provider where the provider's API would be, without constructing the adapter.
+    Built once per application and handed both to the container, whose reporting route feeds
+    it, and to `build_call_transport`, which offers it as the transport when handsets are the
+    configured one. A deployment carrying streaming calls still accepts handsets' reports: they
+    are stored either way, and only which feed the product reads changes.
+    """
+    return AndroidNativeCallTransport()
+
+
+def build_call_transport(
+    settings: Settings,
+    *,
+    reported_calls: AndroidNativeCallTransport,
+    http_transport: httpx.AsyncBaseTransport | None = None,
+) -> CallTransportBinding | None:
+    """The call transport this deployment is configured for, if any.
+
+    `None` is a supported answer: a deployment configured with no transport carries no calls,
+    and no provider's routes exist in it. `reported_calls` is the application's one handset
+    transport, offered rather than built here so that there is never a second. `http_transport`
+    lets a test put a simulated provider where the provider's API would be, without
+    constructing the adapter.
     """
     match settings.telephony_provider:
         case None:
             return None
+        case TelephonyProviderName.ANDROID_NATIVE:
+            # The handset reports over the application's own authenticated route, which exists
+            # whichever transport is chosen, so this transport brings no routes of its own and
+            # holds nothing that needs releasing.
+            return CallTransportBinding(
+                transport=reported_calls, router=APIRouter(), close=_nothing_to_close
+            )
         case TelephonyProviderName.TWILIO:
             telephony = settings.require_streaming_telephony()
             transport = TwilioCallTransport(
@@ -234,6 +264,10 @@ def build_call_transport(
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
+
+
+async def _nothing_to_close() -> None:
+    return None
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:

@@ -37,7 +37,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
 from letmehandle.adapters.transport.twilio.signature import SIGNATURE_HEADER, compute_signature
-from letmehandle.bootstrap import build_call_transport
+from letmehandle.bootstrap import build_call_transport, build_reported_calls
 from letmehandle.config.settings import TelephonyProviderName
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.main import create_app
@@ -725,7 +725,9 @@ async def simulated_deployment(
 
     provider = SimulatedTwilio(public_base_url=public_base_url)
     settings = telephony_settings(public_base_url)
-    binding = build_call_transport(settings, http_transport=provider.rest)
+    binding = build_call_transport(
+        settings, reported_calls=build_reported_calls(), http_transport=provider.rest
+    )
     assert binding is not None
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)

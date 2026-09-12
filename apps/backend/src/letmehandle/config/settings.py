@@ -52,9 +52,14 @@ class SpeechProviderName(StrEnum):
 
 
 class TelephonyProviderName(StrEnum):
-    """Which programmable telephony account carries streaming calls, if any."""
+    """Which call transport carries this deployment's calls, if any.
+
+    Two kinds, not two suppliers of one kind: a programmable telephony account that streams a
+    call's audio, and the user's own handset screening calls before they ring.
+    """
 
     TWILIO = "twilio"
+    ANDROID_NATIVE = "android_native"
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,9 +215,10 @@ class Settings(BaseSettings):
     ] = None
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
-    # Streaming telephony. All optional at startup, like the speech service: a deployment that
-    # carries no streaming calls needs none of it, and one that does is refused by what builds
-    # the transport, naming every variable that is missing. The token is a secret and is never
+    # Telephony. All optional at startup, like the speech service. The provider chooses the call
+    # transport; the rest is the streaming transport's account, which a deployment without one
+    # needs none of, and one with it is refused by what builds the transport, naming every
+    # variable that is missing. The token is a secret and is never
     # rendered; the numbers are the ones calls are placed from, never anybody's own.
     telephony_provider: Annotated[
         TelephonyProviderName | None, BeforeValidator(_blank_is_absent)
@@ -338,6 +344,15 @@ class Settings(BaseSettings):
                 f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
             )
         return str(endpoint), value
+
+    def require_telephony_configuration(self) -> None:
+        """Refuse a chosen call transport that is missing what it needs, before anything starts.
+
+        Only the streaming transport needs an account. A handset transport is configured on the
+        handset, and no transport at all needs nothing.
+        """
+        if self.telephony_provider is TelephonyProviderName.TWILIO:
+            self.require_streaming_telephony()
 
     def require_streaming_telephony(self) -> StreamingTelephony:
         """What a streaming call transport needs, or a failure naming every variable missing."""

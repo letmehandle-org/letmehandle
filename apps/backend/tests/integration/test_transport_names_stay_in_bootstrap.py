@@ -16,7 +16,15 @@ import pytest
 
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "letmehandle"
 
-TRANSPORT_NAMES = ("twilio", "telnyx", "plivo", "vonage", "android")
+TRANSPORT_NAMES = ("twilio", "telnyx", "plivo", "vonage", "android", "android_native")
+
+# Each transport's own package, the one place besides bootstrap and configuration it may be named.
+# A name with no package here has no adapter yet, so it belongs nowhere else at all.
+ADAPTERS = {
+    "twilio": "adapters/transport/twilio/",
+    "android": "adapters/transport/android_native/",
+    "android_native": "adapters/transport/android_native/",
+}
 
 # Where a transport's name belongs.
 ALWAYS_ALLOWED = ("bootstrap.py", "config/settings.py")
@@ -42,7 +50,7 @@ def test_a_transport_is_named_only_where_it_is_chosen_or_implemented(name: str) 
         relative = path.relative_to(SOURCE).as_posix()
         if (
             relative in ALWAYS_ALLOWED
-            or relative.startswith(f"adapters/transport/{name}")
+            or (name in ADAPTERS and relative.startswith(ADAPTERS[name]))
             or (relative, name) in EXEMPT
         ):
             continue
@@ -61,3 +69,6 @@ def test_the_check_would_catch_a_violation() -> None:
     pattern = re.compile(r"\btwilio\b", re.IGNORECASE)
     assert pattern.search("if transport.name == 'Twilio':")
     assert not pattern.search("twilioesque")
+    # To the pattern the handset transport's name is one word, so it is listed in its own right.
+    assert not re.search(r"\bandroid\b", "android_native")
+    assert re.search(r"\bandroid_native\b", "TelephonyProviderName.android_native")
