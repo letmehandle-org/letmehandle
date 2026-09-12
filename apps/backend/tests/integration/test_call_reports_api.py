@@ -153,6 +153,14 @@ class TestMapping:
         assert body["accepted"] == ["event-0001"]
         assert [(each["index"], each["event_id"]) for each in body["rejected"]] == [(1, None)]
 
+    async def test_something_that_is_not_a_report_at_all_is_rejected_by_its_place(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        body = (await send(api, tokens, ["not a report", SCREENED_CALL[0]])).json()  # type: ignore[list-item]
+        assert body["accepted"] == ["event-0001"]
+        assert [(each["index"], each["event_id"]) for each in body["rejected"]] == [(0, None)]
+
     async def test_one_invalid_report_does_not_hold_back_the_rest_of_its_batch(
         self, api: Api
     ) -> None:

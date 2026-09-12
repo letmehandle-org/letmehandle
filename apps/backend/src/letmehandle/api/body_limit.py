@@ -47,13 +47,9 @@ def limited_body_route(limit: int) -> type[APIRoute]:
 
 def _replaying(body: bytes, request: Request) -> Callable[[], Awaitable[Message]]:
     """A receive that gives the body already read, then whatever the connection says next."""
-    delivered = False
+    unread: list[Message] = [{"type": "http.request", "body": body, "more_body": False}]
 
     async def receive() -> Message:
-        nonlocal delivered
-        if delivered:
-            return await request.receive()
-        delivered = True
-        return {"type": "http.request", "body": body, "more_body": False}
+        return unread.pop() if unread else await request.receive()
 
     return receive
