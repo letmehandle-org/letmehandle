@@ -45,6 +45,10 @@ def _importance_by_name(value: object) -> CallImportance:
     raise ValueError(f"importance must be one of {', '.join(_IMPORTANCE_BY_NAME)}")
 
 
+def _importance_name(level: CallImportance) -> str:
+    return level.name.lower()
+
+
 def _one_of(words: list[str]) -> WithJsonSchema:
     # The schema a model is shown is the list of words and nothing else. Left to itself, pydantic
     # would describe each enumeration with its docstring, which is written for whoever maintains
@@ -56,7 +60,7 @@ type _Intent = Annotated[CallIntent, _one_of([intent.value for intent in CallInt
 type _Importance = Annotated[
     CallImportance,
     PlainValidator(_importance_by_name),
-    PlainSerializer(lambda level: level.name.lower(), return_type=str),
+    PlainSerializer(_importance_name, return_type=str),
     _one_of(list(_IMPORTANCE_BY_NAME)),
 ]
 type _Capability = Annotated[Capability, _one_of([capability.value for capability in Capability])]

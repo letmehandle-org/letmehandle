@@ -492,7 +492,8 @@ class TestEndingAndEscalatingTogether:
             actions=actions,
             bound=timedelta(seconds=0.2),
         )
-        await opener
+        finished, _ = await asyncio.wait({opener})
+        assert opener in finished
 
         assert run.judgement.proposal.importance is CallImportance.URGENT
         assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]

@@ -136,13 +136,13 @@ class ScriptedModel(Model):
         step = self._steps.pop(0) if self._steps else Say("")
         yield {"messageStart": {"role": "assistant"}}
         match step:
-            case CallTool(name=name, arguments=arguments, raw=raw):
+            case CallTool():
                 use: ContentBlockStartToolUse = {
-                    "name": name,
+                    "name": step.name,
                     "toolUseId": f"tool-use-{len(self.requests)}",
                 }
                 yield {"contentBlockStart": {"start": {"toolUse": use}}}
-                text = json.dumps(arguments) if raw is None else raw
+                text = json.dumps(step.arguments) if step.raw is None else step.raw
                 yield {"contentBlockDelta": {"delta": {"toolUse": {"input": text}}}}
                 yield {"contentBlockStop": {}}
                 yield {"messageStop": {"stopReason": "tool_use"}}
