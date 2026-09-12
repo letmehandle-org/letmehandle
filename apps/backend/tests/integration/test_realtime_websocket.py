@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -20,6 +22,8 @@ from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
     ConnectionFailedError,
 )
+from letmehandle.observability.logging import configure_logging
+from tests.support.config import make_settings
 from tests.support.simulated_realtime_service import (
     MALFORMED_FRAME,
     SIMULATED_API_KEY,
@@ -329,3 +333,25 @@ async def test_closing_leaves_nothing_running_on_either_side(
 
     assert service.open_connections == 0
     assert len(asyncio.all_tasks()) == before
+
+
+async def test_debug_logging_never_prints_the_key_or_what_was_said(
+    service: SimulatedRealtimeService,
+) -> None:
+    # At debug the websocket library logs request headers and frame text: the key, and whatever
+    # a caller said. Debugging is exactly when a log gets pasted somewhere it should not go.
+    captured = io.StringIO()
+    configure_logging(make_settings(log_level="debug"))
+    handler = logging.StreamHandler(captured)
+    logging.getLogger().addHandler(handler)
+    try:
+        connection = await _connected(service)
+        await connection.send({"type": "session.update", "session": {"instructions": "a secret"}})
+        await connection.receive()
+        await connection.close()
+    finally:
+        logging.getLogger().removeHandler(handler)
+        configure_logging(make_settings())
+
+    assert SIMULATED_API_KEY not in captured.getvalue()
+    assert "a secret" not in captured.getvalue()

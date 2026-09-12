@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -26,6 +26,9 @@ def add_correlation_id(_logger: WrappedLogger, _method: str, event_dict: EventDi
     if current is not None:
         event_dict["correlation_id"] = current
     return event_dict
+
+
+_CONTENT_LOGGERS: Final = ("websockets",)
 
 
 def configure_logging(settings: Settings) -> None:
@@ -66,6 +69,13 @@ def configure_logging(settings: Settings) -> None:
         level=logging.getLevelNamesMapping()[settings.log_level.upper()],
         force=True,
     )
+
+    # Libraries that log what passes through them, held above debug whatever the process is set
+    # to. At debug the websocket library prints request headers and frame text — which is the
+    # speech service's key and the words somebody said — and a debugging session is exactly
+    # when a log is copied somewhere it should not go.
+    for name in _CONTENT_LOGGERS:
+        logging.getLogger(name).setLevel(max(logging.WARNING, logging.getLogger().level))
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
