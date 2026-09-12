@@ -1,1 +1,1 @@
-"""Reading and changing how somebody wants their calls handled."""
+"""Preferences: reading and changing them, and turning them into what a model may be told."""
