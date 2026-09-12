@@ -34,14 +34,29 @@ something their configuration cannot do.
 Each gets a page here as it is implemented. Until then the interface itself, in
 `apps/backend/src/letmehandle/domain/ports/`, is the specification.
 
-| Port | Page | Status |
-| --- | --- | --- |
-| `SpeechProvider` | — | interface in phase 1, first adapter in phase 5 |
-| `LLMProvider` | — | interface in phase 1, first adapter in phase 6 |
-| `CallTransport` | — | interface in phase 1, two adapters in phase 7 |
-| `VoiceProvider` | — | interface in phase 1, first adapter in phase 4 |
-| `NotificationProvider` | — | interface in phase 1, first adapters in phase 10 |
-| `OTPProvider` | — | interface in phase 1, mock adapter in phase 2 |
+| Port | Interface | Contract suite | First implementation |
+| --- | --- | --- | --- |
+| `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them |
+| `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5 |
+| `LLMProvider` | `ports/llm.py` | `tests/contracts/other_ports.py` | phase 6 |
+| `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4 |
+| `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10 |
+| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 |
+| `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2 |
+
+Interface paths are relative to `apps/backend/src/letmehandle/domain/`, suites to `apps/backend/`.
+
+## Capabilities, by transport
+
+Transports differ in kind, not only in supplier, which is why the core asks what a transport can
+do rather than which one it is. The flags are `TransportCapabilities` in
+`ports/call_transport.py`, and a transport declares only what it genuinely provides — the full
+matrix is written up in phase 15.
+
+An operation that depends on a capability is not on `CallTransport` itself. It is reached by
+narrowing — `screening(transport)`, `audio_streaming(transport)`, `bridging(transport)` — so a
+caller that has not checked cannot name the method, and a transport whose declaration and
+implementation disagree fails at the narrowing rather than in the middle of somebody's call.
 
 ## Offering one
 
