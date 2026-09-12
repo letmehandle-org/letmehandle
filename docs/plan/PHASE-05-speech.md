@@ -119,3 +119,94 @@ printing the latency summary at exit.
 - **A transport that supplies no audio at all.** The Android native transport cannot stream a
   SIM call's audio. That is not a gap in this phase: it means the speech session simply is not
   created on that path, decided by capability in phase 8.
+
+---
+
+# Phase 5 verification
+
+```
+PHASE 5 VERIFICATION
+
+Planned tasks:        complete, except the live run the plan names as a manual step
+Acceptance criteria:  9 of 11 passed; 1 and 8 held — both need a live speech service
+Unit tests:           passed   backend 1251 passed, 3 skipped; mobile 179 passed, 17 suites
+Contract tests:       passed   SpeechProviderContract against both adapters, unmodified
+Integration tests:    passed   both adapters end to end over a real socket against in-process
+                               services that require what the real ones require: a whole
+                               conversation, an interruption, a drop and recovery with the latest
+                               context, a refused key, and the websocket's failure mapping
+E2E tests:            held     a spoken conversation with a live service (criterion 1)
+Coverage:             100.00%  backend, floor 98; mobile unchanged at 98.5% statements
+Lint:                 passed   ruff check; eslint --max-warnings 0; prettier --check
+Format:               passed
+Typecheck:            passed   mypy --strict; tsc --noEmit
+Static analysis:      passed   import-linter, 3 contracts kept; websockets forbidden in the domain
+Build:                passed   backend image; generated API types match the schema
+Application runs:     yes      no migration; migrations run without a voice catalogue, the API
+                               refuses to start without one
+Manual verification:  held     the harness is built; no live endpoint is configured yet
+Docs updated:         D-008 amended, docs/providers/speech.md, the phase plan
+Known issues:         none open in code; criteria 1 and 8 held, below
+Commits created:      52
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | A spoken conversation runs through the harness, reliably, for several turns | **Held.** `scripts/speech_harness.py` is built and exercises the port, the use case, a source and a sink. The same path runs end to end in CI; a live service is not yet configured |
+| 2 | Interruption stops model speech promptly and discards queued audio | The reader never waits on the consumer, so a caller's speech is acted on while a speaker is still playing: a 10 s reply is cancelled and truncated at 10 ms delivered. End to end, the service must receive a cancel and a truncate after the caller speaks, and a test fails if session-side silencing is deleted |
+| 3 | Context injected mid-session changes subsequent responses | `update_context` reaches the service mid-session, and an update made while a replacement is being configured is held and sent once it is live |
+| 4 | Closing, cancelling or failing a session leaks nothing | Tasks and connections counted after every exit path, including cancellation mid-handshake, during backoff, and while a replacement is configured; closing is bounded when a service stops reading |
+| 5 | A transient disconnect reconnects and restores context | The replacement's first event carries the latest instructions, and a test fails if restoration is deleted. ElevenLabs cannot resume a conversation, so its replacement is a new one told what was said (D-008) |
+| 6 | A permanent failure surfaces as a typed domain error | A revoked key ends the conversation with `ConversationFailedError(retryable=False)`; attempts are bounded across replacements that accept and then close; three failed responses in a row end the session |
+| 7 | The contract suite passes against the real adapter | Both adapters, unmodified |
+| 8 | Latency metrics are recorded and a baseline captured | **Held.** Time to first audio, round trip, interruption to silence, reconnections and stream errors are recorded, and the harness prints a summary. A baseline needs a live service |
+| 9 | CI runs the full suite with no vendor credentials | Every test runs against in-process services |
+| 10 | The session works against a source and sink that are not a call | `test_a_conversation_runs_with_no_call_transport_or_phone_number_present` |
+| 11 | Coverage meets the floors | 100% backend |
+
+## What changed from the plan, and why
+
+**No vendor was chosen.** The plan assumed one managed speech model. The first adapter speaks a
+protocol instead, against a configured endpoint, and a second speaks the ElevenLabs Agents
+protocol; `SPEECH_PROVIDER` chooses (D-008). The voice catalogue became configuration, which
+removed the invented phase 4 list.
+
+**Test sources live in memory.** The plan said file-backed. A file source would be the one place
+audio touched a disk (D-013).
+
+## Reviews, and what they found
+
+An adversarial review ran against a green suite at 100% coverage and reproduced ten defects.
+Integration found three more before it. Every fix shipped with a test written from the
+reproduction, and each was shown to fail without its fix.
+
+- **Barge-in was seconds late.** The reader waited for room in a bounded queue, so a consumer
+  playing at the speed of speech left the caller's interruption unread behind queued audio. Only
+  audio is bounded now, by duration, and control events never wait.
+- **A service that accepted and then dropped every connection was reconnected to forever.**
+  Attempts now carry across replacements until one delivers something real.
+- **Debug logging printed the key and what a caller said**, through the websocket library.
+- **A context update made during a reconnect was lost**, and the restored session ran on the old
+  instructions.
+- **A failed response was silence**, with no event and no metric.
+- **Closing hung for half a minute** when a service stopped reading.
+- **A metrics label the production recorder refuses** would have raised on the first stream
+  error; the test recorder accepted anything.
+- **The simulated service could never end a turn**, because it treated only exact zeros as silence.
+- **Caller transcription was never requested**, so a real service would have recorded one side.
+- **Two tests passed with their feature deleted**, including an interruption test that never
+  interrupted anything.
+
+## Held until a live service is configured
+
+Criteria 1 and 8. For ElevenLabs, the agent must allow overrides for the prompt, first message,
+language and voice, keep the transcript and interruption events enabled, and the key must be
+permitted to use the Agents platform — `docs/providers/speech.md` lists the steps. Then:
+
+```
+cd apps/backend && uv sync --group harness && uv run python ../../scripts/speech_harness.py
+```
+
+and the latency summary it prints is recorded here.
