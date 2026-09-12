@@ -19,3 +19,8 @@ the first release.
   translation wired from the first screen.
 - Local development stack, backend image, and CI covering lint, types, tests, coverage, the
   backend image, and native builds for both platforms.
+- Domain model: calls and their state machine, callers, users, preferences and deterministic
+  call rules, agent authority, intent and importance, escalation decisions, and call summaries.
+- Provider ports with declared capabilities — `CallTransport`, `SpeechProvider`, `LLMProvider`,
+  `VoiceProvider`, `NotificationProvider`, `OTPProvider`, `Clock` and `IdGenerator` — each with
+  a contract suite any implementation must pass.

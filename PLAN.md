@@ -20,8 +20,8 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | Phase | Name | Status |
 | --- | --- | --- |
 | 0 | Project foundation | **complete** |
-| 1 | Domain model and core contracts | in progress |
-| 2 | Authentication and user foundation | not started |
+| 1 | Domain model and core contracts | **complete** |
+| 2 | Authentication and user foundation | in progress |
 | 3 | Onboarding and preferences | not started |
 | 4 | Voice configuration | not started |
 | 5 | Realtime speech foundation | not started |

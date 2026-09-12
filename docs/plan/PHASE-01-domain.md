@@ -148,3 +148,83 @@ Run in Phase 1 against in-memory fakes, and against every real adapter from Phas
 - **Audio frame modelling.** Telephony commonly delivers 8 kHz mu-law while speech models
   commonly want 16 kHz PCM. The frame type carries encoding and rate and conversion lives in
   the adapter; if that proves wrong, the decision to fix is a resampling port, not a leak.
+
+---
+
+# Phase 1 verification
+
+```
+PHASE 1 VERIFICATION
+
+Planned tasks:        complete
+Acceptance criteria:  10/10 passed
+Unit tests:           passed   484 passed, 3 skipped (uv run pytest)
+Integration tests:    passed   included above: import boundaries, and the architectural
+                               check that the domain names no provider or platform
+Contract tests:       passed   every port's suite, run against in-memory implementations.
+                               The three skips are capability-gated: a screening-only
+                               transport skips the audio and bridging behaviours, which is
+                               the suite working as designed rather than coverage missing
+E2E tests:            not applicable — nothing is wired to anything yet
+Coverage:             100.00%  domain layer, 802 statements, 112 branches, no partials
+                      100.00%  backend overall, floor 98
+Lint:                 passed   ruff check
+Format:               passed   ruff format --check
+Typecheck:            passed   mypy --strict, 75 source files
+Static analysis:      passed   import-linter, 3 contracts kept
+Build:                passed   nothing new to build; the application still starts
+Application runs:     yes      unchanged from phase 0; the domain is not yet wired in
+Manual verification:  none required. There is no runtime behaviour in this phase: every
+                      claim it makes is a claim about types and rules, and each is asserted
+Docs updated:         docs/providers/README.md now lists each port, its interface and its
+                      contract suite; the decision record already carried D-004 and D-005
+Known issues:         none
+Commits created:      9
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | The domain imports no vendor SDK, framework or driver | import-linter contract, proven to fail when one is added (`test_import_boundaries.py`) |
+| 2 | Every port has a contract suite, passing against a fake | `tests/contracts/`, seven ports, run against in-memory implementations that really are bounded, interruptible and closeable |
+| 3 | Every legal and illegal transition is covered | The full cartesian product of states, not a hand-written list: 100 pairs, each asserted to move or to raise naming both states |
+| 4 | An illegal transition produces a typed error naming both states | `IllegalTransitionError` carries `current` and `requested` as attributes |
+| 5 | Escalation decisions are structured and constructible only with a reason | `EscalationDecision` refuses both halves of the mistake: escalating without a reason, and not escalating with one |
+| 6 | Domain coverage is 100% branch | 802 statements, 112 branches, zero partial |
+| 7 | No port signature mentions a vendor, a codec, a webhook or an HTTP status | Asserted by the architectural test over every domain module, with two exemptions each recorded with its reason |
+| 8 | Adding a `CallState` without declaring its transitions fails | `test_every_state_declares_its_transitions` |
+| 9 | `CallTransport` declares the full capability set, each operation gated by it | Six capabilities; operations that depend on one are unreachable without narrowing |
+| 10 | No domain module refers to a transport by name | `test_domain_names_no_provider.py`, which also proves its own search works |
+
+## Decisions made while building, and why
+
+- **Capability gating is two mechanisms, not one.** The static half is that an operation
+  depending on a capability does not exist on `CallTransport`: it lives on a protocol reached
+  through `screening`, `audio_streaming` or `bridging`, so a caller that has not checked cannot
+  name the method. The runtime half is the narrowing itself, which catches the one thing types
+  cannot — a transport that declares a capability it has not implemented. Both were needed: a
+  fake that lied about bridging was written specifically to prove the second.
+- **The state machine forbids self-transitions.** Idempotency belongs to the orchestrator, but
+  a state machine that permits a move to the state it is already in makes a duplicated provider
+  callback look like a real second transition. The mistake is not made available.
+- **`PhoneNumber.__str__` is masked.** Every accidental disclosure of a number that this
+  project has to worry about arrives through an f-string in a log line. Reading the real value
+  is `.value`, which is a deliberate act a reviewer can see.
+- **Three-way state needed no special case.** The user is a participant with a role, so a call
+  with a caller, an agent and a human is the ordinary shape of the aggregate rather than a
+  branch in it.
+- **Two justified exemptions to the no-provider-names rule**, both recorded in the test rather
+  than quietly excluded: the wire format the LLM port describes is named after the service that
+  first published it, and naming it is what lets a self-hoster point at their own server; and a
+  device genuinely belongs to a platform, which is a fact about the device rather than the
+  domain branching on a supplier.
+
+## What was found and fixed
+
+- **`stream_audio` was declared as a coroutine returning an iterator**, which would have made
+  every implementer write an async generator and every caller await before iterating. Found by
+  the type checker against the contract suite, before any adapter existed to inherit it.
+- **Three modules named a platform or a provider**, including the transport port's own
+  docstring. The architectural test caught them on its first run, which is the argument for
+  writing it in the same phase as the rule it enforces.
