@@ -35,10 +35,10 @@ import sounddevice  # type: ignore[import-untyped]
 
 from letmehandle.adapters.audio.conversion import AudioConverter
 from letmehandle.adapters.clock import SystemClock
-from letmehandle.adapters.speech.realtime.connection import (
+from letmehandle.adapters.speech.websocket.connection import (
     ConnectionFailedError,
     ConnectionOpener,
-    RealtimeConnection,
+    EventConnection,
 )
 from letmehandle.application.speech.conversation import Conversation, Transcript
 from letmehandle.bootstrap import build_speech_provider
@@ -199,7 +199,7 @@ class Severable:
         self._live: list[_SeverableConnection] = []
 
     def wrap(self, opener: ConnectionOpener) -> ConnectionOpener:
-        async def open_severable() -> RealtimeConnection:
+        async def open_severable() -> EventConnection:
             connection = _SeverableConnection(await opener())
             self._live.append(connection)
             return connection
@@ -213,7 +213,7 @@ class Severable:
 
 
 class _SeverableConnection:
-    def __init__(self, inner: RealtimeConnection) -> None:
+    def __init__(self, inner: EventConnection) -> None:
         self._inner = inner
         self._severed = asyncio.Event()
 
