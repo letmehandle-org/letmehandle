@@ -10,6 +10,7 @@ import pytest
 
 from letmehandle.config.settings import get_settings
 from letmehandle.main import main
+from tests.support.config import REQUIRED_ENVIRONMENT
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -31,8 +32,10 @@ def recorded_uvicorn(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, obje
 
 
 def test_main_starts_the_server_with_the_application_factory(
-    recorded_uvicorn: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch, recorded_uvicorn: dict[str, object]
 ) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
     main()
     assert recorded_uvicorn["target"] == "letmehandle.main:create_app"
     assert recorded_uvicorn["factory"] is True
@@ -53,4 +56,15 @@ def test_main_refuses_to_start_on_invalid_configuration(
         main()
 
     assert "LOG_LEVEL" in str(exit_info.value)
+    assert recorded_uvicorn == {}
+
+
+def test_main_refuses_to_start_without_a_voice_catalogue(
+    recorded_uvicorn: dict[str, object],
+) -> None:
+    """Nothing is set, so the one variable with no possible default is the one named."""
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert "SPEECH_VOICES" in str(exit_info.value)
     assert recorded_uvicorn == {}

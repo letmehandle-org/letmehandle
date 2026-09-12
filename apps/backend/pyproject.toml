@@ -16,6 +16,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "pyjwt>=2.14.0",
+    "websockets>=17.1,<18",
 ]
 
 [dependency-groups]
@@ -28,6 +29,9 @@ dev = [
     "mypy>=1.13",
     "import-linter>=2.1",
     "aiosqlite>=0.20",
+]
+harness = [
+    "sounddevice>=0.5.6,<0.6",
 ]
 
 [project.scripts]
@@ -181,4 +185,5 @@ forbidden_modules = [
     "botocore",
     "httpx",
     "requests",
+    "websockets",
 ]

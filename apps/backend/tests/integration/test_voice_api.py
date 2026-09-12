@@ -14,13 +14,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from sqlalchemy import text
 
-from letmehandle.adapters.voice.builtin import (
-    SHIPPED_DEFAULT_VOICE_ID,
-    SHIPPED_VOICES,
-    BuiltInVoiceProvider,
-)
+from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.domain.ports.voice import VoiceSample
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, running, sign_in
+from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -29,7 +26,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
-ANOTHER_VOICE = SHIPPED_VOICES[1].id
+ANOTHER_VOICE = EXAMPLE_VOICES[1].id
 SAMPLE = VoiceSample(audio=b"a short recording", media_type="audio/mpeg")
 
 
@@ -37,9 +34,9 @@ SAMPLE = VoiceSample(audio=b"a short recording", media_type="audio/mpeg")
 async def previewing(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
     """An application whose provider has sample audio, and therefore declares preview."""
     provider = BuiltInVoiceProvider(
-        SHIPPED_VOICES,
-        default_voice_id=SHIPPED_DEFAULT_VOICE_ID,
-        samples={SHIPPED_DEFAULT_VOICE_ID: SAMPLE},
+        EXAMPLE_VOICES,
+        default_voice_id=EXAMPLE_DEFAULT_VOICE,
+        samples={EXAMPLE_DEFAULT_VOICE: SAMPLE},
     )
     async with running(database_url, schema, voices=provider) as ready:
         yield ready
@@ -59,8 +56,8 @@ class TestCatalogue:
         tokens = await sign_in(api)
         body = (await api.client.get("/v1/voices", headers=bearer(tokens))).json()
 
-        assert [voice["id"] for voice in body["voices"]] == [v.id for v in SHIPPED_VOICES]
-        assert body["default_voice_id"] == SHIPPED_DEFAULT_VOICE_ID
+        assert [voice["id"] for voice in body["voices"]] == [v.id for v in EXAMPLE_VOICES]
+        assert body["default_voice_id"] == EXAMPLE_DEFAULT_VOICE
 
     async def test_it_declares_what_the_provider_cannot_do(self, api: Api) -> None:
         # D-009: the interface renders from these, and a true it did not mean puts a training
@@ -83,7 +80,7 @@ class TestChoosing:
 
         assert body["persona_voice_id"] is None
         # The end of the fallback chain. Nothing chosen must never mean a call with no voice.
-        assert body["resolved_voice_id"] == SHIPPED_DEFAULT_VOICE_ID
+        assert body["resolved_voice_id"] == EXAMPLE_DEFAULT_VOICE
 
     async def test_a_chosen_voice_is_stored_and_used(self, api: Api) -> None:
         tokens = await sign_in(api)
@@ -110,7 +107,7 @@ class TestChoosing:
         )
 
         assert cleared.json()["persona_voice_id"] is None
-        assert cleared.json()["resolved_voice_id"] == SHIPPED_DEFAULT_VOICE_ID
+        assert cleared.json()["resolved_voice_id"] == EXAMPLE_DEFAULT_VOICE
 
     async def test_a_voice_the_provider_does_not_offer_is_refused_rather_than_stored(
         self, api: Api
@@ -285,7 +282,7 @@ class TestPreviewFollowsTheProvider:
         # client method, and gets a button drawn for it somewhere.
         tokens = await sign_in(api)
         response = await api.client.get(
-            f"/v1/voices/{SHIPPED_DEFAULT_VOICE_ID}/preview", headers=bearer(tokens)
+            f"/v1/voices/{EXAMPLE_DEFAULT_VOICE}/preview", headers=bearer(tokens)
         )
         assert response.status_code == 404
 
@@ -296,7 +293,7 @@ class TestPreviewFollowsTheProvider:
     async def test_a_provider_that_can_preview_serves_the_audio(self, previewing: Api) -> None:
         tokens = await sign_in(previewing)
         response = await previewing.client.get(
-            f"/v1/voices/{SHIPPED_DEFAULT_VOICE_ID}/preview", headers=bearer(tokens)
+            f"/v1/voices/{EXAMPLE_DEFAULT_VOICE}/preview", headers=bearer(tokens)
         )
 
         assert response.status_code == 200
@@ -314,7 +311,7 @@ class TestPreviewFollowsTheProvider:
         body = (await previewing.client.get("/v1/voices", headers=bearer(tokens))).json()
 
         previewable = {voice["id"]: voice["previewable"] for voice in body["voices"]}
-        assert previewable[SHIPPED_DEFAULT_VOICE_ID] is True
+        assert previewable[EXAMPLE_DEFAULT_VOICE] is True
         assert previewable[ANOTHER_VOICE] is False
 
     async def test_a_voice_with_no_sample_says_there_is_nothing_to_play(
@@ -335,7 +332,7 @@ class TestPreviewFollowsTheProvider:
         assert response.status_code == 404
 
     async def test_a_preview_still_needs_a_token(self, previewing: Api) -> None:
-        response = await previewing.client.get(f"/v1/voices/{SHIPPED_DEFAULT_VOICE_ID}/preview")
+        response = await previewing.client.get(f"/v1/voices/{EXAMPLE_DEFAULT_VOICE}/preview")
         assert response.status_code == 401
 
     async def test_the_catalogue_says_preview_is_available(self, previewing: Api) -> None:

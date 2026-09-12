@@ -77,17 +77,41 @@ GENERATED = ("pnpm-lock.yaml", "apps/backend/uv.lock", "uv.lock")
 EMAIL_RULE = "an email address"
 IDENTITY_RULE = "an identifying name"
 
-# The forge writes this trailer itself when a pull request is squash-merged, naming the account
-# that owns the repository. That account is already on every commit as its author — it is how
-# git works — so flagging the trailer is flagging something the repository cannot not publish,
-# and there is no version of the history without it.
+# No commit carries a co-author trailer, in any form. A trailer names a person and usually an
+# address, and a forge adds one on its own when it squash-merges — so a merge made without an
+# explicit message is how one arrives. Merges here are made with the message written out.
+COAUTHOR_TRAILER = re.compile(r"^\s*co-authored-by:", re.IGNORECASE)
+COAUTHOR_RULE = "a co-author trailer"
+
+# Who a commit says wrote and committed it is published with it. Only a forge noreply address
+# may appear there; anything else is a real address attached to every copy of the history.
 #
-# Narrow on purpose: the address has to be a forge noreply one, so an ordinary co-author
-# trailer naming a real person at a real domain still fails.
-FORGE_COAUTHOR = re.compile(
-    r"^\s*co-authored-by:\s*[^<]+<[\w.+-]+@users\.noreply\.github\.com>\s*$",
-    re.IGNORECASE,
-)
+# Commits the forge makes itself — a squash merge, a branch updated from its web page — are the
+# exception, and the only one. Their author address comes from the merging account's own email
+# setting, which nothing in this repository can change, so this rule governs what is pushed from
+# a machine. Those merges are still refused a co-author trailer: merges here are made with the
+# message written out.
+NOREPLY_AUTHORSHIP = re.compile(r"(@users\.noreply\.github\.com|^noreply@github\.com)$")
+FORGE_COMMITTER = "noreply@github.com"
+AUTHORSHIP_RULE = "an address in who wrote or committed it"
+
+# Commits that were already published when the two rules above were added, exempted from those
+# two rules only and by exact id, so the history scan can pass without rewriting what every
+# clone already holds. No commit is ever added to this list: it only ever shrinks.
+PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset({
+    "0234d7a8eaea66909a96321ed9912e8d7a0e37bf",
+    "09da9e3591e760939dc0f880fb05cc66d61720bc",
+    "16c7600fd831b21de38ccc6f0a75bd479383d81a",
+    "205d87d6865508be23234c106d2159c51aa30686",
+    "2ebb698526c13d081d84d59198fb8d01353c1956",
+    "5b21fc24a6ffb919e8929edfd12e6b5821f0be7e",
+    "71b5205e791eb1bebce99aed8416b1c6a2b8077a",
+    "a8d2436b647bc517ef94a5589a4af4d1f807e73b",
+    "a8d90b8b67df50367b71ffb45df4c0891c07326a",
+    "b6e63de1c4670b0df6d58925ca8a4932cc9cd159",
+    "bfccd87faa5b0568e31fce8de4ef2385568365ad",
+    "d704945b689912b7d567c6786f0643865af305db",
+})
 
 # Identity terms: names, and the names of unrelated projects whose mention would say more
 # about who wrote this than about the code.
@@ -196,8 +220,8 @@ def scan_line(line, tier1, tier2, path=None):
         one.append("a phone number outside the ranges reserved for fiction")
     if path in GENERATED:
         one = [why for why in one if why != EMAIL_RULE]
-    if FORGE_COAUTHOR.match(line):
-        one = [why for why in one if why != IDENTITY_RULE]
+    if COAUTHOR_TRAILER.match(line):
+        one.append(COAUTHOR_RULE)
     return one, two
 
 
@@ -305,10 +329,24 @@ def audit_range(args):
 
     findings = []
     for sha in revs.stdout.split():
+        grandfathered = sha in PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES
+        authorship = subprocess.run(["git", "log", "-1", "--format=%ae%n%ce", sha],
+                                    capture_output=True, text=True).stdout.split()
+        made_by_the_forge = authorship[-1:] == [FORGE_COMMITTER]
+        if (
+            not grandfathered
+            and not made_by_the_forge
+            and not all(NOREPLY_AUTHORSHIP.search(e) for e in authorship)
+        ):
+            # The address itself is not repeated: printing it would publish it in a CI log.
+            findings.append((f"{sha[:8]} authorship", AUTHORSHIP_RULE, "(address withheld)"))
+
         message = subprocess.run(["git", "log", "-1", "--format=%B", sha],
                                  capture_output=True, text=True).stdout
         for line in message.splitlines():
             one, two = scan_line(line, tier1, tier2)
+            if grandfathered and COAUTHOR_TRAILER.match(line):
+                one = [why for why in one if why not in (COAUTHOR_RULE, IDENTITY_RULE, EMAIL_RULE)]
             for why in one + two:
                 findings.append((f"{sha[:8]} message", why, line))
 

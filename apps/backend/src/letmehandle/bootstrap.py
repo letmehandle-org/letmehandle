@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Final, assert_never
 
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.otp.mock import MockOTPProvider
@@ -22,14 +22,30 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
-from letmehandle.adapters.voice.builtin import built_in_voice_provider
-from letmehandle.config.settings import OTPProviderName, Settings
+from letmehandle.adapters.speech.elevenlabs.protocol import (
+    DEFAULT_WIRE_FORMAT as ELEVENLABS_WIRE_FORMAT,
+)
+from letmehandle.adapters.speech.elevenlabs.provider import ElevenLabsSpeechProvider
+from letmehandle.adapters.speech.elevenlabs.websocket import (
+    websocket_opener as elevenlabs_opener,
+)
+from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
+from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
+from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
+from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
+from letmehandle.config.settings import OTPProviderName, Settings, SpeechProviderName
+from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.domain.ports.clock import Clock, IdGenerator
+    from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+    from letmehandle.domain.ports.speech import SpeechProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
 
@@ -85,14 +101,71 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
-    """Which voices this deployment offers.
+    """Which voices this deployment offers: the catalogue its speech service speaks.
 
-    Takes the settings it does not yet read, because the day a second provider exists the
-    choice belongs here — and a function that has to grow an argument first is a function
-    every caller has to be found and changed.
+    Read from configuration rather than written anywhere in code, because the service decides
+    which voices exist and a list of its own here would offer voices it cannot speak.
     """
-    del settings
-    return built_in_voice_provider()
+    voices, default_voice = settings.require_voice_catalogue()
+    return BuiltInVoiceProvider(voices, default_voice_id=default_voice)
+
+
+# English only in the first release (D-017). A setting arrives with the second language, not
+# before it.
+_SPEECH_LANGUAGES: Final = ("en",)
+
+# What the speech adapters can convert from: a microphone's wideband audio, and a phone line's.
+_SPEECH_INPUT_FORMATS: Final = (SPEECH_WIDEBAND, TELEPHONY_NARROWBAND)
+
+
+def build_speech_provider(
+    settings: Settings,
+    *,
+    metrics: MetricsRecorder,
+    wrap_connection: Callable[[ConnectionOpener], ConnectionOpener] | None = None,
+) -> SpeechProvider:
+    """The speech service this deployment talks to, by the protocol it speaks.
+
+    `wrap_connection` lets a caller stand between the session and the network — the harness uses
+    it to drop a connection on command and watch the session recover — without that caller
+    constructing the adapter itself.
+
+    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives: a protocol
+    added to the settings without an adapter chosen here fails to type-check.
+    """
+    wrap = wrap_connection or _unwrapped
+    key = settings.speech_api_key
+    api_key = None if key is None else key.get_secret_value()
+    match settings.speech_provider:
+        case SpeechProviderName.REALTIME:
+            endpoint, model = settings.require_speech_service()
+            return RealtimeSpeechProvider(
+                wrap(realtime_opener(endpoint, model=model, api_key=api_key)),
+                metrics,
+                languages=_SPEECH_LANGUAGES,
+                input_formats=_SPEECH_INPUT_FORMATS,
+                # The protocol's own wire format, so that nothing is converted twice on its way
+                # out. A sink converts to what it plays.
+                output_format=REALTIME_WIRE_FORMAT,
+                transcription_model=settings.speech_transcription_model,
+            )
+        case SpeechProviderName.ELEVENLABS:
+            endpoint, agent_id = settings.require_speech_agent()
+            return ElevenLabsSpeechProvider(
+                wrap(elevenlabs_opener(endpoint, agent_id=agent_id, api_key=api_key)),
+                metrics,
+                languages=_SPEECH_LANGUAGES,
+                input_formats=_SPEECH_INPUT_FORMATS,
+                # What an agent speaks unless configured otherwise, so that an agent left at its
+                # default is not converted twice on the way out either.
+                output_format=ELEVENLABS_WIRE_FORMAT,
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
+    return opener
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:

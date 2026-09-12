@@ -32,6 +32,10 @@ def main() -> int:
             app_env=Environment.TEST,
             log_level="critical",
             auth_signing_key="a-key-used-only-to-build-the-schema-never-to-sign",  # noqa: S106
+            # Required configuration, and irrelevant to the schema: which voices a deployment
+            # offers changes the catalogue a client is sent, not the shape of it.
+            speech_voices="schema-voice:A voice used only to build the schema:en",
+            speech_default_voice="schema-voice",
         )
     )
     schema = app.openapi()
