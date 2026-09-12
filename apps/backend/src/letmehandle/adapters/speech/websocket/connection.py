@@ -15,8 +15,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
 
-class RealtimeConnection(Protocol):
-    """One open connection to a realtime speech service."""
+class EventConnection(Protocol):
+    """One open connection to a speech service that speaks in JSON events."""
 
     async def send(self, event: Mapping[str, Any]) -> None:
         """Send one protocol event.
@@ -36,10 +36,10 @@ class RealtimeConnection(Protocol):
 
 
 # How a session gets a connection: something it can call again, which is what reconnection is.
-type ConnectionOpener = Callable[[], Awaitable[RealtimeConnection]]
+type ConnectionOpener = Callable[[], Awaitable[EventConnection]]
 
 
-class RealtimeConnectionError(Exception):
+class EventConnectionError(Exception):
     """Base for the ways a connection stops working.
 
     Adapter-internal. The session translates these into the domain's own errors and events, so
@@ -47,11 +47,11 @@ class RealtimeConnectionError(Exception):
     """
 
 
-class ConnectionClosedError(RealtimeConnectionError):
+class ConnectionClosedError(EventConnectionError):
     """The connection was used after it closed."""
 
 
-class ConnectionFailedError(RealtimeConnectionError):
+class ConnectionFailedError(EventConnectionError):
     """The connection failed.
 
     `retryable` is the fact reconnection needs: a dropped connection or a timeout is worth

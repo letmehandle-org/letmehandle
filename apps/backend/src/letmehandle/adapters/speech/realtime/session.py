@@ -20,10 +20,6 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.adapters.audio.conversion import AudioConverter, pcm_duration_ms
 from letmehandle.adapters.speech.realtime import protocol
-from letmehandle.adapters.speech.realtime.connection import (
-    ConnectionFailedError,
-    RealtimeConnectionError,
-)
 from letmehandle.adapters.speech.realtime.protocol import (
     WIRE_FORMAT,
     AudioDelta,
@@ -39,6 +35,10 @@ from letmehandle.adapters.speech.realtime.protocol import (
     Turn,
 )
 from letmehandle.adapters.speech.realtime.telemetry import StreamErrorKind
+from letmehandle.adapters.speech.websocket.connection import (
+    ConnectionFailedError,
+    EventConnectionError,
+)
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import AudioFrame
 from letmehandle.domain.ports.speech import (
@@ -54,15 +54,15 @@ from letmehandle.domain.ports.speech import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from letmehandle.adapters.speech.realtime.connection import (
-        ConnectionOpener,
-        RealtimeConnection,
-    )
     from letmehandle.adapters.speech.realtime.context import SessionContext
     from letmehandle.adapters.speech.realtime.protocol import Event, Inbound
     from letmehandle.adapters.speech.realtime.reconnect import ReconnectPolicy
     from letmehandle.adapters.speech.realtime.telemetry import SessionTelemetry
     from letmehandle.adapters.speech.realtime.timing import Timekeeping
+    from letmehandle.adapters.speech.websocket.connection import (
+        ConnectionOpener,
+        EventConnection,
+    )
     from letmehandle.domain.models.audio import AudioFormat
 
 _COMPLETED: Final = "completed"
@@ -139,7 +139,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._queue: asyncio.Queue[_Queued | _Ended] = asyncio.Queue(maxsize=setup.queue_size)
         self._inbound = AudioConverter(setup.input_format, WIRE_FORMAT)
         self._outbound = AudioConverter(WIRE_FORMAT, setup.output_format)
-        self._connection: RealtimeConnection | None = None
+        self._connection: EventConnection | None = None
         # The reader, once started. A list so that closing a session that never started is the
         # same code as closing one that did.
         self._tasks: list[asyncio.Task[None]] = []
@@ -165,7 +165,7 @@ class RealtimeSpeechSession(SpeechSession):
         """
         try:
             connection = await self._open()
-        except RealtimeConnectionError as error:
+        except EventConnectionError as error:
             await self._drop_connection()
             raise ProviderError(
                 self._setup.provider, str(error), retryable=_is_retryable(error)
@@ -241,7 +241,7 @@ class RealtimeSpeechSession(SpeechSession):
 
     # -------------------------------------------------------------------------- the reader
 
-    async def _read(self, connection: RealtimeConnection) -> None:
+    async def _read(self, connection: EventConnection) -> None:
         try:
             await self._converse(connection)
         except Exception:
@@ -250,10 +250,10 @@ class RealtimeSpeechSession(SpeechSession):
             await self._fail("the session stopped unexpectedly")
             raise
 
-    async def _converse(self, connection: RealtimeConnection) -> None:
+    async def _converse(self, connection: EventConnection) -> None:
         while True:
             received = await _receive(connection)
-            if isinstance(received, RealtimeConnectionError):
+            if isinstance(received, EventConnectionError):
                 self._telemetry.stream_error(StreamErrorKind.CONNECTION)
                 replacement = await self._recover(received)
                 if replacement is None:
@@ -402,7 +402,7 @@ class RealtimeSpeechSession(SpeechSession):
 
     # ------------------------------------------------------------------------ reconnection
 
-    async def _recover(self, error: RealtimeConnectionError) -> RealtimeConnection | None:
+    async def _recover(self, error: EventConnectionError) -> EventConnection | None:
         """Replace a failed connection, or end the session and return `None`."""
         self._live = False
         await self._drop_connection()
@@ -417,7 +417,7 @@ class RealtimeSpeechSession(SpeechSession):
             await timekeeping.sleep(policy.delay(attempt, timekeeping.draw()))
             try:
                 connection = await self._open()
-            except RealtimeConnectionError as failure:
+            except EventConnectionError as failure:
                 await self._drop_connection()
                 self._telemetry.stream_error(StreamErrorKind.CONNECTION)
                 if not _is_retryable(failure):
@@ -439,7 +439,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._playback = None
         self._outbound.reset()
 
-    async def _open(self) -> RealtimeConnection:
+    async def _open(self) -> EventConnection:
         # Held before it is configured, so that a failure or a cancellation part-way through
         # configuring it still finds it to close.
         connection = self._connection = await self._setup.opener()
@@ -478,7 +478,7 @@ class RealtimeSpeechSession(SpeechSession):
             return
         try:
             await connection.send(event)
-        except RealtimeConnectionError:
+        except EventConnectionError:
             return
 
     async def _drop_connection(self) -> None:
@@ -493,11 +493,11 @@ class RealtimeSpeechSession(SpeechSession):
             raise ProviderError(self._setup.provider, "the session is closed", retryable=False)
 
 
-async def _receive(connection: RealtimeConnection) -> Event | RealtimeConnectionError:
+async def _receive(connection: EventConnection) -> Event | EventConnectionError:
     """The next event, or the failure that ended the connection, as a value to act on."""
     try:
         event = await connection.receive()
-    except RealtimeConnectionError as error:
+    except EventConnectionError as error:
         return error
     if event is None:
         # The service ending a connection on its own is how a session-length limit or a restart
@@ -506,5 +506,5 @@ async def _receive(connection: RealtimeConnection) -> Event | RealtimeConnection
     return event
 
 
-def _is_retryable(error: RealtimeConnectionError) -> bool:
+def _is_retryable(error: EventConnectionError) -> bool:
     return isinstance(error, ConnectionFailedError) and error.retryable

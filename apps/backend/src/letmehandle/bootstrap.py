@@ -32,7 +32,7 @@ from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAN
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from letmehandle.adapters.speech.realtime.connection import ConnectionOpener
+    from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider

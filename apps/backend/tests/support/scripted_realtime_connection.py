@@ -19,7 +19,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from letmehandle.adapters.speech.realtime.connection import (
+from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
     ConnectionFailedError,
 )

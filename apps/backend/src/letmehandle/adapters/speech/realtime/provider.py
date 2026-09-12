@@ -27,7 +27,7 @@ from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechProvider
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from letmehandle.adapters.speech.realtime.connection import ConnectionOpener
+    from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.domain.models.audio import AudioFormat
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.speech import SpeechSession

@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.adapters.speech.realtime.connection import (
+from letmehandle.adapters.speech.realtime.websocket import websocket_opener
+from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
     ConnectionFailedError,
 )
-from letmehandle.adapters.speech.realtime.websocket import websocket_opener
 from tests.support.simulated_realtime_service import (
     MALFORMED_FRAME,
     SIMULATED_API_KEY,
@@ -32,7 +32,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
     from typing import Any
 
-    from letmehandle.adapters.speech.realtime.connection import ConnectionOpener, RealtimeConnection
+    from letmehandle.adapters.speech.websocket.connection import (
+        ConnectionOpener,
+        EventConnection,
+    )
 
 
 @pytest.fixture
@@ -51,7 +54,7 @@ def _opener(service: SimulatedRealtimeService, **overrides: Any) -> ConnectionOp
     return websocket_opener(service.url, **options)
 
 
-async def _connected(service: SimulatedRealtimeService) -> RealtimeConnection:
+async def _connected(service: SimulatedRealtimeService) -> EventConnection:
     """A connection the service has greeted, so both ends agree it is open."""
     connection = await _opener(service)()
     greeting = await connection.receive()
@@ -60,7 +63,7 @@ async def _connected(service: SimulatedRealtimeService) -> RealtimeConnection:
     return connection
 
 
-async def _next_of(connection: RealtimeConnection, kind: str) -> Mapping[str, Any]:
+async def _next_of(connection: EventConnection, kind: str) -> Mapping[str, Any]:
     while True:
         event = await connection.receive()
         assert event is not None, f"the connection closed before {kind}"
