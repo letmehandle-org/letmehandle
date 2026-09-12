@@ -268,6 +268,15 @@ class TranscriptRepository(ABC):
         two are indistinguishable by design.
         """
 
+
+class TranscriptRetentionRepository(ABC):
+    """Deleting transcript entries that have outlived their owner's retention.
+
+    Apart from `TranscriptRepository` because it never needs to read what was said. The purge
+    holds this and nothing that can decrypt, so a scheduled job with database access is not also
+    a job that can read every transcript in the system.
+    """
+
     @abstractmethod
     async def users_with_entries_at_or_before(
         self, cutoff: datetime, *, after: UserId | None, limit: int

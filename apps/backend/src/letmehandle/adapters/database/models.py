@@ -23,9 +23,12 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -154,4 +157,121 @@ class DeviceRow(Base):
         # otherwise deliver one person's call context to another's phone.
         UniqueConstraint("platform", "token", name="uq_user_devices_platform_token"),
         Index("ix_user_devices_user", "user_id"),
+    )
+
+
+class CallRow(Base):
+    """One call: its state, its caller and its timing.
+
+    Relational rather than a document, unlike preferences (D-022). A call is queried across time
+    — a user's history, newest first, a page at a time — so what is filtered and sorted on is a
+    column with an index behind it. Nothing anybody said is here.
+    """
+
+    __tablename__ = "calls"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    # E.164, or nothing for a withheld number.
+    caller_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    caller_display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caller_category: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        # The target of every foreign key below. A transcript or summary names the call *and*
+        # its owner, so the database itself refuses a row attached to somebody else's call —
+        # isolation that holds even for a query that forgot to filter.
+        UniqueConstraint("id", "user_id", name="uq_calls_id_user"),
+        # History: one user's calls, newest first, continued from a cursor on both columns.
+        Index("ix_calls_user_started", "user_id", "started_at", "id"),
+    )
+
+
+class CallParticipantRow(Base):
+    """Who was on a call, in the order they joined.
+
+    Read and written whole with its call. `position` is the order of joining, which is what a
+    role that leaves and rejoins needs to stay two entries rather than one.
+    """
+
+    __tablename__ = "call_participants"
+
+    call_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("calls.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TranscriptEntryRow(Base):
+    """One thing somebody said, encrypted (D-014).
+
+    `ciphertext` is the only column derived from the words, and it is sealed at the application
+    layer with the user, call, speaker and moment as authenticated context — so a database dump
+    is not a transcript dump, and a row copied onto another call does not open. No column, index
+    or constraint here is computed from the text.
+    """
+
+    __tablename__ = "call_transcript_entries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    speaker: Mapped[str] = mapped_column(String(16), nullable=False)
+    said_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    key_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["call_id", "user_id"],
+            ["calls.id", "calls.user_id"],
+            ondelete="CASCADE",
+            name="fk_call_transcript_entries_call_user",
+        ),
+        # Reading one call's transcript in the order it was said.
+        Index("ix_call_transcript_entries_call_said", "call_id", "said_at", "id"),
+        # The purge: which users hold old entries, and each one's oldest entries first.
+        Index("ix_call_transcript_entries_user_said", "user_id", "said_at"),
+    )
+
+
+class CallSummaryRow(Base):
+    """The structured record of a call, written once, which outlives its transcript.
+
+    What is filtered on is a column: outcome, intent, importance and timing, all enumerations or
+    instants. What was said about the call — headline, extracted details and the evidence
+    quoting the transcript, and who the caller was taken to be — is sealed like a transcript.
+    """
+
+    __tablename__ = "call_summaries"
+
+    call_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    intent: Mapped[str] = mapped_column(String(32), nullable=False)
+    importance: Mapped[int] = mapped_column(Integer, nullable=False)
+    escalation_reason: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    human_joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    key_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["call_id", "user_id"],
+            ["calls.id", "calls.user_id"],
+            ondelete="CASCADE",
+            name="fk_call_summaries_call_user",
+        ),
     )
