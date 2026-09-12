@@ -494,3 +494,43 @@ class TestIsolation:
 
         response = await api.client.get("/v1/onboarding", headers=bearer(theirs))
         assert response.json()["next_step"] == "introduction"
+
+
+class TestTranscriptRetention:
+    async def test_a_new_user_keeps_transcripts_for_seven_days(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        assert (await read(api, tokens))["privacy"] == {"transcript_retention_days": 7}
+
+    async def test_a_change_round_trips_and_leaves_other_sections_alone(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"locale": "en-GB"})
+
+        updated = await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+
+        assert updated["privacy"]["transcript_retention_days"] == 30
+        stored = await read(api, tokens)
+        assert stored["privacy"]["transcript_retention_days"] == 30
+        assert stored["locale"] == "en-GB"
+
+    async def test_another_section_s_change_keeps_it(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 1}})
+        await patch(api, tokens, {"locale": "en-GB"})
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 1
+
+    @pytest.mark.parametrize("days", [1, 90])
+    async def test_the_floor_and_ceiling_are_accepted(self, api: Api, days: int) -> None:
+        tokens = await sign_in(api)
+        updated = await patch(api, tokens, {"privacy": {"transcript_retention_days": days}})
+        assert updated["privacy"]["transcript_retention_days"] == days
+
+    @pytest.mark.parametrize("days", [0, 91, -1, "7", 7.5, True, None])
+    async def test_a_value_outside_them_is_refused(self, api: Api, days: object) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/preferences",
+            headers=bearer(tokens),
+            json={"privacy": {"transcript_retention_days": days}},
+        )
+        assert response.status_code == 422, response.text
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 7

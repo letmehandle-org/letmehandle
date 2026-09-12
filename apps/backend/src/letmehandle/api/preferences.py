@@ -25,6 +25,7 @@ from letmehandle.api.preference_schemas import (
     PersonalityPayload,
     PreferencesResponse,
     PreferencesUpdate,
+    PrivacyPayload,
     TimeWindowPayload,
 )
 from letmehandle.application.preferences.service import (
@@ -188,6 +189,9 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
                     for entry in body.important_contacts
                 )
             ),
+            transcript_retention_days=(
+                None if body.privacy is None else body.privacy.transcript_retention_days
+            ),
         )
     except InvariantError as error:
         raise _refused(error) from error
@@ -249,6 +253,7 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
             topics=sorted(topic.name for topic in preferences.topics),
             disclosable_facts=sorted(fact.text for fact in preferences.disclosable_facts),
         ),
+        privacy=PrivacyPayload(transcript_retention_days=preferences.transcript_retention_days),
     )
 
 

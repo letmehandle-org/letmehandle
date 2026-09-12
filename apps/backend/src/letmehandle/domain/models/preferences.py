@@ -36,7 +36,28 @@ if TYPE_CHECKING:
 # 2 added the chosen voice. A document written at 1 has none, which reads as "has not chosen"
 # rather than "chose nothing" — and the difference matters, because the first resolves to the
 # provider's default and the second would mean silence.
-PREFERENCES_VERSION: Final = 2
+#
+# 3 added how long transcripts are kept. A document written before it has none, which reads as
+# the default rather than as any particular choice.
+PREFERENCES_VERSION: Final = 3
+
+# How long what was said on a call is kept, in days (D-014).
+#
+# Seven by default: long enough to check what was said after a busy week, short enough that a
+# transcript is not an archive.
+#
+# The floor is one day. A transcript is how a user checks what was said once the call is over and
+# how a failure is diagnosed, and both happen after the call rather than during it; a shorter
+# setting would purge the words before anybody could read them, leaving a summary whose evidence
+# nobody can check. The purge runs in whole days, so a finer setting would promise a precision
+# that is not kept.
+#
+# The ceiling is ninety days. The summary is what outlives a call; a transcript kept past a
+# quarter has no use left that the summary does not serve, and is only a larger thing to lose.
+# It also bounds how long a retired encryption key must be kept for transcripts sealed under it.
+TRANSCRIPT_RETENTION_DEFAULT_DAYS: Final = 7
+TRANSCRIPT_RETENTION_FLOOR_DAYS: Final = 1
+TRANSCRIPT_RETENTION_CEILING_DAYS: Final = 90
 
 
 class HandlingPosture(StrEnum):
@@ -316,6 +337,8 @@ class UserPreferences:
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
     disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
+    # Whole days, between the floor and the ceiling above.
+    transcript_retention_days: int = TRANSCRIPT_RETENTION_DEFAULT_DAYS
     version: int = PREFERENCES_VERSION
 
     MAX_CONTACTS: ClassVar[int] = 200
@@ -327,6 +350,15 @@ class UserPreferences:
             raise InvariantError("a locale is required; the agent's language is configuration")
         if self.version < 1:
             raise InvariantError("preferences are written in a version, and versions start at 1")
+        if not (
+            TRANSCRIPT_RETENTION_FLOOR_DAYS
+            <= self.transcript_retention_days
+            <= TRANSCRIPT_RETENTION_CEILING_DAYS
+        ):
+            raise InvariantError(
+                f"transcripts are kept for between {TRANSCRIPT_RETENTION_FLOOR_DAYS} and "
+                f"{TRANSCRIPT_RETENTION_CEILING_DAYS} days"
+            )
         if len(self.important_contacts) > self.MAX_CONTACTS:
             raise InvariantError(
                 f"at most {self.MAX_CONTACTS} important contacts. Beyond that the list is an "

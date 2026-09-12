@@ -126,6 +126,7 @@ class TestPartialUpdates:
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
             call_handling=REJECT_UNKNOWN,
             persona_voice=PersonaVoice("ava"),
+            transcript_retention_days=30,
         )
         await service.replace_all(USER, full)
 
@@ -141,6 +142,7 @@ class TestPartialUpdates:
         assert after.important_contacts == full.important_contacts
         assert after.rules.default_posture is HandlingPosture.REJECT
         assert after.voice.persona_voice_id == "ava"
+        assert after.transcript_retention_days == 30
 
     async def test_an_empty_value_clears_a_section_where_absence_would_not(
         self, service: PreferencesService
@@ -340,3 +342,34 @@ class TestOnboarding:
     async def test_progress_is_per_user(self, service: PreferencesService) -> None:
         await service.record_step(USER, OnboardingStep.INTRODUCTION)
         assert (await service.progress(SOMEBODY_ELSE)).next_step is ORDER[0]
+
+
+class TestTranscriptRetention:
+    async def test_it_starts_at_seven_days(self, service: PreferencesService) -> None:
+        assert (await service.get(USER)).transcript_retention_days == 7
+
+    async def test_a_change_is_stored_and_leaves_the_rest_alone(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(locale="en-GB"))
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=1))
+
+        after = await service.get(USER)
+        assert after.transcript_retention_days == 1
+        assert after.locale == "en-GB"
+
+    async def test_changing_something_else_keeps_it(self, service: PreferencesService) -> None:
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=90))
+        await service.apply(USER, PreferenceChanges(verbosity=Verbosity.BRIEF))
+        assert (await service.get(USER)).transcript_retention_days == 90
+
+    async def test_a_replace_that_does_not_mention_it_resets_it(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=90))
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
+        assert (await service.get(USER)).transcript_retention_days == 7
+
+    async def test_a_value_outside_the_bounds_is_refused(self, service: PreferencesService) -> None:
+        with pytest.raises(InvariantError):
+            await service.apply(USER, PreferenceChanges(transcript_retention_days=91))
