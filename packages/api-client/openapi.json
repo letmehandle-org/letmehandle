@@ -415,7 +415,7 @@
             "$ref": "#/components/schemas/PersonalityPayload"
           },
           "privacy": {
-            "$ref": "#/components/schemas/PrivacyPayload"
+            "$ref": "#/components/schemas/PrivacyResponse"
           },
           "version": {
             "title": "Version",
@@ -537,14 +537,30 @@
         "description": "What is kept, and for how long.",
         "properties": {
           "transcript_retention_days": {
-            "default": 7,
             "maximum": 90.0,
             "minimum": 1.0,
             "title": "Transcript Retention Days",
             "type": "integer"
           }
         },
+        "required": [
+          "transcript_retention_days"
+        ],
         "title": "PrivacyPayload",
+        "type": "object"
+      },
+      "PrivacyResponse": {
+        "description": "What is kept, and for how long, as stored.\n\nUnbounded above, unlike the request: a deployment with a higher ceiling may have stored a\nlonger retention, and it is reported as it is rather than refused or quietly lowered.",
+        "properties": {
+          "transcript_retention_days": {
+            "title": "Transcript Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "transcript_retention_days"
+        ],
+        "title": "PrivacyResponse",
         "type": "object"
       },
       "ProfileResponse": {

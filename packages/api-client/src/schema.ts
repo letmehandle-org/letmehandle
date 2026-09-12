@@ -475,7 +475,7 @@ export interface components {
             locale: string;
             notifications: components["schemas"]["NotificationsPayload"];
             personality: components["schemas"]["PersonalityPayload"];
-            privacy: components["schemas"]["PrivacyPayload"];
+            privacy: components["schemas"]["PrivacyResponse"];
             /** Version */
             version: number;
         };
@@ -503,10 +503,18 @@ export interface components {
          * @description What is kept, and for how long.
          */
         PrivacyPayload: {
-            /**
-             * Transcript Retention Days
-             * @default 7
-             */
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
+        };
+        /**
+         * PrivacyResponse
+         * @description What is kept, and for how long, as stored.
+         *
+         *     Unbounded above, unlike the request: a deployment with a higher ceiling may have stored a
+         *     longer retention, and it is reported as it is rather than refused or quietly lowered.
+         */
+        PrivacyResponse: {
+            /** Transcript Retention Days */
             transcript_retention_days: number;
         };
         /** ProfileResponse */
