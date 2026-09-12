@@ -18,6 +18,7 @@ from letmehandle.application.retention.purge import (
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.ports.repositories import (
+    MAX_PURGE_BATCH,
     PreferencesRepository,
     TranscriptRetentionRepository,
 )
@@ -112,13 +113,18 @@ async def test_a_failure_is_recorded_with_what_was_done_and_then_raised() -> Non
     assert metrics.observed(PURGE_DELETED) == [3]
 
 
-def test_a_batch_of_nothing_is_refused() -> None:
+@pytest.mark.parametrize("batch_size", [0, MAX_PURGE_BATCH + 1])
+def test_a_batch_outside_what_the_store_accepts_is_refused_before_anything_runs(
+    batch_size: int,
+) -> None:
+    # Refused when the purge is built, rather than by the store's first statement once a
+    # scheduled run is already under way.
     with pytest.raises(InvariantError):
         TranscriptPurge(
-            open_scope=None,  # type: ignore[arg-type]
+            open_scope=None,  # type: ignore[arg-type]  # never reached: the size is refused first
             clock=FixedClock(NOW),
             metrics=RecordingMetrics(),
-            batch_size=0,
+            batch_size=batch_size,
         )
 
 

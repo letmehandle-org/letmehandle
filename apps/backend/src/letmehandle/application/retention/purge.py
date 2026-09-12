@@ -34,11 +34,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, Protocol
 
-from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.preferences import (
     TRANSCRIPT_RETENTION_FLOOR_DAYS,
     UserPreferences,
 )
+from letmehandle.domain.ports.repositories import MAX_PURGE_BATCH, check_page_size
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -100,8 +100,9 @@ class TranscriptPurge:
         metrics: MetricsRecorder,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
-        if batch_size < 1:
-            raise InvariantError("a purge batch deletes at least one entry")
+        # Checked here as well as by the store, so a misconfigured purge fails when it is built
+        # rather than on its first statement, part-way into a scheduled run.
+        check_page_size(batch_size, MAX_PURGE_BATCH)
         self._open_scope = open_scope
         self._clock = clock
         self._metrics = metrics

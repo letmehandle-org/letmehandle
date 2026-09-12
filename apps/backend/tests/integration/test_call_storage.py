@@ -14,7 +14,6 @@ import pytest
 from sqlalchemy import text
 
 from letmehandle.adapters.database.call_repositories import (
-    MAX_PURGE_BATCH,
     SqlCallRepository,
     SqlSummaryRepository,
     SqlTranscriptRepository,
@@ -44,7 +43,7 @@ from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.summary import CallOutcome, CallSummary, ExtractedDetail
 from letmehandle.domain.models.user import User
-from letmehandle.domain.ports.repositories import MAX_CALL_PAGE, CallCursor
+from letmehandle.domain.ports.repositories import MAX_CALL_PAGE, MAX_PURGE_BATCH, CallCursor
 from tests.contracts.fakes import FixedClock
 
 if TYPE_CHECKING:

@@ -185,6 +185,10 @@ class DeviceRepository(ABC):
 # query whose cost grows with the account's age, and a phone that renders it slowly for ever.
 MAX_CALL_PAGE: Final = 100
 
+# The most entries one purge statement deletes, and the most users one page of candidates holds.
+# Bounded so a statement's locks and a transaction's length do not grow with the backlog.
+MAX_PURGE_BATCH: Final = 10_000
+
 
 def check_page_size(limit: int, maximum: int) -> int:
     """The size, once it is known to be at least one and at most the maximum."""

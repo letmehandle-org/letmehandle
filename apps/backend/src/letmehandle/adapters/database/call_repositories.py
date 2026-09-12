@@ -34,6 +34,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.summary import CallOutcome, CallSummary, ExtractedDetail
 from letmehandle.domain.ports.repositories import (
     MAX_CALL_PAGE,
+    MAX_PURGE_BATCH,
     CallCursor,
     CallPage,
     CallRepository,
@@ -55,10 +56,6 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.security import TranscriptCipher
-
-# The most entries one purge statement deletes, and the most users one page of candidates holds.
-# Bounded so a statement's locks and a transaction's length do not grow with the backlog.
-MAX_PURGE_BATCH = 10_000
 
 
 async def _owns_call(session: AsyncSession, user_id: UserId, call_id: CallId) -> bool:
