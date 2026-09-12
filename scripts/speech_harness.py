@@ -43,6 +43,7 @@ from letmehandle.adapters.speech.websocket.connection import (
 from letmehandle.application.speech.conversation import Conversation, Transcript
 from letmehandle.bootstrap import build_speech_provider
 from letmehandle.config.settings import ConfigurationError, get_settings
+from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioEncoding, AudioFormat, AudioFrame
 from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
 from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -240,24 +241,34 @@ class _SeverableConnection:
         await self._inner.close()
 
 
-async def _commands(session: SpeechSession, severable: Severable, stop: asyncio.Event) -> None:
+async def _commands(
+    session: SpeechSession, sink: SpeakerSink, severable: Severable, stop: asyncio.Event
+) -> None:
     while not stop.is_set():
         line = (await asyncio.to_thread(sys.stdin.readline)).strip()
         if not line or line == "quit":
             stop.set()
             return
         verb, _, rest = line.partition(" ")
-        if verb == "context" and rest:
-            await session.update_context(rest)
-            print("context updated")
-        elif verb == "interrupt":
-            await session.interrupt()
-            print("interrupted")
-        elif verb == "disconnect":
-            await severable.sever()
-            print("connection dropped")
-        else:
-            print("commands: context <text> | interrupt | disconnect | quit")
+        try:
+            if verb == "context" and rest:
+                await session.update_context(rest)
+                print("context updated")
+            elif verb == "interrupt":
+                # Both halves, as a caller talking over the model gets: the session stops the
+                # model, and the speaker drops what it was still holding to play.
+                await session.interrupt()
+                await sink.discard()
+                print("interrupted")
+            elif verb == "disconnect":
+                await severable.sever()
+                print("connection dropped")
+            else:
+                print("commands: context <text> | interrupt | disconnect | quit")
+        except DomainError as error:
+            # A session that has failed refuses further commands. Said here, rather than taken
+            # down with the rest of the harness, so the latency summary still prints.
+            print(f"not done: {error}")
 
 
 async def _run(context: str, locale: str) -> None:
@@ -290,7 +301,7 @@ async def _run(context: str, locale: str) -> None:
                 )
                 talking = group.create_task(conversation.run())
                 talking.add_done_callback(lambda _task: stop.set())
-                group.create_task(_commands(session, severable, stop))
+                group.create_task(_commands(session, sink, severable, stop))
                 await stop.wait()
                 talking.cancel()
                 print("ending: press return if the prompt is still waiting")
