@@ -104,6 +104,7 @@ class PreferenceChanges:
     topics: frozenset[Topic] | None = None
     disclosable_facts: frozenset[DisclosableFact] | None = None
     important_contacts: tuple[ImportantContact, ...] | None = None
+    transcript_retention_days: int | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -126,6 +127,7 @@ class PreferenceChanges:
                 "topics",
                 "disclosable_facts",
                 "important_contacts",
+                "transcript_retention_days",
             )
         )
 
@@ -263,6 +265,11 @@ class PreferencesService:
                 base.important_contacts
                 if changes.important_contacts is None
                 else changes.important_contacts
+            ),
+            transcript_retention_days=(
+                base.transcript_retention_days
+                if changes.transcript_retention_days is None
+                else changes.transcript_retention_days
             ),
         )
 

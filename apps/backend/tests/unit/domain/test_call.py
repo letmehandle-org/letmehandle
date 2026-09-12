@@ -196,3 +196,57 @@ class TestEscalationSequence:
         call.move_to(CallState.AGENT_HANDLING)
         assert call.state is CallState.AGENT_HANDLING
         assert not call.is_over
+
+
+class TestRestore:
+    def test_a_stored_call_comes_back_exactly(self) -> None:
+        participants = (
+            Participant(ParticipantRole.CALLER, START, later(60)),
+            Participant(ParticipantRole.AGENT, later(1)),
+        )
+        call = CallSession.restore(
+            id=CallId("call-1"),
+            user_id=UserId("user-1"),
+            caller=Caller(),
+            started_at=START,
+            state=CallState.COMPLETED,
+            participants=participants,
+            ended_at=later(60),
+        )
+        assert call.state is CallState.COMPLETED
+        assert call.participants == participants
+        assert call.duration_seconds() == 60
+        assert call.transcript == ()
+
+    @pytest.mark.parametrize(
+        ("state", "ended_at", "participants"),
+        [
+            (CallState.COMPLETED, None, ()),
+            (CallState.AGENT_HANDLING, later(5), ()),
+            (CallState.FAILED, START - timedelta(seconds=1), ()),
+            (
+                CallState.AGENT_HANDLING,
+                None,
+                (
+                    Participant(ParticipantRole.AGENT, START),
+                    Participant(ParticipantRole.AGENT, START),
+                ),
+            ),
+        ],
+    )
+    def test_a_record_no_legal_sequence_could_produce_is_refused(
+        self,
+        state: CallState,
+        ended_at: datetime | None,
+        participants: tuple[Participant, ...],
+    ) -> None:
+        with pytest.raises(InvariantError):
+            CallSession.restore(
+                id=CallId("call-1"),
+                user_id=UserId("user-1"),
+                caller=Caller(),
+                started_at=START,
+                state=state,
+                participants=participants,
+                ended_at=ended_at,
+            )

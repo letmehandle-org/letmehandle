@@ -18,6 +18,7 @@ from letmehandle.domain.ports.notification import (
     DeviceToken,
     EscalationNotification,
 )
+from letmehandle.domain.ports.repositories import MAX_CALL_PAGE, check_page_size
 from letmehandle.domain.ports.speech import SpeechCapabilities, TranscriptProduced
 from letmehandle.domain.ports.voice import Voice, VoiceSample
 
@@ -146,3 +147,14 @@ class TestVoiceValues:
         # other than the format that was assumed, and the symptom is silence again.
         with pytest.raises(InvariantError, match="what format"):
             VoiceSample(audio=b"audio", media_type="  ")
+
+
+class TestPageSize:
+    @pytest.mark.parametrize("limit", [1, MAX_CALL_PAGE])
+    def test_a_size_within_bounds_is_accepted(self, limit: int) -> None:
+        assert check_page_size(limit, MAX_CALL_PAGE) == limit
+
+    @pytest.mark.parametrize("limit", [0, -1, MAX_CALL_PAGE + 1])
+    def test_a_size_outside_them_is_refused_rather_than_clamped(self, limit: int) -> None:
+        with pytest.raises(InvariantError):
+            check_page_size(limit, MAX_CALL_PAGE)

@@ -86,6 +86,7 @@ def everything() -> UserPreferences:
             ),
         ),
         voice=VoiceSelection(cloned_voice_id="a-clone", persona_voice_id="ava"),
+        transcript_retention_days=30,
         rules=CallRules(
             default_posture=HandlingPosture.REJECT,
             anonymous_posture=HandlingPosture.PASS_THROUGH,
@@ -124,6 +125,29 @@ class TestMapping:
         # Written before voices existed, so nothing was chosen — which resolves to the
         # provider's default rather than to a call with no voice at all.
         assert read.voice == VoiceSelection()
+
+    def test_a_document_from_before_retention_was_a_setting_keeps_seven_days(self) -> None:
+        document = preferences_to_document(everything())
+        del document["transcript_retention_days"]
+        document["version"] = 2
+        assert document_to_preferences(document).transcript_retention_days == 7
+
+    @pytest.mark.parametrize(("stored", "read"), [(0, 1), (-5, 1), (365, 90), (45, 45)])
+    def test_a_retention_outside_today_s_bounds_is_brought_inside_them(
+        self, stored: int, read: int
+    ) -> None:
+        # Written by a deployment with other bounds. The nearest permitted value, rather than
+        # locking somebody out of every other setting over this one.
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = stored
+        assert document_to_preferences(document).transcript_retention_days == read
+
+    @pytest.mark.parametrize("stored", ["7", 7.5, True, {"days": 7}])
+    def test_a_retention_that_is_not_a_whole_number_is_corruption(self, stored: object) -> None:
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = stored
+        with pytest.raises(InvariantError, match="retention"):
+            document_to_preferences(document)
 
     def test_a_voice_stored_as_something_other_than_a_name_reads_as_no_choice(self) -> None:
         # Not corruption worth refusing a sign-in over: an unusable identifier resolves to the

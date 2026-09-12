@@ -73,3 +73,64 @@ class ProviderError(DomainError):
         self.provider = provider
         self.reason = reason
         self.retryable = retryable
+
+
+class RecordNotFoundError(DomainError):
+    """A stored record this user asked to write against does not exist for them.
+
+    One error for "absent" and for "somebody else's", deliberately. Telling the two apart would
+    tell a caller which identifiers belong to other people.
+    """
+
+    def __init__(self, kind: str, identifier: str) -> None:
+        super().__init__(f"no {kind} {identifier!r} belongs to this user")
+        self.kind = kind
+        self.identifier = identifier
+
+
+class AlreadyRecordedError(DomainError):
+    """Something that is written once was written again.
+
+    A call's summary is the durable record of what happened. A second one quietly replacing the
+    first would make the history say whatever the last writer believed.
+    """
+
+    def __init__(self, kind: str, identifier: str) -> None:
+        super().__init__(f"the {kind} for {identifier!r} has already been recorded")
+        self.kind = kind
+        self.identifier = identifier
+
+
+class DecryptionError(DomainError):
+    """Stored ciphertext could not be opened, and nothing was returned in its place.
+
+    Raised for tampered bytes, for ciphertext moved onto another record, and for a key that is
+    not the one it was sealed with. Never garbage: authenticated encryption either proves the
+    bytes are the ones sealed for this record or refuses them. The message names the key and
+    never the content.
+    """
+
+    def __init__(self, key_id: str, message: str | None = None) -> None:
+        super().__init__(
+            message
+            or (
+                f"ciphertext sealed under key {key_id!r} failed authentication: it was altered, "
+                f"moved onto another record, or that key id now names a different key"
+            )
+        )
+        self.key_id = key_id
+
+
+class UnknownKeyError(DecryptionError):
+    """Stored ciphertext names a key this deployment no longer has.
+
+    An operator removed a key while rows sealed under it still exist. The remedy is to put the
+    key back — anywhere after the newest — and keep it until no stored row names it.
+    """
+
+    def __init__(self, key_id: str) -> None:
+        super().__init__(
+            key_id,
+            f"ciphertext was sealed under key {key_id!r}, which is not configured; put that key "
+            f"back in the key list, after the newest, until no stored row names it",
+        )

@@ -24,6 +24,9 @@ from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import OnboardingStep
 from letmehandle.domain.models.preferences import (
+    TRANSCRIPT_RETENTION_CEILING_DAYS,
+    TRANSCRIPT_RETENTION_DEFAULT_DAYS,
+    TRANSCRIPT_RETENTION_FLOOR_DAYS,
     Formality,
     HandlingPosture,
     Verbosity,
@@ -109,6 +112,21 @@ class PersonalityPayload(Request):
     )
 
 
+class PrivacyPayload(Request):
+    """What is kept, and for how long."""
+
+    # Whole days. Bounded here as well as in the domain, so a client learns which field was out
+    # of range rather than getting a refusal with no field attached to it.
+    transcript_retention_days: Annotated[
+        int,
+        Field(
+            ge=TRANSCRIPT_RETENTION_FLOOR_DAYS,
+            le=TRANSCRIPT_RETENTION_CEILING_DAYS,
+            strict=True,
+        ),
+    ] = TRANSCRIPT_RETENTION_DEFAULT_DAYS
+
+
 class PreferencesResponse(Response):
     """Everything, as it stands."""
 
@@ -120,6 +138,7 @@ class PreferencesResponse(Response):
     authority: AuthorityPayload
     notifications: NotificationsPayload
     personality: PersonalityPayload
+    privacy: PrivacyPayload
 
 
 class PreferencesUpdate(Request):
@@ -144,6 +163,7 @@ class PreferencesUpdate(Request):
     authority: AuthorityPayload | None = None
     notifications: NotificationsPayload | None = None
     personality: PersonalityPayload | None = None
+    privacy: PrivacyPayload | None = None
 
 
 class OnboardingResponse(Response):

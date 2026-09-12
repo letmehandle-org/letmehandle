@@ -9,16 +9,22 @@ filters by everything except who it belongs to.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Final
+
+from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
-    from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.call import CallSession, TranscriptEntry
+    from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.models.onboarding import OnboardingProgress
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.preferences import UserPreferences
+    from letmehandle.domain.models.summary import CallSummary
     from letmehandle.domain.models.user import User
     from letmehandle.domain.ports.notification import DeviceToken
 
@@ -173,3 +179,133 @@ class DeviceRepository(ABC):
     @abstractmethod
     async def remove(self, user_id: UserId, token: DeviceToken) -> None:
         """Forget a device, on sign-out or when a platform reports the token dead."""
+
+
+# The most calls one page of history can hold. A client asking for everything at once is a
+# query whose cost grows with the account's age, and a phone that renders it slowly for ever.
+MAX_CALL_PAGE: Final = 100
+
+
+def check_page_size(limit: int, maximum: int) -> int:
+    """The size, once it is known to be at least one and at most the maximum."""
+    if not 1 <= limit <= maximum:
+        raise InvariantError(f"a page holds between 1 and {maximum} items, not {limit}")
+    return limit
+
+
+@dataclass(frozen=True, slots=True)
+class CallCursor:
+    """Where the previous page of history ended: the last call it held.
+
+    Both fields, because two calls can start in the same instant, and a cursor on the time alone
+    would skip one of them or show it twice.
+    """
+
+    started_at: datetime
+    call_id: CallId
+
+
+@dataclass(frozen=True, slots=True)
+class CallPage:
+    """Some of a user's calls, newest first, and where the next page starts if there is one."""
+
+    calls: tuple[CallSession, ...]
+    next_cursor: CallCursor | None
+
+
+class CallRepository(ABC):
+    """Calls, durably, so that a restart mid-call does not lose the record.
+
+    What is stored is the call's state, its caller, its participants and its timing. What is
+    said on it is not: that belongs to `TranscriptRepository`, encrypted and on its own clock.
+    """
+
+    @abstractmethod
+    async def save(self, call: CallSession) -> None:
+        """Store the call as it now stands, creating it the first time.
+
+        Raises `RecordNotFoundError` when the identifier already belongs to another user's call,
+        and changes nothing: one user's write can never land on another user's record.
+        """
+
+    @abstractmethod
+    async def get(self, user_id: UserId, call_id: CallId) -> CallSession | None:
+        """This user's call, or nothing — which is also the answer for somebody else's."""
+
+    @abstractmethod
+    async def list_for_user(
+        self, user_id: UserId, *, limit: int, after: CallCursor | None = None
+    ) -> CallPage:
+        """A page of this user's calls, newest first.
+
+        `limit` is between 1 and `MAX_CALL_PAGE`; anything else raises `InvariantError` rather
+        than being quietly clamped, because a caller asking for a thousand has a bug to hear
+        about. `after` is the previous page's `next_cursor`.
+        """
+
+
+class TranscriptRepository(ABC):
+    """What was said on calls, encrypted at rest (D-014).
+
+    Plaintext crosses this interface and nothing below it: an implementation encrypts before
+    anything is written and decrypts after it is read.
+    """
+
+    @abstractmethod
+    async def append(
+        self, user_id: UserId, call_id: CallId, entries: Sequence[TranscriptEntry]
+    ) -> None:
+        """Add entries to this user's call.
+
+        Raises `RecordNotFoundError` when the call is not this user's, before writing anything.
+        """
+
+    @abstractmethod
+    async def for_call(self, user_id: UserId, call_id: CallId) -> tuple[TranscriptEntry, ...]:
+        """What remains of this user's call's transcript, in the order it was said.
+
+        Empty for a call that is not theirs, and for one whose transcript has been purged; the
+        two are indistinguishable by design.
+        """
+
+
+class TranscriptRetentionRepository(ABC):
+    """Deleting transcript entries that have outlived their owner's retention.
+
+    Apart from `TranscriptRepository` because it never needs to read what was said. The purge
+    holds this and nothing that can decrypt, so a scheduled job with database access is not also
+    a job that can read every transcript in the system.
+    """
+
+    @abstractmethod
+    async def users_with_entries_at_or_before(
+        self, cutoff: datetime, *, after: UserId | None, limit: int
+    ) -> list[UserId]:
+        """Users holding at least one entry said at or before `cutoff`, in identifier order.
+
+        The purge's list of who to look at. `after` is the last user of the previous page.
+        """
+
+    @abstractmethod
+    async def delete_expired(self, user_id: UserId, *, at_or_before: datetime, limit: int) -> int:
+        """Delete up to `limit` of this user's entries said at or before the instant.
+
+        Returns how many this call deleted, which is never a row another caller deleted: two
+        purges running together each count only their own.
+        """
+
+
+class SummaryRepository(ABC):
+    """The structured record of each call, which outlives its transcript."""
+
+    @abstractmethod
+    async def add(self, user_id: UserId, summary: CallSummary) -> None:
+        """Write the summary, once, at completion.
+
+        Raises `RecordNotFoundError` when the call is not this user's and
+        `AlreadyRecordedError` when it already has a summary.
+        """
+
+    @abstractmethod
+    async def get(self, user_id: UserId, call_id: CallId) -> CallSummary | None:
+        """This user's summary of the call, or nothing."""

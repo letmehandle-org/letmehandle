@@ -22,6 +22,9 @@ from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingS
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
+    TRANSCRIPT_RETENTION_CEILING_DAYS,
+    TRANSCRIPT_RETENTION_DEFAULT_DAYS,
+    TRANSCRIPT_RETENTION_FLOOR_DAYS,
     CallRules,
     DisclosableFact,
     Formality,
@@ -55,6 +58,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
         "topics": sorted(topic.name for topic in preferences.topics),
         "disclosable_facts": sorted(fact.text for fact in preferences.disclosable_facts),
         "authority": sorted(capability.value for capability in preferences.authority.capabilities),
+        "transcript_retention_days": preferences.transcript_retention_days,
         "voice": {
             "cloned": preferences.voice.cloned_voice_id,
             "persona": preferences.voice.persona_voice_id,
@@ -120,6 +124,7 @@ def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
         ),
         notifications=_notifications_from_document(document.get("notifications", {})),
         voice=_voice_from_document(document.get("voice", {})),
+        transcript_retention_days=_retention_days(document.get("transcript_retention_days")),
         important_contacts=tuple(
             _contact_from_document(entry) for entry in document.get("important_contacts", [])
         ),
@@ -247,6 +252,23 @@ def _voice_from_document(document: dict[str, Any]) -> VoiceSelection:
 def _optional_text(value: object) -> str | None:
     """A stored string, or nothing. Anything else stored here is not a voice identifier."""
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _retention_days(raw: object) -> int:
+    """How long this user keeps transcripts, as far as this version can honour it.
+
+    Absent — a document from before retention was a setting — is the default. A whole number
+    outside today's bounds was written by a deployment with other bounds, and is brought inside
+    them rather than refused: the nearest permitted value is what the user would have been told
+    they could have, and refusing would lock them out of every other setting over this one.
+    Anything that is not a whole number is corruption and raises, because a retention silently
+    reset is a transcript kept for a length of time nobody chose.
+    """
+    if raw is None:
+        return TRANSCRIPT_RETENTION_DEFAULT_DAYS
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise InvariantError("a stored transcript retention is not a whole number of days")
+    return max(TRANSCRIPT_RETENTION_FLOOR_DAYS, min(TRANSCRIPT_RETENTION_CEILING_DAYS, raw))
 
 
 def _notifications_from_document(document: dict[str, Any]) -> NotificationPreferences:
