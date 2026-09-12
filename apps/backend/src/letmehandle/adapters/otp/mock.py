@@ -21,10 +21,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# The code every challenge accepts in development. Fixed and published on purpose: a developer
-# has to be able to sign in without reading a log, and pretending this is a secret would invite
-# somebody to treat it as one.
-DEVELOPMENT_CODE: Final = "000000"
+# FOR TESTING ONLY — remove before launch. The code every challenge accepts while this mock is
+# configured. Fixed and published on purpose: somebody running the app has to be able to sign in
+# without reading a log, and pretending this is a secret would invite somebody to treat it as
+# one. It cannot reach production, because this provider refuses to start there.
+DEVELOPMENT_CODE: Final = "123456"
 
 
 class MockOTPProvider(OTPProvider):
@@ -45,6 +46,10 @@ class MockOTPProvider(OTPProvider):
     @property
     def is_safe_for_production(self) -> bool:
         return False
+
+    @property
+    def fixed_code(self) -> str:
+        return DEVELOPMENT_CODE
 
     async def send(self, number: PhoneNumber, code: str) -> None:
         self.sent.append((number, code))
