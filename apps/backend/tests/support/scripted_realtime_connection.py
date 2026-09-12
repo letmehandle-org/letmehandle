@@ -185,6 +185,15 @@ class ScriptedRealtimeConnection:
         )
         return response_id
 
+    def fail_response(self) -> str:
+        """Queue a response the service could not produce, the way running out of quota looks."""
+        response_id = f"resp_{self._service.next_id()}"
+        self._push({"type": "response.created", "response": {"id": response_id}})
+        error = {"type": "insufficient_quota", "code": "insufficient_quota"}
+        failed = {"id": response_id, "status": "failed", "status_details": {"error": error}}
+        self._push({"type": "response.done", "response": failed})
+        return response_id
+
     def caller_starts_speaking(self) -> None:
         self._push({"type": "input_audio_buffer.speech_started", "audio_start_ms": 0})
 

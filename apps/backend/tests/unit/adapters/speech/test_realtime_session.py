@@ -776,6 +776,56 @@ async def test_a_malformed_or_unknown_event_does_not_end_the_conversation(
     assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 1
 
 
+async def test_a_failed_response_is_counted_and_survived(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        service.current.fail_response()
+        service.current.caller_said("hello?")
+        assert await take(session.events(), 1) == [
+            TranscriptProduced("hello?", speaker_is_caller=True, is_final=False)
+        ]
+        await session.send_audio(TWENTY_MS_WIDEBAND)
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 1
+
+
+async def test_three_failed_responses_in_a_row_end_the_session(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        for _ in range(3):
+            service.current.fail_response()
+        events = await remaining(session.events())
+
+        # Silence turn after turn is worse for a caller than a call that ends and can be handled
+        # some other way, and the same service will fail the same way on another connection.
+        assert events == [SessionFailed("the service failed 3 responses in a row", False)]
+        with pytest.raises(ProviderError):
+            await session.send_audio(TWENTY_MS_WIDEBAND)
+        assert service.open_connections == 0
+        assert len(service.connections) == 1
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 3
+    assert live_tasks() == set()
+
+
+async def test_a_completed_response_starts_the_count_of_failed_ones_again(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        connection = service.current
+        connection.fail_response()
+        connection.fail_response()
+        connection.reply(deltas=0, transcript="sorry about that")
+        connection.fail_response()
+        connection.fail_response()
+        connection.caller_said("still there?")
+
+        taken = await take(session.events(), 3)
+
+    assert taken[-1] == TranscriptProduced("still there?", speaker_is_caller=True, is_final=False)
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 4
+
+
 async def test_latency_is_measured_from_the_injected_clock(
     provider: RealtimeSpeechProvider,
     service: ScriptedRealtimeService,

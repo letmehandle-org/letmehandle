@@ -13,6 +13,12 @@ does stop the reader, and the service's own flow control does the rest; nothing 
 A dropped connection is replaced and told what it missed, and a replacement is only trusted once
 the service does something on it beyond acknowledging its configuration: one that is accepted
 and then drops at once spends the same attempts as one refused.
+
+A response the service fails — out of quota, say — is counted as a service error and survived.
+Three in a row end the session with a failure not worth retrying, and a completed response in
+between starts the count again. The caller hears nothing from a failed response, and a caller
+left in silence turn after turn is worse off than one whose call ends and can be handled some
+other way; the same service fails the same way on a new connection, so reconnecting is no remedy.
 """
 
 from __future__ import annotations
@@ -73,6 +79,10 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.audio import AudioFormat
 
 _COMPLETED: Final = "completed"
+_FAILED: Final = "failed"
+# Failed responses in a row a session survives before it ends. One is a hiccup; three is a
+# service that has stopped answering and a caller who has noticed.
+_FAILED_RESPONSES_TOLERATED: Final = 3
 
 
 @dataclass(slots=True)
@@ -137,6 +147,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._unproven = False
         # Instructions changed while no connection could hear them, sent as soon as one can.
         self._instructions_pending = False
+        self._failed_responses = 0
         self._active_response: str | None = None
         self._latest_response: str | None = None
         self._silenced_response: str | None = None
@@ -259,6 +270,8 @@ class RealtimeSpeechSession(SpeechSession):
                 self._unproven = False
                 self._budget.proven()
             await self._handle(signal)
+            if self._failure is not None:
+                return
 
     async def _handle(self, signal: Inbound) -> None:
         match signal:
@@ -272,7 +285,7 @@ class RealtimeSpeechSession(SpeechSession):
             case ResponseStarted(response_id=response_id):
                 self._active_response = self._latest_response = response_id
             case ResponseFinished():
-                self._finish_response(signal)
+                await self._finish_response(signal)
             case AudioDelta():
                 await self._play(signal)
             case TranscriptDelta(speaker=Speaker.CALLER, text=text):
@@ -330,11 +343,19 @@ class RealtimeSpeechSession(SpeechSession):
         # Discarded with the audio on an interruption: the words of a reply cut off were not said.
         self._outbox.put(event, spoken=True)
 
-    def _finish_response(self, finished: ResponseFinished) -> None:
+    async def _finish_response(self, finished: ResponseFinished) -> None:
         turn, self._assistant_turn = self._assistant_turn, None
         # Responses do not overlap, so whichever one finished, none is in progress now.
         self._active_response = None
         self._telemetry.silenced()
+        if finished.status == _COMPLETED:
+            self._failed_responses = 0
+        elif finished.status == _FAILED:
+            self._telemetry.stream_error(StreamErrorKind.SERVICE)
+            self._failed_responses += 1
+            if self._failed_responses >= _FAILED_RESPONSES_TOLERATED:
+                await self._end(f"the service failed {self._failed_responses} responses in a row")
+                return
         if finished.response_id == self._silenced_response:
             return
         if turn is not None and finished.status == _COMPLETED:
@@ -424,6 +445,12 @@ class RealtimeSpeechSession(SpeechSession):
         for event in self._context.restoration():
             await connection.send(event)
         return connection
+
+    async def _end(self, reason: str) -> None:
+        """End the session over a connection that still works, and let it go."""
+        self._fail(reason)
+        self._live = False
+        await self._drop_connection()
 
     async def _go_live(self) -> None:
         self._live = True
