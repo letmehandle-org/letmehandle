@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from structlog.testing import capture_logs
 
 from letmehandle.api.errors import (
     error_body,
@@ -41,6 +42,21 @@ def _app_that_fails() -> FastAPI:
         return {"number": number}
 
     return app
+
+
+async def test_an_unhandled_error_is_logged_by_where_it_happened_never_by_what_it_said() -> None:
+    # A database error's detail repeats the values it refused — a caller's number, say — and a log
+    # line outlives the request that caused it. The type and the frames are enough to find it.
+    transport = ASGITransport(app=_app_that_fails(), raise_app_exceptions=False)
+    with capture_logs() as events:
+        async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+            await http.get("/boom")
+
+    [event] = [each for each in events if each["event"] == "unhandled_exception"]
+    assert event["exc_type"] == "RuntimeError"
+    assert any("boom" in frame for frame in event["frames"])
+    assert "secret detail" not in repr(event)
+    assert "exc_info" not in event
 
 
 async def test_an_unhandled_error_returns_no_internal_detail() -> None:
