@@ -1,0 +1,59 @@
+# Environment. The example is tracked; nothing that holds a real value ever is.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+coverage/
+
+# React Native, iOS
+apps/mobile/ios/Pods/
+apps/mobile/ios/build/
+apps/mobile/ios/*.xcworkspace/xcuserdata/
+apps/mobile/ios/*.xcodeproj/xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# React Native, Android
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/local.properties
+*.keystore
+!debug.keystore
+
+# React Native, Metro
+.metro-health-check*
+apps/mobile/.expo/
+
+# Build output
+dist/
+build/
+*.log
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Agent and session scratch. Nothing produced while working belongs in history.
+.claude/
+.cursor/
+scratchpad/
