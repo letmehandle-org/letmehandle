@@ -39,7 +39,10 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.speech import SpeechEvent, SpeechSession
 
 CONVERSATION_ENDED: Final = "speech.conversation.ended"
-INTERRUPTION_TO_SILENCE: Final = "speech.interruption_to_silence_seconds"
+# How long the sink took to drop what it had buffered once the caller spoke. Its own name, not
+# the session's interruption-to-silence: that one runs from cancelling the model to the model
+# going quiet, and one name for two measurements averages them into a number that is neither.
+SINK_DISCARD: Final = "speech.sink_discard_seconds"
 
 
 class ConversationFailedError(DomainError):
@@ -184,7 +187,7 @@ class Conversation:
                 heard_at = self._clock.now()
                 await self._sink.discard()
                 silence = (self._clock.now() - heard_at).total_seconds()
-                self._metrics.observe(INTERRUPTION_TO_SILENCE, silence)
+                self._metrics.observe(SINK_DISCARD, silence)
             case TranscriptProduced(is_final=True, text=text, speaker_is_caller=by_caller):
                 self._transcript.record(TranscriptTurn(text, speaker_is_caller=by_caller))
             case SessionFailed(reason=reason, retryable=retryable):

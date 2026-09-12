@@ -18,7 +18,7 @@ import pytest
 
 from letmehandle.application.speech.conversation import (
     CONVERSATION_ENDED,
-    INTERRUPTION_TO_SILENCE,
+    SINK_DISCARD,
     Conversation,
     ConversationEnd,
     ConversationFailedError,
@@ -182,7 +182,7 @@ async def test_how_long_an_interruption_took_to_go_quiet_is_measured(
     await parts.conversation().run()
 
     [observed] = parts.metrics.observations
-    assert (observed.name, observed.value) == (INTERRUPTION_TO_SILENCE, 0.25)
+    assert (observed.name, observed.value) == (SINK_DISCARD, 0.25)
     assert not observed.labels
 
 
