@@ -151,6 +151,17 @@ async def test_a_listening_only_leg_sends_nothing() -> None:
     assert socket.sent == []
 
 
+async def test_a_listening_only_leg_is_paced_as_if_it_were_heard() -> None:
+    # The speech session counts what the sink takes as heard. Taken all at once, ten seconds
+    # of speech would be over in an instant, and the assistant would think it had finished.
+    sleeps = Sleeps()
+    stream = MediaStream(monotonic=Clock(), sleep=sleeps, is_muted=lambda: True)
+    stream.attach(MemoryMediaSocket(), "MZsim-1")
+    for _ in range(3):
+        await stream.play(narrowband(1_600))
+    assert sleeps.slept == [pytest.approx(0.6 - PLAYBACK_LEAD_SECONDS)]
+
+
 async def test_a_writer_waits_for_the_stream_to_connect() -> None:
     stream = MediaStream(monotonic=Clock())
     socket = MemoryMediaSocket()

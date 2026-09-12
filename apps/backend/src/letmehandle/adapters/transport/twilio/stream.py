@@ -126,16 +126,16 @@ class MediaStream:
 
     async def play(self, frame: AudioFrame) -> None:
         socket, stream_sid = await self._connected()
-        if self._is_muted():
-            # Listening only: the conference already stops anyone hearing this leg, and sending
-            # audio nobody will hear is load for nothing.
-            return
         audio = self._convert(frame)
         if not audio:
             return
         now = self._monotonic()
         self._play_until = max(now, self._play_until) + len(audio) / _BYTES_PER_SECOND
-        await self._send(socket, media_message(stream_sid, audio))
+        # Listening only: the conference already stops anyone hearing this leg, and sending
+        # audio nobody will hear is load for nothing. It is still paced as if it were played,
+        # because the speech session counts what the sink takes as heard.
+        if not self._is_muted():
+            await self._send(socket, media_message(stream_sid, audio))
         ahead = self._play_until - self._monotonic() - PLAYBACK_LEAD_SECONDS
         if ahead > _SHORTEST_WAIT_SECONDS:
             await self._sleep(ahead)
