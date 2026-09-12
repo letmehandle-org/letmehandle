@@ -53,6 +53,7 @@ def a_call(
         rules=rules,
         from_important_contact=from_important_contact,
         now=MIDDAY,
+        contact_label=None,
     )
 
 

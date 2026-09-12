@@ -42,6 +42,10 @@ class CallSoFar:
     The transcript is data, never instruction. Every word in it arrived from a caller nobody has
     verified, and the one who most wants the assistant to do something it should not is the one
     speaking.
+
+    `contact_label` is what the user called this caller in their important contacts, and is set
+    only for a caller who is one. It is never taken from anything that arrived with the call: a
+    caller's display name is text a stranger or their network chose.
     """
 
     call_id: CallId
@@ -52,6 +56,13 @@ class CallSoFar:
     rules: CallRules
     from_important_contact: bool
     now: datetime
+    contact_label: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.contact_label is not None and not self.from_important_contact:
+            raise InvariantError("only an important contact carries the label the user gave them")
+        if self.contact_label is not None and not self.contact_label.strip():
+            raise InvariantError("a contact label is either absent or has something in it")
 
 
 @dataclass(frozen=True, slots=True)

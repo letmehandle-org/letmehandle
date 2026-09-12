@@ -151,14 +151,14 @@ async def test_the_caller_is_described_without_their_number() -> None:
     assert STRANGER_NUMBER.value.removeprefix("+1")[-7:] not in rendered
 
 
-async def test_a_known_contact_is_named_as_the_user_knows_them() -> None:
+async def test_an_important_contact_is_named_as_the_user_labelled_them() -> None:
+    # The network's name for the caller is not what the user called them, and is not used.
     caller = Caller(
-        number=STRANGER_NUMBER, display_name="Partner", category=CallerCategory.KNOWN_CONTACT
+        number=STRANGER_NUMBER, display_name="Unknown Ltd", category=CallerCategory.KNOWN_CONTACT
     )
+    call = a_call(caller=caller, from_important_contact=True, contact_label="Partner")
 
-    rendered = await answered(
-        GetCallerContext(Kit().notes), a_call(caller=caller, from_important_contact=True), {}
-    )
+    rendered = await answered(GetCallerContext(Kit().notes), call, {})
 
     assert json.loads(rendered) == {
         "category": "known_contact",
@@ -166,6 +166,17 @@ async def test_a_known_contact_is_named_as_the_user_knows_them() -> None:
         "important_to_the_user": True,
         "known_to_the_user_as": "Partner",
     }
+    assert "Unknown Ltd" not in rendered
+
+
+async def test_a_known_contact_the_user_did_not_label_is_not_named() -> None:
+    caller = Caller(
+        number=STRANGER_NUMBER, display_name="Partner", category=CallerCategory.KNOWN_CONTACT
+    )
+
+    rendered = await answered(GetCallerContext(Kit().notes), a_call(caller=caller), {})
+
+    assert json.loads(rendered)["known_to_the_user_as"] is None
 
 
 async def test_a_name_that_arrived_with_a_strangers_call_is_not_passed_on() -> None:

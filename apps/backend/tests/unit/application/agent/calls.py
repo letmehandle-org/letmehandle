@@ -48,6 +48,7 @@ def a_call(
     transcript: Iterable[TranscriptEntry] = (),
     now: datetime = NOON,
     from_important_contact: bool = False,
+    contact_label: str | None = None,
 ) -> CallSoFar:
     """A call. `authority`, if given, replaces the one the preferences grant."""
     chosen = preferences if preferences is not None else UserPreferences(rules=RULES)
@@ -60,4 +61,5 @@ def a_call(
         rules=chosen.rules,
         from_important_contact=from_important_contact,
         now=now,
+        contact_label=contact_label,
     )
