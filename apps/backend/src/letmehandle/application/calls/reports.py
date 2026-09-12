@@ -76,7 +76,7 @@ class CallReporting:
                 continue
             accepted.append(report.event_id)
             if not superseded:
-                await self._sink.publish(_to_event(user_id, report))
+                await self._sink.publish(user_id, _to_event(user_id, report))
         return ReportOutcome(accepted=tuple(accepted), duplicates=tuple(duplicates))
 
 

@@ -23,7 +23,7 @@ What that means for each part of the port, stated because each is a choice:
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final
 
@@ -38,7 +38,7 @@ from letmehandle.observability.logging import get_logger
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from letmehandle.domain.models.identifiers import CallId
+    from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.ports.call_transport import CallEvent
 
 # CallScreeningService.onScreenCall: "A CallScreeningService must respond to a call within 5
@@ -46,10 +46,12 @@ if TYPE_CHECKING:
 # its response."
 PLATFORM_SCREENING_DEADLINE: Final = timedelta(seconds=5)
 
-# How many events may wait for a consumer. Every one of them is already stored by the time it
-# reaches here, so a full feed loses nothing durable; it is bounded so that a deployment with no
-# consumer yet cannot grow without limit.
-DEFAULT_FEED_LIMIT: Final = 1_000
+# How many of one user's events may wait for a consumer. Every one of them is already stored by
+# the time it reaches here, so a full feed loses nothing durable. Bounded per user rather than
+# overall, so that one handset reporting in a loop fills its own share and nobody else's; the feed
+# as a whole is then bounded by this times the users reporting, which a deployment with no
+# consumer yet cannot grow past.
+DEFAULT_PER_USER_FEED_LIMIT: Final = 100
 
 # How many released calls are remembered. A late report for a call older than this is handed on
 # rather than suppressed, which is the safe direction to be wrong in.
@@ -62,10 +64,12 @@ class AndroidNativeCallTransport(CallTransport, CallEventSink):
     def __init__(
         self,
         *,
-        feed_limit: int = DEFAULT_FEED_LIMIT,
+        per_user_feed_limit: int = DEFAULT_PER_USER_FEED_LIMIT,
         released_limit: int = DEFAULT_RELEASED_LIMIT,
     ) -> None:
-        self._feed: asyncio.Queue[CallEvent] = asyncio.Queue(maxsize=feed_limit)
+        self._feed: asyncio.Queue[tuple[UserId, CallEvent]] = asyncio.Queue()
+        self._waiting: Counter[UserId] = Counter()
+        self._per_user_feed_limit = per_user_feed_limit
         self._released: OrderedDict[CallId, None] = OrderedDict()
         self._released_limit = released_limit
         self._logger = get_logger(__name__)
@@ -80,7 +84,11 @@ class AndroidNativeCallTransport(CallTransport, CallEventSink):
 
     async def events(self) -> AsyncIterator[CallEvent]:
         while True:
-            yield await self._feed.get()
+            user_id, event = await self._feed.get()
+            self._waiting[user_id] -= 1
+            if not self._waiting[user_id]:
+                del self._waiting[user_id]
+            yield event
 
     async def terminate(self, call_id: CallId) -> None:
         self._released[call_id] = None
@@ -88,19 +96,21 @@ class AndroidNativeCallTransport(CallTransport, CallEventSink):
         while len(self._released) > self._released_limit:
             self._released.popitem(last=False)
 
-    async def publish(self, event: CallEvent) -> None:
+    async def publish(self, user_id: UserId, event: CallEvent) -> None:
         if event.call_id in self._released:
             self._logger.info("call_event_after_release", kind=event.kind.value)
             return
-        try:
-            self._feed.put_nowait(event)
-        except asyncio.QueueFull:
-            # Not swallowed: the report is stored, and this says that the live feed fell behind.
+        if self._waiting[user_id] >= self._per_user_feed_limit:
+            # Not swallowed: the report is stored, and this says that the live feed fell behind
+            # this user's handset.
             self._logger.warning(
                 "call_event_feed_full",
                 kind=event.kind.value,
-                waiting=self._feed.qsize(),
+                waiting=self._waiting[user_id],
             )
+            return
+        self._waiting[user_id] += 1
+        self._feed.put_nowait((user_id, event))
 
     def screening_decisions(self) -> frozenset[ScreeningDecision]:
         # CallResponse.Builder: setDisallowCall with setRejectCall rejects, setSilenceCall rings

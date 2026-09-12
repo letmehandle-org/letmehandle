@@ -90,5 +90,10 @@ class CallEventSink(ABC):
     """Where a reported call becomes an event the rest of the product sees."""
 
     @abstractmethod
-    async def publish(self, event: CallEvent) -> None:
-        """Hand the event on. Returns promptly: a report is acknowledged, not processed, here."""
+    async def publish(self, user_id: UserId, event: CallEvent) -> None:
+        """Hand on an event the user's handset reported. Returns promptly: a report is
+        acknowledged, not processed, here.
+
+        The user is named so that what one account's handset sends is bounded on its own, and a
+        handset reporting in a loop cannot crowd out every other account's calls.
+        """

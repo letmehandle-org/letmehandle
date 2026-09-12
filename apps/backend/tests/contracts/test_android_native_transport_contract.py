@@ -12,7 +12,7 @@ from datetime import timedelta
 import pytest
 
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
-from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.ports.call_transport import (
     CallEvent,
     CallEventKind,
@@ -29,12 +29,13 @@ class TestAndroidNativeCallTransport(CallTransportContract):
         # A handset has reported one screened call, so there is something to consume: the feed
         # is live, and an empty one waits for the next report rather than finishing.
         await native.publish(
+            UserId("user"),
             CallEvent(
                 CallEventKind.INCOMING,
                 CallId("user:handset-call"),
                 EventId("user:handset-event"),
                 screening=ScreeningDecision.SILENCE,
-            )
+            ),
         )
         return native
 

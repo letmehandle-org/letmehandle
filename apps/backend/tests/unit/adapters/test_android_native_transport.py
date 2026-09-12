@@ -9,7 +9,7 @@ import pytest
 import structlog
 
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
-from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.ports.call_transport import CallEvent, CallEventKind
 
 if TYPE_CHECKING:
@@ -24,6 +24,10 @@ def _unfiltered_logging() -> Iterator[None]:
     structlog.reset_defaults()
     yield
     structlog.configure(**configured)
+
+
+USER = UserId("user-1")
+SOMEBODY_ELSE = UserId("user-2")
 
 
 def event(call: str, kind: CallEventKind = CallEventKind.INCOMING, number: int = 1) -> CallEvent:
@@ -46,8 +50,8 @@ async def test_reported_events_arrive_in_the_order_they_were_published() -> None
     transport = AndroidNativeCallTransport()
     first = event("a", CallEventKind.INCOMING, 1)
     second = event("a", CallEventKind.ANSWERED, 2)
-    await transport.publish(first)
-    await transport.publish(second)
+    await transport.publish(USER, first)
+    await transport.publish(USER, second)
 
     stream = transport.events()
     assert await next_event(stream) == first
@@ -60,8 +64,8 @@ async def test_a_released_call_is_not_handed_on_again() -> None:
     transport = AndroidNativeCallTransport()
     await transport.terminate(CallId("a"))
     with structlog.testing.capture_logs() as logs:
-        await transport.publish(event("a", CallEventKind.ENDED))
-    await transport.publish(event("b"))
+        await transport.publish(USER, event("a", CallEventKind.ENDED))
+    await transport.publish(USER, event("b"))
 
     assert [entry["event"] for entry in logs] == ["call_event_after_release"]
 
@@ -77,24 +81,32 @@ async def test_only_the_most_recent_releases_are_remembered() -> None:
     await transport.terminate(CallId("old"))
     await transport.terminate(CallId("new"))
     await transport.terminate(CallId("new"))
-    await transport.publish(event("old"))
-    await transport.publish(event("new"))
+    await transport.publish(USER, event("old"))
+    await transport.publish(USER, event("new"))
 
     stream = transport.events()
     assert (await next_event(stream)).call_id == CallId("old")
     assert await nothing_waiting(stream)
 
 
-async def test_a_full_feed_says_so_rather_than_growing() -> None:
-    transport = AndroidNativeCallTransport(feed_limit=1)
+async def test_one_users_flood_of_reports_cannot_crowd_out_another_users_events() -> None:
+    transport = AndroidNativeCallTransport(per_user_feed_limit=2)
     with structlog.testing.capture_logs() as logs:
-        await transport.publish(event("a"))
-        await transport.publish(event("b"))
+        for number in range(5):
+            await transport.publish(USER, event("flood", number=number))
+        await transport.publish(SOMEBODY_ELSE, event("quiet"))
 
-    assert [entry["event"] for entry in logs] == ["call_event_feed_full"]
+    assert [entry["event"] for entry in logs] == ["call_event_feed_full"] * 3
     stream = transport.events()
-    assert (await next_event(stream)).call_id == CallId("a")
+    assert [(await next_event(stream)).call_id.value for _ in range(3)] == [
+        "flood",
+        "flood",
+        "quiet",
+    ]
     assert await nothing_waiting(stream)
+    # Read, the flood's events no longer count against it.
+    await transport.publish(USER, event("flood", number=9))
+    assert (await next_event(transport.events())).event_id == EventId("flood-9")
 
 
 @pytest.mark.parametrize("name", ["answer", "stream_audio", "inject_audio", "add_participant"])

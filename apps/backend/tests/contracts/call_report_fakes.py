@@ -40,5 +40,5 @@ class RecordingCallEventSink(CallEventSink):
     def __init__(self) -> None:
         self.published: list[CallEvent] = []
 
-    async def publish(self, event: CallEvent) -> None:
+    async def publish(self, user_id: UserId, event: CallEvent) -> None:
         self.published.append(event)
