@@ -315,7 +315,11 @@ def audit_staged():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--range", nargs="+", help="audit the commits in this rev range")
+    # REMAINDER rather than "+": a new-branch range is "<sha> --not --remotes=origin", and
+    # argparse would otherwise try to interpret --not as one of its own options.
+    parser.add_argument(
+        "--range", nargs=argparse.REMAINDER, help="audit the commits in this rev range"
+    )
     parser.add_argument("--staged", action="store_true", help="audit the staged diff")
     parser.add_argument("--text", action="store_true", help="audit stdin")
     parser.add_argument("--label", default="the text", help="what to call stdin in messages")
