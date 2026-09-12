@@ -630,6 +630,39 @@ async def test_removing_a_user_on_the_call_takes_them_out_of_the_conference(
     await transport.remove_participant(CallId("CAsim-gone"), USER)
 
 
+async def test_a_dial_abandoned_while_being_placed_does_not_block_dialling_again(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    placing = asyncio.Event()
+    original = api.create_participant
+
+    async def hanging_create(conference_name: str, request: ParticipantRequest) -> str:
+        placing.set()
+        await asyncio.sleep(10)
+        return await original(conference_name, request)
+
+    api.create_participant = hanging_create  # type: ignore[method-assign]
+    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    await placing.wait()
+    dialling.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await dialling
+    api.create_participant = original  # type: ignore[method-assign]
+    await transport.add_participant(CALL, USER)
+    assert [request.label for _, request in api.created] == ["assistant-1", "user-3"]
+
+
+async def test_closing_while_the_provider_refuses_still_releases_every_call(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    api.failure = FAILURE
+    await transport.close()
+    assert transport.active_calls == 0
+    assert api.closed == 1
+
+
 async def test_a_dial_whose_identifier_is_not_yet_known_is_only_marked_removed(
     transport: TwilioCallTransport, api: RecordingApi
 ) -> None:

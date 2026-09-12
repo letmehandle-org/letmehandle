@@ -633,7 +633,9 @@ class TwilioCallTransport(CallTransport):
         )
         try:
             call_sid = await self._api.create_participant(call.conference_name, request)
-        except ProviderError:
+        except (ProviderError, asyncio.CancelledError):
+            # Cancelled counts as failed: a leg left unfinished with no identifier could never be
+            # hung up, and would stop the same person being dialled again.
             leg.finished = True
             self._end_stream(call, leg)
             raise
@@ -756,7 +758,9 @@ class TwilioCallTransport(CallTransport):
 
     async def _hang_up_leg(self, call: _Call, leg: _Leg) -> None:
         leg.removed = True
-        if leg.call_sid is None:
+        # A leg is only reachable here once its dial has returned, under the call's lock, and a
+        # dial that did not return an identifier finished the leg. Narrowed for the type.
+        if leg.call_sid is None:  # pragma: no cover - unreachable while dials hold the lock
             return
         if leg.joined and call.conference_sid is not None:
             await self._api.remove_participant(call.conference_sid, leg.call_sid)
