@@ -355,3 +355,16 @@ left an interface nothing implements. It is removed with its contract suite. D-0
 speech and judgement are separate ports — with `CallAgent` as the judgement one.
 
 Swapping the model is configuration. Swapping the SDK is a new adapter behind `CallAgent`.
+
+Tools that would change the call's course only ask. `request_human_escalation` and `end_call`
+write down what the model asked for, and once the model has finished — outside the bound on its
+time — the application acts on it once: the escalation the policy makes of the most pressing
+reading first, then the ending, only if the rules still allow it. A hang-up can never cancel an
+escalation the rules require.
+
+**Accepted trade: one ring per call, and no limit across calls.** The escalation service reaches
+the user at most once per call for each level of urgency, so the phone rings immediately at most
+once per call. A caller who persuades the model that their call is urgent can have it ring that
+once, even in quiet hours, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
+limits across calls — per caller, per number, per night — belong to a later hardening phase, not to
+this one.
