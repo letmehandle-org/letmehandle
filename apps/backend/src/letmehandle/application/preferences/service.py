@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
     from letmehandle.domain.models.preferences import (
         CallRules,
+        DisclosableFact,
         Formality,
         ImportantContact,
         NotificationPreferences,
@@ -51,6 +52,7 @@ class PreferenceChanges:
     formality: Formality | None = None
     verbosity: Verbosity | None = None
     topics: frozenset[Topic] | None = None
+    disclosable_facts: frozenset[DisclosableFact] | None = None
     important_contacts: tuple[ImportantContact, ...] | None = None
 
     @property
@@ -70,6 +72,7 @@ class PreferenceChanges:
                 "formality",
                 "verbosity",
                 "topics",
+                "disclosable_facts",
                 "important_contacts",
             )
         )
@@ -118,6 +121,11 @@ class PreferencesService:
             formality=current.formality if changes.formality is None else changes.formality,
             verbosity=current.verbosity if changes.verbosity is None else changes.verbosity,
             topics=current.topics if changes.topics is None else changes.topics,
+            disclosable_facts=(
+                current.disclosable_facts
+                if changes.disclosable_facts is None
+                else changes.disclosable_facts
+            ),
             important_contacts=(
                 current.important_contacts
                 if changes.important_contacts is None

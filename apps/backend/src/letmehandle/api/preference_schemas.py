@@ -98,6 +98,12 @@ class PersonalityPayload(Request):
     formality: Formality = Formality.NEUTRAL
     verbosity: Verbosity = Verbosity.NORMAL
     topics: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(default_factory=list)
+    # What the assistant may volunteer about the user unprompted. Bounded here as well as in
+    # the domain, so a client learns which field was too long rather than getting a refusal
+    # with no field attached to it.
+    disclosable_facts: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class PreferencesResponse(Response):

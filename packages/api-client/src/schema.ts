@@ -397,6 +397,8 @@ export interface components {
         };
         /** PersonalityPayload */
         PersonalityPayload: {
+            /** Disclosable Facts */
+            disclosable_facts?: string[];
             /** @default neutral */
             formality: components["schemas"]["Formality"];
             /** Topics */

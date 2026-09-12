@@ -23,6 +23,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
+    DisclosableFact,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -47,7 +48,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
         "formality": preferences.formality.value,
         "verbosity": preferences.verbosity.value,
         "topics": sorted(topic.name for topic in preferences.topics),
-        "disclosable_facts": sorted(preferences.disclosable_facts),
+        "disclosable_facts": sorted(fact.text for fact in preferences.disclosable_facts),
         "authority": sorted(capability.value for capability in preferences.authority.capabilities),
         "notifications": {
             "on_handled_call": preferences.notifications.on_handled_call,
@@ -98,7 +99,9 @@ def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
         formality=_enum(Formality, document.get("formality"), Formality.NEUTRAL),
         verbosity=_enum(Verbosity, document.get("verbosity"), Verbosity.NORMAL),
         topics=frozenset(Topic(name) for name in document.get("topics", [])),
-        disclosable_facts=frozenset(document.get("disclosable_facts", [])),
+        disclosable_facts=frozenset(
+            DisclosableFact(text) for text in document.get("disclosable_facts", [])
+        ),
         authority=AgentAuthority(
             frozenset(
                 _enum(Capability, value, None)

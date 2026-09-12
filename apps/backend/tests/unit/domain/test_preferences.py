@@ -15,6 +15,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
+    DisclosableFact,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -290,3 +291,45 @@ def test_a_topic_cannot_carry_a_line_break() -> None:
     # Splitting on whitespace collapses every kind of it, so a multi-line value cannot be
     # smuggled into a list the model reads as one item per line.
     assert Topic("school\nrun\there").name == "school run here"
+
+
+class TestDisclosableFacts:
+    def test_a_fact_keeps_its_case(self) -> None:
+        # Unlike a topic, which is matched against and so normalised. A fact is read out, and
+        # "Tuesdays" should not become "tuesdays".
+        assert DisclosableFact("Works from home on Tuesdays").text == (
+            "Works from home on Tuesdays"
+        )
+
+    def test_a_fact_is_collapsed_to_one_line(self) -> None:
+        # An instruction needs room, and a single line does not give it any.
+        assert DisclosableFact("works\nfrom   home").text == "works from home"
+
+    @pytest.mark.parametrize("raw", ["", "   ", "\n"])
+    def test_a_fact_with_nothing_in_it_is_refused(self, raw: str) -> None:
+        with pytest.raises(InvariantError):
+            DisclosableFact(raw)
+
+    def test_a_paragraph_is_refused(self) -> None:
+        # This text goes in front of the model while an unknown caller is talking to it.
+        with pytest.raises(InvariantError, match="instruction"):
+            DisclosableFact("x" * (DisclosableFact.MAX_LENGTH + 1))
+
+    def test_a_fact_at_the_limit_is_accepted(self) -> None:
+        assert len(DisclosableFact("x" * DisclosableFact.MAX_LENGTH).text) == 120
+
+    def test_too_many_facts_are_refused(self) -> None:
+        # Every one of them is something a stranger can be told, so the list being short is the
+        # point rather than a limitation.
+        facts = frozenset(
+            DisclosableFact(f"fact {number}") for number in range(UserPreferences.MAX_FACTS + 1)
+        )
+        with pytest.raises(InvariantError, match="stranger"):
+            UserPreferences(disclosable_facts=facts)
+
+    def test_nothing_is_disclosable_by_default(self) -> None:
+        # The safe answer to "where are they?" is not a location.
+        assert UserPreferences().disclosable_facts == frozenset()
+
+    def test_a_fact_rendered_is_its_text(self) -> None:
+        assert str(DisclosableFact("works from home")) == "works from home"

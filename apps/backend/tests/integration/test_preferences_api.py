@@ -99,6 +99,7 @@ class TestPartialUpdates:
                     "formality": "formal",
                     "verbosity": "detailed",
                     "topics": ["school run", "deliveries"],
+                    "disclosable_facts": ["Works from home on Tuesdays"],
                 },
                 "important_contacts": [{"phone_number": ANOTHER_NUMBER, "label": "The school"}],
             },
@@ -113,6 +114,7 @@ class TestPartialUpdates:
         ]
         assert after["notifications"]["daily_summary"] is True
         assert after["personality"]["topics"] == ["deliveries", "school run"]
+        assert after["personality"]["disclosable_facts"] == ["Works from home on Tuesdays"]
         assert after["important_contacts"][0]["label"] == "The school"
 
     async def test_hours_can_be_cleared(self, api: Api) -> None:
@@ -189,6 +191,15 @@ class TestValidation:
             {"important_contacts": [{"phone_number": "not-a-number", "label": "x"}]},
             {"important_contacts": [{"phone_number": ANOTHER_NUMBER, "label": ""}]},
             {"personality": {"formality": "brusque", "verbosity": "brief", "topics": []}},
+            # A paragraph in front of the model is room for an instruction somebody else wrote.
+            {
+                "personality": {
+                    "formality": "warm",
+                    "verbosity": "brief",
+                    "disclosable_facts": ["x" * 121],
+                }
+            },
+            {"personality": {"formality": "warm", "verbosity": "brief", "disclosable_facts": [""]}},
             {"locale": ""},
             {"unexpected": "field"},
         ],

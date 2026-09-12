@@ -354,6 +354,16 @@
       "PersonalityPayload": {
         "additionalProperties": false,
         "properties": {
+          "disclosable_facts": {
+            "items": {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Disclosable Facts",
+            "type": "array"
+          },
           "formality": {
             "$ref": "#/components/schemas/Formality",
             "default": "neutral"

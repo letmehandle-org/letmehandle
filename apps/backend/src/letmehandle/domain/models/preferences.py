@@ -96,6 +96,42 @@ class Topic:
 
 
 @dataclass(frozen=True, slots=True)
+class DisclosableFact:
+    """Something the assistant is allowed to volunteer about the user.
+
+    "Works from home on Tuesdays", say — the kind of thing that makes an assistant useful and
+    that a user would not want said to just anybody.
+
+    Validated for the same reason a topic is, and more urgently. This text is put in front of
+    the model while an unknown caller is talking to it, so it is both a disclosure the user
+    chose *and* a place somebody could try to write an instruction. Bounded in length and
+    collapsed to a single line: an instruction needs room, and this does not give it any.
+
+    Case is kept, unlike a topic. A topic is matched against, so it is normalised; a fact is
+    read out, so "Tuesdays" should not become "tuesdays".
+    """
+
+    text: str
+
+    MAX_LENGTH: ClassVar[int] = 120
+
+    def __post_init__(self) -> None:
+        collapsed = " ".join(self.text.split())
+        if not collapsed:
+            raise InvariantError("a fact with nothing in it discloses nothing")
+        if len(collapsed) > self.MAX_LENGTH:
+            raise InvariantError(
+                f"a disclosable fact is at most {self.MAX_LENGTH} characters; longer than that "
+                f"it is a paragraph, and a paragraph in front of the model is room for an "
+                f"instruction somebody else wrote"
+            )
+        object.__setattr__(self, "text", collapsed)
+
+    def __str__(self) -> str:
+        return self.text
+
+
+@dataclass(frozen=True, slots=True)
 class ImportantContact:
     """Somebody whose calls are treated differently.
 
@@ -255,11 +291,12 @@ class UserPreferences:
     topics: frozenset[Topic] = field(default_factory=frozenset)
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
-    disclosable_facts: frozenset[str] = field(default_factory=frozenset)
+    disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
     version: int = PREFERENCES_VERSION
 
     MAX_CONTACTS: ClassVar[int] = 200
     MAX_TOPICS: ClassVar[int] = 50
+    MAX_FACTS: ClassVar[int] = 20
 
     def __post_init__(self) -> None:
         if not self.locale.strip():
@@ -273,6 +310,11 @@ class UserPreferences:
             )
         if len(self.topics) > self.MAX_TOPICS:
             raise InvariantError(f"at most {self.MAX_TOPICS} topics")
+        if len(self.disclosable_facts) > self.MAX_FACTS:
+            raise InvariantError(
+                f"at most {self.MAX_FACTS} disclosable facts. Every one of them is something a "
+                f"stranger can be told, so the list being short is the point"
+            )
 
         numbers = [contact.number for contact in self.important_contacts]
         duplicates = {number for number in numbers if numbers.count(number) > 1}

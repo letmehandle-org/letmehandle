@@ -31,6 +31,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
+    DisclosableFact,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -66,7 +67,7 @@ def everything() -> UserPreferences:
         formality=Formality.FORMAL,
         verbosity=Verbosity.BRIEF,
         topics=frozenset({Topic("school run"), Topic("deliveries")}),
-        disclosable_facts=frozenset({"works from home"}),
+        disclosable_facts=frozenset({DisclosableFact("Works from home on Tuesdays")}),
         authority=AgentAuthority.granting(
             Capability.TAKE_A_MESSAGE, Capability.SHARE_DELIVERY_INSTRUCTIONS
         ),

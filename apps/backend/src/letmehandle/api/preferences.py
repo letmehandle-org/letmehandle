@@ -34,6 +34,7 @@ from letmehandle.domain.models.onboarding import ORDER, OnboardingProgress
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     CallRules,
+    DisclosableFact,
     ImportantContact,
     NotificationPreferences,
     TimeWindow,
@@ -137,6 +138,11 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
                 None
                 if body.personality is None
                 else frozenset(Topic(name) for name in body.personality.topics)
+            ),
+            disclosable_facts=(
+                None
+                if body.personality is None
+                else frozenset(DisclosableFact(text) for text in body.personality.disclosable_facts)
             ),
             important_contacts=(
                 None
@@ -268,6 +274,7 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
             # Sorted, so that two identical preference sets produce identical responses and a
             # client comparing them does not see a change that is not one.
             topics=sorted(topic.name for topic in preferences.topics),
+            disclosable_facts=sorted(fact.text for fact in preferences.disclosable_facts),
         ),
     )
 

@@ -34,6 +34,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
+    DisclosableFact,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -81,7 +82,9 @@ def fully_populated() -> UserPreferences:
             ImportantContact(SCHOOL_NUMBER, "the school", HandlingPosture.HANDLE_WITH_AGENT),
         ),
         topics=frozenset({Topic("School Run"), Topic("boiler repair")}),
-        disclosable_facts=frozenset({"is travelling this week", "prefers email"}),
+        disclosable_facts=frozenset(
+            {DisclosableFact("is travelling this week"), DisclosableFact("prefers email")}
+        ),
     )
 
 

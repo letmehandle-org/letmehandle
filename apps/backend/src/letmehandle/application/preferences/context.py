@@ -248,5 +248,5 @@ def build_preference_context(preferences: UserPreferences, *, now: datetime) -> 
             for contact in preferences.important_contacts
         ),
         topics=tuple(sorted(topic.name for topic in preferences.topics)),
-        disclosable_facts=tuple(sorted(preferences.disclosable_facts)),
+        disclosable_facts=tuple(sorted(fact.text for fact in preferences.disclosable_facts)),
     )
