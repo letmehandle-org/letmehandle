@@ -10,7 +10,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from letmehandle.adapters.transport.twilio.routes import StarletteMediaSocket, build_router
+from letmehandle.adapters.transport.twilio.routes import (
+    TELEPHONY_BODY_LIMIT_BYTES,
+    StarletteMediaSocket,
+    build_router,
+)
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier, compute_signature
 from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
@@ -110,6 +114,32 @@ async def test_every_route_refuses_what_it_cannot_prove(
     assert forged.status_code == 403
     assert unsigned.status_code == 403
     assert transport.active_calls == 0
+
+
+async def oversized_chunks(size: int) -> AsyncIterator[bytes]:
+    for _ in range(size // 4_096 + 1):
+        yield b"a" * 4_096
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/telephony/voice/incoming",
+        "/telephony/voice/assistant",
+        "/telephony/voice/caller-left?call=CAsim-1",
+        "/telephony/conference/status?call=CAsim-1",
+        "/telephony/leg/status?call=CAsim-1&leg=user-2",
+    ],
+)
+async def test_a_body_too_large_for_a_callback_is_refused_before_it_is_read(
+    client: AsyncClient, path: str
+) -> None:
+    # Unsigned, so it is refused either way; the point is that it is refused for its size, and
+    # without sixty-four megabytes being held in memory to find out it was forged.
+    size = TELEPHONY_BODY_LIMIT_BYTES + 1
+    declared = await client.post(path, content=b"a" * size)
+    streamed = await client.post(path, content=oversized_chunks(size))
+    assert (declared.status_code, streamed.status_code) == (413, 413)
 
 
 async def test_a_genuine_signature_from_another_account_is_refused(

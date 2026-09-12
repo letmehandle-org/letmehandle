@@ -97,7 +97,8 @@ in a bounded queue that drops the oldest frame when a listener falls behind.
 Every HTTP callback and the websocket handshake is checked against `X-Twilio-Signature` before
 anything in it is read, over the URL built from `TELEPHONY_WEBHOOK_BASE_URL` — not the Host the
 request arrived with, which behind a tunnel is not what was signed. A genuine signature from another
-account is refused too.
+account is refused too. A body over 64 KiB is refused with `413` before it is read, by its declared
+length or as it arrives, so a forged callback is never held in memory to find out it was forged.
 
 The handshake's signature is the same for every call, and a leg's call identifier is no secret, so
 neither decides which leg a socket carries. The assistant's instructions carry a random token as a

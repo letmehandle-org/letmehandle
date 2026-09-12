@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from letmehandle.api.body_limit import limited_body_route
 from letmehandle.api.call_report_schemas import (
     CallReportBatch,
     CallReportPayload,
@@ -24,7 +25,12 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import CallEventKind
 from letmehandle.domain.ports.reported_calls import CallReport
 
-router = APIRouter(prefix="/v1", tags=["calls"])
+# The largest request body read: a full batch of the largest reports is a fraction of this.
+REPORTS_BODY_LIMIT_BYTES = 256 * 1024
+
+router = APIRouter(
+    prefix="/v1", tags=["calls"], route_class=limited_body_route(REPORTS_BODY_LIMIT_BYTES)
+)
 
 _KINDS = {
     ReportedCallKind.INCOMING: CallEventKind.INCOMING,

@@ -15,10 +15,14 @@ from sqlalchemy import func, select
 
 from letmehandle.adapters.database.models import CallReportRow
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.api.call_report_schemas import MAX_REPORTS_PER_REQUEST
+from letmehandle.api.call_reports import REPORTS_BODY_LIMIT_BYTES
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from letmehandle.domain.ports.call_transport import CallEvent
@@ -122,6 +126,38 @@ class TestMapping:
     async def test_an_empty_batch_is_refused(self, api: Api) -> None:
         tokens = await sign_in(api)
         assert (await send(api, tokens, [])).status_code == 422
+
+
+class TestSize:
+    async def test_a_body_larger_than_a_full_batch_is_refused_before_it_is_read(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        size = REPORTS_BODY_LIMIT_BYTES + 1
+
+        async def chunks() -> AsyncIterator[bytes]:
+            for _ in range(size // 4_096 + 1):
+                yield b" " * 4_096
+
+        headers = {**bearer(tokens), "Content-Type": "application/json"}
+        declared = await api.client.post("/v1/calls/reports", headers=headers, content=b" " * size)
+        streamed = await api.client.post("/v1/calls/reports", headers=headers, content=chunks())
+        assert (declared.status_code, streamed.status_code) == (413, 413)
+        assert declared.json()["error"] == "payload_too_large"
+
+    async def test_a_full_batch_fits(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        batch = [
+            reported(
+                f"event-{index:04d}-7d1c9a52-0b7e-4c56-9d4f-2f1f0f6f",
+                "incoming",
+                screening="silence",
+                caller_number=CALLER,
+            )
+            for index in range(MAX_REPORTS_PER_REQUEST)
+        ]
+        response = await send(api, tokens, batch)
+        assert response.status_code == 200, response.text
 
 
 class TestIdempotency:

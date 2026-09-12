@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Final
 from fastapi import APIRouter, Request, Response, WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from letmehandle.adapters.http.body import BodyTooLargeError, read_limited_body
 from letmehandle.adapters.transport.twilio import twiml
 from letmehandle.adapters.transport.twilio.callbacks import (
     CALL_PARAMETER,
@@ -50,11 +51,16 @@ logger = get_logger(__name__)
 
 IDEMPOTENCY_HEADER: Final = "I-Twilio-Idempotency-Token"
 
+# The largest callback body read. A callback is a few dozen short form fields; anything near this
+# is not one, and its signature is only checked once it has been read.
+TELEPHONY_BODY_LIMIT_BYTES: Final = 64 * 1024
+
 # The close code for a handshake refused on policy, which Starlette turns into a 403 before the
 # socket is ever accepted.
 _POLICY_VIOLATION: Final = 1008
 
 _FORBIDDEN: Final = 403
+_TOO_LARGE: Final = 413
 _UNPROCESSABLE: Final = 422
 _NO_CONTENT: Final = 204
 
@@ -73,10 +79,15 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
         """The form parameters and our own query parameters, once the request is proved."""
         raw_query = request.scope.get("query_string", b"").decode("latin-1")
         try:
+            body = await read_limited_body(request, TELEPHONY_BODY_LIMIT_BYTES)
+        except BodyTooLargeError:
+            logger.warning("telephony.webhook.rejected", path=request.url.path, reason="size")
+            raise _RefusedError(_TOO_LARGE) from None
+        try:
             pairs = transport.verifier.verify_form(
                 path=request.url.path,
                 raw_query=raw_query,
-                body=await request.body(),
+                body=body,
                 signature=request.headers.get(SIGNATURE_HEADER),
             )
         except SignatureRejectedError as error:
