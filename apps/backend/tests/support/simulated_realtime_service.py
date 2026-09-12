@@ -23,6 +23,8 @@ import asyncio
 import base64
 import binascii
 import json
+import math
+import struct
 from dataclasses import dataclass, field
 from itertools import count
 from typing import TYPE_CHECKING, Any, Final, Self
@@ -67,6 +69,21 @@ class _Conversation:
     assistant_items: set[str] = field(default_factory=set)
     response: asyncio.Task[None] | None = None
     response_id: str | None = None
+
+
+# Below this root-mean-square level a chunk is silence. A real service's voice detection works on
+# energy rather than on exact zeros, and so must this one: a resampling client carries a sample or
+# two of the previous sound into the chunk after it, which leaves a silent chunk almost — never
+# exactly — zero, and a detector waiting for exact zeros never hears the turn end.
+SILENCE_RMS: Final = 500
+
+
+def _is_speech(audio: bytes) -> bool:
+    usable = len(audio) - len(audio) % 2
+    if not usable:
+        return False
+    samples = struct.unpack(f"<{usable // 2}h", audio[:usable])
+    return math.sqrt(sum(sample * sample for sample in samples) / len(samples)) >= SILENCE_RMS
 
 
 class SimulatedRealtimeService:
@@ -216,7 +233,7 @@ class SimulatedRealtimeService:
             return
         start_ms = conversation.elapsed_ms
         conversation.elapsed_ms += len(audio) // BYTES_PER_MILLISECOND
-        if any(audio):
+        if _is_speech(audio):
             if conversation.user_item is None:
                 conversation.user_item = self._id("item")
                 await self._emit(
