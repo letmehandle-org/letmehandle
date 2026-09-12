@@ -29,28 +29,3 @@ export function applyChanges(
     personality: changes.personality ?? current.personality,
   };
 }
-
-/**
- * Send call handling and hours together, or send neither.
- *
- * They are two screens here and one object on the server, and the server fills the half it was
- * not sent from its *defaults* rather than from what is stored. So a patch carrying only the
- * quiet hours resets how unknown callers are treated — silently, and to something the user
- * never chose. Sending both halves every time is what stops that.
- */
-export function withWholeCallRules(
-  current: Preferences,
-  changes: PreferencesUpdate,
-): PreferencesUpdate {
-  const touchesEither =
-    changes.call_handling !== undefined || changes.hours !== undefined;
-  if (!touchesEither) {
-    return changes;
-  }
-
-  return {
-    ...changes,
-    call_handling: changes.call_handling ?? current.call_handling,
-    hours: changes.hours ?? current.hours,
-  };
-}

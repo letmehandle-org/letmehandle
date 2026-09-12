@@ -243,7 +243,7 @@ describe('saving a change', () => {
     expect(view.result.current.preferences).toEqual(DEFAULT_PREFERENCES);
   });
 
-  it('sends hours along with call handling, so neither resets the other', async () => {
+  it('sends only the section that changed', async () => {
     const calls: string[] = [];
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
@@ -277,9 +277,16 @@ describe('saving a change', () => {
       });
     });
 
-    expect(JSON.parse(calls[0]).call_handling).toEqual(
-      DEFAULT_PREFERENCES.call_handling,
-    );
+    // Only the section that changed. The server leaves every other one exactly as it was, so
+    // sending the rest would overwrite them with whatever this client last read — the same
+    // lost update, from the other direction.
+    const sent = JSON.parse(calls[0]);
+    expect(sent.call_handling).toBeUndefined();
+    expect(sent.hours.quiet).toEqual({
+      start: '22:00',
+      end: '07:00',
+      zone: 'Europe/London',
+    });
   });
 });
 

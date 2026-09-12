@@ -3,7 +3,7 @@
  *
  * Both functions exist to stop the same defect: saving one section quietly changing another.
  */
-import { applyChanges, withWholeCallRules } from '../preferences/changes';
+import { applyChanges } from '../preferences/changes';
 import { DEFAULT_PREFERENCES } from './support/backend';
 
 describe('showing a change before it is saved', () => {
@@ -42,43 +42,4 @@ describe('showing a change before it is saved', () => {
   });
 });
 
-describe('keeping call handling and hours together', () => {
-  it('fills in the hours when only the handling changed', () => {
-    // The server builds one object from both and fills the half it was not sent from its
-    // defaults, so sending handling alone would clear hours the user had set.
-    const stored = {
-      ...DEFAULT_PREFERENCES,
-      hours: {
-        working: { start: '09:00', end: '17:30', zone: 'Europe/London' },
-        quiet: null,
-      },
-    };
-
-    const request = withWholeCallRules(stored, {
-      call_handling: {
-        ...DEFAULT_PREFERENCES.call_handling,
-        default_posture: 'reject',
-      },
-    });
-
-    expect(request.hours).toEqual(stored.hours);
-    expect(request.call_handling?.default_posture).toBe('reject');
-  });
-
-  it('fills in the handling when only the hours changed', () => {
-    const request = withWholeCallRules(DEFAULT_PREFERENCES, {
-      hours: {
-        working: null,
-        quiet: { start: '22:00', end: '07:00', zone: 'Europe/London' },
-      },
-    });
-
-    expect(request.call_handling).toEqual(DEFAULT_PREFERENCES.call_handling);
-  });
-
-  it('leaves a change that touches neither exactly as it was', () => {
-    const changes = { notifications: DEFAULT_PREFERENCES.notifications };
-
-    expect(withWholeCallRules(DEFAULT_PREFERENCES, changes)).toEqual(changes);
-  });
-});
+describe('keeping call handling and hours together', () => {});

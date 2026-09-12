@@ -34,7 +34,7 @@ import { Button } from '../components/Button';
 import { Notice } from '../components/Notice';
 import { Screen } from '../components/Screen';
 import { theme } from '../theme';
-import { applyChanges, withWholeCallRules } from './changes';
+import { applyChanges } from './changes';
 
 interface Loaded {
   readonly preferences: Preferences;
@@ -170,13 +170,15 @@ function LoadedPreferences({
   const save = useCallback(
     async (changes: PreferencesUpdate): Promise<void> => {
       const previous = snapshot.current;
-      const request = withWholeCallRules(previous, changes);
 
+      // Only what changed is sent. The server leaves every section it was not given exactly as
+      // it was, so sending the rest would mean overwriting them with whatever this client last
+      // read — which is the same lost update from the other direction.
       // Shown before it is saved, so the control the user just moved stays where they moved it.
-      setPreferences(applyChanges(previous, request));
+      setPreferences(applyChanges(previous, changes));
 
       try {
-        setPreferences(await api.updatePreferences(request));
+        setPreferences(await api.updatePreferences(changes));
       } catch (failure) {
         setPreferences(previous);
         throw failure;
