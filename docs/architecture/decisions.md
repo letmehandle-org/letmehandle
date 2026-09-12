@@ -97,11 +97,22 @@ project.
 Vendor-native SDK adapters are optional implementations of the same port, never the
 default path.
 
-## D-008 — Realtime speech: one implemented adapter, capability-declared
+## D-008 — Realtime speech: one protocol, no vendor
 
-**Accepted.** A managed bidirectional streaming speech model is the first `SpeechProvider`
-implementation. Its supported languages, voices, sample rates, and whether it supports
-barge-in are declared as capabilities rather than assumed by callers.
+**Amended.** The first `SpeechProvider` implementation speaks the OpenAI Realtime-compatible
+websocket protocol — audio in, audio out and events over one connection — against an endpoint
+supplied by configuration. No vendor is chosen. A hosted service or a self-run server that speaks
+the protocol is a configuration change; a service speaking a different protocol is a second
+adapter behind the same port.
+
+A protocol rather than a vendor for two reasons. The conversation is speech to speech, so
+turn-taking and barge-in are the model service's job rather than a pipeline this project would
+have to own and tune. And the endpoint may not exist yet: the service is expected to be chosen or
+built later, and an adapter written against one vendor's SDK would have to be rewritten when it is.
+
+Supported languages, voices, audio formats and whether it supports barge-in are declared as
+capabilities rather than assumed by callers. Because a compatible server decides its own voices,
+the voice catalogue is configuration, never a list written into the adapter.
 
 ## D-009 — Voice selection is capability-driven; nothing implies a capability it lacks
 

@@ -6,9 +6,17 @@ with no telephony anywhere near it.
 ## In scope
 
 ### The adapter
-The first `SpeechProvider` implementation, against a managed bidirectional streaming speech
-model (D-008). It lives entirely in `adapters/speech/` and exposes nothing beyond the
-Phase 1 port.
+The first `SpeechProvider` implementation, speaking the OpenAI Realtime-compatible websocket
+protocol against an endpoint named in configuration (D-008). It lives entirely in
+`adapters/speech/` and exposes nothing beyond the Phase 1 port.
+
+- **Endpoint, model and key are configuration.** No vendor is named in code or defaults. The
+  key is read from the environment and never logged.
+- **Barge-in is the service's.** The adapter acts on the service's own speech-started signal:
+  it cancels the response in flight, tells the service how much of it was actually heard, and
+  discards what was queued.
+- **Voices are configuration.** A compatible server decides its own voices, so the catalogue
+  the voice provider offers is read from settings, and the invented phase 4 list is removed.
 
 - **Session lifecycle.** `connect` establishes the stream; `close` tears it down and is
   idempotent. The session is an async context manager, so the only way to open one without
@@ -74,7 +82,7 @@ printing the latency summary at exit.
 | Unit | Cancellation at each stage releases every resource. Asserted by counting live tasks and open streams after the fact. |
 | Unit | The session runs against a file-backed audio source and sink, with no call and no transport present, proving the speech layer depends on the abstraction rather than on a call. |
 | Contract | The Phase 1 `SpeechProvider` suite passes against the real adapter. |
-| Integration | Against a recorded or simulated stream server: a full conversation, an interruption, a mid-stream disconnect and recovery, and a hard failure. No test requires a paid account to run in CI. |
+| Integration | Against an in-process websocket server speaking the protocol, so the real client code runs end to end: a full conversation, an interruption, a mid-stream disconnect and recovery, and a hard failure. No test requires an account to run in CI. |
 | Manual | The harness holds a real spoken conversation, interruption works, and the latency summary is recorded in the verification report. |
 
 ## Acceptance criteria
@@ -90,16 +98,21 @@ printing the latency summary at exit.
 9. CI runs the full suite with no vendor credentials.
 10. The speech session works against an audio source and sink that are not a call, proving it
     makes no assumption about where audio comes from.
-10. Coverage meets the D-020 floors.
+11. Coverage meets the D-020 floors.
 
 ## Risks and open questions
 
-- **Credentials in CI.** Integration tests must not require them. The suite runs against a
-  simulated stream server that implements the same protocol; the real-provider run is a
-  manual, documented step. The risk that the simulation diverges from reality is mitigated
-  by the contract suite being the same one both must pass.
-- **Model availability by region.** Access and region are deployment configuration, kept out
-  of tracked files (D-021), and documented as a named variable in `.env.example` only.
+- **Credentials in CI.** Integration tests must not require them. The suite runs against an
+  in-process server that implements the same protocol; the real-endpoint run is a manual,
+  documented step. The risk that the simulation diverges from reality is mitigated by the
+  contract suite being the same one both must pass.
+- **No endpoint exists yet.** The service is to be chosen or built later. Everything except the
+  manual conversation and the latency baseline (acceptance criteria 1 and 8) can be completed and
+  verified without one; those two are held until an endpoint is configured, and the verification
+  report says so rather than marking them passed.
+- **Protocol dialects.** Compatible servers differ in which events they implement and in older
+  versus current event names. The adapter declares capabilities from what the service actually
+  supports, and treats an unrecognised event as ignorable rather than fatal.
 - **Sample-rate mismatch with a call transport.** Phase 7 introduces 8 kHz narrowband audio.
   The frame type carries its rate from phase 1 and conversion is an adapter concern, so this
   is a known integration point rather than a surprise.
