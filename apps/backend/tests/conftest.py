@@ -30,3 +30,9 @@ def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def settings() -> Settings:
     """Settings for a test: no database, so nothing reaches for one it does not have."""
     return make_settings()
+
+
+# The database fixtures live in their own module, registered here because pytest only honours
+# `pytest_plugins` in the root conftest. Importing it costs nothing: the engine is created
+# inside the fixture, so a developer working on the domain never needs PostgreSQL running.
+pytest_plugins = ["tests.integration.conftest_db"]

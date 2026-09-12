@@ -29,6 +29,11 @@ jobs:
       - name: Nothing private reached a tracked file
         run: python3 scripts/disclosure_audit.py
 
+      - name: Nothing private is anywhere in the history
+        # The half a working-tree scan cannot see. A file removed from the tree and called done
+        # stays in the commit that added it, which on a public repository is already published.
+        run: python3 scripts/disclosure_audit.py --history
+
       - name: Nothing private is in the commits being proposed
         if: github.event_name == 'pull_request'
         run: |
@@ -63,6 +68,30 @@ jobs:
     defaults:
       run:
         working-directory: apps/backend
+
+    # A real PostgreSQL, because the tests that matter here rely on behaviour a substitute does
+    # not have: unique constraints, cascading deletes, the row count a bulk update reports, and
+    # timestamps that keep their timezone. The fixture skips when no database is reachable —
+    # except when CI is set, where it fails instead, so this service cannot quietly disappear.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: letmehandle
+          POSTGRES_PASSWORD: letmehandle
+          POSTGRES_DB: letmehandle_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U letmehandle -d letmehandle_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@localhost:5432/letmehandle_test
+      DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@localhost:5432/letmehandle_test
+
     steps:
       - uses: actions/checkout@v4
 
@@ -85,8 +114,26 @@ jobs:
       - name: Architecture boundaries
         run: uv run lint-imports
 
+      - name: Migrations run forwards and backwards
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+      - name: The models and the migrations agree
+        # A migration written by hand against models that have moved on is a migration that
+        # passes and leaves the database wrong.
+        run: uv run alembic check
+
       - name: Tests and coverage
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=98
+
+      - name: The generated API types match the backend
+        # A backend change that alters the wire format must change the generated types with it,
+        # or the mobile app is compiling against a contract the backend no longer has.
+        run: |
+          uv run python ../../scripts/generate_openapi.py
+          git diff --exit-code -- ../../packages/api-client/openapi.json
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -119,6 +166,9 @@ jobs:
 
       - name: Tests and coverage
         run: pnpm --filter mobile test:coverage
+
+      - name: The generated API types type-check
+        run: pnpm --filter @letmehandle/api-client typecheck
 
   image:
     name: Backend image

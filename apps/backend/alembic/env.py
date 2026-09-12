@@ -10,6 +10,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from letmehandle.adapters.database.models import Base
 from letmehandle.config.settings import get_settings
 
 if TYPE_CHECKING:
@@ -23,9 +24,10 @@ if config.config_file_name is not None:
 # One place learns where the database is, and it is not this file.
 config.set_main_option("sqlalchemy.url", get_settings().require_database_url())
 
-# No models yet. Phase 2 writes the first table and sets this to the declarative metadata,
-# which is what makes autogenerate able to see a drift between the models and the schema.
-target_metadata = None
+# The declarative metadata, so that autogenerate can see a drift between the models and the
+# schema. A migration written by hand against models that have moved on is a migration that
+# passes and leaves the database wrong.
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

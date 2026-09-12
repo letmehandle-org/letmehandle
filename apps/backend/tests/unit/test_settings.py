@@ -23,7 +23,27 @@ def test_defaults_are_development() -> None:
 
 
 def test_production_is_recognised() -> None:
-    assert Settings(app_env=Environment.PRODUCTION).is_production is True
+    assert make_settings(app_env=Environment.PRODUCTION).is_production is True
+
+
+def test_production_without_a_signing_key_is_refused() -> None:
+    # Checked at startup rather than at first use: a service that starts and then cannot
+    # authenticate anybody is worse than one that does not start.
+    with pytest.raises(ValidationError, match="AUTH_SIGNING_KEY"):
+        make_settings(app_env=Environment.PRODUCTION, auth_signing_key=None)
+
+
+def test_a_missing_signing_key_is_named_when_it_is_asked_for() -> None:
+    with pytest.raises(ConfigurationError, match="AUTH_SIGNING_KEY"):
+        make_settings(auth_signing_key=None).require_signing_key()
+
+
+def test_the_signing_key_is_not_rendered_by_accident() -> None:
+    # pydantic's SecretStr, so that a settings object in a log line or a traceback does not
+    # hand over the key every token is signed with.
+    settings = make_settings()
+    assert "test-signing-key" not in repr(settings)
+    assert settings.require_signing_key().startswith("test-signing-key")
 
 
 @pytest.mark.parametrize("level", ["debug", "INFO", "Warning", "error", "critical"])

@@ -88,3 +88,88 @@ mobile app against the real backend.
   refreshes. Tested explicitly rather than assumed.
 - **Phone number as identity.** Numbers are recycled by carriers. Out of scope to solve now;
   noted so that a later re-verification requirement is a known addition, not a surprise.
+
+---
+
+# Phase 2 verification
+
+```
+PHASE 2 VERIFICATION
+
+Planned tasks:        complete
+Acceptance criteria:  11/11 passed
+Unit tests:           passed   backend 637 passed, 3 skipped; mobile 80 passed
+Integration tests:    passed   against a real PostgreSQL: repositories, the unit of work,
+                               and the sign-in API end to end through the whole stack
+E2E tests:            passed   the mobile suite drives the application tree with the backend
+                               stood in for at the network boundary: number → code → signed in,
+                               cold start with a stored session, renewal, and sign-out
+Coverage:             100.00%  backend, floor 98
+                      97.7% statements / 91.2% branches mobile logic, floor 90
+Lint:                 passed   ruff check; eslint --max-warnings 0; prettier --check
+Format:               passed
+Typecheck:            passed   mypy --strict; tsc --noEmit for the app and the generated client
+Static analysis:      passed   import-linter, 3 contracts kept
+Build:                passed   backend image; iOS and Android in CI
+Application runs:     yes      docker compose up, migration applied, sign-in exercised over HTTP
+Manual verification:  the migration was run forwards, backwards and forwards again against a
+                      real database, and `alembic check` confirms the models and the schema
+                      agree. The mobile flow is covered by the application-level tests rather
+                      than by hand; a device run waits for a design in phase 9
+Docs updated:         .env.example, docs/development/setup.md, packages/api-client/README.md
+Known issues:         the application cannot start in production, deliberately — see below
+Commits created:      9
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | A new user creates an account from the app | `test_a_new_number_gets_an_account_and_a_session`, and the mobile flow test that walks number → code → signed in |
+| 2 | An existing user signs in | `test_the_same_number_signs_into_the_same_account` |
+| 3 | The session survives a restart | `test_session.tsx`: a cold start with a stored session opens the application, renewing first if the token is nearly expired |
+| 4 | Sign-out invalidates the refresh token server-side | `test_signing_out_invalidates_the_session`, and the mobile test asserting the backend is told before local state is cleared |
+| 5 | Protected routes behave correctly for every invalid token | Absent, malformed, wrong scheme, empty, and a token for a deleted account — all 401 with the same body |
+| 6 | A user cannot access another's data | `TestIsolation` at both the repository and the HTTP level |
+| 7 | Migrations run forwards and backwards | Run three times locally; `alembic check` proves no drift; both are CI steps |
+| 8 | No contributor needs a paid account to sign in locally | The mock provider records the code; the whole suite runs with no credentials |
+| 9 | The mock provider refuses to start in production | `test_it_refuses_to_exist_in_production`, and the lifespan test that shows the application declining to start |
+| 10 | Generated API types match the schema, and drift fails the build | `make api-types-check`, and a CI step that regenerates and diffs |
+| 11 | Coverage meets the floors | 100% backend, 97.7%/91.2% mobile logic |
+
+## The one deliberate limitation
+
+**This application cannot start in production, and that is the intended state.** There is no
+provider that actually delivers a sign-in code: the first arrives with the telephony work. The
+mock refuses to be constructed when the environment is production, so a deployment fails loudly
+at startup rather than running with a provider that would let anybody sign in as anybody.
+
+`test_a_production_configuration_refuses_the_mock_provider` asserts it, so this cannot be
+forgotten and cannot quietly stop being true.
+
+## What was found and fixed
+
+Each of these was caught by a test rather than noticed by reading, and three of them were
+invisible to the layer above.
+
+- **One hasher was being used for two jobs.** A one-time code is verified against a known row,
+  so it is salted; a refresh token has to be *found* by its hash, which a salted hash makes
+  impossible. Every renewal failed with the same message as a stolen token. The unit tests
+  could not see it, because their fake hasher is deterministic for both — so the fix came with
+  a test that uses two different kinds, which is the only way this stays fixed.
+- **A revocation was being rolled back by the refusal that triggered it.** Detecting a replayed
+  refresh token revokes the whole family and then refuses the request — and an ordinary error
+  path rolls the transaction back, leaving the stolen token working with nothing to show it had
+  been noticed. Deliberate refusals now commit; unexpected failures still roll back.
+- **Every malformed request was returning 500.** The validation handler passed pydantic's raw
+  error objects to a JSON response, and they contain the original exception, which is not
+  serialisable. A validation bug had become an outage.
+- **Token expiry was judged by the machine's clock**, not the one the application was given,
+  which meant one part of the system disagreed with every other about the time and the
+  behaviour could not be tested without waiting.
+- **Coverage was under-reporting by seven points.** SQLAlchemy runs application code inside
+  greenlets, and coverage loses track without being told — it was reporting lines as unrun that
+  the tests demonstrably executed, which sends somebody writing tests for covered code.
+- **The two sign-in screens had drifted into two copies of the same error-describing logic.**
+  Extracted, and the fallbacks are now tested directly rather than through a backend that
+  cannot be persuaded to produce them.

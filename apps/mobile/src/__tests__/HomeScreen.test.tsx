@@ -25,14 +25,14 @@ describe('HomeScreen', () => {
   });
 
   it('renders its translated content', async () => {
-    const view = await render(<HomeScreen />);
+    const view = await render(<HomeScreen onOpenProfile={() => undefined} />);
     expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     expect(view.getByText(en.home.title)).toBeOnTheScreen();
     expect(view.getByText(en.home.subtitle)).toBeOnTheScreen();
   });
 
   it('renders no untranslated literal', async () => {
-    const view = await render(<HomeScreen />);
+    const view = await render(<HomeScreen onOpenProfile={() => undefined} />);
     // Every string on the screen must come from the catalogue. A literal added to a component
     // is invisible until somebody adds a second locale and it does not translate.
     const known: string[] = Object.values(en.home);

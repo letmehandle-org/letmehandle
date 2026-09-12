@@ -75,6 +75,19 @@ SELF = ("scripts/disclosure_audit.py", BASELINE.replace(os.sep, "/"))
 # them too.
 GENERATED = ("pnpm-lock.yaml", "apps/backend/uv.lock", "uv.lock")
 EMAIL_RULE = "an email address"
+IDENTITY_RULE = "an identifying name"
+
+# The forge writes this trailer itself when a pull request is squash-merged, naming the account
+# that owns the repository. That account is already on every commit as its author — it is how
+# git works — so flagging the trailer is flagging something the repository cannot not publish,
+# and there is no version of the history without it.
+#
+# Narrow on purpose: the address has to be a forge noreply one, so an ordinary co-author
+# trailer naming a real person at a real domain still fails.
+FORGE_COAUTHOR = re.compile(
+    r"^\s*co-authored-by:\s*[^<]+<[\w.+-]+@users\.noreply\.github\.com>\s*$",
+    re.IGNORECASE,
+)
 
 # Identity terms: names, and the names of unrelated projects whose mention would say more
 # about who wrote this than about the code.
@@ -183,6 +196,8 @@ def scan_line(line, tier1, tier2, path=None):
         one.append("a phone number outside the ranges reserved for fiction")
     if path in GENERATED:
         one = [why for why in one if why != EMAIL_RULE]
+    if FORGE_COAUTHOR.match(line):
+        one = [why for why in one if why != IDENTITY_RULE]
     return one, two
 
 
@@ -265,6 +280,21 @@ def audit_text(stream, label):
     return 1 if report(findings, f"{label} carries text that must not be published") else 0
 
 
+def audit_history():
+    """Every commit on every ref: messages, and the added side of every diff.
+
+    The half a working-tree scan can never see. A file removed from the tree and called done
+    stays in the commit that added it, in the pull request body the forge still serves, and in
+    the commit subject — all of which are published the moment the repository is.
+
+    This repository has been public from its first commit and every push is audited, so this is
+    a backstop rather than the main gate. It is here because that only holds while the hooks
+    and the workflow both hold, and because a repository that was ever private needs it before
+    it is flipped.
+    """
+    return audit_range(["--all"])
+
+
 def audit_range(args):
     """Every commit in a push: its message, and the added side of its diff."""
     tier1, tier2 = compiled_tier1(), compiled_tier2()
@@ -328,6 +358,9 @@ def main():
         "--range", nargs=argparse.REMAINDER, help="audit the commits in this rev range"
     )
     parser.add_argument("--staged", action="store_true", help="audit the staged diff")
+    parser.add_argument(
+        "--history", action="store_true", help="audit every commit on every ref"
+    )
     parser.add_argument("--text", action="store_true", help="audit stdin")
     parser.add_argument("--label", default="the text", help="what to call stdin in messages")
     parser.add_argument("--show-terms", action="store_true", help="print the decoded patterns")
@@ -339,6 +372,8 @@ def main():
         for pattern, why in STRUCTURAL + VOCABULARY:
             print(f"{pattern}    # {why}")
         return 0
+    if args.history:
+        return audit_history()
     if args.staged:
         return audit_staged()
     if args.text:

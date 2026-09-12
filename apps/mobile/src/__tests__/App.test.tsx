@@ -39,10 +39,12 @@ describe('App', () => {
 
     release();
 
+    // Welcome, not Home: nobody is signed in, and the navigator follows the session rather
+    // than starting somewhere and correcting itself.
     await waitFor(() => {
-      expect(view.getByTestId('home-screen')).toBeOnTheScreen();
+      expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    expect(view.getByText(en.home.title)).toBeOnTheScreen();
+    expect(view.getByText(en.welcome.title)).toBeOnTheScreen();
   });
 
   it('surfaces a translation failure rather than staying blank', async () => {

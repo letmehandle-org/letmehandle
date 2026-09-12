@@ -15,6 +15,7 @@ export const theme = {
     text: '#FFFFFF',
     textMuted: '#9A9AA2',
     accent: '#5B8CFF',
+    warning: '#FF6B6B',
   },
   space: {
     xs: 4,

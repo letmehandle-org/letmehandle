@@ -15,6 +15,29 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+class ApiError(Exception):
+    """A failure with a status code and a stable machine-readable code.
+
+    The code is what a client branches on. A message is for a person and will be rewritten;
+    anything that parses one has turned prose into an interface.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.headers = headers or {}
+
+
 # Starlette renamed this constant; the old name still resolves but warns.
 UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
 
@@ -48,15 +71,44 @@ def error_body(code: str, message: str, request: Request | None = None) -> dict[
     return body
 
 
+def _readable_detail(exception: Exception) -> list[dict[str, str]]:
+    """What was wrong with the request, as plain strings.
+
+    Rebuilt rather than passed through. pydantic puts the original exception object into each
+    error's context, which is not serialisable — handing the raw list to a JSON response turns
+    every malformed request into a 500, which is how a validation bug becomes an outage. It is
+    also more than a caller needs: the field and the reason, nothing from inside the process.
+    """
+    if not isinstance(exception, RequestValidationError):  # pragma: no cover - by registration
+        return []
+    return [
+        {
+            "field": ".".join(str(part) for part in error.get("loc", ()) if part != "body"),
+            "problem": str(error.get("msg", "is not valid")),
+        }
+        for error in exception.errors()
+    ]
+
+
 async def handle_validation_error(request: Request, exception: Exception) -> JSONResponse:
     """A malformed request. The detail is safe to return: it describes what was sent."""
-    detail = exception.errors() if isinstance(exception, RequestValidationError) else []
     return JSONResponse(
         status_code=UNPROCESSABLE,
         content={
             **error_body("invalid_request", "The request could not be understood.", request),
-            "detail": detail,
+            "detail": _readable_detail(exception),
         },
+    )
+
+
+async def handle_api_error(request: Request, exception: Exception) -> JSONResponse:
+    """A failure the application raised deliberately."""
+    if not isinstance(exception, ApiError):  # pragma: no cover - registered by type
+        raise exception
+    return JSONResponse(
+        status_code=exception.status_code,
+        content=error_body(exception.code, exception.message, request),
+        headers=exception.headers,
     )
 
 
@@ -82,6 +134,7 @@ def register_error_handlers(app: FastAPI) -> None:
     handlers: dict[
         type[Exception] | int, Callable[[Request, Exception], Awaitable[JSONResponse]]
     ] = {
+        ApiError: handle_api_error,
         RequestValidationError: handle_validation_error,
         Exception: handle_unexpected_error,
     }

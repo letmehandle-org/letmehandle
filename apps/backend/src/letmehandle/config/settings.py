@@ -5,7 +5,14 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import PostgresDsn, ValidationError, field_validator
+from pydantic import (
+    Field,
+    PostgresDsn,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +27,12 @@ class Environment(StrEnum):
 class LogFormat(StrEnum):
     CONSOLE = "console"
     JSON = "json"
+
+
+class OTPProviderName(StrEnum):
+    """Which provider delivers sign-in codes."""
+
+    MOCK = "mock"
 
 
 class ConfigurationError(RuntimeError):
@@ -51,6 +64,14 @@ class Settings(BaseSettings):
 
     database_url: PostgresDsn | None = None
 
+    # Authentication. The signing key has no default: a default signing key is a signing key
+    # somebody forgets to change, and then anyone who has read this repository can mint a
+    # token for any account.
+    auth_signing_key: SecretStr | None = None
+    auth_access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    auth_refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=3600)
+    otp_provider: OTPProviderName = OTPProviderName.MOCK
+
     @field_validator("log_level")
     @classmethod
     def _known_level(cls, value: str) -> str:
@@ -61,9 +82,35 @@ class Settings(BaseSettings):
             raise ValueError(f"must be one of {', '.join(sorted(allowed))}, got {value!r}")
         return lowered
 
+    @model_validator(mode="after")
+    def _production_must_have_a_signing_key(self) -> Settings:
+        """Refuse to start in production without one.
+
+        Checked at startup rather than at first use, because the first use is somebody signing
+        in: a service that starts and then cannot authenticate anybody is worse than one that
+        does not start at all.
+
+        The other production guard — that a mock is not the thing delivering sign-in codes —
+        lives in the mock itself. It is the mock's business to refuse, and putting it here
+        would mean this file learns something new about every provider ever added.
+        """
+        if self.app_env is Environment.PRODUCTION and self.auth_signing_key is None:
+            raise ValueError("AUTH_SIGNING_KEY is required in production")
+        return self
+
     @property
     def is_production(self) -> bool:
         return self.app_env is Environment.PRODUCTION
+
+    def require_signing_key(self) -> str:
+        """The signing key, or a failure that names what is missing."""
+        if self.auth_signing_key is None:
+            raise ConfigurationError(
+                "AUTH_SIGNING_KEY is required to issue access tokens. Generate one with "
+                '`python -c "import secrets; print(secrets.token_urlsafe(48))"`; '
+                "see .env.example."
+            )
+        return self.auth_signing_key.get_secret_value()
 
     def require_database_url(self) -> str:
         """The database URL, or a failure that names what is missing.
