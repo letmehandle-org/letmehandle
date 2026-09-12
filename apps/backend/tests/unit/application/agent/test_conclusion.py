@@ -39,8 +39,9 @@ NOT_HANDED_OVER: Final = "the user was not reached for this call, so it was not 
         pytest.param(
             CallEnding.RESOLVED, URGENT, False, NOT_ENDED_FOR_THE_RULES, id="resolved, user needed"
         ),
+        pytest.param(CallEnding.DECLINED, NOTABLE, True, None, id="declined, a note for later"),
         pytest.param(
-            CallEnding.DECLINED, NOTABLE, True, NOT_ENDED_FOR_THE_RULES, id="declined, a note due"
+            CallEnding.DECLINED, URGENT, True, NOT_ENDED_FOR_THE_RULES, id="declined, urgent at 3am"
         ),
         pytest.param(CallEnding.HANDED_OVER, URGENT, False, None, id="handed over, user reached"),
         pytest.param(
