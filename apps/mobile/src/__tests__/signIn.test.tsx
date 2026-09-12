@@ -258,7 +258,7 @@ describe('signing in', () => {
       expect(view.getByTestId('code-screen')).toBeOnTheScreen();
     });
 
-    await fireEvent.press(view.getByTestId('code-back'));
+    await fireEvent.press(view.getByTestId('code-screen-back'));
 
     await waitFor(() => {
       expect(view.getByTestId('phone-screen')).toBeOnTheScreen();

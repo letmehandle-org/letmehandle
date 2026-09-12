@@ -110,7 +110,7 @@ export function PreferencesProvider({
   if (unavailable) {
     return (
       <Screen title={t('common.appName')} testID="preferences-unavailable">
-        <Notice tone="problem" message={t('onboarding.loadFailed')} />
+        <Notice tone="problem" message={t('setup.loadFailed')} />
         <Button
           label={t('common.tryAgain')}
           onPress={() => {

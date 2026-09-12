@@ -57,7 +57,7 @@ export function App(): React.JSX.Element | null {
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {/* backgroundColor was removed from StatusBar in React Native 0.87: Android is
           edge-to-edge, and the surface behind the bar is the screen's own background. */}
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
       <SessionProvider>
         <RootNavigator />
       </SessionProvider>

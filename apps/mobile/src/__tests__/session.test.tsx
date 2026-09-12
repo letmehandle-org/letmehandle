@@ -184,7 +184,8 @@ describe('signing out', () => {
       expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     });
 
-    await fireEvent.press(view.getByTestId('open-profile'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
     await waitFor(() => {
       expect(view.getByTestId('profile-screen')).toBeOnTheScreen();
     });
@@ -225,7 +226,8 @@ describe('signing out', () => {
       expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     });
 
-    await fireEvent.press(view.getByTestId('open-profile'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
     await waitFor(() => {
       expect(view.getByTestId('profile-screen')).toBeOnTheScreen();
     });
@@ -254,7 +256,8 @@ describe('the profile', () => {
     await waitFor(() => {
       expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     });
-    await fireEvent.press(view.getByTestId('open-profile'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
     await waitFor(() => {
       expect(view.getByTestId('profile-screen')).toBeOnTheScreen();
     });
@@ -284,7 +287,8 @@ describe('the profile', () => {
     await waitFor(() => {
       expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     });
-    await fireEvent.press(view.getByTestId('open-profile'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
     await waitFor(() => {
       expect(view.getByTestId('profile-screen')).toBeOnTheScreen();
     });

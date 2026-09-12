@@ -1,17 +1,18 @@
 /**
- * Changing an answer after setup is over.
+ * Changing things after setup is over.
  *
  * Nothing in this product is set once, so the test that matters most is the dull one: every
- * section reachable, and every one of them saving.
+ * page reachable, every change saved the moment it is made, and a refused save put back and
+ * explained.
  */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
-import type { PreferenceSection } from '../preferences/options';
+import type { Preferences } from '@letmehandle/api-client';
 
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
-import { PREFERENCE_SECTIONS } from '../preferences/options';
+import { twoLanes } from '../preferences/rules';
 import {
   DEFAULT_PREFERENCES,
   runningBackend,
@@ -31,428 +32,307 @@ jest.mock('../auth/tokenStore', () => ({
 
 type View = Awaited<ReturnType<typeof render>>;
 
+const LANES: Preferences = {
+  ...DEFAULT_PREFERENCES,
+  call_handling: twoLanes(DEFAULT_PREFERENCES.call_handling),
+};
+
 async function openSettings(): Promise<View> {
   const view = await render(<App />);
   await waitFor(() => {
     expect(view.getByTestId('home-screen')).toBeOnTheScreen();
   });
-  await fireEvent.press(view.getByTestId('open-settings'));
+  await fireEvent.press(view.getByTestId('tab-settings'));
   await waitFor(() => {
     expect(view.getByTestId('settings-screen')).toBeOnTheScreen();
   });
   return view;
 }
 
-async function openSection(section: PreferenceSection): Promise<View> {
+async function openPage(page: string): Promise<View> {
   const view = await openSettings();
-  await fireEvent.press(view.getByTestId(`settings-open-${section}`));
+  await fireEvent.press(view.getByTestId(`settings-open-${page}`));
   await waitFor(() => {
-    expect(view.getByTestId(`settings-${section}`)).toBeOnTheScreen();
+    expect(view.getByTestId(`settings-${page}`)).toBeOnTheScreen();
   });
   return view;
 }
 
-async function save(view: View, backend: RunningBackend): Promise<void> {
-  const before = backend.patches.length;
-  await fireEvent.press(view.getByTestId('settings-save'));
+async function savedOnce(
+  backend: RunningBackend,
+  before: number,
+): Promise<void> {
   await waitFor(() => {
-    expect(backend.patches.length).toBeGreaterThan(before);
+    expect(backend.patches.length).toBe(before + 1);
   });
 }
 
-describe('getting to the settings', () => {
-  it('lists every section, including the ones setup let somebody skip', async () => {
-    runningBackend();
+describe('the settings list', () => {
+  it('shows where each setting stands without opening it', async () => {
+    runningBackend({ startAt: null, preferences: LANES });
     const view = await openSettings();
 
-    for (const section of PREFERENCE_SECTIONS) {
-      expect(view.getByTestId(`settings-open-${section}`)).toBeOnTheScreen();
-    }
+    expect(view.getByTestId('settings-open-who')).toHaveAccessibleName(
+      `${en.settings.who}, ${en.settings.whoValue}`,
+    );
+    expect(view.getByTestId('settings-open-hours')).toHaveAccessibleName(
+      `${en.settings.hours}, ${en.hours.always}`,
+    );
+    expect(view.getByTestId('settings-open-authority')).toHaveAccessibleName(
+      `${en.settings.authority}, ${en.settings.authorityValue
+        .replace('{{granted}}', '0')
+        .replace('{{total}}', '7')}`,
+    );
+    expect(view.getByTestId('settings-open-say')).toHaveAccessibleName(
+      `${en.settings.say}, ${en.settings.sayNothing}`,
+    );
   });
 
-  it.each(PREFERENCE_SECTIONS)('opens %s and can save it', async section => {
-    const backend = runningBackend();
-    const view = await openSection(section);
+  it('names calls set up another way as custom', async () => {
+    runningBackend({ startAt: null });
+    const view = await openSettings();
+    expect(view.getByTestId('settings-open-who')).toHaveAccessibleName(
+      `${en.settings.who}, ${en.settings.whoCustom}`,
+    );
+  });
 
-    await save(view, backend);
-
-    expect(await view.findByText(en.settings.saved)).toBeOnTheScreen();
+  it('has no privacy row, because retention cannot be changed yet', async () => {
+    runningBackend({ startAt: null });
+    const view = await openSettings();
+    expect(view.queryByTestId('settings-open-privacy')).toBeNull();
   });
 });
 
-describe('how calls are handled', () => {
-  it('blocks a category rather than giving it a posture as well', async () => {
-    // The backend refuses a category that is in both lists. One control per category is what
-    // makes that contradiction impossible to express.
-    const backend = runningBackend();
-    const view = await openSection('call_handling');
-
-    await fireEvent.press(view.getByTestId('handling-category-sales-blocked'));
-    await save(view, backend);
-
-    const handling = backend.preferences().call_handling;
-    expect(handling.blocked_categories).toEqual(['sales']);
-    expect(handling.posture_by_category).toEqual({});
+describe('who gets through', () => {
+  it('draws the two lanes and asks nothing when calls already follow them', async () => {
+    runningBackend({ startAt: null, preferences: LANES });
+    const view = await openPage('who');
+    expect(view.getByTestId('lane-contacts')).toBeOnTheScreen();
+    expect(view.getByTestId('lane-unknown')).toBeOnTheScreen();
+    expect(view.queryByTestId('who-apply')).toBeNull();
   });
 
-  it('gives a category its own posture', async () => {
-    const backend = runningBackend();
-    const view = await openSection('call_handling');
+  it('offers the lanes to somebody whose calls were set up another way', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('who');
 
-    await fireEvent.press(
-      view.getByTestId('handling-category-healthcare-pass_through'),
-    );
-    await fireEvent.press(view.getByTestId('handling-escalate-20'));
-    await save(view, backend);
-
-    const handling = backend.preferences().call_handling;
-    expect(handling.posture_by_category).toEqual({
-      healthcare: 'pass_through',
+    expect(view.getByTestId('who-differs')).toBeOnTheScreen();
+    await fireEvent.press(view.getByTestId('who-apply'));
+    await savedOnce(backend, 0);
+    expect(backend.preferences().call_handling).toEqual(LANES.call_handling);
+    await waitFor(() => {
+      expect(view.queryByTestId('who-apply')).toBeNull();
     });
-    expect(handling.blocked_categories).toEqual([]);
-    expect(handling.escalate_at_or_above).toBe(20);
   });
 });
 
-describe('important contacts', () => {
-  it('adds one, and saves the whole list rather than the addition', async () => {
-    const backend = runningBackend();
-    const view = await openSection('important_contacts');
+describe("when you're called", () => {
+  it('turns every-call on as both of the flags it stands for', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('when');
 
-    expect(view.getByTestId('contacts-empty')).toBeOnTheScreen();
-
-    await fireEvent.changeText(view.getByTestId('contact-label'), 'School');
-    await fireEvent.changeText(
-      view.getByTestId('contact-number'),
-      '+1 (202) 555-0143',
-    );
-    await fireEvent.press(view.getByTestId('contact-posture-reject'));
-    await fireEvent.press(view.getByTestId('contact-add'));
-    await save(view, backend);
-
-    expect(backend.preferences().important_contacts).toEqual([
-      { label: 'School', phone_number: '+12025550143', posture: 'reject' },
-    ]);
-  });
-
-  it('refuses a number already on the list, however it was typed', async () => {
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        important_contacts: [
-          {
-            label: 'School',
-            phone_number: '+12025550143',
-            posture: 'pass_through',
-          },
-        ],
-      },
-    });
-    const view = await openSection('important_contacts');
-
-    await fireEvent.changeText(
-      view.getByTestId('contact-label'),
-      'School again',
-    );
-    await fireEvent.changeText(
-      view.getByTestId('contact-number'),
-      '+1 (202) 555-0143',
-    );
-    await fireEvent.press(view.getByTestId('contact-add'));
-
-    expect(
-      view.getByText(en.preferences.important_contacts.duplicate),
-    ).toBeOnTheScreen();
-    expect(backend.patches).toHaveLength(0);
-  });
-
-  it('says what is wrong with a number it cannot use', async () => {
-    runningBackend();
-    const view = await openSection('important_contacts');
-
-    await fireEvent.changeText(view.getByTestId('contact-label'), 'School');
-    await fireEvent.changeText(view.getByTestId('contact-number'), '5550143');
-    await fireEvent.press(view.getByTestId('contact-add'));
-
-    expect(
-      view.getByText(en.preferences.important_contacts.invalidNumber),
-    ).toBeOnTheScreen();
-  });
-
-  it('removes one', async () => {
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        important_contacts: [
-          {
-            label: 'School',
-            phone_number: '+12025550143',
-            posture: 'pass_through',
-          },
-        ],
-      },
-    });
-    const view = await openSection('important_contacts');
-
-    await fireEvent.press(view.getByTestId('contact-remove-+12025550143'));
-    await save(view, backend);
-
-    expect(backend.preferences().important_contacts).toEqual([]);
-  });
-});
-
-describe('hours', () => {
-  it('saves a window that runs past midnight', async () => {
-    const backend = runningBackend();
-    const view = await openSection('hours');
-
-    await fireEvent(view.getByTestId('hours-quiet-on'), 'valueChange', true);
-    await fireEvent.changeText(
-      view.getByTestId('hours-quiet-zone'),
-      'Europe/London',
-    );
-    await save(view, backend);
-
-    expect(backend.preferences().hours.quiet).toEqual({
-      start: '22:00',
-      end: '07:00',
-      zone: 'Europe/London',
+    expect(view.getByTestId('call-graph')).toBeOnTheScreen();
+    await fireEvent(view.getByTestId('when-every-call'), 'valueChange', true);
+    await savedOnce(backend, 0);
+    expect(backend.preferences().notifications).toMatchObject({
+      on_handled_call: true,
+      on_blocked_call: true,
     });
   });
 
-  it('will not save a time it cannot read, and says why', async () => {
-    const backend = runningBackend();
-    const view = await openSection('hours');
+  it('saves the evening round-up and leaves the rest alone', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('when');
 
-    await fireEvent(view.getByTestId('hours-working-on'), 'valueChange', true);
-    await fireEvent.changeText(view.getByTestId('hours-working-end'), '25:00');
-
-    expect(view.getByText(en.preferences.hours.invalidTime)).toBeOnTheScreen();
-
-    await fireEvent.press(view.getByTestId('settings-save'));
-    expect(backend.patches).toHaveLength(0);
-  });
-
-  it('will not save a window that covers no time', async () => {
-    const backend = runningBackend();
-    const view = await openSection('hours');
-
-    await fireEvent(view.getByTestId('hours-working-on'), 'valueChange', true);
-    await fireEvent.changeText(
-      view.getByTestId('hours-working-start'),
-      '09:00',
-    );
-    await fireEvent.changeText(view.getByTestId('hours-working-end'), '09:00');
-
-    expect(view.getByText(en.preferences.hours.emptyWindow)).toBeOnTheScreen();
-    expect(backend.patches).toHaveLength(0);
-  });
-
-  it('sends the handling alongside, so saving hours cannot reset it', async () => {
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        call_handling: {
-          ...DEFAULT_PREFERENCES.call_handling,
-          default_posture: 'reject',
-        },
-      },
-    });
-    const view = await openSection('hours');
-
-    await fireEvent(view.getByTestId('hours-quiet-on'), 'valueChange', true);
-    await save(view, backend);
-
-    expect(backend.preferences().call_handling.default_posture).toBe('reject');
-  });
-});
-
-describe('what the assistant may do', () => {
-  it('grants a capability', async () => {
-    const backend = runningBackend();
-    const view = await openSection('authority');
-
-    await fireEvent(
-      view.getByTestId('capability-take_a_message'),
-      'valueChange',
-      true,
-    );
-    await save(view, backend);
-
-    expect(backend.preferences().authority.capabilities).toEqual([
-      'take_a_message',
-    ]);
-  });
-
-  it('takes one back', async () => {
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        authority: { capabilities: ['take_a_message'] },
-      },
-    });
-    const view = await openSection('authority');
-
-    await fireEvent(
-      view.getByTestId('capability-take_a_message'),
-      'valueChange',
-      false,
-    );
-    await save(view, backend);
-
-    expect(backend.preferences().authority.capabilities).toEqual([]);
-  });
-});
-
-describe('personality', () => {
-  it('adds a topic, folded to one spelling', async () => {
-    const backend = runningBackend();
-    const view = await openSection('personality');
-
-    expect(view.getByTestId('topics-empty')).toBeOnTheScreen();
-
-    await fireEvent.changeText(
-      view.getByTestId('topic-input'),
-      '  School   Run ',
-    );
-    await fireEvent.press(view.getByTestId('topic-add'));
-    await fireEvent.press(view.getByTestId('personality-formality-warm'));
-    await save(view, backend);
-
-    expect(backend.preferences().personality).toEqual({
-      formality: 'warm',
-      verbosity: 'normal',
-      topics: ['school run'],
+    await fireEvent(view.getByTestId('when-evening'), 'valueChange', true);
+    await savedOnce(backend, 0);
+    expect(backend.preferences().notifications).toEqual({
+      ...DEFAULT_PREFERENCES.notifications,
+      daily_summary: true,
     });
   });
 
-  it('refuses a topic already on the list', async () => {
-    runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        personality: {
-          formality: 'neutral',
-          verbosity: 'normal',
-          topics: ['school run'],
-        },
-      },
-    });
-    const view = await openSection('personality');
+  it('puts a refused change back and says why', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('when');
 
-    await fireEvent.changeText(view.getByTestId('topic-input'), 'School Run');
-    await fireEvent.press(view.getByTestId('topic-add'));
-
-    expect(
-      view.getByText(en.preferences.personality.duplicateTopic),
-    ).toBeOnTheScreen();
-  });
-
-  it('removes a topic', async () => {
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        personality: {
-          formality: 'neutral',
-          verbosity: 'normal',
-          topics: ['school run'],
-        },
-      },
-    });
-    const view = await openSection('personality');
-
-    await fireEvent.press(view.getByTestId('topic-remove-school run'));
-    await fireEvent.press(view.getByTestId('personality-verbosity-brief'));
-    await save(view, backend);
-
-    expect(backend.preferences().personality.topics).toEqual([]);
-  });
-});
-
-describe('reading what is already stored', () => {
-  it('shows a window that was set, rather than the suggestion', async () => {
-    runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        hours: {
-          working: { start: '08:15', end: '16:45', zone: 'Europe/Lisbon' },
-          quiet: null,
-        },
-      },
-    });
-    const view = await openSection('hours');
-
-    expect(view.getByTestId('hours-working-start').props.value).toBe('08:15');
-    expect(view.getByTestId('hours-working-zone').props.value).toBe(
-      'Europe/Lisbon',
-    );
-  });
-
-  it('copes with the optional lists the wire format allows to be absent', async () => {
-    // `capabilities`, `topics`, `posture_by_category` and `blocked_categories` are all optional
-    // in the schema. A section that assumed them present would crash on the first user whose
-    // stored preferences predate the field.
-    const backend = runningBackend({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        call_handling: {
-          default_posture: 'handle_with_agent',
-          anonymous_posture: 'reject',
-          escalate_at_or_above: 40,
-        },
-        authority: {},
-        personality: { formality: 'neutral', verbosity: 'normal' },
-      },
-    });
-
-    const handling = await openSection('call_handling');
-    await save(handling, backend);
-    expect(backend.preferences().call_handling.blocked_categories).toEqual([]);
-
-    const authority = await openSection('authority');
-    expect(authority.getByTestId('capability-take_a_message').props.value).toBe(
-      false,
-    );
-
-    const personality = await openSection('personality');
-    expect(personality.getByTestId('topics-empty')).toBeOnTheScreen();
-  });
-});
-
-describe('when the server refuses a change', () => {
-  it('says so, and puts the control back where it was', async () => {
-    // A change that vanishes with no explanation reads as the application losing work, so the
-    // rollback and the message go together or neither is worth having.
-    const backend = runningBackend();
     backend.refuseNextSave({
       status: 422,
       body: { error: 'invalid_request', message: 'no' },
     });
-    const view = await openSection('notifications');
+    await fireEvent(view.getByTestId('when-evening'), 'valueChange', true);
+
+    expect(await view.findByTestId('settings-problem')).toHaveTextContent(
+      en.common.saveFailed,
+    );
+    expect(view.getByTestId('when-evening').props.value).toBe(false);
+    expect(backend.preferences().notifications.daily_summary).toBe(false);
+  });
+});
+
+describe('hours', () => {
+  it('shows the full ring when the assistant answers around the clock', async () => {
+    runningBackend({ startAt: null });
+    const view = await openPage('hours');
+    expect(view.getByTestId('hours-always')).toBeOnTheScreen();
+    expect(view.queryByTestId('hours-use-always')).toBeNull();
+  });
+
+  it('tells somebody with windows set that they still apply, and can clear them', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        hours: {
+          working: null,
+          quiet: { start: '22:00', end: '07:00', zone: 'Europe/London' },
+        },
+      },
+    });
+    const view = await openPage('hours');
+
+    expect(view.getByTestId('hours-windows')).toBeOnTheScreen();
+    await fireEvent.press(view.getByTestId('hours-use-always'));
+    await savedOnce(backend, 0);
+    expect(backend.preferences().hours).toEqual({ working: null, quiet: null });
+    expect(await view.findByTestId('hours-always')).toBeOnTheScreen();
+  });
+});
+
+describe('what it may do', () => {
+  it('grants and takes back one capability at a time', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('authority');
 
     await fireEvent(
-      view.getByTestId('notification-daily_summary'),
+      view.getByTestId('capability-confirm_appointments'),
       'valueChange',
       true,
     );
-    await save(view, backend);
+    await savedOnce(backend, 0);
+    expect(backend.preferences().authority.capabilities).toEqual([
+      'confirm_appointments',
+    ]);
 
-    expect(await view.findByText(en.settings.saveFailed)).toBeOnTheScreen();
-    expect(view.getByTestId('notification-daily_summary').props.value).toBe(
+    await fireEvent(
+      view.getByTestId('capability-confirm_appointments'),
+      'valueChange',
       false,
     );
-    expect(backend.preferences().notifications.daily_summary).toBe(false);
+    await savedOnce(backend, 1);
+    expect(backend.preferences().authority.capabilities).toEqual([]);
+  });
+});
+
+describe('what it may say', () => {
+  it('adds a fact without touching the rest of the personality', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        personality: {
+          formality: 'warm',
+          verbosity: 'brief',
+          topics: ['school'],
+        },
+      },
+    });
+    const view = await openPage('say');
+
+    expect(view.getByTestId('say-empty')).toBeOnTheScreen();
+    await fireEvent.changeText(
+      view.getByTestId('say-input'),
+      'Parcels go to the gate',
+    );
+    await fireEvent.press(view.getByTestId('say-add'));
+    await savedOnce(backend, 0);
+
+    expect(backend.preferences().personality).toEqual({
+      formality: 'warm',
+      verbosity: 'brief',
+      topics: ['school'],
+      disclosable_facts: ['Parcels go to the gate'],
+    });
+    expect(await view.findByText('“Parcels go to the gate”')).toBeOnTheScreen();
   });
 
-  it('says plainly when the service cannot be reached', async () => {
-    runningBackend();
-    const view = await openSection('notifications');
+  it('refuses a duplicate before sending it', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        personality: {
+          ...DEFAULT_PREFERENCES.personality,
+          disclosable_facts: ['Free after six'],
+        },
+      },
+    });
+    const view = await openPage('say');
 
-    globalThis.fetch = (async () => {
-      throw new TypeError('Network request failed');
-    }) as unknown as typeof fetch;
+    await fireEvent.changeText(view.getByTestId('say-input'), 'free after six');
+    await fireEvent.press(view.getByTestId('say-add'));
 
-    await fireEvent.press(view.getByTestId('settings-save'));
+    expect(view.getByText(en.say.duplicate)).toBeOnTheScreen();
+    expect(backend.patches).toEqual([]);
+  });
 
-    expect(await view.findByText(en.common.noConnection)).toBeOnTheScreen();
+  it('removes a fact', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        personality: {
+          ...DEFAULT_PREFERENCES.personality,
+          disclosable_facts: ['Free after six'],
+        },
+      },
+    });
+    const view = await openPage('say');
+
+    await fireEvent.press(view.getByTestId('say-remove-0'));
+    await savedOnce(backend, 0);
+    expect(backend.preferences().personality.disclosable_facts).toEqual([]);
+  });
+});
+
+describe('personalise', () => {
+  it('saves manner and length as pictures are tapped', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('personalise');
+
+    await fireEvent.press(view.getByTestId('personality-formality-formal'));
+    await savedOnce(backend, 0);
+    await fireEvent.press(view.getByTestId('personality-verbosity-detailed'));
+    await savedOnce(backend, 1);
+
+    expect(backend.preferences().personality).toMatchObject({
+      formality: 'formal',
+      verbosity: 'detailed',
+    });
+    expect(view.getByTestId('personality-verbosity-detailed')).toBeChecked();
+  });
+
+  it('opens topics, adds one normalised, and removes it', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('personalise');
+
+    await fireEvent.press(view.getByTestId('personalise-open-topics'));
+    expect(await view.findByTestId('settings-topics')).toBeOnTheScreen();
+
+    await fireEvent.changeText(
+      view.getByTestId('topic-input'),
+      '  The   School Run ',
+    );
+    await fireEvent.press(view.getByTestId('topic-add'));
+    await savedOnce(backend, 0);
+    expect(backend.preferences().personality.topics).toEqual([
+      'the school run',
+    ]);
+
+    await fireEvent.press(
+      await view.findByTestId('topic-remove-the school run'),
+    );
+    await savedOnce(backend, 1);
+    expect(backend.preferences().personality.topics).toEqual([]);
   });
 });

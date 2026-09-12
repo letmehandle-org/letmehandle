@@ -4,199 +4,211 @@
  * Keys are grouped by the screen or concept they belong to. A key used in two places belongs
  * under `common`: duplicating a string under two keys means one of them gets changed and the
  * other does not.
+ *
+ * The design asks for as few words as a screen can carry. Where an icon or a drawing says it,
+ * there is no string here for it to repeat.
  */
 export const en = {
   common: {
     appName: 'LetMeHandle',
     continue: 'Continue',
+    next: 'Next',
     back: 'Back',
     tryAgain: 'Try again',
     save: 'Save',
     add: 'Add',
-    remove: 'Remove',
+    remove: 'Remove {{item}}',
     done: 'Done',
     somethingWentWrong: 'Something went wrong. Please try again.',
     noConnection: 'Could not reach the service. Check your connection.',
+    saveFailed: "Couldn't save. It's been put back the way it was.",
   },
   welcome: {
-    title: 'LetMeHandle',
-    subtitle:
-      'An assistant that answers your calls, and knows when to fetch you.',
+    title: 'Your phone,',
+    titleAccent: 'handled.',
     start: 'Get started',
+    features: {
+      answers: 'Answers your calls',
+      rings: 'Rings you if needed',
+      private: 'Never records',
+    },
+    illustration: {
+      delivery: 'Delivery',
+      needsYou: 'Needs you',
+      spam: 'Spam',
+      described:
+        'A phone with its calls being looked after: a delivery settled, spam turned away, and one call that needs you.',
+    },
   },
   phone: {
-    title: 'What is your number?',
-    subtitle: 'This is the number your assistant will answer for.',
+    title: 'Your number',
+    subtitle: 'The one your assistant will answer for.',
     label: 'Phone number',
     placeholder: '+12025550143',
     invalid: 'Enter your number in full, including the country code.',
     rateLimited: 'Too many attempts. Try again in a little while.',
   },
   code: {
-    title: 'Enter your code',
-    subtitle: 'We sent a six-digit code to {{number}}.',
+    title: 'Enter the code',
+    subtitle: 'Sent to {{number}}',
     label: 'Code',
     invalid: 'That code is not valid.',
     resend: 'Send another code',
     // FOR TESTING ONLY — remove before launch, with showsTestingCode.
     testingHint: 'Testing build: the code is 123456.',
   },
-  profile: {
-    title: 'Your profile',
-    name: 'Name',
-    namePlaceholder: 'What should your assistant call you?',
-    number: 'Number',
-    save: 'Save',
-    saved: 'Saved',
-    signOut: 'Sign out',
-  },
-  home: {
-    title: 'LetMeHandle',
-    subtitle: 'Nothing is handling your calls yet.',
-    profile: 'Profile',
-    settings: 'Settings',
-  },
-  onboarding: {
+  setup: {
     progress: 'Step {{done}} of {{total}}',
     skip: 'Skip for now',
     loadFailed: 'Could not load your setup.',
-    saveFailed: 'That could not be saved. Nothing has changed.',
+    saveFailed: "That couldn't be saved. Nothing has changed.",
+    who: { title: 'How your calls work' },
+    when: { title: "When you're called" },
+    hours: { title: 'When should it work?' },
+    authority: { title: 'What may it do?' },
+    done: {
+      title: "You're all set",
+      voice: 'Voice: {{voice}}',
+      home: 'Go to Home',
+    },
+  },
+  /** The two rules every call is sorted by, drawn as lanes. */
+  lanes: {
+    contacts: 'Your contacts',
+    ringYou: 'Ring you',
+    unknown: 'Unknown numbers',
+    assistant: 'Your assistant',
+    spam: 'Known spam is turned away',
+    differs:
+      'Your calls are set up differently from this. Use these two rules instead?',
+    apply: 'Use these rules',
+  },
+  calls: {
+    graph: {
+      answers: 'Assistant answers',
+      cantResolve: "It can't\nresolve it",
+      urgent: "It's\nurgent",
+      rings: 'Your phone rings',
+      otherwise: 'Anything else waits in Activity',
+      described:
+        "Your assistant answers. If it can't resolve the call, or the call is urgent, your phone rings. Anything else waits in Activity.",
+    },
+    everyCall: 'Tell me about every call',
+    evening: 'Evening round-up',
+  },
+  hours: {
+    title: 'Hours',
+    allTheTime: 'All the time',
+    always: '24/7',
+    alwaysOn: 'Always on',
+    windows:
+      'You have working or quiet hours set. They still apply to your calls.',
+    useAlways: 'Answer around the clock',
+  },
+  tabs: {
+    home: 'Home',
+    activity: 'Activity',
+    settings: 'Settings',
+  },
+  home: {
+    notYet: 'Not answering calls yet',
+    callsToday: 'Calls today',
+    whenItDoes: 'When it does',
+    fillsRing: 'Settled calls fill this ring',
+    ringsYou: "You're rung only if needed",
+  },
+  activity: {
+    title: 'Activity',
+    empty: 'Calls will appear here as they happen.',
   },
   settings: {
     title: 'Settings',
-    subtitle: 'Everything your assistant goes on when it answers.',
-    saved: 'Saved',
-    saveFailed:
-      'That could not be saved, so your previous setting has been put back.',
+    calls: 'Calls',
+    assistant: 'Your assistant',
+    you: 'You',
+    who: 'Who gets through',
+    whoValue: 'Contacts',
+    whoCustom: 'Custom',
+    when: "When you're called",
+    whenValue: 'If needed',
+    hours: 'Hours',
+    hoursSet: 'Set',
+    authority: 'What it may do',
+    authorityValue: '{{granted}} of {{total}}',
+    say: 'What it may say',
+    sayNothing: 'Nothing',
+    personalise: 'Personalise',
+    account: 'Account',
   },
-  /**
-   * The voice screen, which is not a preference section: it is its own resource on the API,
-   * with its own list of what a deployment's provider offers.
-   */
+  personalise: {
+    title: 'Personalise',
+    voice: 'Voice',
+    manner: 'Manner',
+    length: 'Length',
+    topics: 'Topics',
+    voiceUnavailable: 'Could not load the voices on offer.',
+    voiceSaveFailed:
+      "That voice couldn't be set, so your previous one is still in use.",
+    voiceNotYourChoice:
+      "Calls are answered in {{voice}} because the voice you chose isn't available right now.",
+  },
+  topics: {
+    title: 'Topics',
+    add: 'Add a topic',
+    placeholder: 'the school run',
+    count: '{{count}} of {{max}}',
+    empty: 'Nothing yet.',
+  },
+  say: {
+    title: 'What it may say',
+    never: 'Nothing else is ever shared.',
+    allowed: 'It may say',
+    add: 'Add something',
+    placeholder: "He's usually free after six",
+    empty: 'Nothing yet.',
+    invalid: 'Keep it to one short sentence.',
+    duplicate: 'That is already on the list.',
+    full: 'That is as many as it can hold.',
+  },
+  account: {
+    title: 'Account',
+    name: 'Your name',
+    namePlaceholder: 'What should your assistant call you?',
+    number: 'Number',
+    saved: 'Saved',
+    signOut: 'Sign out of this phone',
+    otherDevices: 'Your other devices stay signed in.',
+  },
+  /** The voice's own resource on the API, with its own list of what a provider offers. */
   voice: {
-    title: 'The voice it answers in',
-    subtitle: 'What everybody who calls you hears.',
-    choose: 'Voice',
     default: 'Whichever your assistant picks',
-    inUse: 'Calls are answered in {{voice}}.',
-    notYourChoice:
-      'Calls are being answered in {{voice}}, not the voice you chose, because that voice ' +
-      'is not available right now.',
-    withdrawn:
-      'The voice you chose is no longer offered, so calls are being answered in {{voice}}. ' +
-      'Choose another below.',
-    loadFailed: 'Could not load the voices on offer.',
-    saved: 'Saved',
-    saveFailed:
-      'That voice could not be set, so your previous one has been put back.',
   },
   /**
-   * Keys under `preferences` are named for the API sections they edit, so a screen can look up
-   * its own title from the section it was given rather than carrying a second mapping that has
-   * to be kept in step with the first.
+   * Keys under `preferences` are named for the API sections they edit, and validation messages
+   * are looked up here by the code that raises them.
    */
   preferences: {
-    introduction: {
-      title: 'Let us set your assistant up',
-      subtitle: 'Six short questions. You can change any of it later.',
-      body:
-        'Your assistant answers the calls you do not want to take, and fetches you for the ' +
-        'ones you do. What it does depends entirely on what you say next.',
-    },
-    call_handling: {
-      title: 'Calls you are not expecting',
-      subtitle:
-        'There is no safe guess here, so this is the one question to answer.',
-      defaultPosture: 'Someone who is not in your contacts',
-      anonymousPosture: 'Someone withholding their number',
-      escalateAtOrAbove: 'Fetch you when a call is at least',
-      categories: 'Particular kinds of call',
-      categoryDefault: 'Same as everyone else',
-      blocked: 'Never put through',
-    },
     important_contacts: {
-      title: 'People who always get through',
-      subtitle:
-        'Calls from these numbers are treated as you say, not as the assistant judges.',
-      label: 'Name',
-      labelPlaceholder: 'Who is this?',
-      number: 'Number',
-      numberPlaceholder: '+12025550143',
-      posture: 'When they call',
-      empty: 'Nobody yet.',
       invalidNumber: 'Enter the number in full, including the country code.',
       invalidLabel: 'Give this person a name so you can recognise the entry.',
       duplicate: 'That number is already on the list.',
     },
     hours: {
-      title: 'Your hours',
-      subtitle:
-        'When you are working, and when you would rather not be disturbed.',
-      working: 'Working hours',
-      quiet: 'Quiet hours',
-      start: 'From',
-      end: 'Until',
-      zone: 'Timezone',
       invalidTime: 'Use a 24-hour time, such as 09:00.',
       emptyWindow:
         'A window that starts and ends at the same time covers nothing.',
       invalidZone: 'Name the timezone, such as Europe/London.',
     },
-    authority: {
-      title: 'What it may do for you',
-      subtitle: 'Nothing is on unless you say so.',
-    },
-    notifications: {
-      title: 'When to tell you',
-      subtitle:
-        'Being fetched during a call is not optional; everything else is.',
-      on_handled_call: 'A call was handled',
-      on_blocked_call: 'A call was turned away',
-      on_missed_escalation: 'It needed you and could not reach you',
-      daily_summary: 'A summary once a day',
-      respect_quiet_hours: 'Hold these until your quiet hours are over',
-    },
     personality: {
-      title: 'How it should sound',
-      subtitle:
-        'And the handful of things you care enough about to be interrupted for.',
-      formality: 'Tone',
-      verbosity: 'How much it says',
-      topics: 'Things you care about',
-      topicPlaceholder: 'the school run',
-      topicsEmpty: 'Nothing yet.',
       invalidTopic: 'A topic is a short phrase, not a sentence.',
       duplicateTopic: 'That is already on the list.',
     },
-    posture: {
-      pass_through: 'Ring my phone',
-      handle_with_agent: 'Let the assistant answer',
-      reject: 'Turn it away',
-    },
-    category: {
-      known_contact: 'Someone in your contacts',
-      delivery: 'Deliveries',
-      healthcare: 'Healthcare',
-      education: 'Schools and childcare',
-      financial: 'Banks and insurers',
-      service_provider: 'Tradespeople and utilities',
-      sales: 'Sales calls',
-      spam: 'Suspected spam',
-      unknown: 'Anything unrecognised',
-    },
-    importance: {
-      ignorable: 'Anything at all',
-      low: 'Worth a mention',
-      routine: 'Routine',
-      notable: 'Notable',
-      urgent: 'Urgent only',
-    },
     capability: {
-      answer_questions_about_availability: 'Say when you are free',
+      answer_questions_about_availability: "Say if you're free",
       share_delivery_instructions: 'Give delivery instructions',
-      confirm_appointments: 'Confirm an appointment',
-      reschedule_appointments: 'Move an appointment',
-      decline_on_the_users_behalf: 'Say no on your behalf',
+      confirm_appointments: 'Confirm appointments',
+      reschedule_appointments: 'Move appointments',
+      decline_on_the_users_behalf: 'Decline for you',
       take_a_message: 'Take a message',
       share_contact_details: 'Share your contact details',
     },
@@ -206,9 +218,9 @@ export const en = {
       formal: 'Formal',
     },
     verbosity: {
-      brief: 'Briefly',
-      normal: 'Normally',
-      detailed: 'In detail',
+      brief: 'Brief',
+      normal: 'Normal',
+      detailed: 'Detailed',
     },
   },
 } as const;

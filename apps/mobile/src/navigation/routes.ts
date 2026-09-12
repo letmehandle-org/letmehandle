@@ -9,8 +9,6 @@
  * person cannot navigate to the application by any route, and somebody halfway through setup
  * cannot navigate past it — rather than being guarded by a check on every screen.
  */
-import type { PreferenceSection } from '../preferences/options';
-
 export type AuthStackParamList = {
   Welcome: undefined;
   PhoneNumber: undefined;
@@ -22,11 +20,15 @@ export type OnboardingStackParamList = {
 };
 
 export type AppStackParamList = {
-  Home: undefined;
-  Profile: undefined;
-  Settings: undefined;
-  SettingsSection: { section: PreferenceSection };
-  Voice: undefined;
+  Tabs: undefined;
+  Who: undefined;
+  When: undefined;
+  Hours: undefined;
+  Authority: undefined;
+  Say: undefined;
+  Personalise: undefined;
+  Topics: undefined;
+  Account: undefined;
 };
 
 export const AUTH_ROUTES = {
@@ -40,9 +42,13 @@ export const ONBOARDING_ROUTES = {
 } as const satisfies Record<string, keyof OnboardingStackParamList>;
 
 export const APP_ROUTES = {
-  home: 'Home',
-  profile: 'Profile',
-  settings: 'Settings',
-  settingsSection: 'SettingsSection',
-  voice: 'Voice',
+  tabs: 'Tabs',
+  who: 'Who',
+  when: 'When',
+  hours: 'Hours',
+  authority: 'Authority',
+  say: 'Say',
+  personalise: 'Personalise',
+  topics: 'Topics',
+  account: 'Account',
 } as const satisfies Record<string, keyof AppStackParamList>;

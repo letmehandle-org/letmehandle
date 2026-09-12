@@ -44,7 +44,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    expect(view.getByText(en.welcome.title)).toBeOnTheScreen();
+    expect(view.getByText(en.welcome.start)).toBeOnTheScreen();
   });
 
   it('surfaces a translation failure rather than staying blank', async () => {
