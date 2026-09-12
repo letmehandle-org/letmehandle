@@ -7,14 +7,23 @@ from typing import TYPE_CHECKING
 import pytest
 
 from letmehandle.config.settings import Settings, get_settings
-from tests.support.config import make_settings
+from tests.support.config import REQUIRED_ENVIRONMENT, make_settings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 # Anything the settings object reads. Cleared for every test so that a variable set on the
 # machine running the suite cannot change what the suite proves.
-SETTINGS_VARIABLES = ("APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "DATABASE_URL")
+SETTINGS_VARIABLES = (
+    "APP_ENV",
+    "LOG_LEVEL",
+    "LOG_FORMAT",
+    "DATABASE_URL",
+    "SPEECH_ENDPOINT_URL",
+    "SPEECH_MODEL",
+    "SPEECH_API_KEY",
+    *REQUIRED_ENVIRONMENT,
+)
 
 
 @pytest.fixture(autouse=True)

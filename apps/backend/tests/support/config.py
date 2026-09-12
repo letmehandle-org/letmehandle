@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from pydantic import PostgresDsn, SecretStr
 
 from letmehandle.config.settings import (
@@ -9,7 +11,11 @@ from letmehandle.config.settings import (
     LogFormat,
     OTPProviderName,
     Settings,
+    parse_voice_catalogue,
 )
+
+if TYPE_CHECKING:
+    from letmehandle.domain.ports.voice import Voice
 
 # A database that is syntactically valid and certainly not listening. Port 1 is reserved and
 # nothing in a test environment binds it, so "unreachable" is a property of the address rather
@@ -22,6 +28,23 @@ UNREACHABLE_DATABASE = "postgresql+asyncpg://nobody:nothing@127.0.0.1:1/absent"
 TEST_SIGNING_KEY = "test-signing-key-that-is-long-enough-to-be-accepted"
 
 
+# A voice catalogue that says what it is. No speech service speaks these: they exist so that the
+# application can start in a test, and names that sound like real voices would be mistaken for
+# ones somebody could hear. `.env.example` and the development compose file carry the same text.
+EXAMPLE_VOICES_TEXT: Final = (
+    "example-voice-a:Example voice A (not a real voice):en,"
+    "example-voice-b:Example voice B (not a real voice):en"
+)
+EXAMPLE_VOICES: Final[tuple[Voice, ...]] = parse_voice_catalogue(EXAMPLE_VOICES_TEXT)
+EXAMPLE_DEFAULT_VOICE: Final = "example-voice-a"
+
+# The variables a process needs before it will start at all, for tests that read the environment.
+REQUIRED_ENVIRONMENT: Final = {
+    "SPEECH_VOICES": EXAMPLE_VOICES_TEXT,
+    "SPEECH_DEFAULT_VOICE": EXAMPLE_DEFAULT_VOICE,
+}
+
+
 def make_settings(
     *,
     app_env: Environment = Environment.TEST,
@@ -30,6 +53,8 @@ def make_settings(
     database_url: str | None = None,
     otp_provider: OTPProviderName = OTPProviderName.MOCK,
     auth_signing_key: str | None = TEST_SIGNING_KEY,
+    speech_voices: tuple[Voice, ...] = EXAMPLE_VOICES,
+    speech_default_voice: str = EXAMPLE_DEFAULT_VOICE,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -43,4 +68,9 @@ def make_settings(
         database_url=PostgresDsn(database_url) if database_url is not None else None,
         otp_provider=otp_provider,
         auth_signing_key=SecretStr(auth_signing_key) if auth_signing_key is not None else None,
+        speech_endpoint_url=None,
+        speech_model=None,
+        speech_api_key=None,
+        speech_voices=speech_voices,
+        speech_default_voice=speech_default_voice,
     )

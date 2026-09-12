@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from typing import Annotated, Final
 
 from pydantic import (
+    AnyWebsocketUrl,
+    BeforeValidator,
     Field,
     PostgresDsn,
     SecretStr,
@@ -13,7 +16,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from letmehandle.domain.ports.voice import Voice
 
 
 class Environment(StrEnum):
@@ -41,6 +46,52 @@ class ConfigurationError(RuntimeError):
     Raised at startup rather than at first use. A process that starts with bad configuration
     fails later, somewhere unrelated, and the traceback points at the wrong thing.
     """
+
+
+# How SPEECH_VOICES is written, quoted in every error about it so the fix is in the message.
+VOICE_CATALOGUE_FORMAT: Final = "id:Display name:locale|locale,id:Display name:locale"
+
+
+def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
+    """The voices SPEECH_VOICES lists, in the order it lists them.
+
+    A compact string rather than JSON, because this is typed into an environment file by hand and
+    JSON quoting inside a shell variable is where a catalogue gets silently truncated. The price is
+    that a display name cannot contain a colon or a comma, which no voice name has needed.
+    """
+    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
+    if not entries:
+        raise ValueError(f"SPEECH_VOICES lists no voices; expected {VOICE_CATALOGUE_FORMAT!r}")
+
+    voices: list[Voice] = []
+    for entry in entries:
+        parts = [part.strip() for part in entry.split(":")]
+        locales = tuple(locale.strip() for locale in parts[-1].split("|"))
+        if len(parts) != 3 or not all(parts) or not all(locales):
+            raise ValueError(
+                f"SPEECH_VOICES entry {entry!r} is not in the form {VOICE_CATALOGUE_FORMAT!r}"
+            )
+        voices.append(Voice(id=parts[0], name=parts[1], locales=locales))
+
+    ids = [voice.id for voice in voices]
+    repeated = sorted({voice_id for voice_id in ids if ids.count(voice_id) > 1})
+    if repeated:
+        # Caught here as well as by the provider, so the message names the variable to fix rather
+        # than an invariant somebody has to trace back to a line in an environment file.
+        raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated}")
+    return tuple(voices)
+
+
+def _catalogue_from_text(value: object) -> object:
+    # Text is what the environment supplies; a tuple of voices is what code constructing
+    # settings directly passes, and that needs no parsing.
+    return parse_voice_catalogue(value) if isinstance(value, str) else value
+
+
+def _blank_is_absent(value: object) -> object:
+    # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
+    # leave them unset, not set to an empty string that then fails as a malformed URL.
+    return None if isinstance(value, str) and not value.strip() else value
 
 
 class Settings(BaseSettings):
@@ -72,6 +123,21 @@ class Settings(BaseSettings):
     auth_refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=3600)
     otp_provider: OTPProviderName = OTPProviderName.MOCK
 
+    # Realtime speech. All three optional at startup: nothing opens a speech session in a request
+    # yet, and a process that refuses to start for want of a service it never calls is a process
+    # nobody can develop against. The shape is still checked when a value is present, so a typo
+    # fails here rather than on the first call.
+    speech_endpoint_url: Annotated[AnyWebsocketUrl | None, BeforeValidator(_blank_is_absent)] = None
+    speech_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    speech_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+
+    # The voices this deployment offers, and the one a call gets when nobody chose. Required, with
+    # no default: a compatible server decides its own voices, so any list written here would be a
+    # list of voices that some server cannot speak — which is the exact thing that went wrong
+    # before this was configuration. `NoDecode` keeps pydantic from reading the text as JSON.
+    speech_voices: Annotated[tuple[Voice, ...], NoDecode, BeforeValidator(_catalogue_from_text)]
+    speech_default_voice: str
+
     @field_validator("log_level")
     @classmethod
     def _known_level(cls, value: str) -> str:
@@ -96,6 +162,16 @@ class Settings(BaseSettings):
         """
         if self.app_env is Environment.PRODUCTION and self.auth_signing_key is None:
             raise ValueError("AUTH_SIGNING_KEY is required in production")
+        return self
+
+    @model_validator(mode="after")
+    def _default_voice_is_in_the_catalogue(self) -> Settings:
+        """A default outside the catalogue leaves a call nobody configured with no voice at all."""
+        if self.speech_default_voice not in {voice.id for voice in self.speech_voices}:
+            raise ValueError(
+                f"SPEECH_DEFAULT_VOICE {self.speech_default_voice!r} is not one of the voices "
+                "listed in SPEECH_VOICES"
+            )
         return self
 
     @property
@@ -133,7 +209,8 @@ def get_settings() -> Settings:
     repeatedly would make it possible for two parts of the application to disagree about it.
     """
     try:
-        return Settings()
+        # The required fields arrive from the environment, which the type checker cannot see.
+        return Settings()  # type: ignore[call-arg]
     except ValidationError as error:
         variables = ", ".join(
             str(item["loc"][0]).upper() for item in error.errors() if item.get("loc")

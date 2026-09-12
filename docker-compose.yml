@@ -32,6 +32,13 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-console}
       DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@postgres:5432/letmehandle
+      SPEECH_ENDPOINT_URL: ${SPEECH_ENDPOINT_URL:-}
+      SPEECH_MODEL: ${SPEECH_MODEL:-}
+      SPEECH_API_KEY: ${SPEECH_API_KEY:-}
+      # Example voices, so the development stack starts. No speech service speaks them; set
+      # SPEECH_VOICES and SPEECH_DEFAULT_VOICE in .env to your service's own.
+      SPEECH_VOICES: ${SPEECH_VOICES:-example-voice-a:Example voice A (not a real voice):en,example-voice-b:Example voice B (not a real voice):en}
+      SPEECH_DEFAULT_VOICE: ${SPEECH_DEFAULT_VOICE:-example-voice-a}
     ports:
       # Configurable, because 8000 is a popular port and a clash with something else on a
       # contributor's machine should not need a file to be edited.

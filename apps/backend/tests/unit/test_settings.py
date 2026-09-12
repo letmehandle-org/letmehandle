@@ -11,12 +11,26 @@ from letmehandle.config.settings import (
     LogFormat,
     Settings,
     get_settings,
+    parse_voice_catalogue,
 )
-from tests.support.config import UNREACHABLE_DATABASE, make_settings
+from letmehandle.domain.ports.voice import Voice
+from tests.support.config import (
+    EXAMPLE_DEFAULT_VOICE,
+    EXAMPLE_VOICES,
+    REQUIRED_ENVIRONMENT,
+    UNREACHABLE_DATABASE,
+    make_settings,
+)
+
+
+@pytest.fixture
+def required_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
 
 
 def test_defaults_are_development() -> None:
-    settings = Settings()
+    settings = Settings(speech_voices=EXAMPLE_VOICES, speech_default_voice=EXAMPLE_DEFAULT_VOICE)
     assert settings.app_env is Environment.DEVELOPMENT
     assert settings.log_format is LogFormat.CONSOLE
     assert settings.is_production is False
@@ -48,17 +62,17 @@ def test_the_signing_key_is_not_rendered_by_accident() -> None:
 
 @pytest.mark.parametrize("level", ["debug", "INFO", "Warning", "error", "critical"])
 def test_known_log_levels_are_accepted_and_normalised(level: str) -> None:
-    assert Settings(log_level=level).log_level == level.lower()
+    assert make_settings(log_level=level).log_level == level.lower()
 
 
 def test_unknown_log_level_is_rejected() -> None:
     with pytest.raises(ValidationError, match="must be one of"):
-        Settings(log_level="chatty")
+        make_settings(log_level="chatty")
 
 
 def test_unknown_environment_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Settings(app_env="staging")  # type: ignore[arg-type]
+        make_settings(app_env="staging")  # type: ignore[arg-type]
 
 
 def test_settings_are_frozen() -> None:
@@ -80,9 +94,10 @@ def test_database_url_is_returned_when_present() -> None:
 
 def test_malformed_database_url_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Settings(database_url="not-a-url")  # type: ignore[arg-type]
+        make_settings(database_url="not-a-url")
 
 
+@pytest.mark.usefixtures("required_environment")
 def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
 
@@ -93,3 +108,107 @@ def test_invalid_environment_raises_configuration_error(monkeypatch: pytest.Monk
     get_settings.cache_clear()
     with pytest.raises(ConfigurationError, match="LOG_LEVEL"):
         get_settings()
+
+
+# -- Realtime speech ---------------------------------------------------------------------------
+
+
+def test_speech_service_settings_are_optional_at_startup() -> None:
+    settings = make_settings()
+    assert settings.speech_endpoint_url is None
+    assert settings.speech_model is None
+    assert settings.speech_api_key is None
+
+
+@pytest.mark.parametrize("url", ["wss://speech.example.com/v1/realtime", "ws://127.0.0.1:9000/v1"])
+def test_a_websocket_endpoint_is_accepted(url: str) -> None:
+    settings = Settings(
+        speech_endpoint_url=url,  # type: ignore[arg-type]
+        speech_voices=EXAMPLE_VOICES,
+        speech_default_voice=EXAMPLE_DEFAULT_VOICE,
+    )
+    assert settings.speech_endpoint_url is not None
+    assert settings.speech_endpoint_url.scheme == url.split(":", 1)[0]
+
+
+def test_an_endpoint_that_is_not_a_websocket_is_refused_at_startup() -> None:
+    with pytest.raises(ValidationError, match="speech_endpoint_url"):
+        Settings(
+            speech_endpoint_url="https://speech.example.com/v1/realtime",  # type: ignore[arg-type]
+            speech_voices=EXAMPLE_VOICES,
+            speech_default_voice=EXAMPLE_DEFAULT_VOICE,
+        )
+
+
+@pytest.mark.usefixtures("required_environment")
+def test_blank_speech_variables_count_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # What a copied `.env.example` supplies before anybody fills it in.
+    for name in ("SPEECH_ENDPOINT_URL", "SPEECH_MODEL", "SPEECH_API_KEY"):
+        monkeypatch.setenv(name, "")
+    settings = get_settings()
+    assert settings.speech_endpoint_url is None
+    assert settings.speech_model is None
+    assert settings.speech_api_key is None
+
+
+@pytest.mark.usefixtures("required_environment")
+def test_the_speech_key_is_not_rendered_by_accident(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_API_KEY", "speech-key-that-must-stay-out-of-logs")
+    settings = get_settings()
+    assert "speech-key-that-must-stay-out-of-logs" not in repr(settings)
+    assert settings.speech_api_key is not None
+    assert settings.speech_api_key.get_secret_value() == "speech-key-that-must-stay-out-of-logs"
+
+
+# -- The voice catalogue ------------------------------------------------------------------------
+
+
+def test_the_catalogue_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_VOICES", " first:First example:en|en-GB , second:Second example:fr ")
+    monkeypatch.setenv("SPEECH_DEFAULT_VOICE", "second")
+
+    settings = get_settings()
+
+    assert settings.speech_voices == (
+        Voice(id="first", name="First example", locales=("en", "en-GB")),
+        Voice(id="second", name="Second example", locales=("fr",)),
+    )
+    assert settings.speech_default_voice == "second"
+
+
+def test_a_process_with_no_catalogue_refuses_to_start_naming_it() -> None:
+    with pytest.raises(ConfigurationError, match="SPEECH_VOICES"):
+        get_settings()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "no-name-or-locale",
+        "id:name",
+        "id:name:en:extra",
+        ":name:en",
+        "id::en",
+        "id:name:",
+        "id:name:en|",
+    ],
+)
+def test_a_malformed_entry_is_named_with_the_format_it_should_have(text: str) -> None:
+    with pytest.raises(ValueError, match=r"SPEECH_VOICES entry .* is not in the form 'id:Display"):
+        parse_voice_catalogue(text)
+
+
+@pytest.mark.parametrize("text", ["", " , ,"])
+def test_a_catalogue_with_no_voices_is_refused(text: str) -> None:
+    with pytest.raises(ValueError, match="SPEECH_VOICES lists no voices"):
+        parse_voice_catalogue(text)
+
+
+def test_a_repeated_voice_id_is_refused() -> None:
+    with pytest.raises(ValueError, match=r"the same id more than once: \['one'\]"):
+        parse_voice_catalogue("one:One:en,two:Two:en,one:Again:fr")
+
+
+def test_a_default_voice_outside_the_catalogue_is_refused() -> None:
+    with pytest.raises(ValidationError, match="SPEECH_DEFAULT_VOICE 'absent' is not one of"):
+        make_settings(speech_default_voice="absent")
