@@ -989,10 +989,14 @@ def test_a_repeated_delivery_token_is_recognised() -> None:
     assert transport.is_repeat_delivery("token-1")
 
 
-async def test_terminating_while_a_dial_is_still_being_placed_marks_it_rather_than_waiting(
-    transport: TwilioCallTransport, api: RecordingApi
+@pytest.mark.parametrize(
+    ("dial", "leg"),
+    [("add_participant", "CAsim-user-1"), ("answer", "CAsim-assistant-1")],
+)
+async def test_terminating_while_a_dial_is_being_placed_ends_that_leg_once_it_exists(
+    transport: TwilioCallTransport, api: RecordingApi, dial: str, leg: str
 ) -> None:
-    await answered_call(transport)
+    transport.incoming_call(incoming())
     placing = asyncio.Event()
     finish = asyncio.Event()
     original = api.create_participant
@@ -1003,13 +1007,18 @@ async def test_terminating_while_a_dial_is_still_being_placed_marks_it_rather_th
         return await original(conference_name, request)
 
     api.create_participant = slow_create  # type: ignore[method-assign]
-    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    dialling = asyncio.create_task(
+        transport.add_participant(CALL, USER) if dial == "add_participant" else transport.answer(CALL)
+    )
     await placing.wait()
-    await transport.terminate(CALL)
-    # The leg with no identifier yet could not be hung up by one; the caller's leg was.
-    assert api.ended_calls == [(CALL.value, "completed")]
+    terminating = asyncio.create_task(transport.terminate(CALL))
+    await asyncio.sleep(0.01)
     finish.set()
     await dialling
+    await terminating
+    # Ended once it had an identifier to be ended by, rather than left ringing into a dead call.
+    assert api.ended_calls == [(CALL.value, "completed"), (leg, "canceled")]
+    assert transport.active_calls == 0
 
 
 async def test_the_provider_ending_the_call_during_a_terminate_releases_it_once(
@@ -1028,9 +1037,9 @@ async def test_the_provider_ending_the_call_during_a_terminate_releases_it_once(
     terminating = asyncio.create_task(transport.terminate(CALL))
     await ending.wait()
     transport.conference_updated(CALL.value, conference(ConferenceEvent.END, 9))
-    await transport.settled()
     finish.set()
     await terminating
+    await transport.settled()
     assert shapes(await drain(transport)) == [("ended", None, None)]
 
 

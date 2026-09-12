@@ -273,6 +273,9 @@ class TwilioCallTransport(CallTransport):
         """Wait until every task this transport started has finished."""
         while self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
+            # Gathering tasks already finished does not yield, and a finished task leaves the
+            # set only when its done callback runs on a later turn of the loop.
+            await asyncio.sleep(0)
 
     # -------------------------------------------------------------- the port
 
@@ -316,8 +319,11 @@ class TwilioCallTransport(CallTransport):
         call = self._calls.get(call_id)
         if call is None:
             return
-        await self._end_remotely(call)
-        await self._release(call, "the call was ended")
+        # Under the call's lock, so a dial still being placed finishes first and its leg has an
+        # identifier to be ended by. Otherwise the leg is released unnamed and rings on.
+        async with call.lock:
+            await self._end_remotely(call)
+            await self._release(call, "the call was ended")
 
     def audio_format(self) -> AudioFormat:
         return TELEPHONY_NARROWBAND
@@ -668,20 +674,18 @@ class TwilioCallTransport(CallTransport):
 
     def _ended_by_provider(self, call: _Call, reason: str) -> None:
         self._emit(CallEventKind.ENDED, call, "ended", detail=reason)
-        pending = [
-            leg
-            for leg in call.legs.values()
-            if not leg.joined and not leg.finished and not leg.removed
-        ]
-        self._spawn_detached(self._finish_after_provider(call, pending, reason))
+        self._spawn_detached(self._finish_after_provider(call, reason))
 
-    async def _finish_after_provider(self, call: _Call, pending: list[_Leg], reason: str) -> None:
-        try:
-            for leg in pending:
-                # Still ringing when the call ended: answering would join a conference nobody is in.
-                await self._hang_up_leg(call, leg)
-        finally:
-            await self._release(call, reason)
+    async def _finish_after_provider(self, call: _Call, reason: str) -> None:
+        async with call.lock:
+            try:
+                for leg in list(call.legs.values()):
+                    # Still ringing when the call ended: answering would join a conference nobody
+                    # is in.
+                    if not leg.joined and not leg.finished and not leg.removed:
+                        await self._hang_up_leg(call, leg)
+            finally:
+                await self._release(call, reason)
 
     async def _release(self, call: _Call, reason: str) -> None:
         """Let go of everything the call holds on this side. Safe to call more than once."""
