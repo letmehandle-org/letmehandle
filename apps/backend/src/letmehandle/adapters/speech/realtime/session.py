@@ -10,6 +10,12 @@ service, and the caller's speech-started signal behind a held reply is acted on 
 arrives rather than once the speaker catches up. A consumer that stops taking audio altogether
 does stop the reader, and the service's own flow control does the rest; nothing grows.
 
+What the caller heard, which an interruption tells the service so the model does not believe it
+said the rest, is counted as the audio the consumer has taken. Audio still held here was not
+taken and is discarded, so the count is accurate to within the consumer's own playback buffer:
+whatever a sink has accepted and not yet played is counted as heard, and nothing here can know
+otherwise or take it back. That is why a sink should accept little more than it is about to play.
+
 A dropped connection is replaced and told what it missed, and a replacement is only trusted once
 the service does something on it beyond acknowledging its configuration: one that is accepted
 and then drops at once spends the same attempts as one refused.
@@ -89,10 +95,8 @@ _FAILED_RESPONSES_TOLERATED: Final = 3
 class _Playback:
     """How much of one item of model audio arrived, and how much the consumer has taken.
 
-    What the consumer has taken is this adapter's best approximation of what was heard. It is an
-    overestimate by whatever the consumer's sink still holds unplayed, which is the most it can
-    know from here; the consumer discarding its sink on interruption keeps the difference to a
-    frame or two.
+    What the consumer has taken is what this adapter counts as heard. It overstates by whatever
+    the consumer's sink still holds unplayed, and by nothing else: see the module docstring.
     """
 
     response_id: str
