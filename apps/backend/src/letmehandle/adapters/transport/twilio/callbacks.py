@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 CALL_PARAMETER: Final = "call"
 LEG_PARAMETER: Final = "leg"
 # A stream parameter only: the secret an assistant leg's stream must present to be attached.
-TOKEN_PARAMETER: Final = "token"
+TOKEN_PARAMETER: Final = "token"  # noqa: S105 - the name of a parameter, not its value
 
 
 class CallbackMalformedError(Exception):
