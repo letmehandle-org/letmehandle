@@ -33,6 +33,12 @@ export function SettingsSectionScreen({ section }: Props): React.JSX.Element {
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Bumped when a save is refused, to rebuild the editor from what is stored again.
+  //
+  // Without it the rollback would be invisible: the provider puts the previous preferences back,
+  // but the control the user moved is the editor's own state and would stay where they left it,
+  // showing a value that was refused as though it had been kept.
+  const [rolledBack, setRolledBack] = useState(0);
 
   // Stable, because the editor emits its draft from an effect: a new function every render
   // would make that effect run every render.
@@ -57,6 +63,7 @@ export function SettingsSectionScreen({ section }: Props): React.JSX.Element {
         setProblem(
           describeFailure(error, t, { refused: t('settings.saveFailed') }),
         );
+        setRolledBack(current => current + 1);
       })
       .finally(() => {
         setBusy(false);
@@ -71,6 +78,7 @@ export function SettingsSectionScreen({ section }: Props): React.JSX.Element {
       testID={`settings-${section}`}
     >
       <SectionEditor
+        key={rolledBack}
         section={section}
         preferences={preferences}
         onChange={onChange}
