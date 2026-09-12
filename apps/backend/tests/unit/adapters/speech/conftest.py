@@ -49,7 +49,7 @@ class ProviderFactory(Protocol):
         self,
         *,
         output_format: AudioFormat = ...,
-        queue_size: int = ...,
+        audio_ceiling_seconds: float = ...,
         history_turns: int = ...,
         max_attempts: int = ...,
         transcription_model: str | None = ...,
@@ -86,7 +86,7 @@ def make_provider(
     def build(
         *,
         output_format: AudioFormat = SPEECH_WIDEBAND,
-        queue_size: int = 64,
+        audio_ceiling_seconds: float = 60.0,
         history_turns: int = 8,
         max_attempts: int = 3,
         transcription_model: str | None = None,
@@ -100,7 +100,7 @@ def make_provider(
             transcription_model=transcription_model,
             reconnect=ReconnectPolicy(max_attempts, 0.5, 2.0),
             history_turns=history_turns,
-            queue_size=queue_size,
+            audio_ceiling_seconds=audio_ceiling_seconds,
             timekeeping=Timekeeping(clock=clock, sleep=sleep, draw=lambda: 0.5),
         )
 

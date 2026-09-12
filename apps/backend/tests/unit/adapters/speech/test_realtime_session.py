@@ -307,10 +307,12 @@ async def test_the_caller_s_speech_and_words_are_reported(
     ]
 
 
-async def test_a_full_queue_stops_reading_instead_of_growing(
+async def test_a_consumer_that_stops_taking_audio_stops_reading_at_the_ceiling(
     make_provider: ProviderFactory, service: ScriptedRealtimeService
 ) -> None:
-    provider = make_provider(queue_size=4)
+    # Four ten-millisecond pieces fill four hundredths of a second, so the fifth waits for room
+    # and everything behind it waits with it.
+    provider = make_provider(audio_ceiling_seconds=0.04)
     async with await connect(provider) as session:
         connection = service.current
         connection.reply(deltas=40)
@@ -319,8 +321,9 @@ async def test_a_full_queue_stops_reading_instead_of_growing(
             await asyncio.sleep(0)
         stalled_at = connection.pending
 
-        # Most of the reply is still with the service: the session read only what fit.
-        assert stalled_at > 30
+        # The rest of the reply is still with the service. Read: its start, the four pieces that
+        # fit, and the one in hand waiting for room.
+        assert stalled_at == (1 + 40 + 3) - (1 + 4 + 1)
 
         events = session.events()
         await take(events, 20)
@@ -359,7 +362,7 @@ async def test_interrupting_a_response_still_in_progress_measures_the_silence(
     metrics: RecordingMetrics,
     clock: ManualClock,
 ) -> None:
-    provider = make_provider(queue_size=2)
+    provider = make_provider(audio_ceiling_seconds=0.02)
     async with await connect(provider) as session:
         connection = service.current
         connection.reply(deltas=10)
@@ -400,7 +403,7 @@ async def test_interruption_keeps_what_the_caller_said(
 async def test_words_the_service_sent_before_it_heard_the_cancel_are_dropped(
     make_provider: ProviderFactory, service: ScriptedRealtimeService
 ) -> None:
-    async with await connect(make_provider(queue_size=2)) as session:
+    async with await connect(make_provider(audio_ceiling_seconds=0.02)) as session:
         connection = service.current
         connection.reply(deltas=4)
         events = session.events()
@@ -427,6 +430,28 @@ async def test_the_service_hearing_the_caller_interrupts_the_model_by_itself(
     # Everything the model had queued is gone; nothing of it was heard.
     assert first == SpeechStarted(by_caller=True)
     assert connection.sent[-1]["audio_end_ms"] == 0
+
+
+async def test_the_caller_speaking_is_acted_on_while_the_consumer_is_behind(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    # A consumer playing through a speaker takes audio at the speed of speech, and the service
+    # sends a ten-second reply in a moment. The caller talking over it must not wait for the
+    # speaker to work through the reply first.
+    async with await connect(provider) as session:
+        connection = service.current
+        connection.reply(deltas=1_000)
+        events = session.events()
+        await next_of(events, AudioProduced)
+
+        # Still playing the first ten milliseconds when the caller speaks.
+        connection.caller_starts_speaking()
+        await service.wait_for_sent("conversation.item.truncate")
+
+        assert connection.sent_types()[-2:] == ["response.cancel", "conversation.item.truncate"]
+        assert connection.sent[-1]["audio_end_ms"] == 10
+        # The rest of the reply is gone, and the next thing the consumer takes is the caller.
+        assert await anext(events) == SpeechStarted(by_caller=True)
 
 
 async def test_the_caller_speaking_over_silence_interrupts_nothing(
@@ -629,6 +654,52 @@ async def test_reconnection_gives_up_after_its_attempts(
     assert service.open_connections == 0
 
 
+@pytest.mark.parametrize(
+    "last_words",
+    [
+        [],
+        # A refusal is not the service working either, nor is an event this adapter ignores.
+        [{"type": "error", "error": {"code": "insufficient_quota"}}, {"type": "rate_limits"}],
+    ],
+)
+async def test_a_service_that_accepts_and_drops_every_replacement_runs_out_of_attempts(
+    provider: RealtimeSpeechProvider,
+    service: ScriptedRealtimeService,
+    metrics: RecordingMetrics,
+    last_words: list[dict[str, object]],
+) -> None:
+    async with await connect(provider) as session:
+        # Far more than three: a session that never runs out is still reconnecting afterwards.
+        service.hang_ups_after_configuring = 10
+        service.last_words = last_words
+        service.current.hang_up()
+        (failed,) = await remaining(session.events())
+
+    # Each replacement was accepted and acknowledged its configuration, and none did anything
+    # else: three attempts, not one after another for as long as the service keeps answering.
+    assert failed == SessionFailed("the connection could not be restored in 3 attempts", False)
+    assert len(service.connections) == 1 + 3
+    assert metrics.counted(telemetry.RECONNECTIONS, outcome="succeeded") == 3
+    assert service.open_connections == 0
+
+
+async def test_a_replacement_that_delivers_something_earns_back_its_attempts(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    async with await connect(provider) as session:
+        events = session.events()
+        for count in range(2, 7):
+            service.current.drop()
+            await service.wait_for_sent("session.update", connection=count)
+            service.current.caller_said(f"still here {count}")
+            assert await take(events, 2) == [
+                TranscriptProduced(f"still here {count}", speaker_is_caller=True, is_final=False),
+                TranscriptProduced(f"still here {count}", speaker_is_caller=True, is_final=True),
+            ]
+
+    assert len(service.connections) == 6
+
+
 async def test_a_refusal_that_will_not_change_stops_reconnecting_at_once(
     provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, sleep: RecordedSleep
 ) -> None:
@@ -639,6 +710,24 @@ async def test_a_refusal_that_will_not_change_stops_reconnecting_at_once(
         events = await remaining(session.events())
     assert events == [SessionFailed("refused", retryable=False)]
     assert len(sleep.delays) == 2
+
+
+async def test_a_context_update_made_while_a_replacement_is_configured_reaches_it(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    async with await connect(provider) as session:
+        service.stalled = asyncio.Event()
+        service.current.drop()
+        await service.wait_for_connection_count(2)
+        replacement = service.current
+
+        # The replacement's configuration was built with the old instructions and is on its way,
+        # and the connection that dropped hears nothing: the update must follow once it is live.
+        await session.update_context("NEW INSTRUCTIONS")
+        service.stalled.set()
+        await service.wait_until(lambda: "NEW INSTRUCTIONS" in replacement.instructions_sent())
+
+    assert replacement.instructions_sent() == ["answer for someone", "NEW INSTRUCTIONS"]
 
 
 async def test_sending_while_reconnecting_is_dropped_not_raised(
@@ -685,6 +774,56 @@ async def test_a_malformed_or_unknown_event_does_not_end_the_conversation(
         assert isinstance(await anext(session.events()), TranscriptProduced)
     assert metrics.counted(telemetry.STREAM_ERRORS, kind="malformed") == 1
     assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 1
+
+
+async def test_a_failed_response_is_counted_and_survived(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        service.current.fail_response()
+        service.current.caller_said("hello?")
+        assert await take(session.events(), 1) == [
+            TranscriptProduced("hello?", speaker_is_caller=True, is_final=False)
+        ]
+        await session.send_audio(TWENTY_MS_WIDEBAND)
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 1
+
+
+async def test_three_failed_responses_in_a_row_end_the_session(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        for _ in range(3):
+            service.current.fail_response()
+        events = await remaining(session.events())
+
+        # Silence turn after turn is worse for a caller than a call that ends and can be handled
+        # some other way, and the same service will fail the same way on another connection.
+        assert events == [SessionFailed("the service failed 3 responses in a row", False)]
+        with pytest.raises(ProviderError):
+            await session.send_audio(TWENTY_MS_WIDEBAND)
+        assert service.open_connections == 0
+        assert len(service.connections) == 1
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 3
+    assert live_tasks() == set()
+
+
+async def test_a_completed_response_starts_the_count_of_failed_ones_again(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, metrics: RecordingMetrics
+) -> None:
+    async with await connect(provider) as session:
+        connection = service.current
+        connection.fail_response()
+        connection.fail_response()
+        connection.reply(deltas=0, transcript="sorry about that")
+        connection.fail_response()
+        connection.fail_response()
+        connection.caller_said("still there?")
+
+        taken = await take(session.events(), 3)
+
+    assert taken[-1] == TranscriptProduced("still there?", speaker_is_caller=True, is_final=False)
+    assert metrics.counted(telemetry.STREAM_ERRORS, kind="service") == 4
 
 
 async def test_latency_is_measured_from_the_injected_clock(
@@ -877,7 +1016,7 @@ OPUS = AudioFormat(AudioEncoding.OPUS, 48_000)
 
 
 @pytest.mark.parametrize(
-    ("languages", "input_formats", "output_format", "queue_size"),
+    ("languages", "input_formats", "output_format", "ceiling"),
     [
         ((), (SPEECH_WIDEBAND,), SPEECH_WIDEBAND, 8),
         (("en",), (), SPEECH_WIDEBAND, 8),
@@ -892,7 +1031,7 @@ def test_a_configuration_it_cannot_honour_is_refused_at_construction(
     languages: tuple[str, ...],
     input_formats: tuple[AudioFormat, ...],
     output_format: AudioFormat,
-    queue_size: int,
+    ceiling: float,
 ) -> None:
     # Refused when the application starts, not on the first call that happens to need it.
     with pytest.raises(InvariantError):
@@ -902,7 +1041,7 @@ def test_a_configuration_it_cannot_honour_is_refused_at_construction(
             languages=languages,
             input_formats=input_formats,
             output_format=output_format,
-            queue_size=queue_size,
+            audio_ceiling_seconds=ceiling,
         )
 
 

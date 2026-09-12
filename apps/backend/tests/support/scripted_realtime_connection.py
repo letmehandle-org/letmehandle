@@ -25,7 +25,7 @@ from letmehandle.adapters.speech.websocket.connection import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 # Ten milliseconds of 16-bit audio at 24 kHz.
 DELTA_BYTES = 480
@@ -50,6 +50,9 @@ class ScriptedRealtimeService:
         self.refusals: deque[ConnectionFailedError] = deque()
         # When set, every send waits for it: a service that has stopped answering mid-handshake.
         self.stalled: asyncio.Event | None = None
+        # How many more connections to acknowledge and then end at once, and anything said first.
+        self.hang_ups_after_configuring = 0
+        self.last_words: Sequence[Mapping[str, Any]] = ()
         self._activity = asyncio.Event()
         self._ids = itertools.count(1)
 
@@ -83,7 +86,7 @@ class ScriptedRealtimeService:
 
     async def wait_for_sent(self, event_type: str, *, connection: int = 1) -> None:
         """Wait until the `connection`th connection opened has been sent this type of event."""
-        await self._wait_until(
+        await self.wait_until(
             lambda: (
                 len(self.connections) >= connection
                 and event_type in self.connections[connection - 1].sent_types()
@@ -92,13 +95,14 @@ class ScriptedRealtimeService:
 
     async def wait_until_delivered(self) -> None:
         """Wait until the current connection has handed over everything it had to say."""
-        await self._wait_until(lambda: self.current.pending == 0)
+        await self.wait_until(lambda: self.current.pending == 0)
 
     async def wait_for_connection_count(self, count: int) -> None:
         """Wait until `count` connections have been opened."""
-        await self._wait_until(lambda: len(self.connections) >= count)
+        await self.wait_until(lambda: len(self.connections) >= count)
 
-    async def _wait_until(self, satisfied: Callable[[], bool]) -> None:
+    async def wait_until(self, satisfied: Callable[[], bool]) -> None:
+        """Wait until something about the connections so far is true."""
         # A bound on a wait for something that should already be on its way, so a broken session
         # fails the test rather than hanging the suite.
         async with asyncio.timeout(2):
@@ -130,6 +134,11 @@ class ScriptedRealtimeConnection:
         match event.get("type"):
             case "session.update":
                 self._push({"type": "session.updated", "session": event["session"]})
+                if self._service.hang_ups_after_configuring:
+                    self._service.hang_ups_after_configuring -= 1
+                    for last_word in self._service.last_words:
+                        self._push(last_word)
+                    self.hang_up()
             case "input_audio_buffer.append" if self._service.answer_audio:
                 self.reply()
             case "response.cancel":
@@ -176,6 +185,15 @@ class ScriptedRealtimeConnection:
         )
         return response_id
 
+    def fail_response(self) -> str:
+        """Queue a response the service could not produce, the way running out of quota looks."""
+        response_id = f"resp_{self._service.next_id()}"
+        self._push({"type": "response.created", "response": {"id": response_id}})
+        error = {"type": "insufficient_quota", "code": "insufficient_quota"}
+        failed = {"id": response_id, "status": "failed", "status_details": {"error": error}}
+        self._push({"type": "response.done", "response": failed})
+        return response_id
+
     def caller_starts_speaking(self) -> None:
         self._push({"type": "input_audio_buffer.speech_started", "audio_start_ms": 0})
 
@@ -204,6 +222,14 @@ class ScriptedRealtimeConnection:
 
     def sent_types(self) -> list[str]:
         return [str(event["type"]) for event in self.sent]
+
+    def instructions_sent(self) -> list[str]:
+        """The instructions of every configuration this connection was sent, in order."""
+        return [
+            str(event["session"]["instructions"])
+            for event in self.sent
+            if event["type"] == "session.update"
+        ]
 
     @property
     def pending(self) -> int:

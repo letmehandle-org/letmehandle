@@ -18,8 +18,8 @@ from letmehandle.adapters.speech.realtime.context import SessionContext
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession, SessionSetup
 from letmehandle.adapters.speech.session_support.bounds import (
+    DEFAULT_AUDIO_CEILING_SECONDS,
     DEFAULT_HISTORY_TURNS,
-    DEFAULT_QUEUE_SIZE,
 )
 from letmehandle.adapters.speech.session_support.offer import (
     check_session_request,
@@ -56,11 +56,11 @@ class RealtimeSpeechProvider(SpeechProvider):
         transcription_model: str | None = None,
         reconnect: ReconnectPolicy | None = None,
         history_turns: int = DEFAULT_HISTORY_TURNS,
-        queue_size: int = DEFAULT_QUEUE_SIZE,
+        audio_ceiling_seconds: float = DEFAULT_AUDIO_CEILING_SECONDS,
         timekeeping: Timekeeping | None = None,
     ) -> None:
-        if queue_size < 1:
-            raise InvariantError("an event queue must hold at least one event")
+        if audio_ceiling_seconds <= 0:
+            raise InvariantError("a session must be able to hold some audio")
         self._opener = opener
         self._metrics = metrics
         self._capabilities = checked_capabilities(
@@ -76,7 +76,7 @@ class RealtimeSpeechProvider(SpeechProvider):
         self._transcription_model = transcription_model
         self._reconnect = reconnect or ReconnectPolicy()
         self._history_turns = history_turns
-        self._queue_size = queue_size
+        self._audio_ceiling_seconds = audio_ceiling_seconds
         self._timekeeping = timekeeping or Timekeeping()
 
     @property
@@ -109,7 +109,7 @@ class RealtimeSpeechProvider(SpeechProvider):
                 input_format=input_format,
                 output_format=self._output_format,
                 reconnect=self._reconnect,
-                queue_size=self._queue_size,
+                audio_ceiling_seconds=self._audio_ceiling_seconds,
                 timekeeping=self._timekeeping,
             ),
             SessionContext(
