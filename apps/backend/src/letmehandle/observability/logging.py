@@ -39,6 +39,9 @@ _CONTENT_LOGGERS: Final[Mapping[str, int]] = {
     "openai": logging.WARNING,
     # Requests and their headers at debug.
     "httpx": logging.WARNING,
+    # The connection layer beneath it, which logs response headers at debug: a provider's request
+    # and account identifiers ride in those.
+    "httpcore": logging.WARNING,
     # The formatted request at debug, and up to 200 characters of a tool's unparseable arguments
     # at warning, which a model may have filled with the caller's words.
     "strands": logging.ERROR,
