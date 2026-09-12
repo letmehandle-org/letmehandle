@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_primary">#7C6BEA</color>
+    <color name="brand_primary_deep">#4F3FB8</color>
+    <color name="brand_accent">#F59A5E</color>
+    <color name="brand_ink">#1D1436</color>
+    <color name="launch_background">#F8F6FF</color>
+    <color name="notification_accent">#7C6BEA</color>
+</resources>

@@ -1,0 +1,32 @@
+<!--
+title: Hours — a set window
+group: Settings
+tab: settings
+note: Once hours are set the ring shows the window it covers, the two times are the only inputs, and one line says what happens outside it. Stored with the timezone, never as naive times.
+-->
+<div class="bar nav"><button class="back"><svg class="ic"><use href="#i-chev-l"/></svg></button><span class="t">Hours</span></div>
+<div class="hero" style="margin-top:18px;padding:18px 0">
+  <div class="dial" style="--dial-size:150px">
+    <div class="track" style="background:conic-gradient(from 142deg,var(--d-arc) 0 38%,var(--d-dial-rest) 38% 100%)"></div>
+    <div class="core">
+      <svg class="ic" style="width:18px;height:18px;color:var(--d-acc-deep)"><use href="#i-bot"/></svg>
+      <b class="num" style="font-size:20px;margin-top:4px">9 hrs</b>
+      <span class="u">A day</span>
+    </div>
+  </div>
+</div>
+<div class="pad" style="margin-top:16px">
+  <div class="pick"><span>All the time</span><span class="on">Set hours</span></div>
+</div>
+<div class="pad" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+  <div class="field" style="height:56px;flex-direction:column;align-items:flex-start;justify-content:center;gap:0">
+    <span class="lbl">From</span><span class="val num" style="font-size:17px">09:30</span></div>
+  <div class="field" style="height:56px;flex-direction:column;align-items:flex-start;justify-content:center;gap:0">
+    <span class="lbl">To</span><span class="val num" style="font-size:17px">18:30</span></div>
+</div>
+<div class="pad" style="margin-top:12px">
+  <div class="aside" style="justify-content:flex-start;gap:9px">
+    <span class="disc" style="width:24px;height:24px;flex-basis:24px"><svg class="ic" style="width:12px;height:12px"><use href="#i-phone"/></svg></span>
+    Outside these hours, calls ring you
+  </div>
+</div>
