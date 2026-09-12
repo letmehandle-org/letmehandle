@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# The last gate on this machine.
+#
+# Two checks, with deliberately different scopes.
+#
+# The disclosure audit runs on every ref. On a public repository a feature branch is
+# published the moment it is pushed, so `main` is not the boundary — the remote is. It costs
+# a couple of seconds, so it can afford to run everywhere.
+#
+# `make verify` gates `main` alone. It costs minutes, and blocking a work-in-progress branch
+# for minutes is how people learn to reach for --no-verify, which would turn off the cheap
+# check too.
+#
+# Install:  make hooks      Skip deliberately:  git push --no-verify
+set -uo pipefail
+
+remote="${1:-origin}"
+zero="0000000000000000000000000000000000000000"
+gate=no
+ranges=()
+
+# Git describes each ref on stdin: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _local_ref local_sha remote_ref remote_sha; do
+    [[ "$local_sha" == "$zero" ]] && continue    # a deletion builds nothing
+    if [[ "$remote_sha" == "$zero" ]]; then
+        # A new branch has no counterpart, so ask for what the remote does not have rather
+        # than replaying the whole history on every first push.
+        ranges+=("$local_sha --not --remotes=$remote")
+    else
+        ranges+=("$remote_sha..$local_sha")
+    fi
+    if [[ "$remote_ref" == "refs/heads/main" ]]; then
+        gate=yes
+    fi
+done
+
+if ((${#ranges[@]})); then
+    printf '\n\033[1mpre-push: checking what is about to be published\033[0m\n'
+    for range in "${ranges[@]}"; do
+        # Unquoted on purpose: a new-branch range is three arguments, not one.
+        # shellcheck disable=SC2086
+        if ! python3 scripts/disclosure_audit.py --range $range; then
+            printf '\n\033[31m  nothing was pushed\033[0m\n'
+            printf '  A commit message or an added line carries something that must not be\n'
+            printf '  published. See D-021. The branch has not left this machine, so this is\n'
+            printf '  still fixable by rewriting the commit. After a push it is not.\n\n'
+            exit 1
+        fi
+    done
+fi
+
+[[ "$gate" == "yes" ]] || exit 0
+
+printf '\n\033[1mpre-push: verifying before main\033[0m\n'
+started="$SECONDS"
+log="$(mktemp -t letmehandle-prepush)"
+if make verify > "$log" 2>&1; then
+    printf '\033[32m  verify passed\033[0m in %ds — pushing\n\n' "$((SECONDS - started))"
+    rm -f "$log"
+    exit 0
+fi
+
+printf '\n\033[31m  verify FAILED\033[0m after %ds — nothing was pushed\n\n' "$((SECONDS - started))"
+tail -30 "$log" | sed 's/^/    /'
+printf '\n  Full log: %s\n  Re-run with: make verify\n\n' "$log"
+exit 1

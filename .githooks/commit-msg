@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# Reads the message before it is recorded.
+#
+# A commit message is published exactly as much as the code is, and it is the surface no file
+# audit can see: the disclosure audit scans files and a staged diff, and a message is neither.
+#
+# It also enforces Conventional Commits (D-019), because the changelog is generated from the
+# history and a history that does not parse is a changelog written by hand.
+#
+# Install:  make hooks      Skip deliberately:  git commit --no-verify
+set -uo pipefail
+
+message_file="$1"
+root="$(git rev-parse --show-toplevel)"
+
+# Merge and squash messages are written by the forge from text that already passed this gate.
+case "$(basename "$message_file")" in
+    MERGE_MSG | SQUASH_MSG) exit 0 ;;
+esac
+
+subject="$(grep -v '^#' "$message_file" | grep -v '^$' | head -1)"
+
+pattern='^(feat|fix|refactor|perf|test|docs|build|ci|chore|revert)(\([a-z0-9.-]+\))?!?: .{1,72}$'
+if ! printf '%s' "$subject" | grep -qE "$pattern"; then
+    printf '\n\033[31m  the commit was not made: the subject is not a conventional commit\033[0m\n'
+    printf '  Got:      %s\n' "$subject"
+    printf '  Expected: type(scope): summary      (72 characters or fewer)\n'
+    printf '  Types:    feat fix refactor perf test docs build ci chore revert\n\n'
+    exit 1
+fi
+
+if ! python3 "$root/scripts/disclosure_audit.py" --text --label "the commit message" < "$message_file"; then
+    printf '\033[31m  the commit was not made\033[0m\n'
+    printf '  The message carries something that must not be published. See D-021. Your\n'
+    printf '  message is kept at %s — edit it and commit again.\n\n' "$message_file"
+    exit 1
+fi
