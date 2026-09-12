@@ -104,19 +104,14 @@ def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
         ),
         authority=AgentAuthority(
             frozenset(
-                _enum(Capability, value, None)
+                capability
                 for value in document.get("authority", [])
-                if _enum(Capability, value, None) is not None
+                if (capability := _enum(Capability, value, None)) is not None
             )
         ),
         notifications=_notifications_from_document(document.get("notifications", {})),
         important_contacts=tuple(
-            ImportantContact(
-                number=PhoneNumber(entry["number"]),
-                label=entry["label"],
-                posture=_enum(HandlingPosture, entry.get("posture"), HandlingPosture.PASS_THROUGH),
-            )
-            for entry in document.get("important_contacts", [])
+            _contact_from_document(entry) for entry in document.get("important_contacts", [])
         ),
         rules=CallRules(
             default_posture=_enum(
@@ -172,6 +167,22 @@ def document_to_progress(completed: list[str], skipped: list[str]) -> Onboarding
     )
 
 
+def _contact_from_document(entry: dict[str, Any]) -> ImportantContact:
+    """One stored contact, or the domain's own error rather than a bare `KeyError`.
+
+    A missing key is corruption, and it should arrive as the failure everything else in this
+    module raises — otherwise it escapes as a server fault with nothing naming the cause.
+    """
+    try:
+        return ImportantContact(
+            number=PhoneNumber(entry["number"]),
+            label=entry["label"],
+            posture=_enum(HandlingPosture, entry.get("posture"), HandlingPosture.PASS_THROUGH),
+        )
+    except KeyError as error:
+        raise InvariantError(f"a stored contact is missing {error}") from error
+
+
 def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
     if window is None:
         return None
@@ -183,7 +194,13 @@ def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
 
 
 def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
-    if not document:
+    """No window at all is `None`; a window that is there and unreadable raises.
+
+    `None` and `{}` are not the same thing. The first is a user who set no quiet hours; the
+    second is a row that lost them, and treating it as the first is exactly the silent
+    disappearance this module argues against everywhere else.
+    """
+    if document is None:
         return None
     try:
         return TimeWindow(

@@ -113,11 +113,20 @@ class PreferencesRepository(ABC):
     """
 
     @abstractmethod
-    async def get(self, user_id: UserId) -> UserPreferences | None:
+    async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
         """What this user has chosen, or nothing if they have chosen nothing yet.
 
         Nothing is distinct from the defaults on purpose: a caller that cannot tell them apart
         cannot tell a user who wants the defaults from one who has not been asked.
+
+        `for_update` says this read is the first half of a read-modify-write, and asks the
+        store to hold the row until the transaction ends. Without it two requests changing
+        different sections both read the same starting point and the second overwrites the
+        first — which is not a rare race: a client saving two screens in quick succession hits
+        it, and measured here it lost the earlier change fourteen times in fifteen.
+
+        An implementation with nothing to lock may ignore it. One that cannot honour it must
+        say so rather than pretending.
         """
 
     @abstractmethod

@@ -254,8 +254,8 @@ class SqlPreferencesRepository(PreferencesRepository):
         self._session = session
         self._clock = clock
 
-    async def get(self, user_id: UserId) -> UserPreferences | None:
-        row = await self._session.get(PreferencesRow, user_id.value)
+    async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
+        row = await self._session.get(PreferencesRow, user_id.value, with_for_update=for_update)
         if row is None:
             return None
         return document_to_preferences(row.document)

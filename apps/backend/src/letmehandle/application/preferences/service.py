@@ -15,18 +15,23 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.models.preferences import CallRules, UserPreferences
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from letmehandle.domain.models.authority import AgentAuthority
+    from letmehandle.domain.models.caller import CallerCategory
     from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.intent import CallImportance
     from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
     from letmehandle.domain.models.preferences import (
-        CallRules,
         DisclosableFact,
         Formality,
+        HandlingPosture,
         ImportantContact,
         NotificationPreferences,
+        TimeWindow,
         Topic,
         Verbosity,
     )
@@ -34,6 +39,25 @@ if TYPE_CHECKING:
         OnboardingRepository,
         PreferencesRepository,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CallHandling:
+    """The routing half of `CallRules`, as one screen sends it."""
+
+    default_posture: HandlingPosture
+    anonymous_posture: HandlingPosture
+    posture_by_category: Mapping[CallerCategory, HandlingPosture]
+    blocked_categories: frozenset[CallerCategory]
+    escalate_at_or_above: CallImportance
+
+
+@dataclass(frozen=True, slots=True)
+class Hours:
+    """The scheduling half. Both members are optional, and absent means "no window"."""
+
+    working: TimeWindow | None = None
+    quiet: TimeWindow | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +70,13 @@ class PreferenceChanges:
     """
 
     locale: str | None = None
-    rules: CallRules | None = None
+    # Call handling and hours are two screens and one domain object. They are carried
+    # separately here, and recombined against what is stored, because building a whole
+    # `CallRules` in the HTTP layer means the half that was not sent is filled from the
+    # defaults — which resets it. A user who blocked spam callers and then set quiet hours
+    # from a different screen would find the blocking silently gone.
+    call_handling: CallHandling | None = None
+    hours: Hours | None = None
     authority: AgentAuthority | None = None
     notifications: NotificationPreferences | None = None
     formality: Formality | None = None
@@ -66,7 +96,8 @@ class PreferenceChanges:
             getattr(self, name) is None
             for name in (
                 "locale",
-                "rules",
+                "call_handling",
+                "hours",
                 "authority",
                 "notifications",
                 "formality",
@@ -78,6 +109,37 @@ class PreferenceChanges:
         )
 
 
+def _merge_rules(current: CallRules, changes: PreferenceChanges) -> CallRules:
+    """Rebuild the rules from what is stored and whichever half was sent.
+
+    Here rather than in the HTTP layer, so that the answer to "what happens to the half nobody
+    mentioned" is given once. The layer above sends what it has; it does not get to decide what
+    the absence of the rest means.
+    """
+    handling = changes.call_handling
+    hours = changes.hours
+
+    return CallRules(
+        default_posture=(current.default_posture if handling is None else handling.default_posture),
+        anonymous_posture=(
+            current.anonymous_posture if handling is None else handling.anonymous_posture
+        ),
+        posture_by_category=(
+            dict(current.posture_by_category)
+            if handling is None
+            else dict(handling.posture_by_category)
+        ),
+        blocked_categories=(
+            current.blocked_categories if handling is None else handling.blocked_categories
+        ),
+        escalate_at_or_above=(
+            current.escalate_at_or_above if handling is None else handling.escalate_at_or_above
+        ),
+        working_hours=current.working_hours if hours is None else hours.working,
+        quiet_hours=current.quiet_hours if hours is None else hours.quiet,
+    )
+
+
 class PreferencesService:
     """Preferences and onboarding progress, for one deployment."""
 
@@ -87,63 +149,75 @@ class PreferencesService:
         self._preferences = preferences
         self._onboarding = onboarding
 
-    async def get(self, user_id: UserId) -> UserPreferences:
+    async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences:
         """What this user has chosen, or the defaults if they have chosen nothing.
 
         The defaults are returned rather than an absence, because every caller would otherwise
         substitute them itself and one of them would substitute something else.
         """
-        stored = await self._preferences.get(user_id)
+        stored = await self._preferences.get(user_id, for_update=for_update)
         return stored if stored is not None else UserPreferences()
 
-    async def has_chosen(self, user_id: UserId) -> bool:
-        """Whether this user has ever saved anything.
-
-        Distinct from holding the defaults: it is the difference between somebody who wants
-        the defaults and somebody who has not been asked.
-        """
-        return await self._preferences.get(user_id) is not None
-
     async def apply(self, user_id: UserId, changes: PreferenceChanges) -> UserPreferences:
-        """Change the sections that were given, and leave the rest exactly as they were."""
-        current = await self.get(user_id)
+        """Change the sections that were given, and leave the rest exactly as they were.
+
+        The read is taken for update, because everything between it and the write is a decision
+        made from what it returned. Two requests changing different sections would otherwise
+        both start from the same values and the second would overwrite the first — and the
+        client that does this is not a pathological one, it is a phone saving two screens.
+        """
+        current = await self.get(user_id, for_update=True)
         if changes.is_empty:
             return current
 
-        updated = replace(
-            current,
-            locale=current.locale if changes.locale is None else changes.locale,
-            rules=current.rules if changes.rules is None else changes.rules,
-            authority=current.authority if changes.authority is None else changes.authority,
+        updated = self._compose(current, changes)
+        await self._preferences.save(user_id, updated)
+        return updated
+
+    async def replace_all(self, user_id: UserId, changes: PreferenceChanges) -> UserPreferences:
+        """Store a complete set, built from the defaults.
+
+        The deliberate counterpart to `apply`: a section this does not mention is reset rather
+        than kept, so a caller that means to set everything says so instead of relying on
+        having remembered every section.
+
+        The only difference between the two is what they compose against — the defaults here,
+        what is stored there — which is why the composing itself is shared.
+        """
+        replaced = self._compose(UserPreferences(), changes)
+        await self._preferences.save(user_id, replaced)
+        return replaced
+
+    @staticmethod
+    def _compose(base: UserPreferences, changes: PreferenceChanges) -> UserPreferences:
+        """Everything from `base`, except the sections `changes` actually carries.
+
+        Used by both `apply` and `replace_all`, and the only difference between them is what
+        they pass as `base`: what is stored, or the defaults. Stating it once is what keeps the
+        two from drifting into different answers about an absent section.
+        """
+        return replace(
+            base,
+            locale=base.locale if changes.locale is None else changes.locale,
+            rules=_merge_rules(base.rules, changes),
+            authority=base.authority if changes.authority is None else changes.authority,
             notifications=(
-                current.notifications if changes.notifications is None else changes.notifications
+                base.notifications if changes.notifications is None else changes.notifications
             ),
-            formality=current.formality if changes.formality is None else changes.formality,
-            verbosity=current.verbosity if changes.verbosity is None else changes.verbosity,
-            topics=current.topics if changes.topics is None else changes.topics,
+            formality=base.formality if changes.formality is None else changes.formality,
+            verbosity=base.verbosity if changes.verbosity is None else changes.verbosity,
+            topics=base.topics if changes.topics is None else changes.topics,
             disclosable_facts=(
-                current.disclosable_facts
+                base.disclosable_facts
                 if changes.disclosable_facts is None
                 else changes.disclosable_facts
             ),
             important_contacts=(
-                current.important_contacts
+                base.important_contacts
                 if changes.important_contacts is None
                 else changes.important_contacts
             ),
         )
-
-        await self._preferences.save(user_id, updated)
-        return updated
-
-    async def replace_all(self, user_id: UserId, preferences: UserPreferences) -> UserPreferences:
-        """Store a complete set, replacing everything.
-
-        The deliberate counterpart to `apply`: a caller that means to set everything says so,
-        rather than relying on having mentioned every section.
-        """
-        await self._preferences.save(user_id, preferences)
-        return preferences
 
     # ------------------------------------------------------------- onboarding
 

@@ -27,13 +27,16 @@ from letmehandle.api.preference_schemas import (
     PreferencesUpdate,
     TimeWindowPayload,
 )
-from letmehandle.application.preferences.service import PreferenceChanges
+from letmehandle.application.preferences.service import (
+    CallHandling,
+    Hours,
+    PreferenceChanges,
+)
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority
 from letmehandle.domain.models.onboarding import ORDER, OnboardingProgress
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
-    CallRules,
     DisclosableFact,
     ImportantContact,
     NotificationPreferences,
@@ -61,7 +64,10 @@ async def replace_preferences(
     it says "replace".
     """
     changes = _to_changes(body)
-    return _to_response(await service.replace_all(user.id, _apply_to(UserPreferences(), changes)))
+    try:
+        return _to_response(await service.replace_all(user.id, changes))
+    except InvariantError as error:
+        raise _refused(error) from error
 
 
 @router.patch("/preferences", response_model=PreferencesResponse, summary="Change some of it")
@@ -72,7 +78,13 @@ async def update_preferences(
 
     The ordinary case: one screen saves one section, and has no idea what the others hold.
     """
-    return _to_response(await service.apply(user.id, _to_changes(body)))
+    try:
+        return _to_response(await service.apply(user.id, _to_changes(body)))
+    except InvariantError as error:
+        # The invariants on the whole set — how many contacts, duplicate numbers, a blank
+        # locale — run when the service composes it, which is outside `_to_changes`. Without
+        # this they escape as a 500, and a duplicate phone number becomes a server fault.
+        raise _refused(error) from error
 
 
 @router.get("/onboarding", response_model=OnboardingResponse, summary="Where setup is")
@@ -109,13 +121,33 @@ async def record_onboarding_step(
 def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
     """Turn a payload into domain values, refusing anything the domain would refuse.
 
-    Every failure here is a `422` naming the section, because a domain error escaping this
+    Every failure here is a 422 naming the section, because a domain error escaping this
     function is a 500 — and "your quiet hours are impossible" is not a server fault.
+
+    Call handling and hours are carried separately rather than combined into a `CallRules`.
+    Combining them here would mean filling the half that was not sent from the defaults, which
+    resets it: a user who blocked spam callers and then set quiet hours from another screen
+    would find the blocking gone.
     """
     try:
         return PreferenceChanges(
             locale=body.locale,
-            rules=_rules(body.call_handling, body.hours),
+            call_handling=(
+                None
+                if body.call_handling is None
+                else CallHandling(
+                    default_posture=body.call_handling.default_posture,
+                    anonymous_posture=body.call_handling.anonymous_posture,
+                    posture_by_category=dict(body.call_handling.posture_by_category),
+                    blocked_categories=frozenset(body.call_handling.blocked_categories),
+                    escalate_at_or_above=body.call_handling.escalate_at_or_above,
+                )
+            ),
+            hours=(
+                None
+                if body.hours is None
+                else Hours(working=_window(body.hours.working), quiet=_window(body.hours.quiet))
+            ),
             authority=(
                 None
                 if body.authority is None
@@ -158,44 +190,7 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
             ),
         )
     except InvariantError as error:
-        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
-
-
-def _rules(handling: CallHandlingPayload | None, hours: HoursPayload | None) -> CallRules | None:
-    """Call handling and hours are one domain object, and two screens.
-
-    Sending only one of them has to keep the other, which is why this cannot simply be built
-    from whichever payload arrived. The service sees a whole `CallRules` or nothing, so the
-    parts that were not sent are filled from the defaults here and corrected by the service
-    against what is stored.
-    """
-    if handling is None and hours is None:
-        return None
-
-    defaults = CallRules()
-    return CallRules(
-        default_posture=(
-            defaults.default_posture if handling is None else handling.default_posture
-        ),
-        anonymous_posture=(
-            defaults.anonymous_posture if handling is None else handling.anonymous_posture
-        ),
-        posture_by_category=(
-            dict(defaults.posture_by_category)
-            if handling is None
-            else dict(handling.posture_by_category)
-        ),
-        blocked_categories=(
-            defaults.blocked_categories
-            if handling is None
-            else frozenset(handling.blocked_categories)
-        ),
-        escalate_at_or_above=(
-            defaults.escalate_at_or_above if handling is None else handling.escalate_at_or_above
-        ),
-        working_hours=None if hours is None else _window(hours.working),
-        quiet_hours=None if hours is None else _window(hours.quiet),
-    )
+        raise _refused(error) from error
 
 
 def _window(payload: TimeWindowPayload | None) -> TimeWindow | None:
@@ -209,31 +204,9 @@ def _time(value: str) -> time:
     return time(int(hour), int(minute))
 
 
-def _apply_to(base: UserPreferences, changes: PreferenceChanges) -> UserPreferences:
-    """Build a complete set from the defaults plus what was sent.
-
-    Used only by the replace route. The patch route goes through the service, which starts
-    from what is stored instead.
-    """
-    from dataclasses import replace as replace_fields
-
-    return replace_fields(
-        base,
-        locale=base.locale if changes.locale is None else changes.locale,
-        rules=base.rules if changes.rules is None else changes.rules,
-        authority=base.authority if changes.authority is None else changes.authority,
-        notifications=(
-            base.notifications if changes.notifications is None else changes.notifications
-        ),
-        formality=base.formality if changes.formality is None else changes.formality,
-        verbosity=base.verbosity if changes.verbosity is None else changes.verbosity,
-        topics=base.topics if changes.topics is None else changes.topics,
-        important_contacts=(
-            base.important_contacts
-            if changes.important_contacts is None
-            else changes.important_contacts
-        ),
-    )
+def _refused(error: InvariantError) -> ApiError:
+    """A value the domain will not accept is the request's problem, not the server's."""
+    return ApiError(UNPROCESSABLE, "invalid_request", str(error))
 
 
 def _to_response(preferences: UserPreferences) -> PreferencesResponse:

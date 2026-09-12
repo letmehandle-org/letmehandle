@@ -295,3 +295,29 @@ class TestMalformedDocuments:
         assert document_to_preferences(document).rules.escalate_at_or_above is (
             CallImportance.NOTABLE
         )
+
+
+class TestCorruptEntries:
+    def test_a_contact_missing_its_number_raises_the_domain_error(self) -> None:
+        # Not a bare KeyError: that escapes as a server fault with nothing naming the cause.
+        document = preferences_to_document(everything())
+        del document["important_contacts"][0]["number"]
+
+        with pytest.raises(InvariantError, match="missing"):
+            document_to_preferences(document)
+
+    def test_a_contact_missing_its_label_raises_too(self) -> None:
+        document = preferences_to_document(everything())
+        del document["important_contacts"][0]["label"]
+
+        with pytest.raises(InvariantError, match="missing"):
+            document_to_preferences(document)
+
+    def test_an_empty_window_document_is_corruption_rather_than_no_window(self) -> None:
+        # `None` is a user who set no quiet hours; `{}` is a row that lost them. Treating the
+        # second as the first is exactly the silent disappearance this module argues against.
+        document = preferences_to_document(everything())
+        document["rules"]["quiet_hours"] = {}
+
+        with pytest.raises(InvariantError, match="stored hours"):
+            document_to_preferences(document)

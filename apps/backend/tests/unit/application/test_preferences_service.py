@@ -11,6 +11,8 @@ from datetime import time
 import pytest
 
 from letmehandle.application.preferences.service import (
+    CallHandling,
+    Hours,
     PreferenceChanges,
     PreferencesService,
 )
@@ -18,10 +20,10 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.identifiers import UserId
+from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import ORDER, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
-    CallRules,
     Formality,
     HandlingPosture,
     ImportantContact,
@@ -39,6 +41,19 @@ from tests.contracts.preference_fakes import (
 USER = UserId("user-1")
 SOMEBODY_ELSE = UserId("user-2")
 NUMBER = PhoneNumber.parse("+12025550143")
+
+QUIET_HOURS = TimeWindow(time(22, 0), time(7, 0), "Europe/London")
+WORKING_HOURS = TimeWindow(time(9, 0), time(17, 30), "Europe/London")
+
+# Every field different from its default, so a test asserting the half that was not sent
+# survived is asserting something.
+REJECT_UNKNOWN = CallHandling(
+    default_posture=HandlingPosture.REJECT,
+    anonymous_posture=HandlingPosture.REJECT,
+    posture_by_category={CallerCategory.KNOWN_CONTACT: HandlingPosture.PASS_THROUGH},
+    blocked_categories=frozenset({CallerCategory.SPAM}),
+    escalate_at_or_above=CallImportance.URGENT,
+)
 
 
 @pytest.fixture
@@ -64,16 +79,8 @@ class TestReading:
     ) -> None:
         assert await service.get(USER) == UserPreferences()
 
-    async def test_wanting_the_defaults_is_distinguishable_from_not_being_asked(
-        self, service: PreferencesService
-    ) -> None:
-        # The difference matters to onboarding: one of these people has answered the questions.
-        assert not await service.has_chosen(USER)
-        await service.replace_all(USER, UserPreferences())
-        assert await service.has_chosen(USER)
-
     async def test_what_was_stored_comes_back(self, service: PreferencesService) -> None:
-        await service.replace_all(USER, UserPreferences(locale="en-GB"))
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
         assert (await service.get(USER)).locale == "en-GB"
 
 
@@ -106,7 +113,7 @@ class TestPartialUpdates:
     ) -> None:
         # Driven over all of them, because the one that gets forgotten is never the one somebody
         # thought to write a test for.
-        full = UserPreferences(
+        full = PreferenceChanges(
             locale="en-GB",
             formality=Formality.FORMAL,
             verbosity=Verbosity.BRIEF,
@@ -114,7 +121,7 @@ class TestPartialUpdates:
             notifications=NotificationPreferences(on_handled_call=True),
             topics=frozenset({Topic("school run")}),
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
-            rules=CallRules(default_posture=HandlingPosture.REJECT),
+            call_handling=REJECT_UNKNOWN,
         )
         await service.replace_all(USER, full)
 
@@ -156,28 +163,79 @@ class TestPartialUpdates:
         assert (await service.get(SOMEBODY_ELSE)).locale == "en"
 
 
+class TestCallHandlingAndHours:
+    """One domain object, two screens, and the bug that lives between them.
+
+    `CallRules` carries both how a caller is routed and when the user is available. They are
+    edited on separate screens, so a save carrying one of them must not disturb the other — and
+    the obvious implementation, building a whole `CallRules` from whichever half arrived,
+    silently resets the other to its defaults.
+    """
+
+    async def test_setting_hours_leaves_call_handling_alone(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(call_handling=REJECT_UNKNOWN))
+
+        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+
+        after = await service.get(USER)
+        assert after.rules.quiet_hours == QUIET_HOURS
+        # Every field of the half that was not sent, because resetting any one of them is the
+        # same defect wearing a different name.
+        assert after.rules.default_posture is HandlingPosture.REJECT
+        assert after.rules.anonymous_posture is HandlingPosture.REJECT
+        assert after.rules.blocked_categories == frozenset({CallerCategory.SPAM})
+        assert after.rules.escalate_at_or_above is CallImportance.URGENT
+
+    async def test_setting_call_handling_leaves_hours_alone(
+        self, service: PreferencesService
+    ) -> None:
+        # The direction that matters most: quiet hours that silently disappear mean a phone
+        # ringing at three in the morning with nothing anywhere to say why.
+        await service.apply(
+            USER, PreferenceChanges(hours=Hours(working=WORKING_HOURS, quiet=QUIET_HOURS))
+        )
+
+        await service.apply(USER, PreferenceChanges(call_handling=REJECT_UNKNOWN))
+
+        after = await service.get(USER)
+        assert after.rules.quiet_hours == QUIET_HOURS
+        assert after.rules.working_hours == WORKING_HOURS
+
+    async def test_hours_can_still_be_cleared(self, service: PreferencesService) -> None:
+        # Absent leaves alone; present-and-empty clears. Without both, quiet hours once set
+        # could never be removed.
+        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+
+        await service.apply(USER, PreferenceChanges(hours=Hours()))
+
+        assert (await service.get(USER)).rules.quiet_hours is None
+
+
 class TestReplacing:
     async def test_it_stores_everything_it_was_given(self, service: PreferencesService) -> None:
         await service.replace_all(
-            USER,
-            UserPreferences(
-                rules=CallRules(
-                    quiet_hours=TimeWindow(time(22, 0), time(7, 0), "Europe/London"),
-                    blocked_categories=frozenset({CallerCategory.SPAM}),
-                )
-            ),
+            USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS), call_handling=REJECT_UNKNOWN)
         )
 
         after = await service.get(USER)
-        assert after.rules.quiet_hours is not None
+        assert after.rules.quiet_hours == QUIET_HOURS
         assert after.rules.blocked_categories == frozenset({CallerCategory.SPAM})
 
     async def test_it_replaces_rather_than_merges(self, service: PreferencesService) -> None:
         # The deliberate counterpart to a partial update: a caller that means to set everything
         # says so, rather than relying on having mentioned every section.
         await service.apply(USER, PreferenceChanges(locale="en-GB"))
-        await service.replace_all(USER, UserPreferences())
+        await service.replace_all(USER, PreferenceChanges())
         assert (await service.get(USER)).locale == "en"
+
+    async def test_it_resets_a_section_it_does_not_mention(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
+        assert (await service.get(USER)).rules.quiet_hours is None
 
 
 class TestOnboarding:

@@ -148,6 +148,74 @@ class TestPartialUpdates:
         assert await read(api, tokens) == await read(api, tokens)
 
 
+class TestTheTwoHalvesOfOneDomainObject:
+    """Call handling and hours are two screens and one `CallRules`.
+
+    Saving one of them must not disturb the other. The obvious implementation — building a
+    whole `CallRules` from whichever half arrived — resets the other to its defaults, and the
+    tests that miss it are the ones that only ever change sections which map to independent
+    domain fields.
+    """
+
+    async def test_saving_hours_does_not_reset_call_handling(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"call_handling": FULL_CALL_HANDLING})
+
+        await patch(api, tokens, {"hours": LONDON_HOURS})
+
+        after = await read(api, tokens)
+        assert after["call_handling"]["anonymous_posture"] == "reject"
+        assert after["call_handling"]["blocked_categories"] == ["spam"]
+        assert after["call_handling"]["escalate_at_or_above"] == 50
+        assert after["call_handling"]["posture_by_category"] == {"known_contact": "pass_through"}
+
+    async def test_saving_call_handling_does_not_reset_hours(self, api: Api) -> None:
+        # A user who sets quiet hours and then changes how unknown callers are treated must not
+        # find their phone ringing at three in the morning.
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"hours": LONDON_HOURS})
+
+        await patch(api, tokens, {"call_handling": FULL_CALL_HANDLING})
+
+        after = await read(api, tokens)
+        assert after["hours"]["quiet"] == LONDON_HOURS["quiet"]
+        assert after["hours"]["working"] == LONDON_HOURS["working"]
+
+
+class TestConcurrentSaves:
+    async def test_two_sections_saved_at_once_both_survive(self, api: Api) -> None:
+        """A phone saving two screens in quick succession.
+
+        The service reads, composes and writes; without the read being taken for update, both
+        requests start from the same values and the second overwrites the first. Measured
+        before the fix, the earlier change was lost fourteen times in fifteen.
+        """
+        import asyncio
+
+        tokens = await sign_in(api)
+
+        first, second = await asyncio.gather(
+            api.client.patch(
+                "/v1/preferences",
+                headers=bearer(tokens),
+                json={"personality": {"formality": "warm", "verbosity": "brief", "topics": ["a"]}},
+            ),
+            api.client.patch(
+                "/v1/preferences",
+                headers=bearer(tokens),
+                json={"notifications": {"on_handled_call": True}},
+            ),
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+        after = await read(api, tokens)
+        assert after["personality"]["formality"] == "warm"
+        assert after["personality"]["topics"] == ["a"]
+        assert after["notifications"]["on_handled_call"] is True
+
+
 class TestReplacing:
     async def test_put_resets_what_it_does_not_mention(self, api: Api) -> None:
         tokens = await sign_in(api)
@@ -212,6 +280,95 @@ class TestValidation:
         tokens = await sign_in(api)
         response = await api.client.patch("/v1/preferences", headers=bearer(tokens), json=body)
         assert response.status_code == 422, response.text
+
+    @pytest.mark.parametrize(
+        ("body", "why"),
+        [
+            ({"locale": "  "}, "blank once the whitespace is taken off"),
+            (
+                {
+                    "personality": {
+                        "formality": "warm",
+                        "verbosity": "brief",
+                        "topics": [f"topic {number}" for number in range(60)],
+                    }
+                },
+                "more topics than the domain allows",
+            ),
+            (
+                {
+                    "important_contacts": [
+                        {"phone_number": "+12025550143", "label": "Mum"},
+                        {"phone_number": "+1 (202) 555-0143", "label": "Also Mum"},
+                    ]
+                },
+                "one number twice, in two spellings",
+            ),
+        ],
+    )
+    async def test_a_whole_set_invariant_is_a_request_problem_not_a_server_fault(
+        self, api: Api, body: dict[str, Any], why: str
+    ) -> None:
+        # These run when the service composes the whole set, which is outside the mapping
+        # function that catches the rest. Without translating them there too, a duplicate phone
+        # number in somebody's address book becomes a 500.
+        tokens = await sign_in(api)
+        response = await api.client.patch("/v1/preferences", headers=bearer(tokens), json=body)
+        assert response.status_code == 422, f"{why}: {response.text}"
+        assert response.json()["error"] == "invalid_request"
+
+    async def test_the_same_holds_for_a_replace(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.put(
+            "/v1/preferences",
+            headers=bearer(tokens),
+            json={
+                "important_contacts": [
+                    {"phone_number": "+12025550143", "label": "Mum"},
+                    {"phone_number": "+1 (202) 555-0143", "label": "Also Mum"},
+                ]
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_a_time_with_seconds_is_refused(self, api: Api) -> None:
+        # Stored to the minute. A window whose ends differ only in seconds would come back
+        # equal, which the domain refuses — so the row would save and never be readable again.
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/preferences",
+            headers=bearer(tokens),
+            json={"hours": {"working": {"start": "09:00:30", "end": "17:00", "zone": "UTC"}}},
+        )
+        assert response.status_code == 422
+
+    async def test_a_contact_label_cannot_span_lines(self, api: Api) -> None:
+        # The label reaches the model. A value spanning several lines is room for something
+        # shaped like an instruction.
+        tokens = await sign_in(api)
+        await patch(
+            api,
+            tokens,
+            {
+                "important_contacts": [
+                    {"phone_number": ANOTHER_NUMBER, "label": "Mum\nand something else"}
+                ]
+            },
+        )
+        stored = (await read(api, tokens))["important_contacts"][0]["label"]
+        assert "\n" not in stored
+        assert stored == "Mum and something else"
+
+    @pytest.mark.parametrize("locale", ["!!!!!!", "en_GB_", "1234"])
+    async def test_a_locale_that_is_not_a_language_tag_is_refused(
+        self, api: Api, locale: str
+    ) -> None:
+        # This is what the agent speaks and what a voice is chosen for.
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/preferences", headers=bearer(tokens), json={"locale": locale}
+        )
+        assert response.status_code == 422
 
     async def test_a_rejected_change_stores_nothing(self, api: Api) -> None:
         tokens = await sign_in(api)

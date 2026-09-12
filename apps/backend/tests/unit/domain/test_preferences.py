@@ -87,6 +87,21 @@ class TestTimeWindow:
         with pytest.raises(InvariantError):
             TimeWindow(time(9, 0), time(9, 0), LONDON)
 
+    @pytest.mark.parametrize(
+        ("start", "end"),
+        [
+            (time(9, 0, 30), time(17, 0)),
+            (time(9, 0), time(17, 0, 30)),
+            (time(9, 0, 0, 1), time(17, 0)),
+        ],
+    )
+    def test_a_window_finer_than_a_minute_is_refused(self, start: time, end: time) -> None:
+        # Stored to the minute, so anything finer is different when it comes back. Worse than
+        # lossy: two ends differing only in seconds come back equal, which this constructor
+        # refuses — so the row saves and can never be read again.
+        with pytest.raises(InvariantError, match="minute"):
+            TimeWindow(start, end, LONDON)
+
     def test_an_unknown_zone_is_refused(self) -> None:
         with pytest.raises(InvariantError, match="timezone"):
             TimeWindow(time(9, 0), time(17, 0), "Mars/Olympus_Mons")

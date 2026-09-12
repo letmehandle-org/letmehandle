@@ -20,7 +20,10 @@ class InMemoryPreferencesRepository(PreferencesRepository):
         self.by_user: dict[str, UserPreferences] = {}
         self.writes = 0
 
-    async def get(self, user_id: UserId) -> UserPreferences | None:
+    async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
+        # Nothing to lock: one process, one dictionary, and no await between the read and the
+        # write that follows it. Accepted and ignored rather than refused, because the caller
+        # asking for it is right to ask.
         return self.by_user.get(user_id.value)
 
     async def save(self, user_id: UserId, preferences: UserPreferences) -> None:

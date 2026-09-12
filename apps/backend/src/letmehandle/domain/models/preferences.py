@@ -148,10 +148,16 @@ class ImportantContact:
     MAX_LABEL: ClassVar[int] = 80
 
     def __post_init__(self) -> None:
-        if not self.label.strip():
+        # Collapsed the way a topic is, and for the same reason: this label is put in front of
+        # the model, so a value spanning several lines is room for something shaped like an
+        # instruction. The label is the user's own text about their own contact, but on a phone
+        # it usually comes from an address book they did not write either.
+        collapsed = " ".join(self.label.split())
+        if not collapsed:
             raise InvariantError("an important contact needs a label, or the list is numbers")
-        if len(self.label) > self.MAX_LABEL:
+        if len(collapsed) > self.MAX_LABEL:
             raise InvariantError(f"a label is at most {self.MAX_LABEL} characters")
+        object.__setattr__(self, "label", collapsed)
 
     def __str__(self) -> str:
         """The label alone. The number is personal data belonging to somebody else."""
@@ -203,6 +209,14 @@ class TimeWindow:
             raise InvariantError(
                 "a window that starts and ends at the same moment covers nothing; "
                 "for a whole day, use midnight to one minute before it"
+            )
+        if any(moment.second or moment.microsecond for moment in (self.start, self.end)):
+            # Stored to the minute, so anything finer is lost on the way out and different on
+            # the way back. Worse than lossy: two ends that differ only in seconds come back
+            # equal, which this very constructor refuses — so the row saves and can never be
+            # read again, and that user's preferences return a server error for ever.
+            raise InvariantError(
+                "a window is set to the minute; seconds are not stored and would be lost"
             )
         try:
             ZoneInfo(self.zone)

@@ -3,10 +3,13 @@
 Separate from the domain types, as everywhere in this layer: the wire format is a contract with
 an app that ships independently and cannot be updated in step.
 
-The distinction that matters most here is between *absent* and *null*. A client sending only
-the section it changed is the ordinary case, so an absent field means "leave this alone" — and
-a field explicitly set to null means "clear it". Collapsing the two would make a partial update
-quietly erase everything it did not mention, which is the defect this shape exists to prevent.
+The rule a client author needs, stated once: **an absent section is left exactly as it was, and
+a section sent with an empty value is cleared.** Sending a list of no contacts removes them all;
+omitting the field entirely leaves them alone.
+
+Explicit `null` is treated as absent, not as a clear. The two are indistinguishable once a
+payload has been parsed, and the empty value is the clearer instruction — so there is one way to
+clear a section rather than two that could disagree.
 """
 
 from __future__ import annotations
@@ -126,7 +129,15 @@ class PreferencesUpdate(Request):
     lets one screen save one section without knowing or caring what the others hold.
     """
 
-    locale: Annotated[str, Field(min_length=2, max_length=16)] | None = None
+    # Shaped like a language tag rather than merely non-empty. This is what the agent speaks
+    # and what a voice is chosen for; "!!!!!!" reaching either of those is a call nobody can
+    # understand rather than an error anybody sees.
+    locale: (
+        Annotated[
+            str, Field(min_length=2, max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+        ]
+        | None
+    ) = None
     call_handling: CallHandlingPayload | None = None
     important_contacts: list[ImportantContactPayload] | None = None
     hours: HoursPayload | None = None
