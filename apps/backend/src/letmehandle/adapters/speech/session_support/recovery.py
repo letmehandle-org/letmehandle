@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
 from letmehandle.adapters.speech.websocket.connection import (
+    ConnectionClosedError,
     ConnectionFailedError,
     EventConnectionError,
 )
@@ -50,22 +52,33 @@ async def replace_connection(
     policy: ReconnectPolicy,
     timekeeping: Timekeeping,
     telemetry: SessionTelemetry,
+    budget: ReconnectBudget | None = None,
 ) -> EventConnection | str:
     """A new connection, or the reason none could be had.
 
     `abandon` releases whatever a failed attempt left half-open, so `open_connection` holds what
     it opens where `abandon` will find it. A refusal that cannot change ends the attempts at once
     rather than spending the rest of them on it.
+
+    `budget` carries attempts from one recovery to the next. A session that passes one resets it
+    only once a replacement has shown it works, so a service that accepts every connection and
+    drops it at once runs out of attempts instead of being reconnected to forever. Without one,
+    every recovery starts with all its attempts.
     """
+    budget = budget or ReconnectBudget()
     telemetry.reconnecting()
-    for attempt in range(policy.max_attempts):
+    while budget.spent < policy.max_attempts:
+        attempt = budget.spent
+        budget.spent += 1
         await timekeeping.sleep(policy.delay(attempt, timekeeping.draw()))
         try:
             connection = await open_connection()
         except EventConnectionError as failure:
             await abandon()
             telemetry.stream_error(StreamErrorKind.CONNECTION)
-            if not is_retryable(failure):
+            # A replacement found closed while it was being set up is worth another attempt: the
+            # service closing it normally is a restart or a limit, not a refusal of the next one.
+            if not (is_retryable(failure) or isinstance(failure, ConnectionClosedError)):
                 telemetry.reconnected(succeeded=False)
                 return str(failure)
             continue

@@ -39,3 +39,18 @@ class ReconnectPolicy:
         """
         ceiling = min(self.max_delay_seconds, self.initial_delay_seconds * 2.0**attempt)
         return ceiling / 2 + ceiling / 2 * draw
+
+
+class ReconnectBudget:
+    """Attempts spent on replacement connections that have not yet shown they work.
+
+    Accepting a handshake is not working. A service that accepts and then drops every connection
+    succeeds at every attempt, and a count reset by each success never reaches its limit.
+    """
+
+    def __init__(self) -> None:
+        self.spent = 0
+
+    def proven(self) -> None:
+        """The latest replacement delivered something real, so the next outage starts afresh."""
+        self.spent = 0

@@ -1,6 +1,9 @@
-"""The pieces every speech session is built from: backoff, remembered turns, and measurement."""
+"""The pieces every speech session is built from: backoff, recovery, memory and measurement."""
 
 from __future__ import annotations
+
+from collections import deque
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,10 +13,24 @@ from letmehandle.adapters.speech.session_support.history import (
     Speaker,
     Turn,
 )
-from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget, ReconnectPolicy
+from letmehandle.adapters.speech.session_support.recovery import replace_connection
 from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry, StreamErrorKind
+from letmehandle.adapters.speech.session_support.timing import Timekeeping
+from letmehandle.adapters.speech.websocket.connection import (
+    ConnectionClosedError,
+    ConnectionFailedError,
+    EventConnectionError,
+)
 from letmehandle.domain.errors import InvariantError
 from tests.support.recording_metrics import RecordingMetrics
+from tests.support.scripted_realtime_connection import (
+    ScriptedRealtimeConnection,
+    ScriptedRealtimeService,
+)
+
+if TYPE_CHECKING:
+    from tests.unit.adapters.speech.conftest import RecordedSleep
 
 # ----------------------------------------------------------------------------------- backoff
 
@@ -153,3 +170,85 @@ def test_labels_are_dimensions_only(measured: SessionTelemetry, metrics: Recordi
         "kind",
         "outcome",
     }
+
+
+# ---------------------------------------------------------------------------------- recovery
+
+
+class Opener:
+    """Opens connections, failing with whatever it was told to fail with first."""
+
+    def __init__(self, *failures: EventConnectionError) -> None:
+        self.failures = deque(failures)
+        self.service = ScriptedRealtimeService()
+        self.abandoned = 0
+
+    async def open(self) -> ScriptedRealtimeConnection:
+        if self.failures:
+            raise self.failures.popleft()
+        return await self.service.open()
+
+    async def abandon(self) -> None:
+        self.abandoned += 1
+
+
+async def recover(
+    opener: Opener,
+    sleep: RecordedSleep,
+    metrics: RecordingMetrics,
+    budget: ReconnectBudget | None = None,
+) -> object:
+    return await replace_connection(
+        open_connection=opener.open,
+        abandon=opener.abandon,
+        policy=ReconnectPolicy(3, 0.5, 2.0),
+        timekeeping=Timekeeping(sleep=sleep, draw=lambda: 0.0),
+        telemetry=SessionTelemetry(metrics, lambda: 0.0, "realtime"),
+        budget=budget,
+    )
+
+
+async def test_a_budget_carries_attempts_across_recoveries_until_one_is_proven(
+    sleep: RecordedSleep, metrics: RecordingMetrics
+) -> None:
+    # A service that accepts every connection and drops it at once: each recovery succeeds,
+    # and without a carried budget the session would go round forever.
+    opener, budget = Opener(), ReconnectBudget()
+    outcomes = [await recover(opener, sleep, metrics, budget) for _ in range(4)]
+
+    assert [isinstance(each, ScriptedRealtimeConnection) for each in outcomes] == [
+        True,
+        True,
+        True,
+        False,
+    ]
+    assert len(opener.service.connections) == 3
+    assert sleep.delays == [0.25, 0.5, 1.0]
+    assert metrics.counted(telemetry.RECONNECTIONS, outcome="failed") == 1
+
+    budget.proven()
+    assert isinstance(await recover(opener, sleep, metrics, budget), ScriptedRealtimeConnection)
+
+
+async def test_without_a_budget_every_recovery_starts_afresh(
+    sleep: RecordedSleep, metrics: RecordingMetrics
+) -> None:
+    opener = Opener()
+    for _ in range(4):
+        assert isinstance(await recover(opener, sleep, metrics), ScriptedRealtimeConnection)
+
+
+async def test_a_replacement_closed_while_being_set_up_is_tried_again(
+    sleep: RecordedSleep, metrics: RecordingMetrics
+) -> None:
+    opener = Opener(ConnectionClosedError("closed normally during setup"))
+    assert isinstance(await recover(opener, sleep, metrics), ScriptedRealtimeConnection)
+    assert opener.abandoned == 1
+
+
+async def test_a_refusal_that_cannot_change_ends_recovery_at_once(
+    sleep: RecordedSleep, metrics: RecordingMetrics
+) -> None:
+    opener = Opener(ConnectionFailedError("key refused", retryable=False))
+    assert await recover(opener, sleep, metrics) == "key refused"
+    assert len(sleep.delays) == 1
