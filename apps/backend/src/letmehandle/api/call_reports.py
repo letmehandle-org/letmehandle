@@ -15,10 +15,11 @@ from letmehandle.api.call_report_schemas import (
     CallReportBatch,
     CallReportPayload,
     CallReportReceipt,
+    RejectedReport,
     ReportedCallKind,
+    UnreadableReport,
 )
 from letmehandle.api.dependencies import CallReports, CurrentUser
-from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId, EventId
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -47,16 +48,27 @@ _KINDS = {
 async def report_calls(
     body: CallReportBatch, user: CurrentUser, reporting: CallReports
 ) -> CallReportReceipt:
-    try:
-        batch = [_to_report(payload) for payload in body.reports]
-    except InvariantError as error:
-        # A screening decision on an ended call, or an ending on an incoming one: the handset
-        # sent something that cannot have happened, which is the request's problem.
-        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
+    batch: list[CallReport] = []
+    rejected: list[RejectedReport] = []
+    for index, payload in enumerate(body.readings()):
+        if isinstance(payload, UnreadableReport):
+            rejected.append(
+                RejectedReport(index=index, event_id=payload.event_id, reason=payload.reason)
+            )
+            continue
+        try:
+            batch.append(_to_report(payload))
+        except InvariantError as error:
+            # A screening decision on an ended call, or an ending on an incoming one: the handset
+            # reported something that cannot have happened, and that report alone is refused.
+            rejected.append(
+                RejectedReport(index=index, event_id=payload.event_id, reason=str(error))
+            )
     outcome = await reporting.report(user.id, batch)
     return CallReportReceipt(
         accepted=[event.value for event in outcome.accepted],
         duplicates=[event.value for event in outcome.duplicates],
+        rejected=rejected,
     )
 
 

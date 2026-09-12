@@ -359,13 +359,18 @@ export interface components {
         };
         /**
          * CallReportReceipt
-         * @description Which reports were stored now, and which had been already. The handset forgets both.
+         * @description What became of each report in a batch. The handset forgets every one it is told about.
+         *
+         *     `accepted` were stored now and `duplicates` had been already; `rejected` never will be,
+         *     because something in them cannot have happened or cannot be read.
          */
         CallReportReceipt: {
             /** Accepted */
             accepted: string[];
             /** Duplicates */
             duplicates: string[];
+            /** Rejected */
+            rejected: components["schemas"]["RejectedReport"][];
         };
         /**
          * CallerCategory
@@ -585,6 +590,18 @@ export interface components {
         RefreshRequest: {
             /** Refresh Token */
             refresh_token: string;
+        };
+        /**
+         * RejectedReport
+         * @description A report that was not stored, and will not be however often it is sent.
+         */
+        RejectedReport: {
+            /** Event Id */
+            event_id: string | null;
+            /** Index */
+            index: number;
+            /** Reason */
+            reason: string;
         };
         /**
          * ReportedCallKind

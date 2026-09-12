@@ -128,7 +128,11 @@ the call ring.
 The backend represents the handset as a transport whose events arrive afterwards. The handset
 reports what happened to `POST /v1/calls/reports`; reports are stored per user, a repeat of the
 same event id counts once, and each accepted report is published as a call event on the handset
-transport's feed. The route exists whichever transport is configured, so a handset's reports are
+transport's feed. Each report in a batch is read on its own: the answer is a `200` listing
+`accepted`, `duplicates` and `rejected` — each rejection with its `index` in the batch, its
+`event_id` when one could be read, and a `reason` — so one report the handset got wrong is dropped
+by itself instead of holding back the rest. A caller number is E.164 as the handset writes it,
+`^\+[1-9][0-9]{1,14}$`. A batch that is not a list of at most 100 reports is refused whole with `422`. The route exists whichever transport is configured, so a handset's reports are
 never lost to configuration; `TELEPHONY_PROVIDER=android_native` makes that feed the transport the
 product reads.
 
