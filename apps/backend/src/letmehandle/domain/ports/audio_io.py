@@ -50,7 +50,14 @@ class AudioSink(ABC):
 
     @abstractmethod
     async def write(self, frame: AudioFrame) -> None:
-        """Play a frame, after whatever is already waiting to be played."""
+        """Play a frame, after whatever is already waiting to be played.
+
+        A sink should not accept much more than it is about to play — a few hundred milliseconds
+        — and should make the writer wait instead. Audio a sink holds is audio a speech session
+        counts as heard, and when the caller interrupts, what the sink was already given cannot
+        be taken back from the model's memory of what it said; a sink that takes a whole reply at
+        once tells the model the caller heard all of it.
+        """
 
     @abstractmethod
     async def discard(self) -> None:

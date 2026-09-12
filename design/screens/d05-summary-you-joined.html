@@ -1,0 +1,48 @@
+<!--
+title: Summary — you joined
+group: Activity and summaries
+tab: activity
+note: When a human joined, the timings are the story, so they get one compact strip rather than five rows of text.
+-->
+<div class="bar nav"><button class="back"><svg class="ic"><use href="#i-chev-l"/></svg></button>
+  <span class="r"><span><svg class="ic"><use href="#i-trash"/></svg></span></span></div>
+<div class="pad" style="margin-top:14px;display:flex;align-items:center;gap:12px">
+  <span class="disc warn" style="width:40px;height:40px;flex-basis:40px"><svg class="ic"><use href="#i-card"/></svg></span>
+  <div class="tx"><b style="font-size:14px">Your bank</b>
+    <s style="font-size:10.5px;color:var(--d-faint)" class="num">Today 09:12 &middot; 5 min 02 s</s></div>
+</div>
+<div class="pad" style="margin-top:14px">
+  <p class="h2" style="font-weight:400;line-height:1.5;font-size:15px">You denied a &#8377;42,000 payment attempted in Pune. The card was blocked.</p>
+</div>
+<div class="pad" style="margin-top:14px">
+  <div class="tags">
+    <span class="tag warn"><svg class="ic" style="width:11px;height:11px"><use href="#i-hand-off"/></svg>You joined</span>
+    <span class="tag">Suspected fraud</span><span class="tag stop">Urgent</span>
+  </div>
+</div>
+<div class="pad" style="margin-top:18px">
+  <div class="tl">
+    <i class="on"></i><i class="on"></i><i class="warn"></i><i class="on"></i><i></i>
+    <div class="tlx num"><span>09:12</span><span>+1:40</span><span>+2:06</span><span>09:17</span></div>
+    <div class="tlk"><span>Answered</span><span>Called you</span><span>You in</span><span>Ended</span></div>
+  </div>
+</div>
+<div class="list" style="padding-top:8px">
+  <div class="card">
+    <div class="row"><svg class="ic" style="color:var(--d-faint)"><use href="#i-doc"/></svg>
+      <div class="tx"><b class="num">TXN-884512-PN</b><s>Reference</s></div></div>
+    <div class="row"><svg class="ic" style="color:var(--d-faint)"><use href="#i-lock"/></svg>
+      <div class="tx"><b>Payments not authorised</b><s>Why it called you</s></div></div>
+  </div>
+</div>
+<style>
+.tl{position:relative;height:44px}
+.tl i{position:absolute;top:0;width:9px;height:9px;border-radius:50%;background:var(--d-dial-rest)}
+.tl i.on{background:var(--d-acc)} .tl i.warn{background:var(--d-warn-deep)}
+.tl i:nth-child(1){left:0} .tl i:nth-child(2){left:31%} .tl i:nth-child(3){left:52%}
+.tl i:nth-child(4){left:76%} .tl i:nth-child(5){right:0}
+.tl:before{content:'';position:absolute;left:4px;right:4px;top:4px;height:1px;background:var(--d-line)}
+.tlx,.tlk{position:absolute;left:0;right:0;display:flex;justify-content:space-between}
+.tlx{top:16px;font-size:8.5px;color:var(--d-dim)}
+.tlk{top:29px;font-size:8px;color:var(--d-faint);letter-spacing:.04em}
+</style>

@@ -1,0 +1,31 @@
+<!--
+title: What was said
+group: Activity and summaries
+tab: activity
+note: The transcript is a secondary surface reached from the summary, and its expiry is stated on the same screen it appears on.
+-->
+<div class="bar nav"><button class="back"><svg class="ic"><use href="#i-chev-l"/></svg></button>
+  <span class="t">What was said</span></div>
+<div class="banner off" style="margin-top:12px">
+  <svg class="ic-sm ic"><use href="#i-clock"/></svg>
+  <span>Deleted on <b style="color:var(--d-fg);font-weight:600">19 September</b>. The summary stays.</span>
+</div>
+<div class="pad" style="margin-top:16px">
+  <div class="ln them"><span class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg></span>
+    <p>I'm at the gate, nobody's picking up upstairs.</p></div>
+  <div class="ln us"><span class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-speaker"/></svg></span>
+    <p>Leave it with the guard at the gate, that's fine. Anything to pay?</p></div>
+  <div class="ln them"><span class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg></span>
+    <p>No, it's prepaid. Before six for sure.</p></div>
+  <div class="ln us"><span class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-speaker"/></svg></span>
+    <p>Thank you.</p></div>
+</div>
+<style>
+.ln{display:flex;gap:10px;margin-bottom:12px;align-items:flex-start}
+.ln .who{width:24px;height:24px;flex:0 0 24px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;background:var(--d-mute-wash);color:var(--d-dim);margin-top:2px}
+.ln p{margin:0;font-size:12px;line-height:1.5;color:var(--d-dim);background:var(--d-surface);
+  border-radius:var(--d-r-md);padding:10px 12px;box-shadow:var(--d-shadow)}
+.ln.us .who{background:var(--d-acc-wash);color:var(--d-acc-deep)}
+.ln.us p{color:var(--d-fg);background:var(--d-acc-wash);box-shadow:none}
+</style>

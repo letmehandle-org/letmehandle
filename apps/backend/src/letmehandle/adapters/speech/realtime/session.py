@@ -1,21 +1,37 @@
 """One live conversation with a realtime speech service.
 
-The session owns three things — a connection, a bounded queue of events, and the task reading
-the connection into that queue — and releases all three on every way out: a close, a failure,
-and a cancellation of whoever was using it.
+The session owns three things — a connection, the events held for its consumer, and the task
+reading one into the other — and releases all three on every way out: a close, a failure, and a
+cancellation of whoever was using it.
 
-Backpressure is real and has a cost worth stating. The reader waits for room in the queue before
-reading further, so a consumer that stops draining it stops the reader, and the service's own
-flow control does the rest; nothing grows. While the reader waits, it is not reading the
-service's speech-started signal either, so barge-in on a stalled consumer waits until the
-consumer drains. A consumer that plays through an `AudioSink` is not stalled — the sink holds
-what is waiting to be played — so this only bites when something downstream is already failing.
+Reading never waits for the consumer except on the model's audio, and then only once far more of
+it is held than any reply (see `outbox`). A consumer playing in real time is seconds behind the
+service, and the caller's speech-started signal behind a held reply is acted on the moment it
+arrives rather than once the speaker catches up. A consumer that stops taking audio altogether
+does stop the reader, and the service's own flow control does the rest; nothing grows.
+
+What the caller heard, which an interruption tells the service so the model does not believe it
+said the rest, is counted as the audio the consumer has taken. Audio still held here was not
+taken and is discarded, so the count is accurate to within the consumer's own playback buffer:
+whatever a sink has accepted and not yet played is counted as heard, and nothing here can know
+otherwise or take it back. That is why a sink should accept little more than it is about to play.
+
+A dropped connection is replaced and told what it missed, and a replacement is only trusted once
+the service does something on it beyond acknowledging its configuration: one that is accepted
+and then drops at once spends the same attempts as one refused.
+
+A response the service fails — out of quota, say — is counted as a service error and survived.
+Three in a row end the session with a failure not worth retrying, and a completed response in
+between starts the count again. The caller hears nothing from a failed response, and a caller
+left in silence turn after turn is worse off than one whose call ends and can be handled some
+other way; the same service fails the same way on a new connection, so reconnecting is no remedy.
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.adapters.audio.conversion import AudioConverter, pcm_duration_ms
@@ -33,6 +49,8 @@ from letmehandle.adapters.speech.realtime.protocol import (
     TranscriptSettled,
 )
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
+from letmehandle.adapters.speech.session_support.outbox import Outbox
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.recovery import (
     is_retryable,
     receive,
@@ -67,38 +85,18 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.audio import AudioFormat
 
 _COMPLETED: Final = "completed"
-
-
-@dataclass(frozen=True, slots=True)
-class _Queued:
-    """An event waiting for the consumer, with what interruption and delivery need to know.
-
-    `response_id` is set on everything the model produced, which is exactly what an interruption
-    discards; the caller's own events are left alone, because the caller did say those words.
-    """
-
-    event: SpeechEvent
-    response_id: str | None = None
-    item_id: str | None = None
-    audio_ms: float = 0.0
-
-
-@dataclass(frozen=True, slots=True)
-class _Ended:
-    """Nothing more will arrive."""
-
-
-_END: Final = _Ended()
+_FAILED: Final = "failed"
+# Failed responses in a row a session survives before it ends. One is a hiccup; three is a
+# service that has stopped answering and a caller who has noticed.
+_FAILED_RESPONSES_TOLERATED: Final = 3
 
 
 @dataclass(slots=True)
 class _Playback:
     """How much of one item of model audio arrived, and how much the consumer has taken.
 
-    What the consumer has taken is this adapter's best approximation of what was heard. It is an
-    overestimate by whatever the consumer's sink still holds unplayed, which is the most it can
-    know from here; the consumer discarding its sink on interruption keeps the difference to a
-    frame or two.
+    What the consumer has taken is what this adapter counts as heard. It overstates by whatever
+    the consumer's sink still holds unplayed, and by nothing else: see the module docstring.
     """
 
     response_id: str
@@ -124,7 +122,7 @@ class SessionSetup:
     input_format: AudioFormat
     output_format: AudioFormat
     reconnect: ReconnectPolicy
-    queue_size: int
+    audio_ceiling_seconds: float
     timekeeping: Timekeeping
 
 
@@ -137,7 +135,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._setup = setup
         self._context = context
         self._telemetry = telemetry
-        self._queue: asyncio.Queue[_Queued | _Ended] = asyncio.Queue(maxsize=setup.queue_size)
+        self._outbox = Outbox(setup.audio_ceiling_seconds)
         self._inbound = AudioConverter(setup.input_format, WIRE_FORMAT)
         self._outbound = AudioConverter(WIRE_FORMAT, setup.output_format)
         self._connection: EventConnection | None = None
@@ -149,6 +147,11 @@ class RealtimeSpeechSession(SpeechSession):
         self._live = False
         self._closed = False
         self._failure: str | None = None
+        self._budget = ReconnectBudget()
+        self._unproven = False
+        # Instructions changed while no connection could hear them, sent as soon as one can.
+        self._instructions_pending = False
+        self._failed_responses = 0
         self._active_response: str | None = None
         self._latest_response: str | None = None
         self._silenced_response: str | None = None
@@ -174,7 +177,7 @@ class RealtimeSpeechSession(SpeechSession):
         except BaseException:
             await self._drop_connection()
             raise
-        self._live = True
+        await self._go_live()
         self._telemetry.opened()
         self._tasks.append(
             asyncio.create_task(self._read(connection), name=f"{self._setup.provider}-reader")
@@ -194,8 +197,7 @@ class RealtimeSpeechSession(SpeechSession):
             outcomes = await asyncio.gather(*self._tasks, return_exceptions=True)
         finally:
             await self._drop_connection()
-            self._drain()
-            self._queue.put_nowait(_END)
+            self._outbox.abandon()
         for outcome in outcomes:
             if isinstance(outcome, Exception):
                 # A defect, not a failure of the service: surfaced where somebody will see it.
@@ -216,24 +218,21 @@ class RealtimeSpeechSession(SpeechSession):
         if audio:
             await self._send(protocol.append_audio(audio))
 
-    async def events(self) -> AsyncIterator[SpeechEvent]:
-        while True:
-            queued = await self._queue.get()
-            if isinstance(queued, _Ended):
-                # Put back, so that every later iterator ends too instead of waiting forever.
-                self._queue.put_nowait(queued)
-                return
-            if queued.response_id is not None and queued.response_id == self._silenced_response:
-                continue
-            playback = self._playback
-            if playback is not None and queued.item_id == playback.item_id:
-                playback.delivered_ms += queued.audio_ms
-            yield queued.event
+    def events(self) -> AsyncIterator[SpeechEvent]:
+        return self._outbox.events()
 
     async def update_context(self, context: str) -> None:
+        """Replace the instructions, now or as soon as there is a connection to hear them.
+
+        Kept, so that a replacement connection is configured with them. One made while a
+        replacement is being configured is sent once it is live, since the configuration already
+        on its way was built before the update existed.
+        """
         self._ensure_usable()
-        # Kept first, so that a reconnect in progress restores the new context, not the old.
         self._context.instructions = context
+        if not self._live:
+            self._instructions_pending = True
+            return
         await self._send(protocol.update_instructions(context))
 
     async def interrupt(self) -> None:
@@ -248,7 +247,7 @@ class RealtimeSpeechSession(SpeechSession):
         except Exception:
             # Whoever is iterating the events would otherwise wait forever for a reader that has
             # gone. They are told the session ended, and `close` raises the defect itself.
-            await self._fail("the session stopped unexpectedly")
+            self._fail("the session stopped unexpectedly")
             raise
 
     async def _converse(self, connection: EventConnection) -> None:
@@ -268,18 +267,25 @@ class RealtimeSpeechSession(SpeechSession):
                 # counted, and a server that sends nothing else shows up as a wall of them.
                 self._telemetry.stream_error(StreamErrorKind.MALFORMED)
                 continue
-            if signal is not None:
-                await self._handle(signal)
+            if signal is None:
+                continue
+            if self._unproven and not isinstance(signal, ServiceError):
+                # The service acted on this replacement rather than acknowledging or refusing it.
+                self._unproven = False
+                self._budget.proven()
+            await self._handle(signal)
+            if self._failure is not None:
+                return
 
     async def _handle(self, signal: Inbound) -> None:
         match signal:
             case CallerStartedSpeaking():
                 if self._model_is_speaking():
                     await self._silence()
-                await self._enqueue(SpeechStarted(by_caller=True))
+                self._outbox.put(SpeechStarted(by_caller=True))
             case CallerStoppedSpeaking():
                 self._telemetry.caller_stopped()
-                await self._enqueue(SpeechEnded(by_caller=True))
+                self._outbox.put(SpeechEnded(by_caller=True))
             case ResponseStarted(response_id=response_id):
                 self._active_response = self._latest_response = response_id
             case ResponseFinished():
@@ -287,25 +293,26 @@ class RealtimeSpeechSession(SpeechSession):
             case AudioDelta():
                 await self._play(signal)
             case TranscriptDelta(speaker=Speaker.CALLER, text=text):
-                await self._enqueue(
-                    TranscriptProduced(text, speaker_is_caller=True, is_final=False)
-                )
+                self._outbox.put(TranscriptProduced(text, speaker_is_caller=True, is_final=False))
             case TranscriptSettled(speaker=Speaker.CALLER, text=text):
                 self._context.remember(Turn(Speaker.CALLER, text))
-                await self._enqueue(TranscriptProduced(text, speaker_is_caller=True, is_final=True))
+                self._outbox.put(TranscriptProduced(text, speaker_is_caller=True, is_final=True))
             case TranscriptDelta(text=text) | TranscriptSettled(text=text):
-                await self._assistant_words(text, is_final=isinstance(signal, TranscriptSettled))
+                self._assistant_words(text, is_final=isinstance(signal, TranscriptSettled))
             case ServiceError(code=code) if code != protocol.NOTHING_TO_CANCEL:
                 self._telemetry.stream_error(StreamErrorKind.SERVICE)
 
     async def _play(self, delta: AudioDelta) -> None:
+        # The one place reading waits for the consumer, and only once it holds far more audio
+        # than any reply: see `outbox`.
+        await self._outbox.room_for_audio()
         if delta.response_id == self._silenced_response:
             # The service had already sent this when it was told to stop.
             return
         self._telemetry.model_audio_arrived()
         if delta.response_id != self._speaking_response:
             self._speaking_response = delta.response_id
-            await self._enqueue(SpeechStarted(by_caller=False), response_id=delta.response_id)
+            self._outbox.put(SpeechStarted(by_caller=False), spoken=True)
         playback = self._playback
         if playback is None or playback.item_id != delta.item_id:
             playback = self._playback = _Playback(
@@ -315,14 +322,20 @@ class RealtimeSpeechSession(SpeechSession):
         playback.received_ms += duration
         audio = self._outbound.convert(delta.audio)
         if audio:
-            await self._enqueue(
+            self._outbox.put(
                 AudioProduced(AudioFrame(audio, self._setup.output_format)),
-                response_id=delta.response_id,
-                item_id=delta.item_id,
-                audio_ms=duration,
+                spoken=True,
+                audio_seconds=duration / 1000,
+                taken=partial(self._delivered, delta.item_id, duration),
             )
 
-    async def _assistant_words(self, text: str, *, is_final: bool) -> None:
+    def _delivered(self, item_id: str, duration_ms: float) -> None:
+        """The consumer took a piece of model audio: what this session counts as heard."""
+        playback = self._playback
+        if playback is not None and playback.item_id == item_id:
+            playback.delivered_ms += duration_ms
+
+    def _assistant_words(self, text: str, *, is_final: bool) -> None:
         response_id = self._active_response
         if response_id is None or response_id == self._silenced_response:
             return
@@ -331,13 +344,22 @@ class RealtimeSpeechSession(SpeechSession):
             # off were not all heard, and replaying them would tell the model it said them.
             self._assistant_turn = Turn(Speaker.ASSISTANT, text)
         event = TranscriptProduced(text, speaker_is_caller=False, is_final=is_final)
-        await self._enqueue(event, response_id=response_id)
+        # Discarded with the audio on an interruption: the words of a reply cut off were not said.
+        self._outbox.put(event, spoken=True)
 
     async def _finish_response(self, finished: ResponseFinished) -> None:
         turn, self._assistant_turn = self._assistant_turn, None
         # Responses do not overlap, so whichever one finished, none is in progress now.
         self._active_response = None
         self._telemetry.silenced()
+        if finished.status == _COMPLETED:
+            self._failed_responses = 0
+        elif finished.status == _FAILED:
+            self._telemetry.stream_error(StreamErrorKind.SERVICE)
+            self._failed_responses += 1
+            if self._failed_responses >= _FAILED_RESPONSES_TOLERATED:
+                await self._end(f"the service failed {self._failed_responses} responses in a row")
+                return
         if finished.response_id == self._silenced_response:
             return
         if turn is not None and finished.status == _COMPLETED:
@@ -345,7 +367,7 @@ class RealtimeSpeechSession(SpeechSession):
             if self._playback is not None and self._playback.response_id == finished.response_id:
                 self._playback.turn = turn
         if finished.response_id == self._speaking_response:
-            await self._enqueue(SpeechEnded(by_caller=False), response_id=finished.response_id)
+            self._outbox.put(SpeechEnded(by_caller=False), spoken=True)
 
     # ------------------------------------------------------------------------ interruption
 
@@ -367,7 +389,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._assistant_turn = None
         playback, self._playback = self._playback, None
         truncate = playback is not None and (playback.unheard or self._active_response is not None)
-        self._discard_model_output()
+        self._outbox.discard_speech()
         self._outbound.reset()
         await self._send(protocol.cancel_response())
         if truncate and playback is not None:
@@ -383,23 +405,8 @@ class RealtimeSpeechSession(SpeechSession):
             )
         if self._active_response is None:
             self._telemetry.silenced()
-        # Again, because output may have been queued while the cancel was on its way.
-        self._discard_model_output()
-
-    def _discard_model_output(self) -> None:
-        kept = [
-            queued
-            for queued in self._drain()
-            if isinstance(queued, _Ended) or queued.response_id is None
-        ]
-        for queued in kept:
-            self._queue.put_nowait(queued)
-
-    def _drain(self) -> list[_Queued | _Ended]:
-        drained: list[_Queued | _Ended] = []
-        while not self._queue.empty():
-            drained.append(self._queue.get_nowait())
-        return drained
+        # Again, because output may have been held while the cancel was on its way.
+        self._outbox.discard_speech()
 
     # ------------------------------------------------------------------------ reconnection
 
@@ -408,7 +415,7 @@ class RealtimeSpeechSession(SpeechSession):
         self._live = False
         await self._drop_connection()
         if not is_retryable(error):
-            await self._fail(str(error))
+            self._fail(str(error))
             return None
         self._forget_responses()
         replacement = await replace_connection(
@@ -417,11 +424,13 @@ class RealtimeSpeechSession(SpeechSession):
             policy=self._setup.reconnect,
             timekeeping=self._setup.timekeeping,
             telemetry=self._telemetry,
+            budget=self._budget,
         )
         if isinstance(replacement, str):
-            await self._fail(replacement)
+            self._fail(replacement)
             return None
-        self._live = True
+        self._unproven = True
+        await self._go_live()
         return replacement
 
     def _forget_responses(self) -> None:
@@ -435,26 +444,30 @@ class RealtimeSpeechSession(SpeechSession):
         # Held before it is configured, so that a failure or a cancellation part-way through
         # configuring it still finds it to close.
         connection = self._connection = await self._setup.opener()
+        # The restoration carries the instructions as they are now; only a later change is pending.
+        self._instructions_pending = False
         for event in self._context.restoration():
             await connection.send(event)
         return connection
 
-    async def _fail(self, reason: str) -> None:
+    async def _end(self, reason: str) -> None:
+        """End the session over a connection that still works, and let it go."""
+        self._fail(reason)
+        self._live = False
+        await self._drop_connection()
+
+    async def _go_live(self) -> None:
+        self._live = True
+        if self._instructions_pending:
+            self._instructions_pending = False
+            await self._send(protocol.update_instructions(self._context.instructions))
+
+    def _fail(self, reason: str) -> None:
         self._failure = reason
-        await self._enqueue(SessionFailed(reason, retryable=False))
-        await self._queue.put(_END)
+        self._outbox.put(SessionFailed(reason, retryable=False))
+        self._outbox.end()
 
     # --------------------------------------------------------------------------- plumbing
-
-    async def _enqueue(
-        self,
-        event: SpeechEvent,
-        *,
-        response_id: str | None = None,
-        item_id: str | None = None,
-        audio_ms: float = 0.0,
-    ) -> None:
-        await self._queue.put(_Queued(event, response_id, item_id, audio_ms))
 
     async def _send(self, event: Event) -> None:
         """Send if there is a connection to send to.

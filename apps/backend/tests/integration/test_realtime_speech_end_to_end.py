@@ -46,6 +46,7 @@ TURN_FRAMES: Final = 10
 SILENCE: Final = AudioFrame(b"\x00" * len(tone_frame(0).data), SPEECH_WIDEBAND)
 # Long enough for a response over loopback, short enough that a hang fails the test promptly.
 PATIENCE_SECONDS: Final = 10.0
+LATEST_CONTEXT: Final = "The person being called has joined; keep the caller on the line."
 
 
 class Speaker(AudioSource):
@@ -147,11 +148,11 @@ async def test_a_caller_talking_over_the_model_silences_it(
 
     async with await connect(provider_for(service, metrics)) as session:
         call = Call(session, metrics)
+        # Hold the reply mid-sentence, once some of it has been heard, then speak over it: the
+        # only way to interrupt a response deterministically rather than hoping one is playing.
+        service.hold_responses(after_deltas=1)
         call.speaker.say_something()
         await call.until_heard(1)
-        # Hold the reply mid-sentence, then speak over it: the only way to interrupt a response
-        # deterministically rather than hoping one is still playing.
-        service.hold_responses()
         call.speaker.say_something()
 
         await asyncio.wait_for(_until(lambda: bool(call.sink.discarded_after)), PATIENCE_SECONDS)
@@ -159,7 +160,16 @@ async def test_a_caller_talking_over_the_model_silences_it(
         call.speaker.hang_up()
         await asyncio.wait_for(call.task, PATIENCE_SECONDS)
 
+    await service.wait_until_idle()
     assert call.sink.discarded_after, "what the speaker had buffered must be dropped"
+    # And the model was stopped, and told how much was heard, by the session: the speaker going
+    # quiet alone leaves the model talking and believing it was heard to the end.
+    after_the_caller_spoke = service.received[0].since_speech_started(1)
+    assert "response.cancel" in after_the_caller_spoke
+    assert "conversation.item.truncate" in after_the_caller_spoke
+    assert after_the_caller_spoke.index("response.cancel") < after_the_caller_spoke.index(
+        "conversation.item.truncate"
+    )
 
 
 async def test_a_dropped_connection_recovers_without_ending_the_conversation(
@@ -172,6 +182,7 @@ async def test_a_dropped_connection_recovers_without_ending_the_conversation(
         call.speaker.say_something()
         await call.until_heard(1)
         heard_before = len(call.sink.written)
+        await session.update_context(LATEST_CONTEXT)
 
         service.drop_connections()
         await asyncio.wait_for(_until(lambda: len(service.handshakes) == 2), PATIENCE_SECONDS)
@@ -185,6 +196,11 @@ async def test_a_dropped_connection_recovers_without_ending_the_conversation(
 
     await service.wait_until_idle()
     assert service.open_connections == 0
+    # The replacement was set up as this session, with the context as it was when the connection
+    # dropped rather than as it was when the call began.
+    replacement = service.received[1]
+    assert replacement.event_types[0] == "session.update"
+    assert replacement.instructions[0] == LATEST_CONTEXT
 
 
 async def test_a_refusal_after_a_drop_ends_the_conversation_with_a_typed_failure(

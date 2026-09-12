@@ -9,12 +9,14 @@ stands in for both with rules a test can reason about:
 
 - Audio that is not all zero bytes is speech. The first such chunk of a turn starts speech.
 - An all-zero chunk after speech ends the turn: speech stops, the turn is transcribed as the
-  fixed transcript it was given, and a response begins.
+  fixed transcript it was given if the session asked for input transcription, and a response
+  begins.
 - The response speaks the caller's own audio back, one output delta per chunk it heard.
 
 A real server interrupts its own response when speech starts, if configured to. This one never
 does, because interruption is the client's to prove: it has to cancel the response and truncate
 the item itself, and a simulation that did it for the client would hide a client that did not.
+What each connection was sent is recorded, so that a test can see that it did.
 """
 
 from __future__ import annotations
@@ -58,10 +60,27 @@ class Handshake:
 
 
 @dataclass(slots=True)
+class Received:
+    """What one connection was sent, in order, recorded so a test can check the client's part."""
+
+    event_types: list[str] = field(default_factory=list)
+    # The instructions of every session.update that carried any.
+    instructions: list[str] = field(default_factory=list)
+    # How many events had been received each time the caller was heard to start speaking, so a
+    # test can tell what the client sent after the caller spoke from what it sent before.
+    speech_started_after: list[int] = field(default_factory=list)
+
+    def since_speech_started(self, turn: int) -> list[str]:
+        """The event types received after the caller began their `turn`th turn, from zero."""
+        return self.event_types[self.speech_started_after[turn] :]
+
+
+@dataclass(slots=True)
 class _Conversation:
     """The state of one connection: one caller, one conversation."""
 
     connection: ServerConnection
+    received: Received
     session: dict[str, Any] = field(default_factory=dict)
     heard: list[bytes] = field(default_factory=list)
     user_item: str | None = None
@@ -86,6 +105,17 @@ def _is_speech(audio: bytes) -> bool:
     return math.sqrt(sum(sample * sample for sample in samples) / len(samples)) >= SILENCE_RMS
 
 
+def _transcribing(session: dict[str, Any]) -> bool:
+    """Whether a session was configured to transcribe what the caller says.
+
+    A real service transcribes nobody who did not ask, and a simulation that did would pass a
+    client that never asked and then shows its caller no words.
+    """
+    audio = session.get("audio")
+    audio_input = audio.get("input") if isinstance(audio, dict) else None
+    return isinstance(audio_input, dict) and bool(audio_input.get("transcription"))
+
+
 class SimulatedRealtimeService:
     """A realtime speech service on 127.0.0.1 and an ephemeral port, for one test.
 
@@ -107,13 +137,17 @@ class SimulatedRealtimeService:
         self._server: Server | None = None
         self._conversations: dict[ServerConnection, _Conversation] = {}
         self._refusing = False
-        # Set means responses flow; a test clears it to hold a response mid-sentence, which is
-        # the only way to interrupt one deterministically.
+        # Set means responses flow; cleared, a response waits before its next output delta. A
+        # test holds one mid-sentence this way, which is the only way to interrupt it
+        # deterministically.
         self._flowing = asyncio.Event()
         self._flowing.set()
+        self._hold_after: int | None = None
         self._idle = asyncio.Event()
         self._idle.set()
         self.handshakes: list[Handshake] = []
+        # One for each connection that got past the handshake, in the order they did.
+        self.received: list[Received] = []
 
     async def __aenter__(self) -> Self:
         self._server = await serve(self._converse, "127.0.0.1", 0, process_request=self._admit)
@@ -152,11 +186,16 @@ class SimulatedRealtimeService:
         """Answer every later handshake with 401, whatever key it presents."""
         self._refusing = True
 
-    def hold_responses(self) -> None:
-        """Stop responses between one output delta and the next, until released."""
-        self._flowing.clear()
+    def hold_responses(self, *, after_deltas: int = 0) -> None:
+        """Stop responses once each has sent `after_deltas` output deltas, until released.
+
+        Holding after at least one is how a test makes sure the caller has heard part of a reply
+        when they talk over it, so there is something to truncate.
+        """
+        self._hold_after = after_deltas
 
     def release_responses(self) -> None:
+        self._hold_after = None
         self._flowing.set()
 
     def drop_connections(self) -> None:
@@ -189,7 +228,11 @@ class SimulatedRealtimeService:
         return None
 
     async def _converse(self, connection: ServerConnection) -> None:
-        conversation = _Conversation(connection=connection, session={"model": self._model})
+        received = Received()
+        self.received.append(received)
+        conversation = _Conversation(
+            connection=connection, received=received, session={"model": self._model}
+        )
         self._conversations[connection] = conversation
         self._idle.clear()
         try:
@@ -212,9 +255,14 @@ class SimulatedRealtimeService:
         except json.JSONDecodeError:
             await self._error(conversation, "invalid_json", "the frame is not JSON")
             return
-        match event.get("type") if isinstance(event, dict) else None:
+        event_type = event.get("type") if isinstance(event, dict) else None
+        conversation.received.event_types.append(str(event_type))
+        match event_type:
             case "session.update":
-                conversation.session.update(event.get("session", {}))
+                settings = event.get("session", {})
+                if "instructions" in settings:
+                    conversation.received.instructions.append(settings["instructions"])
+                conversation.session.update(settings)
                 await self._emit(conversation, "session.updated", session=conversation.session)
             case "input_audio_buffer.append":
                 await self._hear(conversation, event.get("audio", ""))
@@ -236,6 +284,8 @@ class SimulatedRealtimeService:
         if _is_speech(audio):
             if conversation.user_item is None:
                 conversation.user_item = self._id("item")
+                received = conversation.received
+                received.speech_started_after.append(len(received.event_types))
                 await self._emit(
                     conversation,
                     "input_audio_buffer.speech_started",
@@ -256,13 +306,14 @@ class SimulatedRealtimeService:
             item_id=item_id,
         )
         await self._emit(conversation, "input_audio_buffer.committed", item_id=item_id)
-        await self._emit(
-            conversation,
-            "conversation.item.input_audio_transcription.completed",
-            item_id=item_id,
-            content_index=0,
-            transcript=self._transcript,
-        )
+        if _transcribing(conversation.session):
+            await self._emit(
+                conversation,
+                "conversation.item.input_audio_transcription.completed",
+                item_id=item_id,
+                content_index=0,
+                transcript=self._transcript,
+            )
         await self._stop_response(conversation)
         conversation.response_id = self._id("resp")
         conversation.response = asyncio.create_task(
@@ -281,7 +332,9 @@ class SimulatedRealtimeService:
                 "response.created",
                 response={"id": response_id, "status": "in_progress"},
             )
-            for chunk in heard:
+            for sent, chunk in enumerate(heard):
+                if self._hold_after is not None and sent >= self._hold_after:
+                    self._flowing.clear()
                 await self._flowing.wait()
                 await self._emit(
                     conversation,

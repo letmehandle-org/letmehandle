@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING
 
 from letmehandle.adapters.audio.conversion import AudioConverter
 from letmehandle.adapters.speech.elevenlabs import protocol
-from letmehandle.adapters.speech.elevenlabs.outbox import Outbox
 from letmehandle.adapters.speech.elevenlabs.protocol import (
     DEFAULT_WIRE_FORMAT,
     AgentAudio,
@@ -50,6 +49,7 @@ from letmehandle.adapters.speech.elevenlabs.protocol import (
     ToolRequested,
 )
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
+from letmehandle.adapters.speech.session_support.outbox import Outbox
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.recovery import (
     is_retryable,
@@ -276,6 +276,7 @@ class ElevenLabsSpeechSession(SpeechSession):
                 self._context.history.remember(Turn(Speaker.CALLER, text))
                 self._outbox.put(TranscriptProduced(text, speaker_is_caller=True, is_final=True))
             case AgentSaid(text=text) if not self._muted:
+                # Not marked as speech to discard: what the agent began to say was said.
                 self._last_reply = Turn(Speaker.ASSISTANT, text)
                 self._context.history.remember(self._last_reply)
                 self._outbox.put(TranscriptProduced(text, speaker_is_caller=False, is_final=True))

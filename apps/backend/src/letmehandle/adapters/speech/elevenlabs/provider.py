@@ -25,6 +25,7 @@ from letmehandle.adapters.speech.elevenlabs.context import ConversationContext
 from letmehandle.adapters.speech.elevenlabs.protocol import DEFAULT_WIRE_FORMAT
 from letmehandle.adapters.speech.elevenlabs.session import ElevenLabsSpeechSession, SessionSetup
 from letmehandle.adapters.speech.session_support.bounds import (
+    DEFAULT_AUDIO_CEILING_SECONDS,
     DEFAULT_HISTORY_TURNS,
     DEFAULT_OPEN_TIMEOUT_SECONDS,
 )
@@ -47,11 +48,6 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechSession
 
 PROVIDER_NAME: Final = "elevenlabs"
-
-# Agent audio held for a consumer before reading stops. Minutes, not seconds: a speaker plays in
-# real time and the service sends faster than that, so a whole long reply is routinely waiting,
-# and reading must go on behind it. Two minutes of wideband audio is a few megabytes.
-DEFAULT_AUDIO_CEILING_SECONDS: Final = 120.0
 
 
 class ElevenLabsSpeechProvider(SpeechProvider):
