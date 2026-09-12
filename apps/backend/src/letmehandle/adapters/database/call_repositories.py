@@ -15,7 +15,7 @@ import json
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, exists, func, select, tuple_
+from sqlalchemy import Select, delete, exists, func, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
@@ -38,11 +38,13 @@ from letmehandle.domain.ports.repositories import (
     MAX_CALL_PAGE,
     MAX_PURGE_BATCH,
     CallCursor,
+    CallFilter,
     CallPage,
     CallRepository,
     SummaryRepository,
     TranscriptRepository,
     TranscriptRetentionRepository,
+    TranscriptStatus,
     check_page_size,
 )
 from letmehandle.domain.ports.security import SealedBytes
@@ -51,7 +53,7 @@ from .models import CallParticipantRow, CallRow, CallSummaryRow, TranscriptEntry
 from .repositories import _affected
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,10 +168,17 @@ class SqlCallRepository(CallRepository):
         return self._to_call(row, participants.get(row.id, ()))
 
     async def list_for_user(
-        self, user_id: UserId, *, limit: int, after: CallCursor | None = None
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        after: CallCursor | None = None,
+        matching: CallFilter | None = None,
     ) -> CallPage:
         check_page_size(limit, MAX_CALL_PAGE)
         query = select(CallRow).where(CallRow.user_id == user_id.value)
+        if matching is not None:
+            query = _matching(query, matching)
         if after is not None:
             query = query.where(
                 tuple_(CallRow.started_at, CallRow.id) < (after.started_at, after.call_id.value)
@@ -187,6 +196,16 @@ class SqlCallRepository(CallRepository):
             calls=calls,
             next_cursor=None if last is None else CallCursor(last.started_at, CallId(last.id)),
         )
+
+    async def delete(self, user_id: UserId, call_id: CallId) -> None:
+        # One statement. The participants, transcript lines and summary are removed by the
+        # foreign keys' cascades within it, so there is no moment — and no failure part-way —
+        # at which the call is gone and something said on it is not. A transcript being appended
+        # holds the call's row, so this waits for those lines and takes them too.
+        await self._session.execute(
+            delete(CallRow).where(CallRow.id == call_id.value, CallRow.user_id == user_id.value)
+        )
+        await self._session.flush()
 
     async def _participants(self, call_ids: list[str]) -> dict[str, tuple[Participant, ...]]:
         if not call_ids:
@@ -219,6 +238,28 @@ class SqlCallRepository(CallRepository):
             participants=participants,
             ended_at=row.ended_at,
         )
+
+
+def _matching(query: Select[tuple[CallRow]], matching: CallFilter) -> Select[tuple[CallRow]]:
+    """The history query, narrowed to the calls the filter allows."""
+    if matching.started_from is not None:
+        query = query.where(CallRow.started_at >= matching.started_from)
+    if matching.started_before is not None:
+        query = query.where(CallRow.started_at < matching.started_before)
+    if matching.outcome is None and matching.human_joined is None:
+        return query
+    # An inner join: a call with no summary has no outcome, so it matches no filter on one. The
+    # owner is joined on as well as the call, as the foreign key underneath already insists.
+    query = query.join(
+        CallSummaryRow,
+        (CallSummaryRow.call_id == CallRow.id) & (CallSummaryRow.user_id == CallRow.user_id),
+    )
+    if matching.outcome is not None:
+        query = query.where(CallSummaryRow.outcome == matching.outcome.value)
+    if matching.human_joined is not None:
+        joined = CallSummaryRow.human_joined_at
+        query = query.where(joined.is_not(None) if matching.human_joined else joined.is_(None))
+    return query
 
 
 def _transcript_context(
@@ -298,6 +339,9 @@ class SqlTranscriptRepository(TranscriptRepository):
                 }
             )
         await self._session.execute(insert(TranscriptEntryRow).values(rows))
+        await self._session.execute(
+            update(CallRow).where(CallRow.id == call_id.value).values(transcript_recorded=True)
+        )
         await self._session.flush()
 
     async def for_call(self, user_id: UserId, call_id: CallId) -> tuple[TranscriptEntry, ...]:
@@ -329,6 +373,23 @@ class SqlTranscriptRepository(TranscriptRepository):
             )
             for row in rows
         )
+
+    async def status(self, user_id: UserId, call_id: CallId) -> TranscriptStatus:
+        remaining = exists().where(
+            TranscriptEntryRow.call_id == call_id.value,
+            TranscriptEntryRow.user_id == user_id.value,
+        )
+        result = await self._session.execute(
+            select(CallRow.transcript_recorded, remaining).where(
+                CallRow.id == call_id.value, CallRow.user_id == user_id.value
+            )
+        )
+        row = result.one_or_none()
+        if row is None or not row[0]:
+            return TranscriptStatus.NOT_RECORDED
+        # Recorded and nothing left can only be the purge: nothing else deletes a line and keeps
+        # the call.
+        return TranscriptStatus.RETAINED if row[1] else TranscriptStatus.PURGED
 
 
 class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
@@ -489,8 +550,22 @@ class SqlSummaryRepository(SummaryRepository):
             )
         )
         row = result.scalar_one_or_none()
-        if row is None:
-            return None
+        return None if row is None else self._to_summary(row)
+
+    async def for_calls(
+        self, user_id: UserId, call_ids: Sequence[CallId]
+    ) -> Mapping[CallId, CallSummary]:
+        if not call_ids:
+            return {}
+        result = await self._session.execute(
+            select(CallSummaryRow).where(
+                CallSummaryRow.user_id == user_id.value,
+                CallSummaryRow.call_id.in_([call_id.value for call_id in call_ids]),
+            )
+        )
+        return {CallId(row.call_id): self._to_summary(row) for row in result.scalars().all()}
+
+    def _to_summary(self, row: CallSummaryRow) -> CallSummary:
         document = json.loads(
             self._cipher.open(
                 SealedBytes(row.key_id, row.ciphertext),

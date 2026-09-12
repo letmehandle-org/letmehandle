@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.onboarding import OnboardingProgress
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.preferences import UserPreferences
-    from letmehandle.domain.models.summary import CallSummary
+    from letmehandle.domain.models.summary import CallOutcome, CallSummary
     from letmehandle.domain.models.user import User
     from letmehandle.domain.ports.notification import DeviceToken
 
@@ -217,6 +218,31 @@ class CallPage:
     next_cursor: CallCursor | None
 
 
+@dataclass(frozen=True, slots=True)
+class CallFilter:
+    """Which of a user's calls a page of history holds. Every field left as None matches all.
+
+    `started_from` is inclusive and `started_before` exclusive, so consecutive ranges neither
+    overlap nor leave a gap. Both must know their timezone: a naive bound means whatever the
+    server is set to, and a user's "yesterday" would shift by hours with the server's region.
+
+    `outcome` and `human_joined` are answered by a call's summary, so a call that has none yet
+    matches neither — its outcome is not known, and it is not the one asked for.
+    """
+
+    outcome: CallOutcome | None = None
+    started_from: datetime | None = None
+    started_before: datetime | None = None
+    human_joined: bool | None = None
+
+    def __post_init__(self) -> None:
+        bounds = [bound for bound in (self.started_from, self.started_before) if bound is not None]
+        if any(bound.tzinfo is None for bound in bounds):
+            raise InvariantError("a range of calls is bounded by times that know their timezone")
+        if len(bounds) == 2 and bounds[0] >= bounds[1]:
+            raise InvariantError("a range of calls starts before it ends")
+
+
 class CallRepository(ABC):
     """Calls, durably, so that a restart mid-call does not lose the record.
 
@@ -238,14 +264,42 @@ class CallRepository(ABC):
 
     @abstractmethod
     async def list_for_user(
-        self, user_id: UserId, *, limit: int, after: CallCursor | None = None
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        after: CallCursor | None = None,
+        matching: CallFilter | None = None,
     ) -> CallPage:
-        """A page of this user's calls, newest first.
+        """A page of this user's calls, newest first, holding only those `matching` allows.
 
         `limit` is between 1 and `MAX_CALL_PAGE`; anything else raises `InvariantError` rather
         than being quietly clamped, because a caller asking for a thousand has a bug to hear
-        about. `after` is the previous page's `next_cursor`.
+        about. `after` is the previous page's `next_cursor`, asked with the same filter.
         """
+
+    @abstractmethod
+    async def delete(self, user_id: UserId, call_id: CallId) -> None:
+        """Delete this user's call and everything recorded about it, at once and together.
+
+        Its participants, every line of its transcript and its summary go with it, in the same
+        transaction: a summary left behind is a record of a call the user deleted. Deleting a
+        call that is not there — never was, already deleted, or somebody else's — does nothing,
+        and says nothing about which.
+        """
+
+
+class TranscriptStatus(StrEnum):
+    """Whether a call's transcript can still be read, and if not, why not.
+
+    `PURGED` and `NOT_RECORDED` are both "nothing to read", and they are told apart because they
+    mean different things to the person asking: one is their retention setting doing what they
+    chose, the other is a call nothing was ever said on — rejected, or put straight through.
+    """
+
+    RETAINED = "retained"
+    PURGED = "purged"
+    NOT_RECORDED = "not_recorded"
 
 
 class TranscriptRepository(ABC):
@@ -271,6 +325,14 @@ class TranscriptRepository(ABC):
         Empty for a call that is not theirs, and for one whose transcript has been purged; the
         two are indistinguishable by design. Raises `InvariantError` for a transcript with a
         line missing from its middle or present twice, rather than returning what is left.
+        """
+
+    @abstractmethod
+    async def status(self, user_id: UserId, call_id: CallId) -> TranscriptStatus:
+        """Whether this user's call has a transcript to read, without reading it.
+
+        A call that is not theirs is `NOT_RECORDED`, like one nothing was said on; whether the
+        call exists at all is the call repository's question to answer.
         """
 
 
@@ -314,3 +376,13 @@ class SummaryRepository(ABC):
     @abstractmethod
     async def get(self, user_id: UserId, call_id: CallId) -> CallSummary | None:
         """This user's summary of the call, or nothing."""
+
+    @abstractmethod
+    async def for_calls(
+        self, user_id: UserId, call_ids: Sequence[CallId]
+    ) -> Mapping[CallId, CallSummary]:
+        """This user's summaries of these calls, by call; a call with none is simply absent.
+
+        One read for a page of history rather than one per call. A call that is not theirs is
+        absent too.
+        """

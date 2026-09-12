@@ -21,6 +21,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -32,6 +33,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql.expression import false
 
 
 class Base(DeclarativeBase):
@@ -183,6 +185,12 @@ class CallRow(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Set by the first line written, and never cleared, least of all by the purge: once every
+    # line has expired this is the only thing that tells a purged transcript from a call nothing
+    # was said on. It records that words existed, never any of them.
+    transcript_recorded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     __table_args__ = (
         # The target of every foreign key below. A transcript or summary names the call *and*
