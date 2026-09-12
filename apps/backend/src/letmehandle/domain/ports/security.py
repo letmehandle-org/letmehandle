@@ -9,9 +9,11 @@ touching the code that decides who is signed in.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from letmehandle.domain.models.auth import AuthenticatedUser
@@ -73,4 +75,39 @@ class TokenSigner(ABC):
 
         Raises rather than returning None. A caller that forgets to check a returned optional
         has written an authentication bypass, and the type system will not have stopped them.
+        """
+
+
+@dataclass(frozen=True, slots=True)
+class SealedBytes:
+    """Ciphertext, and the id of the key that sealed it.
+
+    The key id is stored beside the ciphertext so that opening it is one lookup rather than a
+    trial of every key, and so that a key an operator removed too early fails by name.
+    """
+
+    key_id: str
+    ciphertext: bytes
+
+
+class TranscriptCipher(ABC):
+    """Encrypts what somebody said before it is stored, and opens it again (D-014).
+
+    At the application layer rather than the disk's, so that a database dump is not a transcript
+    dump. Every operation takes a context — whose record this is, which call, which entry — that
+    is authenticated alongside the ciphertext but not stored inside it. Ciphertext copied onto
+    another user's row, another call, or another speaker is refused rather than read as theirs.
+
+    Summaries are sealed with it too: their evidence quotes the transcript word for word.
+    """
+
+    @abstractmethod
+    def seal(self, plaintext: bytes, context: Sequence[str]) -> SealedBytes:
+        """Encrypt under the newest key. Two seals of the same bytes never look alike."""
+
+    @abstractmethod
+    def open(self, sealed: SealedBytes, context: Sequence[str]) -> bytes:
+        """Decrypt, or raise `DecryptionError` — `UnknownKeyError` for a key no longer held.
+
+        Never returns bytes that were not sealed for exactly this context.
         """

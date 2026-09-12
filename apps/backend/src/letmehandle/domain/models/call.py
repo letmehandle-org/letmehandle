@@ -99,6 +99,42 @@ class CallSession:
     _transcript: list[TranscriptEntry] = field(default_factory=list, init=False)
     ended_at: datetime | None = field(default=None, init=False)
 
+    @classmethod
+    def restore(
+        cls,
+        *,
+        id: CallId,  # noqa: A002 - the field is called id, and the argument names the field
+        user_id: UserId,
+        caller: Caller,
+        started_at: datetime,
+        state: CallState,
+        participants: tuple[Participant, ...],
+        ended_at: datetime | None,
+    ) -> CallSession:
+        """A call read back from storage, exactly as it was written.
+
+        For a storage adapter, and nothing else: it places the call in a state without walking
+        the transitions, because the transitions were walked before the call was stored. What
+        it still refuses is a record no sequence of legal moves could have produced — an ending
+        with no moment, a moment with no ending, or one role present twice.
+
+        The transcript is not restored here. It is stored apart, encrypted and on its own
+        retention clock, and is read through its own repository.
+        """
+        if is_terminal(state) != (ended_at is not None):
+            raise InvariantError("a stored call has an end time exactly when it has ended")
+        if ended_at is not None and ended_at < started_at:
+            raise InvariantError("a call cannot end before it started")
+        present = [participant.role for participant in participants if participant.is_present]
+        if len(present) != len(set(present)):
+            raise InvariantError("a stored call has one role present twice")
+
+        call = cls(id=id, user_id=user_id, caller=caller, started_at=started_at)
+        call._state = state
+        call._participants = list(participants)
+        call.ended_at = ended_at
+        return call
+
     @property
     def state(self) -> CallState:
         """Read-only. Changing it goes through `move_to`, which applies the rules."""
