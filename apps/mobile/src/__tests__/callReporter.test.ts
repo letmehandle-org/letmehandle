@@ -80,11 +80,13 @@ function setUp(): {
   sender: RecordingSender;
   reporter: CallReporter;
   waits: number[];
+  unreadable: string[][];
 } {
   const native = new FakeNativeCallScreening();
   const screening = callScreeningFrom(native) as CallScreening;
   const sender = new RecordingSender();
   const waits: number[] = [];
+  const unreadable: string[][] = [];
   const wait = async (milliseconds: number): Promise<void> => {
     waits.push(milliseconds);
   };
@@ -92,7 +94,10 @@ function setUp(): {
     native,
     sender,
     waits,
-    reporter: new CallReporter(screening, sender, wait),
+    unreadable,
+    reporter: new CallReporter(screening, sender, wait, failures => {
+      unreadable.push([...failures]);
+    }),
   };
 }
 
@@ -237,5 +242,42 @@ describe('reporting what the handset observed', () => {
     expect(sent.filter(id => id === 'event-0001')).toHaveLength(1);
     expect(sent).toContain('event-0002');
     expect(native.pending).toEqual([]);
+  });
+
+  it('sends the reports behind a corrupt one, and has the handset forget it', async () => {
+    const { native, sender, reporter, unreadable } = setUp();
+    native.pending = [
+      event(1),
+      { event_id: 'corrupt', kind: 'vanished' },
+      event(2),
+    ];
+
+    await reporter.drain();
+
+    expect(sender.batches.map(batch => batch.reports.length)).toEqual([2]);
+    expect(unreadable).toEqual([['MalformedCallReports']]);
+    expect(native.pending).toEqual([]);
+  });
+
+  it('still forgets a corrupt report when the backend is away', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [{ event_id: 'corrupt' }, event(1)];
+    sender.failures.push(
+      new ApiError(401, { error: 'not_authenticated', message: 'signed out' }),
+    );
+
+    await expect(reporter.drain()).rejects.toThrow('signed out');
+
+    expect(native.pending).toEqual([event(1)]);
+  });
+
+  it('carries on past a record it cannot read at all', async () => {
+    const { native, sender, reporter, unreadable } = setUp();
+    native.pendingCallEvents = async () => 'not a list';
+
+    await reporter.drain();
+
+    expect(sender.batches).toEqual([]);
+    expect(unreadable).toEqual([['MalformedCallReports']]);
   });
 });

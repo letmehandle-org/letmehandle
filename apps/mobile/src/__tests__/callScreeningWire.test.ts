@@ -8,11 +8,7 @@
 import type { Preferences } from '@letmehandle/api-client';
 
 import { callScreeningFrom } from '../calls/callScreening';
-import {
-  MalformedCallReports,
-  buildRulesSnapshot,
-  parseCallReports,
-} from '../calls/wire';
+import { buildRulesSnapshot, parseCallReports } from '../calls/wire';
 import examples from '../calls/wire-examples.json';
 import { DEFAULT_PREFERENCES } from './support/backend';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
@@ -89,9 +85,33 @@ function examplesHandling(): Preferences['call_handling'] {
 
 describe('the call reports the handset writes', () => {
   it('reads every example exactly as the backend will receive it', () => {
-    expect(parseCallReports(JSON.stringify(examples.events))).toEqual(
-      examples.events,
-    );
+    expect(parseCallReports(JSON.stringify(examples.events))).toEqual({
+      reports: examples.events,
+      unreadable: [],
+    });
+  });
+
+  it('drops a document that is not JSON whole, naming the failure and nothing it held', () => {
+    expect(parseCallReports('[{"caller_number":"+12025550145"')).toEqual({
+      reports: [],
+      unreadable: [{ eventId: null, failure: 'MalformedCallReports' }],
+    });
+  });
+
+  it.each([
+    ['first', 0],
+    ['in the middle', 1],
+    ['last', 2],
+  ])('drops a corrupt entry %s and reads the rest', (_, position) => {
+    const entries: unknown[] = examples.events.slice(0, 2);
+    entries.splice(position, 0, { event_id: 'corrupt', kind: 'vanished' });
+
+    const read = parseCallReports(JSON.stringify(entries));
+
+    expect(read.reports).toEqual(examples.events.slice(0, 2));
+    expect(read.unreadable).toEqual([
+      { eventId: 'corrupt', failure: 'MalformedCallReports' },
+    ]);
   });
 
   it.each([
@@ -115,8 +135,10 @@ describe('the call reports the handset writes', () => {
       'an empty caller number',
       '[{"event_id":"e","call_id":"c","kind":"incoming","occurred_at":"t","caller_number":""}]',
     ],
-  ])('refuses %s', (_, document) => {
-    expect(() => parseCallReports(document)).toThrow(MalformedCallReports);
+  ])('drops %s', (_, document) => {
+    const read = parseCallReports(document);
+    expect(read.reports).toEqual([]);
+    expect(read.unreadable).toHaveLength(1);
   });
 });
 

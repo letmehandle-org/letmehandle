@@ -12,15 +12,19 @@
  * connection, a server fault — leaves the event where it is. That is tried again a few times, a
  * little later each time, and then left for the next drain; the backend's idempotency makes
  * sending it twice harmless.
+ *
+ * An entry the handset holds that cannot be read at all is forgotten, and said by its kind of
+ * failure only. Kept, it would be read and dropped again on every drain.
  */
 import type {
+  CallReport,
   CallReportBatch,
   CallReportReceipt,
 } from '@letmehandle/api-client';
 
 import { ApiError, NetworkError } from '../api/errors';
 import type { CallScreening } from './callScreening';
-import { parseCallReports } from './wire';
+import { parseCallReports, type UnreadableCallReport } from './wire';
 
 /** The most the backend accepts in one request (`MAX_REPORTS_PER_REQUEST`). */
 export const REPORTS_PER_REQUEST = 100;
@@ -58,10 +62,19 @@ const pause: Wait = milliseconds =>
     setTimeout(resolve, milliseconds);
   });
 
+/** Told the kind of failure of each entry a drain dropped. Never the entries: they hold numbers. */
+export type UnreadableListener = (failures: readonly string[]) => void;
+
+const warnUnreadable: UnreadableListener = failures => {
+  const kinds = [...new Set(failures)].join(', ');
+  console.warn(`dropped ${failures.length} unreadable call reports: ${kinds}`);
+};
+
 export class CallReporter {
   private readonly screening: CallScreening;
   private readonly sender: CallReportSender;
   private readonly wait: Wait;
+  private readonly onUnreadable: UnreadableListener;
   /** The drain in flight, shared by everything that asks for one while it runs. */
   private running: Promise<void> | null = null;
   /** Whether another drain was asked for while one was running. */
@@ -71,10 +84,12 @@ export class CallReporter {
     screening: CallScreening,
     sender: CallReportSender,
     wait: Wait = pause,
+    onUnreadable: UnreadableListener = warnUnreadable,
   ) {
     this.screening = screening;
     this.sender = sender;
     this.wait = wait;
+    this.onUnreadable = onUnreadable;
   }
 
   /**
@@ -101,7 +116,12 @@ export class CallReporter {
   }
 
   private async sendPending(): Promise<void> {
-    const pending = parseCallReports(await this.screening.pendingCallEvents());
+    const { reports: pending, unreadable } = parseCallReports(
+      await this.screening.pendingCallEvents(),
+    );
+    if (unreadable.length > 0) {
+      await this.forgetUnreadable(pending, unreadable);
+    }
     for (let start = 0; start < pending.length; start += REPORTS_PER_REQUEST) {
       const batch = pending.slice(start, start + REPORTS_PER_REQUEST);
       const outcome = await this.send({ reports: batch });
@@ -110,6 +130,25 @@ export class CallReporter {
         ...outcome.duplicates,
         ...(outcome.rejected ?? []).map(rejection => rejection.event_id),
       ]);
+    }
+  }
+
+  /**
+   * Forgets entries that will never read, before anything is sent, so a failed send does not
+   * leave them to be read and dropped again on every drain.
+   */
+  private async forgetUnreadable(
+    readable: readonly CallReport[],
+    unreadable: readonly UnreadableCallReport[],
+  ): Promise<void> {
+    this.onUnreadable(unreadable.map(entry => entry.failure));
+    // An id a readable report also carries is left alone: forgetting it would forget that report.
+    const kept = new Set(readable.map(report => report.event_id));
+    const forgettable = unreadable.flatMap(({ eventId }) =>
+      eventId === null || kept.has(eventId) ? [] : [eventId],
+    );
+    if (forgettable.length > 0) {
+      await this.screening.acknowledgeCallEvents(forgettable);
     }
   }
 

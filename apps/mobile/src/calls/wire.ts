@@ -74,7 +74,7 @@ const KINDS: readonly ReportedCallKind[] = ['incoming', 'answered', 'ended'];
 const DECISIONS: readonly ScreeningDecision[] = ['allow', 'reject', 'silence'];
 const ENDINGS: readonly CallEnding[] = ['screened_out', 'missed', 'completed'];
 
-/** Thrown when the native side hands over something that is not a list of call reports. */
+/** Why the handset's call reports, or one of them, could not be read. Names a field, never a value. */
 export class MalformedCallReports extends Error {
   constructor(reason: string) {
     super(`the handset's call reports could not be read: ${reason}`);
@@ -82,23 +82,66 @@ export class MalformedCallReports extends Error {
   }
 }
 
+/** A pending entry that could not be read, with the id the handset can forget it by, if it has one. */
+export interface UnreadableCallReport {
+  readonly eventId: string | null;
+  /** The kind of failure only: the entry itself can hold a caller's number. */
+  readonly failure: string;
+}
+
+export interface PendingCallReports {
+  readonly reports: CallReport[];
+  readonly unreadable: UnreadableCallReport[];
+}
+
 /**
  * The handset's pending call events, checked before anything is sent.
  *
  * Checked rather than cast: this text was written by another language's code on another thread,
  * and a report the backend would refuse is better caught here with a reason than there without.
+ * Checked one entry at a time, so an entry that cannot be read is set aside instead of holding
+ * back every report written after it.
  */
-export function parseCallReports(document: string): CallReport[] {
+export function parseCallReports(document: string): PendingCallReports {
   let parsed: unknown;
   try {
     parsed = JSON.parse(document);
   } catch {
-    throw new MalformedCallReports('not JSON');
+    return nothingReadable(new MalformedCallReports('not JSON'));
   }
   if (!Array.isArray(parsed)) {
-    throw new MalformedCallReports('not a list');
+    return nothingReadable(new MalformedCallReports('not a list'));
   }
-  return parsed.map(readReport);
+  const pending: PendingCallReports = { reports: [], unreadable: [] };
+  for (const entry of parsed) {
+    try {
+      pending.reports.push(readReport(entry));
+    } catch (error) {
+      if (!(error instanceof MalformedCallReports)) {
+        throw error;
+      }
+      pending.unreadable.push({
+        eventId: eventIdOf(entry),
+        failure: error.name,
+      });
+    }
+  }
+  return pending;
+}
+
+function nothingReadable(failure: MalformedCallReports): PendingCallReports {
+  return {
+    reports: [],
+    unreadable: [{ eventId: null, failure: failure.name }],
+  };
+}
+
+function eventIdOf(entry: unknown): string | null {
+  if (typeof entry !== 'object' || entry === null) {
+    return null;
+  }
+  const id = (entry as Record<string, unknown>).event_id;
+  return typeof id === 'string' ? id : null;
 }
 
 function readReport(value: unknown): CallReport {
