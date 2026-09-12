@@ -18,8 +18,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.adapters.audio.conversion import AudioConverter, pcm_duration_ms
 from letmehandle.adapters.speech.realtime import protocol
-from letmehandle.adapters.speech.realtime.audio import AudioConverter, pcm_duration_ms
 from letmehandle.adapters.speech.realtime.connection import (
     ConnectionFailedError,
     RealtimeConnectionError,

@@ -1,8 +1,10 @@
 """Turning the audio a caller has into the audio the service speaks, and back.
 
-The service accepts one kind of audio, and the transport in front of it supplies whatever it
+A speech service accepts one kind of audio, and whatever is in front of it supplies whatever it
 supplies: a microphone gives wideband linear audio, a phone call gives narrowband companded
-audio. Conversion happens here, at this adapter's edge, so no codec name escapes into the core.
+audio. Every adapter with audio at its edge converts there — a speech session on the way in, a
+sink on the way out — so no codec name escapes into the core, and they share this one module
+rather than each writing a resampler of its own.
 
 Plain Python, deliberately. At twenty-millisecond frames a few hundred samples per call is well
 inside what the interpreter manages, and a numerical dependency would be carried by every

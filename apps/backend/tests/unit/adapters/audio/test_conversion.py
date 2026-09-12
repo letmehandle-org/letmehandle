@@ -8,7 +8,7 @@ from itertools import pairwise
 
 import pytest
 
-from letmehandle.adapters.speech.realtime.audio import (
+from letmehandle.adapters.audio.conversion import (
     AudioConverter,
     UnsupportedConversionError,
     can_convert,

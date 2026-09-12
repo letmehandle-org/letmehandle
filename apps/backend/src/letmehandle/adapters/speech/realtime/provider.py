@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.adapters.speech.realtime.audio import can_convert
+from letmehandle.adapters.audio.conversion import can_convert
 from letmehandle.adapters.speech.realtime.context import SessionContext
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.reconnect import ReconnectPolicy
