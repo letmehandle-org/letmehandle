@@ -17,6 +17,8 @@
  *   would sign the user out.
  */
 import type {
+  CallReportBatch,
+  CallReportReceipt,
   ChallengeResponse,
   Onboarding,
   OnboardingStep,
@@ -178,6 +180,23 @@ export class ApiClient {
       method: 'PUT',
       path: '/v1/preferences/voice',
       body: { persona_voice_id: voiceId },
+      authenticated: true,
+    });
+  }
+
+  // ----------------------------------------------------------------- calls
+
+  /**
+   * Tell the backend what this handset observed about its own calls.
+   *
+   * The backend answers for every report by its event id, as newly stored or already stored, and
+   * both mean the handset may forget it.
+   */
+  reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
+    return this.send<CallReportReceipt>({
+      method: 'POST',
+      path: '/v1/calls/reports',
+      body: batch,
       authenticated: true,
     });
   }
