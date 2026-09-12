@@ -13,12 +13,13 @@ choice from the same package:
   ciphertext, so opening is one lookup and a missing key fails by name (`UnknownKeyError`) with
   the remedy in the message.
 
-Rotation: keys are configured newest first. `seal` always uses the newest; `open` uses whichever
-the stored id names. Introducing a key is therefore adding it at the front; retiring one is
-removing it once no stored row names it. Transcripts age out within the retention ceiling, so
-a transcript key can be retired that long after it stopped being newest. Summaries do not age
-out, so a key that sealed a summary stays for as long as that summary does — see the purge's
-module for what that means for an operator.
+Rotation: keys are configured newest first. `seal` always uses the newest; `open` uses whichever the
+stored id names. Introducing a key is therefore adding it at the front; retiring one is removing it
+once no stored row names it. Most transcripts age out within the retention ceiling, but a user whose
+stored retention is longer than this version allows is skipped by the purge rather than cut short,
+so retire a key only when no row names it — never by elapsed time alone. Summaries do not age out,
+so a key that sealed a summary stays for as long as that summary does — see the purge's module for
+what that means for an operator.
 
 Layout of `ciphertext`: a fresh 96-bit nonce, then GCM's output (the encrypted bytes followed by
 its 128-bit tag). A nonce is never reused under a key: it comes from the operating system's
