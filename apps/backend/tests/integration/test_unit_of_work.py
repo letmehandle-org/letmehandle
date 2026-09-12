@@ -29,13 +29,15 @@ NUMBER = PhoneNumber.parse("+12025550143")
 
 
 @pytest.fixture
-async def engine(session: object, database_url: str) -> AsyncIterator[AsyncEngine]:
+async def engine(session: object, database_url: str, schema: str) -> AsyncIterator[AsyncEngine]:
     """A schema of its own.
 
     Depends on `session` only to inherit its skip when no database is reachable, and because
     it has already created the schema.
     """
-    built = create_async_engine(database_url)
+    built = create_async_engine(
+        database_url, connect_args={"server_settings": {"search_path": schema}}
+    )
     try:
         async with built.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)

@@ -21,6 +21,13 @@ the first release.
   backend image, and native builds for both platforms.
 - Domain model: calls and their state machine, callers, users, preferences and deterministic
   call rules, agent authority, intent and importance, escalation decisions, and call summaries.
+- Preferences: call handling, important contacts, working and quiet hours, topics, what the
+  assistant may volunteer, authority boundaries and notification choices — stored as one
+  versioned document, changed a section at a time without disturbing the others.
+- Server-side onboarding progress, so reinstalling resumes where somebody was.
+- A deterministic, versioned context builder that turns stored preferences into what the model
+  will be told, carrying no phone numbers.
+- Mobile onboarding and a settings surface where every value is editable afterwards.
 - Authentication: phone-number identity with one-time codes, rotating refresh tokens with
   reuse detection, rate limits, and a mock code provider that refuses to run in production.
 - The first migration: users, devices, refresh tokens and one-time challenges.

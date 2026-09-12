@@ -16,6 +16,7 @@ import React from 'react';
 import { App } from '../App';
 import { useSession } from '../auth/SessionProvider';
 import * as tokenStore from '../auth/tokenStore';
+import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
 
 const NUMBER = '+12025550143';
 const PROFILE = {
@@ -47,8 +48,12 @@ interface Reply {
 
 function replyWith(replies: Reply[]): jest.Mock {
   const queue = [...replies];
-  const fake = jest.fn(async () => {
-    const reply = queue.shift() ?? { status: 200, body: {} };
+  const fake = jest.fn(async (url: string) => {
+    // Answered from the defaults rather than from the queue. The signed-in tree reads
+    // preferences and onboarding before it renders, and counting those into every queue would
+    // make each of these tests fail whenever a screen gains a request.
+    const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
+    const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
     return {
       ok: reply.status >= 200 && reply.status < 300,
       status: reply.status,
@@ -58,6 +63,16 @@ function replyWith(replies: Reply[]): jest.Mock {
   globalThis.fetch = fake as unknown as typeof fetch;
   return fake;
 }
+
+const SETUP_BODIES: Record<string, unknown> = {
+  '/v1/preferences': DEFAULT_PREFERENCES,
+  '/v1/onboarding': ONBOARDING_COMPLETE,
+};
+
+const SETUP: Record<string, Reply | undefined> = {
+  '/v1/preferences': { status: 200, body: DEFAULT_PREFERENCES },
+  '/v1/onboarding': { status: 200, body: ONBOARDING_COMPLETE },
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -193,13 +208,16 @@ describe('signing out', () => {
       refreshToken: 'a-refresh-token',
       accessTokenExpiresAt: Date.now() + 600_000,
     });
-    let call = 0;
-    globalThis.fetch = (async () => {
-      call += 1;
-      if (call === 1) {
-        return { ok: true, status: 200, json: async () => PROFILE } as Response;
+    // Everything the signed-in tree needs answers; the sign-out that follows does not. Keyed
+    // by path rather than by how many requests have gone before, so that a screen gaining a
+    // request does not turn this into a test about something else.
+    globalThis.fetch = (async (url: string) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      const standing = { '/v1/me': PROFILE, ...SETUP_BODIES }[path];
+      if (standing === undefined) {
+        throw new TypeError('Network request failed');
       }
-      throw new TypeError('Network request failed');
+      return { ok: true, status: 200, json: async () => standing } as Response;
     }) as unknown as typeof fetch;
 
     const view = await render(<App />);

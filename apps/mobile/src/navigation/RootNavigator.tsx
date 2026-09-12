@@ -4,20 +4,30 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useSession } from '../auth/SessionProvider';
+import {
+  PreferencesProvider,
+  usePreferences,
+} from '../preferences/PreferencesProvider';
 import { HomeScreen } from '../screens/HomeScreen';
+import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { PhoneNumberScreen } from '../screens/PhoneNumberScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
+import { SettingsSectionScreen } from '../screens/SettingsSectionScreen';
 import { VerifyCodeScreen } from '../screens/VerifyCodeScreen';
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { theme } from '../theme';
 import {
   APP_ROUTES,
   AUTH_ROUTES,
+  ONBOARDING_ROUTES,
   type AppStackParamList,
   type AuthStackParamList,
+  type OnboardingStackParamList,
 } from './routes';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const OnboardingStack = createNativeStackNavigator<OnboardingStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
 
 const navigationTheme = {
@@ -41,10 +51,15 @@ const navigationTheme = {
 /**
  * Which application somebody sees.
  *
- * The stacks are mutually exclusive, so a signed-out person has no route to the application
- * and a signed-in one has no route back to the sign-in screens. Signing out does not navigate:
- * the session changes and the tree changes with it, which means there is no state left over
- * from the previous account to leak into the next.
+ * The stacks are mutually exclusive, so a signed-out person has no route to the application, a
+ * signed-in one has no route back to the sign-in screens, and somebody who has not finished
+ * setting up has no route past it. Signing out does not navigate: the session changes and the
+ * tree changes with it, which means there is no state left over from the previous account to
+ * leak into the next.
+ *
+ * Preferences are loaded above the container rather than inside it, because the loading and
+ * unavailable states are not navigators and a container whose child is not one has no screen to
+ * show.
  */
 export function RootNavigator(): React.JSX.Element {
   const { status } = useSession();
@@ -58,10 +73,20 @@ export function RootNavigator(): React.JSX.Element {
     );
   }
 
+  if (status === 'signed-out') {
+    return (
+      <NavigationContainer theme={navigationTheme}>
+        <SignedOut />
+      </NavigationContainer>
+    );
+  }
+
   return (
-    <NavigationContainer theme={navigationTheme}>
-      {status === 'signed-in' ? <SignedIn /> : <SignedOut />}
-    </NavigationContainer>
+    <PreferencesProvider>
+      <NavigationContainer theme={navigationTheme}>
+        <SignedIn />
+      </NavigationContainer>
+    </PreferencesProvider>
   );
 }
 
@@ -106,7 +131,27 @@ function SignedOut(): React.JSX.Element {
   );
 }
 
+/**
+ * Setting up, or using the thing.
+ *
+ * The server decides which, through `next_step`. Holding that here rather than on the device is
+ * what lets somebody who reinstalls carry on where they were instead of answering everything a
+ * second time.
+ */
 function SignedIn(): React.JSX.Element {
+  const { onboarding } = usePreferences();
+  const step = onboarding.next_step;
+
+  if (step !== null) {
+    return (
+      <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
+        <OnboardingStack.Screen name={ONBOARDING_ROUTES.step}>
+          {() => <OnboardingScreen step={step} />}
+        </OnboardingStack.Screen>
+      </OnboardingStack.Navigator>
+    );
+  }
+
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
       <AppStack.Screen name={APP_ROUTES.home}>
@@ -115,10 +160,27 @@ function SignedIn(): React.JSX.Element {
             onOpenProfile={() => {
               navigation.navigate(APP_ROUTES.profile);
             }}
+            onOpenSettings={() => {
+              navigation.navigate(APP_ROUTES.settings);
+            }}
           />
         )}
       </AppStack.Screen>
       <AppStack.Screen name={APP_ROUTES.profile} component={ProfileScreen} />
+      <AppStack.Screen name={APP_ROUTES.settings}>
+        {({ navigation }) => (
+          <SettingsScreen
+            onOpenSection={section => {
+              navigation.navigate(APP_ROUTES.settingsSection, { section });
+            }}
+          />
+        )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.settingsSection}>
+        {({ route }) => (
+          <SettingsSectionScreen section={route.params.section} />
+        )}
+      </AppStack.Screen>
     </AppStack.Navigator>
   );
 }

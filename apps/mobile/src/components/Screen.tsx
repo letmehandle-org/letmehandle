@@ -2,6 +2,7 @@ import React from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -14,6 +15,8 @@ interface Props {
   readonly title?: string;
   readonly subtitle?: string;
   readonly children: React.ReactNode;
+  /** Whether the body may be longer than the screen. */
+  readonly scrollable?: boolean;
   readonly testID?: string;
 }
 
@@ -27,6 +30,7 @@ export function Screen({
   title,
   subtitle,
   children,
+  scrollable = false,
   testID,
 }: Props): React.JSX.Element {
   return (
@@ -44,7 +48,19 @@ export function Screen({
           {subtitle !== undefined && (
             <Text style={styles.subtitle}>{subtitle}</Text>
           )}
-          <View style={styles.body}>{children}</View>
+          {scrollable ? (
+            // A settings section asks more questions than fit on a phone, and content that
+            // runs off the bottom of a fixed body is content nobody knows is there.
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={styles.scrollBody}
+              keyboardShouldPersistTaps="handled"
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={styles.body}>{children}</View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -58,4 +74,10 @@ const styles = StyleSheet.create({
   title: { ...theme.type.title, color: theme.colour.text },
   subtitle: { ...theme.type.body, color: theme.colour.textMuted },
   body: { flex: 1, gap: theme.space.md, paddingTop: theme.space.lg },
+  // No flex here: a content container that fills the viewport cannot scroll past it.
+  scrollBody: {
+    gap: theme.space.md,
+    paddingTop: theme.space.lg,
+    paddingBottom: theme.space.xl,
+  },
 });
