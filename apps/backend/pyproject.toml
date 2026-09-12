@@ -18,6 +18,7 @@ dependencies = [
     "pyjwt>=2.14.0",
     "websockets>=17.1,<18",
     "cryptography>=44",
+    "strands-agents[openai]>=1.55.1,<2",
 ]
 
 [dependency-groups]
@@ -189,5 +190,14 @@ forbidden_modules = [
     "botocore",
     "httpx",
     "requests",
+    "strands",
+    "openai",
     "websockets",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Application code names no agent framework or model client"
+type = "forbidden"
+source_modules = ["letmehandle.application"]
+forbidden_modules = ["strands", "openai", "websockets", "letmehandle.adapters"]
+

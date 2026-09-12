@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from letmehandle.domain.errors import DomainError
+from letmehandle.domain.errors import DomainError, InvariantError
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
     CODE_LENGTH,
@@ -154,7 +154,7 @@ class AuthenticationService:
         if issued_recently >= self._policy.challenges_per_number:
             raise RateLimitedError(int(self._policy.challenges_per_number_window.total_seconds()))
 
-        code = self._secrets.numeric_code(CODE_LENGTH)
+        code = self._challenge_code()
         challenge = OTPChallenge(
             id=self._ids.generate(),
             phone_number=number,
@@ -172,6 +172,26 @@ class AuthenticationService:
             challenge_id=challenge.id,
             expires_in_seconds=int(CHALLENGE_LIFETIME.total_seconds()),
         )
+
+    def _challenge_code(self) -> str:
+        """The code for a new challenge: random, unless a testing provider fixes it.
+
+        A fixed code is accepted only from a provider that admits it is not safe for production,
+        which is the same provider the application refuses to start with there. Anything else
+        offering one is a mistake that would give every account the same code, so it is refused
+        loudly rather than used.
+        """
+        fixed = self._otp.fixed_code
+        if fixed is None:
+            return self._secrets.numeric_code(CODE_LENGTH)
+        if self._otp.is_safe_for_production:
+            raise InvariantError(
+                f"{self._otp.name} delivers real codes and must not fix them; a fixed code is "
+                "for a testing provider only"
+            )
+        if len(fixed) != CODE_LENGTH or not fixed.isdigit():
+            raise InvariantError(f"a fixed code must be {CODE_LENGTH} digits")
+        return fixed
 
     # -------------------------------------------------------------- verifying
 

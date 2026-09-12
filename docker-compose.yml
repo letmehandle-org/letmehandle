@@ -38,6 +38,11 @@ services:
       SPEECH_AGENT_ID: ${SPEECH_AGENT_ID:-}
       SPEECH_TRANSCRIPTION_MODEL: ${SPEECH_TRANSCRIPTION_MODEL:-}
       SPEECH_API_KEY: ${SPEECH_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_HEADERS: ${LLM_HEADERS:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-20}
       # Example voices, so the development stack starts. No speech service speaks them; set
       # SPEECH_VOICES and SPEECH_DEFAULT_VOICE in .env to your service's own.
       SPEECH_VOICES: ${SPEECH_VOICES:-example-voice-a:Example voice A (not a real voice):en,example-voice-b:Example voice B (not a real voice):en}

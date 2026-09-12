@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from typing import TYPE_CHECKING, Final
 
-from pydantic import AnyWebsocketUrl, PostgresDsn, SecretStr
+from pydantic import AnyHttpUrl, AnyWebsocketUrl, PostgresDsn, SecretStr
 
 from letmehandle.config.settings import (
     Environment,
@@ -13,6 +13,7 @@ from letmehandle.config.settings import (
     OTPProviderName,
     Settings,
     SpeechProviderName,
+    parse_llm_headers,
     parse_voice_catalogue,
 )
 
@@ -68,6 +69,11 @@ def make_settings(
     speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
     transcript_encryption_keys: str | None = None,
+    llm_base_url: str | None = None,
+    llm_api_key: str | None = None,
+    llm_model: str | None = None,
+    llm_headers: str = "",
+    llm_timeout_seconds: float = 20,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -96,4 +102,9 @@ def make_settings(
             if transcript_encryption_keys is not None
             else None
         ),
+        llm_base_url=AnyHttpUrl(llm_base_url) if llm_base_url is not None else None,
+        llm_api_key=SecretStr(llm_api_key) if llm_api_key is not None else None,
+        llm_model=llm_model,
+        llm_headers=parse_llm_headers(llm_headers),
+        llm_timeout_seconds=llm_timeout_seconds,
     )
