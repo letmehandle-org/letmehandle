@@ -216,8 +216,9 @@ class TranscriptEntryRow(Base):
     """One thing somebody said, encrypted (D-014).
 
     `ciphertext` is the only column derived from the words, and it is sealed at the application
-    layer with the user, call, speaker and moment as authenticated context — so a database dump
-    is not a transcript dump, and a row copied onto another call does not open. No column, index
+    layer with the user, call, place in the call, speaker and moment as authenticated context —
+    so a database dump is not a transcript dump, and a row copied onto another call, or to
+    another place in its own, does not open. No column, index
     or constraint here is computed from the text.
     """
 
@@ -226,6 +227,8 @@ class TranscriptEntryRow(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The line's place in its call, in the order lines were written, bound into the seal.
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     speaker: Mapped[str] = mapped_column(String(16), nullable=False)
     said_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     key_id: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -238,6 +241,8 @@ class TranscriptEntryRow(Base):
             ondelete="CASCADE",
             name="fk_call_transcript_entries_call_user",
         ),
+        # One line per place in a call, so a copied row cannot take a number already taken.
+        UniqueConstraint("call_id", "sequence", name="uq_call_transcript_entries_call_sequence"),
         # Reading one call's transcript in the order it was said.
         Index("ix_call_transcript_entries_call_said", "call_id", "said_at", "id"),
         # The purge: which users hold old entries, and each one's oldest entries first.

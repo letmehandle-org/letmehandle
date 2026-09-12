@@ -236,6 +236,23 @@ class TestWhatIsDeleted:
         await purge(engine)
         assert await world.remaining(ALICE, "call-1") == []
 
+    async def test_an_expired_line_appended_after_a_kept_one_waits_for_it(
+        self, engine: AsyncEngine
+    ) -> None:
+        # Lines are numbered in the order they were written, which is not always the order they
+        # were said. Deleting an expired line from between two kept ones would leave a gap that
+        # makes the whole transcript unreadable; it goes when the line before it does.
+        world = World(engine)
+        await world.user(ALICE)
+        await world.call(ALICE, "call-1", [ago(1), ago(10), ago(0.5)])
+        await world.call(ALICE, "call-2", [ago(10), ago(9), ago(1)])
+
+        result = await purge(engine)
+
+        assert await world.remaining(ALICE, "call-1") == [ago(10), ago(1), ago(0.5)]
+        assert await world.remaining(ALICE, "call-2") == [ago(1)]
+        assert result.entries_deleted == 2
+
     async def test_running_it_again_changes_nothing(self, engine: AsyncEngine) -> None:
         world = World(engine)
         await world.user(ALICE)

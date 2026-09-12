@@ -269,7 +269,8 @@ class TranscriptRepository(ABC):
         """What remains of this user's call's transcript, in the order it was said.
 
         Empty for a call that is not theirs, and for one whose transcript has been purged; the
-        two are indistinguishable by design.
+        two are indistinguishable by design. Raises `InvariantError` for a transcript with a
+        line missing from its middle or present twice, rather than returning what is left.
         """
 
 

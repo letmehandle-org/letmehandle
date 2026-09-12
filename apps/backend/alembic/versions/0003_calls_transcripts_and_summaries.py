@@ -59,6 +59,8 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("user_id", sa.String(64), nullable=False),
         sa.Column("call_id", sa.String(64), nullable=False),
+        # The line's place in its call, bound into the seal, so a gap or a copy is detectable.
+        sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("speaker", sa.String(16), nullable=False),
         sa.Column("said_at", sa.DateTime(timezone=True), nullable=False),
         # Which key sealed the row, so a rotation can tell when an old key is no longer needed.
@@ -71,6 +73,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
             name="fk_call_transcript_entries_call_user",
         ),
+        sa.UniqueConstraint("call_id", "sequence", name="uq_call_transcript_entries_call_sequence"),
     )
     op.create_index(
         "ix_call_transcript_entries_call_said",

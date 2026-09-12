@@ -411,8 +411,8 @@ class TestTranscripts:
             await session.execute(
                 text(
                     "INSERT INTO call_transcript_entries "
-                    "(user_id, call_id, speaker, said_at, key_id, ciphertext) "
-                    "VALUES ('user-2', 'call-1', 'caller', now(), 'k', '\\x00')"
+                    "(user_id, call_id, sequence, speaker, said_at, key_id, ciphertext) "
+                    "VALUES ('user-2', 'call-1', 0, 'caller', now(), 'k', '\\x00')"
                 )
             )
 
@@ -444,6 +444,74 @@ class TestTranscripts:
 
         with pytest.raises(DecryptionError):
             await transcripts.for_call(ME, CallId("call-1"))
+
+    async def test_a_row_copied_within_its_call_is_refused(
+        self, session: AsyncSession, calls: SqlCallRepository, transcripts: SqlTranscriptRepository
+    ) -> None:
+        # "Yes, I agree" said once, made to appear twice.
+        await users(session)
+        await calls.save(a_call())
+        await transcripts.append(
+            ME,
+            CallId("call-1"),
+            [
+                TranscriptEntry(Speaker.CALLER, "yes, I agree", later(1)),
+                TranscriptEntry(Speaker.AGENT, "noted", later(2)),
+            ],
+        )
+        copy = (
+            "INSERT INTO call_transcript_entries "
+            "(user_id, call_id, sequence, speaker, said_at, key_id, ciphertext) "
+            "SELECT user_id, call_id, {sequence}, speaker, said_at, key_id, ciphertext "
+            "FROM call_transcript_entries WHERE sequence = 0"
+        )
+
+        with pytest.raises(IntegrityError, match="uq_call_transcript_entries_call_sequence"):
+            async with session.begin_nested():
+                await session.execute(text(copy.format(sequence="sequence")))
+        await session.execute(text(copy.format(sequence="2")))
+
+        with pytest.raises(DecryptionError):
+            await transcripts.for_call(ME, CallId("call-1"))
+
+    async def test_a_row_deleted_from_the_middle_is_detected(
+        self, session: AsyncSession, calls: SqlCallRepository, transcripts: SqlTranscriptRepository
+    ) -> None:
+        await users(session)
+        await calls.save(a_call())
+        await transcripts.append(
+            ME,
+            CallId("call-1"),
+            [
+                TranscriptEntry(Speaker.AGENT, "Shall I tell them you agree?", later(1)),
+                TranscriptEntry(Speaker.CALLER, "no", later(2)),
+                TranscriptEntry(Speaker.AGENT, "Understood.", later(3)),
+            ],
+        )
+        await session.execute(text("DELETE FROM call_transcript_entries WHERE sequence = 1"))
+
+        with pytest.raises(InvariantError, match="missing"):
+            await transcripts.for_call(ME, CallId("call-1"))
+
+    async def test_the_oldest_entries_gone_leave_the_rest_readable(
+        self, session: AsyncSession, calls: SqlCallRepository, transcripts: SqlTranscriptRepository
+    ) -> None:
+        # What a purge leaves behind: a call straddling the cutoff loses its first lines.
+        await users(session)
+        await calls.save(a_call())
+        await transcripts.append(
+            ME,
+            CallId("call-1"),
+            [TranscriptEntry(Speaker.CALLER, f"line {i}", later(i)) for i in range(3)],
+        )
+        await transcripts.append(
+            ME, CallId("call-1"), [TranscriptEntry(Speaker.AGENT, "line 3", later(3))]
+        )
+        await session.execute(text("DELETE FROM call_transcript_entries WHERE sequence < 2"))
+
+        remaining = await transcripts.for_call(ME, CallId("call-1"))
+
+        assert [entry.text for entry in remaining] == ["line 2", "line 3"]
 
     async def test_ciphertext_moved_onto_another_call_no_longer_opens(
         self, session: AsyncSession, calls: SqlCallRepository, transcripts: SqlTranscriptRepository

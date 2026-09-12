@@ -15,8 +15,9 @@ import json
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, exists, select, tuple_
+from sqlalchemy import delete, exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import aliased
 
 from letmehandle.domain.errors import AlreadyRecordedError, InvariantError, RecordNotFoundError
 from letmehandle.domain.models.call import (
@@ -59,11 +60,15 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.security import TranscriptCipher
 
 
-async def _owns_call(session: AsyncSession, user_id: UserId, call_id: CallId) -> bool:
-    result = await session.execute(
-        select(exists().where(CallRow.id == call_id.value, CallRow.user_id == user_id.value))
-    )
-    return bool(result.scalar_one())
+async def _owns_call(
+    session: AsyncSession, user_id: UserId, call_id: CallId, *, lock: bool = False
+) -> bool:
+    """Whether the call is this user's; with `lock`, holding its row until the transaction ends."""
+    query = select(CallRow.id).where(CallRow.id == call_id.value, CallRow.user_id == user_id.value)
+    if lock:
+        query = query.with_for_update()
+    result = await session.execute(query)
+    return result.scalar_one_or_none() is not None
 
 
 def _identity_to_document(caller: Caller) -> dict[str, str | None]:
@@ -217,14 +222,16 @@ class SqlCallRepository(CallRepository):
 
 
 def _transcript_context(
-    user_id: str, call_id: str, speaker: str, said_at: datetime
+    user_id: str, call_id: str, sequence: int, speaker: str, said_at: datetime
 ) -> tuple[str, ...]:
     """What a transcript entry's ciphertext is bound to.
 
     The speaker and the moment as well as the owner and the call: a row whose speaker column is
-    changed — so that the caller's "yes" becomes the assistant's — no longer opens.
+    changed — so that the caller's "yes" becomes the assistant's — no longer opens. And its place
+    in the call: a row copied under another number no longer opens either, so a line said once
+    cannot be made to appear twice.
     """
-    return ("transcript", user_id, call_id, speaker, _moment(said_at))
+    return ("transcript", user_id, call_id, str(sequence), speaker, _moment(said_at))
 
 
 def _moment(instant: datetime) -> str:
@@ -238,6 +245,19 @@ def _moment(instant: datetime) -> str:
 
 
 class SqlTranscriptRepository(TranscriptRepository):
+    """Transcripts, sealed line by line and numbered within their call.
+
+    The numbers are what make a missing line visible. Every entry is bound to its number, and a
+    read refuses a transcript whose numbers skip or repeat, so a row deleted from the middle or
+    copied within the call is detected rather than silently changing what was said.
+
+    Two deletions are not detectable, by design. The oldest lines going is exactly what the
+    purge does, so a transcript may start at any number. The newest line going leaves nothing
+    after it to disagree. Both need write access to the database, which is already a breach
+    this cannot repair; what it does guarantee is that what is read was said, in that order,
+    with nothing taken out of the middle.
+    """
+
     def __init__(self, session: AsyncSession, cipher: TranscriptCipher) -> None:
         self._session = session
         self._cipher = cipher
@@ -245,22 +265,32 @@ class SqlTranscriptRepository(TranscriptRepository):
     async def append(
         self, user_id: UserId, call_id: CallId, entries: Sequence[TranscriptEntry]
     ) -> None:
-        if not await _owns_call(self._session, user_id, call_id):
+        # The call's row is locked, so two appends to one call number their lines one after the
+        # other instead of both reading the same last number and one failing on the constraint.
+        if not await _owns_call(self._session, user_id, call_id, lock=True):
             raise RecordNotFoundError("call", call_id.value)
         if not entries:
             return
+        last = await self._session.execute(
+            select(func.max(TranscriptEntryRow.sequence)).where(
+                TranscriptEntryRow.call_id == call_id.value
+            )
+        )
+        highest = last.scalar_one()
+        first = 0 if highest is None else highest + 1
         rows = []
-        for entry in entries:
+        for sequence, entry in enumerate(entries, start=first):
             sealed = self._cipher.seal(
                 entry.text.encode(),
                 _transcript_context(
-                    user_id.value, call_id.value, entry.speaker.value, entry.at_instant
+                    user_id.value, call_id.value, sequence, entry.speaker.value, entry.at_instant
                 ),
             )
             rows.append(
                 {
                     "user_id": user_id.value,
                     "call_id": call_id.value,
+                    "sequence": sequence,
                     "speaker": entry.speaker.value,
                     "said_at": entry.at_instant,
                     "key_id": sealed.key_id,
@@ -277,18 +307,27 @@ class SqlTranscriptRepository(TranscriptRepository):
                 TranscriptEntryRow.user_id == user_id.value,
                 TranscriptEntryRow.call_id == call_id.value,
             )
-            .order_by(TranscriptEntryRow.said_at, TranscriptEntryRow.id)
+            .order_by(TranscriptEntryRow.said_at, TranscriptEntryRow.sequence)
         )
+        rows = list(result.scalars().all())
+        numbers = sorted(row.sequence for row in rows)
+        if numbers and numbers != list(range(numbers[0], numbers[0] + len(numbers))):
+            raise InvariantError(
+                "a stored transcript is missing a line from its middle or holds one twice, so "
+                "what it says is not what was said"
+            )
         return tuple(
             TranscriptEntry(
                 speaker=Speaker(row.speaker),
                 text=self._cipher.open(
                     SealedBytes(row.key_id, row.ciphertext),
-                    _transcript_context(row.user_id, row.call_id, row.speaker, row.said_at),
+                    _transcript_context(
+                        row.user_id, row.call_id, row.sequence, row.speaker, row.said_at
+                    ),
                 ).decode(),
                 at_instant=row.said_at,
             )
-            for row in result.scalars().all()
+            for row in rows
         )
 
 
@@ -321,13 +360,27 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
         # evaluate a locking subquery more than once inside the delete's plan; each evaluation
         # skips what the last one locked and returns fresh rows, so the LIMIT stops bounding
         # anything. Measured here: a batch of ten deleted thirty. Materialising runs it once.
+        #
+        # Only a call's leading lines go. Lines are numbered in the order they were written, which
+        # is not always the order they were said, and a read refuses a transcript with a line
+        # missing from its middle; so an expired line waits while a line numbered before it is
+        # kept, and goes when that one does. Oldest numbers first, so that a batch committed
+        # part-way through a call leaves it readable. Two purges racing can still leave a gap
+        # between their batches until the slower one commits.
+        earlier = aliased(TranscriptEntryRow)
+        kept_before_it = exists().where(
+            earlier.call_id == TranscriptEntryRow.call_id,
+            earlier.sequence < TranscriptEntryRow.sequence,
+            earlier.said_at > at_or_before,
+        )
         chosen = (
             select(TranscriptEntryRow.id)
             .where(
                 TranscriptEntryRow.user_id == user_id.value,
                 TranscriptEntryRow.said_at <= at_or_before,
+                ~kept_before_it,
             )
-            .order_by(TranscriptEntryRow.said_at)
+            .order_by(TranscriptEntryRow.call_id, TranscriptEntryRow.sequence)
             .limit(limit)
             .with_for_update(skip_locked=True)
             .cte("chosen")
