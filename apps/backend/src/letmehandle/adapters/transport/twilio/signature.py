@@ -18,6 +18,9 @@ each warning has a test:
 - Every parameter received is signed, including ones this code has never heard of. Parameters
   are never filtered to a known list, because the provider adds them without notice.
 - A websocket handshake may have been signed with a trailing slash on the URL.
+- A repeated parameter is signed over its distinct values in sorted order, so the order its
+  values arrive in is not signed. What reads a callback refuses one repeating a parameter it
+  reads, rather than letting that order decide which value is meant.
 
 Nothing here reads a parameter's meaning. The verified parameters are handed back and only then
 does anything look inside them.
@@ -49,8 +52,12 @@ class SignatureRejectedError(Exception):
 
 
 def compute_signature(url: str, params: Iterable[tuple[str, str]], auth_token: str) -> str:
-    """The signature the provider would send for this URL and these form parameters."""
-    payload = url + "".join(name + value for name, value in sorted(params))
+    """The signature the provider would send for this URL and these form parameters.
+
+    A parameter carrying the same value twice is written out once, as the official validators
+    write it: they sort the set of each parameter's values.
+    """
+    payload = url + "".join(name + value for name, value in sorted(set(params)))
     digest = hmac.new(auth_token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha1)
     return base64.b64encode(digest.digest()).decode("ascii")
 

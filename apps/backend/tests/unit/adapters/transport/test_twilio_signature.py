@@ -75,6 +75,17 @@ def test_sorting_is_case_sensitive_as_unix_sorting_is() -> None:
     )
 
 
+def test_a_repeated_parameter_is_signed_once_per_distinct_value_in_value_order() -> None:
+    # The official validators sort the set of each parameter's values, so a value repeated
+    # verbatim is written out once, and two values of one name are written in sorted order.
+    written_out = "u" + "Event" + "join" + "Event" + "leave"
+    expected = base64.b64encode(
+        hmac.new(TOKEN.encode(), written_out.encode(), hashlib.sha1).digest()
+    ).decode()
+    repeated = [("Event", "leave"), ("Event", "join"), ("Event", "leave")]
+    assert compute_signature("u", repeated, TOKEN) == expected
+
+
 def test_a_genuine_form_callback_is_accepted_and_its_parameters_returned() -> None:
     url = f"{BASE}{PATH}?call=CAsim-1"
     params = verifier().verify_form(

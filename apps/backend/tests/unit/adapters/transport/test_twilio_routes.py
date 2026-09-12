@@ -176,6 +176,27 @@ async def test_status_callbacks_are_applied_once_per_delivery_token(
     assert leg.status_code == 204
 
 
+async def test_a_callback_repeating_a_parameter_it_is_read_for_is_unprocessable(
+    client: AsyncClient, transport: TwilioCallTransport
+) -> None:
+    # A repeated parameter is signed the same whichever order its values arrive in, so the
+    # order cannot be allowed to decide which of them is meant.
+    await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
+    await drain(transport)
+    ambiguous = [
+        ("AccountSid", ACCOUNT),
+        ("ConferenceSid", "CFsim-1"),
+        ("StatusCallbackEvent", "participant-join"),
+        ("StatusCallbackEvent", "participant-leave"),
+        ("SequenceNumber", "1"),
+        ("ParticipantLabel", "caller"),
+    ]
+    response = await signed_post(client, "/telephony/conference/status?call=CAsim-1", ambiguous)
+    assert response.status_code == 422
+    assert await drain(transport) == []
+    assert transport.active_calls == 1
+
+
 # ----------------------------------------------------------- the websocket, as a socket
 
 
