@@ -1,18 +1,44 @@
 # CallTransport
 
 How a call reaches the product. Two transports differ in kind rather than in supplier (D-005), so
-the core asks what a transport can do and never which one it is. This page documents the
-streaming transport; the on-device transport has its own section when it lands.
+the core asks what a transport can do and never which one it is: the streaming transport carries
+a call's audio and can add the user to it, and the on-device transport screens a call on the
+user's handset before it rings.
 
 Interface: `apps/backend/src/letmehandle/domain/ports/call_transport.py`
-Contract suite: `apps/backend/tests/contracts/call_transport.py`
-Adapter: `adapters/transport/twilio/`, chosen by `TELEPHONY_PROVIDER=twilio`
+Contract suite: `apps/backend/tests/contracts/call_transport.py`, run against both transports
+Adapters, chosen in bootstrap by `TELEPHONY_PROVIDER`:
+
+- `adapters/transport/twilio/` — `TELEPHONY_PROVIDER=twilio`
+- `adapters/transport/android_native/` — `TELEPHONY_PROVIDER=android_native`
+
+## Capabilities
+
+| Capability | Streaming | On-device |
+| --- | --- | --- |
+| `can_answer_under_program_control` | yes | no — the person holding the handset answers |
+| `can_screen_before_ringing` | no — it never sees a call before it connects | yes |
+| `can_stream_call_audio_to_ai` | yes | no — the platform never hands over a SIM call's audio |
+| `can_inject_ai_audio` | yes | no |
+| `can_bridge_human` | yes | no |
+| `supports_three_way_call` | yes | no |
+| `supports_native_ringing` | no | yes |
+
+An operation behind a capability is reached by narrowing, and each narrowing raises
+`CapabilityNotSupportedError` naming the capability on a transport that does not declare it:
+
+| Narrowing | Protocol | Operations |
+| --- | --- | --- |
+| `answering` | `SupportsAnswering` | `answer` |
+| `screening` | `SupportsScreening` | `screening_decisions`, `screening_deadline` |
+| `audio_streaming` | `SupportsAudioStreaming` | `stream_audio`, `inject_audio`, `audio_format`, `audio_source`, `audio_sink` |
+| `bridging` | `SupportsBridging` | `add_participant`, `remove_participant` |
+| `three_way` | `SupportsThreeWayCall` | `set_assistant_presence` |
+
+`name`, `capabilities`, `events` and `terminate` are on every transport. Every event uses the one
+vocabulary below; a transport reports only the kinds it can observe.
 
 ## The streaming transport
-
-Declares `can_stream_call_audio_to_ai`, `can_inject_ai_audio`, `can_bridge_human` and
-`supports_three_way_call`. It never sees a call before the call connects, so it declares no
-screening.
 
 ### The shape of a call (D-027)
 
@@ -26,7 +52,8 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    no beep, a silent wait, the smallest jitter buffer, never recorded, and the conference ends when
    the caller leaves. The caller's leg is never touched again.
 2. `answer` dials the assistant into the conference as a participant whose destination is a
-   provider-side application. The application's voice webhook returns a bidirectional stream to
+   provider-side application. On this transport that is what answering under program control
+   means: the caller was answered on arrival, and answering puts the assistant on the call. The application's voice webhook returns a bidirectional stream to
    this service's media websocket.
 3. `add_participant` dials the user into the same conference, with voicemail detection.
 4. `set_assistant_presence` chooses what the assistant does while the user is there — stay, listen
@@ -75,20 +102,52 @@ seconds for a delayed join or leave to arrive before it is reported unreachable.
 Handlers change state and return; anything that needs the network runs as a task the transport
 owns, and every such task, socket and stream is released with its call.
 
+## The on-device transport
+
+The decision is taken on the handset (D-028). Android gives a call screening service five seconds
+from `onScreenCall` to respond and then rings regardless, so the app keeps a snapshot of the user's
+deterministic call rules and the screening service evaluates it locally, within a three-second
+budget. No snapshot, a stale or unreadable one, a failed evaluation or an exhausted budget all let
+the call ring.
+
+The backend represents the handset as a transport whose events arrive afterwards. The handset
+reports what happened to `POST /v1/calls/reports`; reports are stored per user, a repeat of the
+same event id counts once, and each accepted report is published as a call event on the handset
+transport's feed. The route exists whichever transport is configured, so a handset's reports are
+never lost to configuration; `TELEPHONY_PROVIDER=android_native` makes that feed the transport the
+product reads.
+
+- **Screening.** `screening_decisions()` is allow, reject and silence; `screening_deadline()` is
+  the platform's five seconds. There is no screening command: one sent from the backend would
+  arrive after the phone rang. The decision taken is carried on the call's `incoming` event.
+- **Events.** `incoming` (with the decision and, when the platform shows it, the caller),
+  `answered` and `ended` — what a handset can observe about its own call without being the phone
+  app. Participant events never occur on this transport.
+- **Terminate.** Nobody on a server can hang up a handset's call. `terminate` releases the
+  transport's interest: later reports for that call are still stored, and no longer published.
+
+What the platform does not show a screening service is not claimed: callers in the user's contacts
+and callers withholding their number always ring on this path.
+
+The handset side — the screening service, the phone-state receiver, the rules snapshot and the
+TurboModule — lives in `apps/mobile`, with the payloads on both sides of the bridge defined once
+and checked against `apps/mobile/src/calls/wire-examples.json`.
+
 ## Configuration
 
 | Variable | Meaning |
 | --- | --- |
-| `TELEPHONY_PROVIDER` | `twilio`, or empty for no streaming calls (the routes then do not exist) |
+| `TELEPHONY_PROVIDER` | `twilio`, `android_native`, or empty for none. Only `twilio` mounts the streaming routes |
 | `TELEPHONY_ACCOUNT_ID` | The account identifier the REST API authenticates as |
 | `TELEPHONY_AUTH_TOKEN` | The auth token. Signs every callback; never logged |
 | `TELEPHONY_NUMBERS` | Numbers calls are placed from, comma-separated E.164 |
 | `TELEPHONY_APP_ID` | The provider-side application the assistant joins through |
 | `TELEPHONY_WEBHOOK_BASE_URL` | The public URL the provider calls, with no query or fragment |
 
-When `TELEPHONY_PROVIDER` is set, the process refuses to start naming every variable missing.
+The other variables are the streaming transport's account. When `TELEPHONY_PROVIDER=twilio`, the
+process refuses to start naming every one missing; the on-device transport needs none of them.
 
-## Setting up an account
+## Setting up a streaming account
 
 In the provider's console, with `BASE` standing for `TELEPHONY_WEBHOOK_BASE_URL`:
 

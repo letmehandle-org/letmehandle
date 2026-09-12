@@ -36,7 +36,7 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 
 | Port | Interface | Contract suite | First implementation |
 | --- | --- | --- | --- |
-| `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them, [streaming documented](call-transport.md) |
+| `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them, [documented](call-transport.md) |
 | `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5, [documented](speech.md) |
 | `LLMProvider` | `ports/llm.py` | `tests/contracts/other_ports.py` | phase 6 |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |

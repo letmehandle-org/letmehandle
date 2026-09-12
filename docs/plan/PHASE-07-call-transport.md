@@ -10,13 +10,15 @@ why the capability model from phase 1 exists and why neither name appears outsid
 
 ### `TwilioCallTransport` — the streaming path, default on iOS
 
-Capabilities declared: `can_stream_call_audio_to_ai`, `can_inject_ai_audio`,
-`can_bridge_human`, `supports_three_way_call`. Not `can_screen_before_ringing`.
+Capabilities declared: `can_answer_under_program_control`, `can_stream_call_audio_to_ai`,
+`can_inject_ai_audio`, `can_bridge_human`, `supports_three_way_call`. Not
+`can_screen_before_ringing`.
 
 - **Call shape (D-027).** Every inbound call is answered into a conference. The assistant joins
   as its own participant, whose leg carries the bidirectional media stream; the user is dialled
   into the same conference. The caller's leg is never redirected after it is answered.
-- **Inbound.** A call arrives and is answered under program control.
+- **Inbound.** A call arrives and is answered into its conference. Answering under program
+  control, on the port, brings the assistant into that conference.
 - **Media.** Bidirectional audio between the call and the phase 5 audio source and sink. This
   is where narrowband call audio meets the speech model's expected rate; conversion happens at
   the adapter's edge and the domain sees only audio frames.
@@ -89,10 +91,16 @@ the handset by the Kotlin and TypeScript suites.
 
 ### Selection
 
-One factory, in bootstrap, choosing a transport from the platform and configuration. Android
-defaults to the native transport, iOS to the streaming one; both are overridable by
-configuration, because a user who wants AI answering on Android should be able to choose the
-streaming path.
+One factory, in bootstrap, choosing a transport from configuration: `TELEPHONY_PROVIDER` is
+`twilio` for the streaming transport, `android_native` for the on-device one, or empty for none.
+The application builds one on-device transport and hands the same instance to the report route's
+container and to the factory, so the transport chosen is the feed the handset's reports reach.
+The report route is mounted whichever is chosen, and reports are stored either way.
+
+The choice is per deployment in this phase. Choosing per user — Android defaulting to the native
+transport, iOS to the streaming one, and a user who wants AI answering on Android choosing the
+streaming path — needs one consumer reading both feeds, which is the phase 8 orchestrator's to
+build.
 
 Nothing downstream of that factory knows which was chosen.
 

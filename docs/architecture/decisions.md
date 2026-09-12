@@ -347,7 +347,9 @@ into a conference when the user is needed — fails the requirement this product
 carries one bidirectional stream, and moving the caller ends it, so the assistant is gone at the
 moment the user arrives. Starting as a conference means the caller's leg is never touched after
 it is answered: nobody redials, nobody is transferred, and the assistant can stay, fall silent
-while still listening, speak only to the user, or leave, each by changing one participant.
+while still listening, speak only to the user, or leave, each by changing one participant. On the
+port, answering such a call under program control therefore means bringing the assistant into the
+conference the caller is already in.
 
 The cost is a mixer in the audio path and an extra leg on every call. The mixer's buffer is set to
 its smallest, and the latency it adds is measured in this phase rather than assumed.
