@@ -1,7 +1,7 @@
 module.exports = {
   root: true,
   extends: '@react-native',
-  ignorePatterns: ['coverage/', 'android/', 'ios/', 'node_modules/'],
+  ignorePatterns: ['coverage/', 'android/', 'ios/', 'node_modules/', 'vendor/'],
   overrides: [
     {
       // Jest's globals exist in the test environment and in the files that configure it, and

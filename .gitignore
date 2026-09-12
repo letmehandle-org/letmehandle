@@ -60,3 +60,6 @@ scratchpad/
 
 # React Native config, read at build time by the native projects
 apps/mobile/.env
+
+# Ruby gems vendored by bundler for the iOS toolchain
+apps/mobile/vendor/
