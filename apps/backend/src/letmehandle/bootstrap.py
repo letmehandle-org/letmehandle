@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, assert_never
 
+from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
+from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
@@ -37,9 +39,12 @@ from letmehandle.config.settings import OTPProviderName, Settings, SpeechProvide
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
+    from letmehandle.adapters.agent.strands.agent import ConsiderEscalation
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
+    from letmehandle.application.agent.ports import CallAgent
+    from letmehandle.application.agent.tool import AgentTool
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
@@ -162,6 +167,23 @@ def build_speech_provider(
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
+
+
+def build_call_agent(
+    settings: Settings, *, tools: Sequence[AgentTool], consider: ConsiderEscalation
+) -> CallAgent:
+    """The agent that judges calls, on the model this deployment is configured with.
+
+    The tools and the escalation check are handed in rather than built here, because both act on a
+    call and only orchestration holds one. What is chosen here is the framework and the model.
+    """
+    endpoint = settings.require_llm()
+    return StrandsCallAgent(
+        openai_compatible_model(endpoint),
+        tools=tools,
+        consider=consider,
+        timeout=timedelta(seconds=endpoint.timeout_seconds),
+    )
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:

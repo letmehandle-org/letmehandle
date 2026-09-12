@@ -44,14 +44,10 @@ PROVIDER_NAMES = (
 # Words that would mean the domain is reasoning about a platform rather than a capability.
 PLATFORM_NAMES = ("android", "ios", "iphone", "callkit", "callscreeningservice")
 
-# Two deliberate exceptions, each stated with its reason rather than quietly excluded. A new
+# One deliberate exception, stated with its reason rather than quietly excluded. A new
 # violation still fails; only these exact pairings are allowed, so widening the exemption is a
 # visible edit to this list.
 ALLOWED = {
-    # The wire format is called this. Naming it is describing a protocol that many services
-    # implement, which is the opposite of depending on one of them: it is what lets a
-    # self-hoster point the product at their own server without a code change.
-    ("ports/llm.py", "openai"),
     # A device genuinely belongs to a platform, and a push has to be routed to the service
     # that can reach it. That is not the domain branching on who is providing something; it
     # is the domain describing what a device is. The notification port's own capability model

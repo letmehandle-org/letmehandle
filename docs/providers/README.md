@@ -38,13 +38,14 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 | --- | --- | --- | --- |
 | `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them |
 | `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5, [documented](speech.md) |
-| `LLMProvider` | `ports/llm.py` | `tests/contracts/other_ports.py` | phase 6 |
+| `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, `adapters/agent/strands` |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
 | `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10 |
 | `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 |
 | `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2 |
 
-Interface paths are relative to `apps/backend/src/letmehandle/domain/`, suites to `apps/backend/`.
+Interface paths are relative to `apps/backend/src/letmehandle/domain/` — except `CallAgent`, an
+application port (D-026), relative to `apps/backend/src/letmehandle/` — and suites to `apps/backend/`.
 
 ## Capabilities, by transport
 

@@ -12,7 +12,6 @@ import pytest
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.ports.call_transport import TransportCapabilities
-from letmehandle.domain.ports.llm import Message, Role
 from letmehandle.domain.ports.notification import (
     DevicePlatform,
     DeviceToken,
@@ -64,17 +63,6 @@ class TestTransportCapabilities:
             "supports_three_way_call",
             "supports_native_ringing",
         }
-
-
-class TestMessages:
-    def test_an_empty_message_is_refused(self) -> None:
-        with pytest.raises(InvariantError):
-            Message(Role.USER, "   ")
-
-    def test_a_message_carries_its_role(self) -> None:
-        # USER means the model's interlocutor, which in this product is a transcript of an
-        # unknown caller. What arrives in one is data, never instruction.
-        assert Message(Role.USER, "hello").role is Role.USER
 
 
 class TestNotificationValues:
