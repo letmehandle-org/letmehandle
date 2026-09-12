@@ -32,9 +32,17 @@ class VoiceCapabilitiesPayload(Response):
 
 
 class VoicePayload(Response):
+    """One voice, and whether this one in particular can be heard.
+
+    Per voice rather than per provider: a provider holding a sample for one voice and not
+    another declares the capability and can still serve only the one, and a client drawing a
+    control from the capability alone draws two that fail.
+    """
+
     id: str
     name: str
     locales: list[str]
+    previewable: bool
 
 
 class VoiceCatalogueResponse(Response):

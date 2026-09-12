@@ -290,16 +290,27 @@ class TestPreviewFollowsTheProvider:
         schema = (await previewing.client.get("/openapi.json")).json()
         assert "/v1/voices/{voice_id}/preview" in schema["paths"]
 
-    async def test_a_voice_with_no_sample_is_not_found_rather_than_a_failure(
+    async def test_the_catalogue_says_which_voices_can_be_heard(self, previewing: Api) -> None:
+        # The provider has a sample for one voice of three. It declares preview, truthfully,
+        # and the catalogue has to say which — or a client draws three controls and two fail.
+        tokens = await sign_in(previewing)
+        body = (await previewing.client.get("/v1/voices", headers=bearer(tokens))).json()
+
+        previewable = {voice["id"]: voice["previewable"] for voice in body["voices"]}
+        assert previewable[SHIPPED_DEFAULT_VOICE_ID] is True
+        assert previewable[ANOTHER_VOICE] is False
+
+    async def test_a_voice_with_no_sample_says_there_is_nothing_to_play(
         self, previewing: Api
     ) -> None:
-        # A real, selectable voice whose sample is missing. The provider distinguishes it from
-        # an unknown identifier; over HTTP both are honestly "there is nothing to play".
+        # Not "there is no such voice": the voice is real, listed and selectable.
         tokens = await sign_in(previewing)
         response = await previewing.client.get(
             f"/v1/voices/{ANOTHER_VOICE}/preview", headers=bearer(tokens)
         )
+
         assert response.status_code == 404
+        assert response.json()["error"] == "no_sample"
 
     async def test_an_unknown_voice_is_not_found(self, previewing: Api) -> None:
         tokens = await sign_in(previewing)

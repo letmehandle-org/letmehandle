@@ -47,6 +47,11 @@ class Voice:
     id: str
     name: str
     locales: tuple[str, ...]
+    # Whether this particular voice can be listened to. Per voice rather than per provider,
+    # because a provider holding a sample for one voice and not its neighbour declares the
+    # capability and can still only serve one of them — and a client told "preview works" draws
+    # a control for every voice in the list.
+    previewable: bool = False
 
     def __post_init__(self) -> None:
         if not self.id.strip() or not self.name.strip():

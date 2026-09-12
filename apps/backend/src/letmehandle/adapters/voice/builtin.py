@@ -13,6 +13,7 @@ nothing to play is a button that produces silence.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.domain.errors import (
@@ -78,7 +79,11 @@ class BuiltInVoiceProvider(VoiceProvider):
                 f"sample audio was supplied for voices outside the catalogue: {unknown_samples}"
             )
 
-        self._voices = catalogue
+        # Each voice says whether it in particular can be heard, so that a catalogue with one
+        # sample in it does not present three preview controls, two of which fail.
+        self._voices = tuple(
+            replace(voice, previewable=voice.id in self._samples) for voice in catalogue
+        )
         self._known = known
         self._default_voice_id = default_voice_id
 

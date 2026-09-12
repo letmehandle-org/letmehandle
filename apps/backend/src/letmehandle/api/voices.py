@@ -93,7 +93,12 @@ def _add_always(router: APIRouter) -> None:
                 realtime_streaming=capabilities.realtime_streaming,
             ),
             voices=[
-                VoicePayload(id=voice.id, name=voice.name, locales=list(voice.locales))
+                VoicePayload(
+                    id=voice.id,
+                    name=voice.name,
+                    locales=list(voice.locales),
+                    previewable=voice.previewable,
+                )
                 for voice in catalogue
             ],
         )
@@ -162,10 +167,13 @@ def _add_preview(router: APIRouter) -> None:
         try:
             sample = await voices.preview(voice_id)
         except DomainError as error:
+            # One answer for both "no such voice" and "that voice has no sample", because
+            # both are true statements of the same fact from the caller's side: there is
+            # nothing to play. Which voices have something is said in the catalogue, per voice.
             raise ApiError(
                 status.HTTP_404_NOT_FOUND,
-                "voice_not_found",
-                "There is no such voice.",
+                "no_sample",
+                "There is nothing to play for that voice.",
             ) from error
 
         return Response(
