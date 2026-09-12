@@ -845,6 +845,7 @@
         "type": "object"
       },
       "VoicePayload": {
+        "description": "One voice, and whether this one in particular can be heard.\n\nPer voice rather than per provider: a provider holding a sample for one voice and not\nanother declares the capability and can still serve only the one, and a client drawing a\ncontrol from the capability alone draws two that fail.",
         "properties": {
           "id": {
             "title": "Id",
@@ -860,12 +861,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "previewable": {
+            "title": "Previewable",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "name",
-          "locales"
+          "locales",
+          "previewable"
         ],
         "title": "VoicePayload",
         "type": "object"
@@ -910,7 +916,7 @@
       },
       "VoiceSelectionUpdate": {
         "additionalProperties": false,
-        "description": "A change to the chosen voice.\n\nBoth fields are optional and `null` clears: a user removing their choice returns to the\nprovider's default, which is a thing they must be able to do.",
+        "description": "A change to the chosen voice.\n\nThe field is required and may be `null`, and the difference from optional is the point.\n`null` clears the choice and returns to the provider's default, which somebody must be able\nto do; a request that simply left the field out would otherwise mean the same thing, and a\nclient reading the schema could not tell \"clear it\" from \"I forgot to send it\".",
         "properties": {
           "persona_voice_id": {
             "anyOf": [
@@ -926,6 +932,9 @@
             "title": "Persona Voice Id"
           }
         },
+        "required": [
+          "persona_voice_id"
+        ],
         "title": "VoiceSelectionUpdate",
         "type": "object"
       }
@@ -1433,7 +1442,7 @@
         ]
       },
       "put": {
-        "description": "Set or clear the chosen voice.\n\nA voice the provider does not offer is refused rather than stored. Storing it would\nmean a selection that silently falls through to the default on every call, which looks\nto the user exactly like their choice being ignored.",
+        "description": "Set or clear the chosen voice.\n\nA voice the provider does not offer is refused rather than stored. Storing it would\nmean a selection that silently falls through to the default on every call, which looks\nto the user exactly like their choice being ignored.\n\nOnly the half this request is about is sent. The cloned voice is left to the service to\ncarry, under the lock it takes: read here instead, a clone revoked while this request\nwas in flight would be written back from a read taken before it.",
         "operationId": "choose_voice_v1_preferences_voice_put",
         "requestBody": {
           "content": {

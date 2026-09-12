@@ -233,6 +233,10 @@ export interface paths {
          *     A voice the provider does not offer is refused rather than stored. Storing it would
          *     mean a selection that silently falls through to the default on every call, which looks
          *     to the user exactly like their choice being ignored.
+         *
+         *     Only the half this request is about is sent. The cloned voice is left to the service to
+         *     carry, under the lock it takes: read here instead, a clone revoked while this request
+         *     was in flight would be written back from a read taken before it.
          */
         put: operations["choose_voice_v1_preferences_voice_put"];
         post?: never;
@@ -634,7 +638,14 @@ export interface components {
             /** Voices */
             voices: components["schemas"]["VoicePayload"][];
         };
-        /** VoicePayload */
+        /**
+         * VoicePayload
+         * @description One voice, and whether this one in particular can be heard.
+         *
+         *     Per voice rather than per provider: a provider holding a sample for one voice and not
+         *     another declares the capability and can still serve only the one, and a client drawing a
+         *     control from the capability alone draws two that fail.
+         */
         VoicePayload: {
             /** Id */
             id: string;
@@ -642,6 +653,8 @@ export interface components {
             locales: string[];
             /** Name */
             name: string;
+            /** Previewable */
+            previewable: boolean;
         };
         /**
          * VoiceSelectionResponse
@@ -664,12 +677,14 @@ export interface components {
          * VoiceSelectionUpdate
          * @description A change to the chosen voice.
          *
-         *     Both fields are optional and `null` clears: a user removing their choice returns to the
-         *     provider's default, which is a thing they must be able to do.
+         *     The field is required and may be `null`, and the difference from optional is the point.
+         *     `null` clears the choice and returns to the provider's default, which somebody must be able
+         *     to do; a request that simply left the field out would otherwise mean the same thing, and a
+         *     client reading the schema could not tell "clear it" from "I forgot to send it".
          */
         VoiceSelectionUpdate: {
             /** Persona Voice Id */
-            persona_voice_id?: string | null;
+            persona_voice_id: string | null;
         };
     };
     responses: never;
