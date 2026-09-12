@@ -186,5 +186,14 @@ forbidden_modules = [
     "botocore",
     "httpx",
     "requests",
+    "strands",
+    "openai",
     "websockets",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Application code names no agent framework or model client"
+type = "forbidden"
+source_modules = ["letmehandle.application"]
+forbidden_modules = ["strands", "openai", "websockets", "letmehandle.adapters"]
+
