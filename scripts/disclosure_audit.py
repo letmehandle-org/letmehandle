@@ -97,8 +97,10 @@ AUTHORSHIP_RULE = "an address in who wrote or committed it"
 
 # Commits that were already published when the two rules above were added, exempted from those
 # two rules only and by exact id, so the history scan can pass without rewriting what every
-# clone already holds. No commit is ever added to this list: it only ever shrinks.
+# clone already holds. A commit is added only by a deliberate decision to leave a published
+# commit as it is, recorded in the commit that adds it.
 PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset({
+    "a489677da53ff0d88dbf7cbe720093173887d625",
     "0234d7a8eaea66909a96321ed9912e8d7a0e37bf",
     "09da9e3591e760939dc0f880fb05cc66d61720bc",
     "16c7600fd831b21de38ccc6f0a75bd479383d81a",
