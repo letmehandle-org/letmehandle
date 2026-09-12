@@ -45,13 +45,16 @@ class OTPChallengeRepository(ABC):
     """Outstanding proofs of control over a number."""
 
     @abstractmethod
-    async def add(self, challenge: OTPChallenge) -> None: ...
+    async def add(self, challenge: OTPChallenge) -> None:
+        """Store a newly issued challenge."""
 
     @abstractmethod
-    async def get(self, challenge_id: str) -> OTPChallenge | None: ...
+    async def get(self, challenge_id: str) -> OTPChallenge | None:
+        """The challenge, or nothing. Nothing is what an invented identifier gets."""
 
     @abstractmethod
-    async def update(self, challenge: OTPChallenge) -> None: ...
+    async def update(self, challenge: OTPChallenge) -> None:
+        """Store a changed challenge: one more attempt used, or one that has been verified."""
 
     @abstractmethod
     async def count_issued_since(self, number: PhoneNumber, since: datetime) -> int:
@@ -74,14 +77,16 @@ class RefreshTokenRepository(ABC):
     """Long-lived credentials, and the families they belong to."""
 
     @abstractmethod
-    async def add(self, token: RefreshToken) -> None: ...
+    async def add(self, token: RefreshToken) -> None:
+        """Store a newly issued token."""
 
     @abstractmethod
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
         """Look a token up by its hash. The raw token is never stored to look up by."""
 
     @abstractmethod
-    async def update(self, token: RefreshToken) -> None: ...
+    async def update(self, token: RefreshToken) -> None:
+        """Store a changed token: one that has been rotated, or revoked."""
 
     @abstractmethod
     async def revoke_family(self, family_id: str, at_instant: datetime) -> int:
