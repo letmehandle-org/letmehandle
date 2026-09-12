@@ -8,8 +8,9 @@ websocket connection's.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
+from letmehandle.adapters.speech.session_support.bounds import DEFAULT_OPEN_TIMEOUT_SECONDS
 from letmehandle.adapters.speech.websocket.endpoint import with_query_parameter
 from letmehandle.adapters.speech.websocket.socket import WebsocketConnection
 
@@ -18,10 +19,6 @@ if TYPE_CHECKING:
         ConnectionOpener,
         EventConnection,
     )
-
-# How long a handshake may take before it counts as a failure worth retrying. Long enough for a
-# service that is starting a model, short enough that a caller is not left listening to nothing.
-DEFAULT_OPEN_TIMEOUT_SECONDS: Final = 10.0
 
 
 def websocket_opener(

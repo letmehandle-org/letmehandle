@@ -14,15 +14,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.adapters.audio.conversion import can_convert
 from letmehandle.adapters.speech.realtime.context import SessionContext
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession, SessionSetup
+from letmehandle.adapters.speech.session_support.bounds import (
+    DEFAULT_HISTORY_TURNS,
+    DEFAULT_QUEUE_SIZE,
+)
+from letmehandle.adapters.speech.session_support.offer import (
+    check_session_request,
+    checked_capabilities,
+)
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
 from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
 from letmehandle.adapters.speech.session_support.timing import Timekeeping
-from letmehandle.domain.errors import CapabilityNotSupportedError, InvariantError
-from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechProvider
+from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.ports.speech import SpeechProvider
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,17 +37,9 @@ if TYPE_CHECKING:
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.domain.models.audio import AudioFormat
     from letmehandle.domain.ports.metrics import MetricsRecorder
-    from letmehandle.domain.ports.speech import SpeechSession
+    from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechSession
 
 PROVIDER_NAME: Final = "realtime"
-
-# Enough for several seconds of model speech at the sizes services send it in, and small enough
-# that a stalled consumer is a stalled reader within a few seconds rather than a growing heap.
-DEFAULT_QUEUE_SIZE: Final = 256
-
-# Enough to carry a conversation across a reconnect; a long call's opening minutes matter less
-# to its next sentence than the cost of replaying them.
-DEFAULT_HISTORY_TURNS: Final = 24
 
 
 class RealtimeSpeechProvider(SpeechProvider):
@@ -60,28 +59,18 @@ class RealtimeSpeechProvider(SpeechProvider):
         queue_size: int = DEFAULT_QUEUE_SIZE,
         timekeeping: Timekeeping | None = None,
     ) -> None:
-        if not languages:
-            raise InvariantError("a speech provider that speaks no language can serve nobody")
-        if not input_formats:
-            raise InvariantError("a speech provider must accept audio in at least one format")
-        refused = [str(each) for each in input_formats if not can_convert(each, WIRE_FORMAT)]
-        if refused:
-            # Refused here rather than at the first connect, so a misconfiguration stops the
-            # application starting instead of failing the first call that uses the format.
-            raise InvariantError(f"audio in these formats cannot be converted: {refused}")
-        if not can_convert(WIRE_FORMAT, output_format):
-            raise InvariantError(f"audio cannot be produced in {output_format}")
         if queue_size < 1:
             raise InvariantError("an event queue must hold at least one event")
         self._opener = opener
         self._metrics = metrics
-        self._capabilities = SpeechCapabilities(
+        self._capabilities = checked_capabilities(
+            wire_format=WIRE_FORMAT,
+            languages=languages,
+            input_formats=input_formats,
+            output_format=output_format,
             barge_in=True,
             context_updates_mid_session=True,
             reconnection=True,
-            languages=tuple(languages),
-            input_formats=tuple(input_formats),
-            output_format=output_format,
         )
         self._output_format = output_format
         self._transcription_model = transcription_model
@@ -106,12 +95,13 @@ class RealtimeSpeechProvider(SpeechProvider):
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:
-        if not self._capabilities.speaks(locale):
-            raise CapabilityNotSupportedError(self.name, f"speaking {locale}")
-        if input_format not in self._capabilities.input_formats:
-            raise CapabilityNotSupportedError(self.name, f"audio input in {input_format}")
-        if not voice_id.strip():
-            raise InvariantError("a speech session needs a voice to speak in")
+        check_session_request(
+            self.name,
+            self._capabilities,
+            locale=locale,
+            input_format=input_format,
+            voice_id=voice_id,
+        )
         session = RealtimeSpeechSession(
             SessionSetup(
                 provider=self.name,
