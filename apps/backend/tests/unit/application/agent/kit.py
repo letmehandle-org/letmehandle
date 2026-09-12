@@ -9,6 +9,7 @@ from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import ToolRefusal
 from letmehandle.application.agent.tool import ToolResult
+from letmehandle.application.agent.tools.registry import tools_for_a_judgement
 from tests.support.recording_call_actions import RecordingCallActions
 
 if TYPE_CHECKING:
@@ -28,6 +29,13 @@ class Kit:
 
     def __post_init__(self) -> None:
         self.escalation = EscalationService(self.actions)
+
+    def tools(self) -> dict[str, AgentTool]:
+        """The registry's tools for one judgement, by name."""
+        return {
+            tool.spec.name: tool
+            for tool in tools_for_a_judgement(self.actions, self.escalation, self.notes)
+        }
 
 
 async def refused(tool: AgentTool, call: CallSoFar, arguments: Mapping[str, object]) -> str:
