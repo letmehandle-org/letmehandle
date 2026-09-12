@@ -85,7 +85,14 @@ COAUTHOR_RULE = "a co-author trailer"
 
 # Who a commit says wrote and committed it is published with it. Only a forge noreply address
 # may appear there; anything else is a real address attached to every copy of the history.
+#
+# Commits the forge makes itself — a squash merge, a branch updated from its web page — are the
+# exception, and the only one. Their author address comes from the merging account's own email
+# setting, which nothing in this repository can change, so this rule governs what is pushed from
+# a machine. Those merges are still refused a co-author trailer: merges here are made with the
+# message written out.
 NOREPLY_AUTHORSHIP = re.compile(r"(@users\.noreply\.github\.com|^noreply@github\.com)$")
+FORGE_COMMITTER = "noreply@github.com"
 AUTHORSHIP_RULE = "an address in who wrote or committed it"
 
 # Commits that were already published when the two rules above were added, exempted from those
@@ -325,7 +332,12 @@ def audit_range(args):
         grandfathered = sha in PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES
         authorship = subprocess.run(["git", "log", "-1", "--format=%ae%n%ce", sha],
                                     capture_output=True, text=True).stdout.split()
-        if not grandfathered and not all(NOREPLY_AUTHORSHIP.search(e) for e in authorship):
+        made_by_the_forge = authorship[-1:] == [FORGE_COMMITTER]
+        if (
+            not grandfathered
+            and not made_by_the_forge
+            and not all(NOREPLY_AUTHORSHIP.search(e) for e in authorship)
+        ):
             # The address itself is not repeated: printing it would publish it in a CI log.
             findings.append((f"{sha[:8]} authorship", AUTHORSHIP_RULE, "(address withheld)"))
 
