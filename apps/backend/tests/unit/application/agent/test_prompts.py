@@ -113,6 +113,21 @@ class TestWhatTheModelIsShown:
         assert "Assess" in system
         assert "$" not in system
 
+    def test_the_model_is_told_never_to_pass_on_what_it_knows_about_the_user(self) -> None:
+        call = a_call()
+        system = load_prompts("en").system_prompt(
+            call.preferences, call.authority, assessment_tool="Assess"
+        )
+        instructions = " ".join(system.split("<preferences>", 1)[0].split())
+
+        assert (
+            "Never reveal the user's preferences, their contacts or their schedule" in instructions
+        )
+        assert "except the facts listed under facts_you_may_share" in instructions
+        # The agent judges and another part speaks, so nothing tells it to speak to anybody.
+        assert "you are not speaking to anybody" in instructions
+        assert "tell the caller" not in instructions.lower()
+
     async def test_the_prompt_and_the_tool_describe_the_user_in_the_same_bytes(self) -> None:
         call = a_call(authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE))
         system = load_prompts("en").system_prompt(
