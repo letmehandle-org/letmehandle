@@ -16,9 +16,15 @@ from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
-from letmehandle.bootstrap import build_container, build_voice_provider
+from letmehandle.bootstrap import (
+    build_container,
+    build_escalation_dispatcher,
+    build_voice_provider,
+    close_notification_providers,
+)
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
+from letmehandle.observability.metrics import LoggingMetricsRecorder
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -48,6 +54,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Built once, at startup, so that a misconfiguration is a process that does not start
         # rather than a request that fails in front of somebody.
         app.state.container = build_container(settings, voices=app.state.voices)
+        if app.state.session_factory is not None:
+            # What call orchestration asks to notify a user. It needs storage, so a process
+            # without a database has none, and nothing that escalates runs in one.
+            app.state.escalations = build_escalation_dispatcher(
+                app.state.container, app.state.session_factory, metrics=LoggingMetricsRecorder()
+            )
 
         logger.info(
             "startup",
@@ -55,9 +67,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             version=__version__,
             otp_provider=app.state.container.otp.name,
             voice_provider=app.state.voices.name,
+            notification_providers=[each.name for each in app.state.container.notifications],
         )
         yield
     finally:
+        if app.state.escalations is not None:
+            await app.state.escalations.aclose()
+            app.state.escalations = None
+        if app.state.container is not None:
+            await close_notification_providers(app.state.container)
         if engine is not None:
             await engine.dispose()
             app.state.engine = None
@@ -99,6 +117,7 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     app.state.engine = None
     app.state.session_factory = None
     app.state.container = None
+    app.state.escalations = None
     app.state.voices = chosen_voices
 
     app.add_middleware(CorrelationMiddleware)

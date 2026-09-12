@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final
 from pydantic import AnyWebsocketUrl, PostgresDsn, SecretStr
 
 from letmehandle.config.settings import (
+    APNsEnvironmentName,
     Environment,
     LogFormat,
     OTPProviderName,
@@ -62,6 +63,13 @@ def make_settings(
     speech_agent_id: str | None = None,
     speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
+    apns_key_id: str | None = None,
+    apns_team_id: str | None = None,
+    apns_private_key: str | None = None,
+    apns_topic: str | None = None,
+    apns_environment: APNsEnvironmentName | None = None,
+    fcm_project_id: str | None = None,
+    fcm_service_account_json: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -85,4 +93,13 @@ def make_settings(
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
+        apns_key_id=apns_key_id,
+        apns_team_id=apns_team_id,
+        apns_private_key=SecretStr(apns_private_key) if apns_private_key is not None else None,
+        apns_topic=apns_topic,
+        apns_environment=apns_environment,
+        fcm_project_id=fcm_project_id,
+        fcm_service_account_json=(
+            SecretStr(fcm_service_account_json) if fcm_service_account_json is not None else None
+        ),
     )
