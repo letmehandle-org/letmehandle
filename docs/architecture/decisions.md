@@ -334,3 +334,24 @@ The fallback chain — cloned voice, then chosen voice, then the provider's defa
 port's module, because it is the one piece of logic that needs both halves, and it is written
 once so that no caller invents its own order. Silence is the outcome it exists to prevent: an
 unavailable voice makes a call sound different, never makes it not happen.
+
+## D-027 — A streaming call is a conference from the moment it is answered
+
+**Accepted.** On the streaming transport every inbound call is placed in a conference as soon as
+it is answered. The assistant joins that conference as a participant of its own — a separate leg
+whose only job is to carry the bidirectional media stream to the speech session — and the user,
+when the policy calls for them, is dialled into the same conference.
+
+The alternative that looks simpler — streaming on the caller's own leg, then moving the caller
+into a conference when the user is needed — fails the requirement this product exists for. A leg
+carries one bidirectional stream, and moving the caller ends it, so the assistant is gone at the
+moment the user arrives. Starting as a conference means the caller's leg is never touched after
+it is answered: nobody redials, nobody is transferred, and the assistant can stay, fall silent
+while still listening, speak only to the user, or leave, each by changing one participant.
+
+The cost is a mixer in the audio path and an extra leg on every call. The mixer's buffer is set to
+its smallest, and the latency it adds is measured in this phase rather than assumed.
+
+What the provider's documentation does not settle — exactly what a participant's inbound audio
+contains, whether a held participant hears anything, the frame size — is verified on the first
+real call and recorded in the verification report, not guessed at in code.

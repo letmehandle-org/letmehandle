@@ -13,6 +13,9 @@ why the capability model from phase 1 exists and why neither name appears outsid
 Capabilities declared: `can_stream_call_audio_to_ai`, `can_inject_ai_audio`,
 `can_bridge_human`, `supports_three_way_call`. Not `can_screen_before_ringing`.
 
+- **Call shape (D-027).** Every inbound call is answered into a conference. The assistant joins
+  as its own participant, whose leg carries the bidirectional media stream; the user is dialled
+  into the same conference. The caller's leg is never redirected after it is answered.
 - **Inbound.** A call arrives and is answered under program control.
 - **Media.** Bidirectional audio between the call and the phase 5 audio source and sink. This
   is where narrowband call audio meets the speech model's expected rate; conversion happens at
@@ -23,7 +26,10 @@ Capabilities declared: `can_stream_call_audio_to_ai`, `can_inject_ai_audio`,
   and never asked to redial. This capability is the reason this transport exists.
 - **Three-party state.** Caller, agent and human present simultaneously. Whether the agent
   remains audible after the human joins is policy read from preferences, not a property of the
-  transport.
+  transport. The transport offers the four outcomes the conference allows — stay, listen only,
+  speak only to the user, leave — and the policy chooses among them.
+- **The user's leg.** An unanswered, busy or failed dial, and a voicemail picking up, are
+  outcomes the transport reports distinctly; none of them may leave the caller in silence.
 - **Webhooks.** Signature verification on every callback, rejecting unverified requests before
   parsing. Idempotency by provider event id — the provider will duplicate, so this is a
   requirement rather than a precaution. Out-of-order and late events are resolved by state,
