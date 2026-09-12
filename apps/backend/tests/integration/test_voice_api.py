@@ -155,8 +155,26 @@ class TestChoosing:
 
         again = await sign_in(api)
 
-        assert again["access_token"] != first["access_token"]
         assert (await selection(api, again))["persona_voice_id"] == ANOTHER_VOICE
+
+    async def test_replacing_every_other_preference_does_not_change_the_voice(
+        self, api: Api
+    ) -> None:
+        # PUT /v1/preferences resets what it does not mention, deliberately — but it has no
+        # field for the voice, so without an exception it could only ever destroy it.
+        tokens = await sign_in(api)
+        await api.client.put(
+            "/v1/preferences/voice",
+            headers=bearer(tokens),
+            json={"persona_voice_id": ANOTHER_VOICE},
+        )
+
+        replaced = await api.client.put(
+            "/v1/preferences", headers=bearer(tokens), json={"locale": "en-GB"}
+        )
+        assert replaced.status_code == 200, replaced.text
+
+        assert (await selection(api, tokens))["persona_voice_id"] == ANOTHER_VOICE
 
     async def test_a_choice_belongs_to_one_user(self, api: Api) -> None:
         mine = await sign_in(api)

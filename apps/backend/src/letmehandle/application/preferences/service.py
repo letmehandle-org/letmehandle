@@ -186,8 +186,15 @@ class PreferencesService:
 
         The only difference between the two is what they compose against — the defaults here,
         what is stored there — which is why the composing itself is shared.
+
+        The chosen voice is the exception, and survives. It is chosen through a different route,
+        because choosing one needs the provider's catalogue to validate against, so a replace
+        request has no way to carry it — and a field a caller cannot send is a field a caller
+        cannot have meant to clear. Without this, replacing every other preference silently
+        changes how the assistant sounds, and nothing in the request says so.
         """
-        replaced = self._compose(UserPreferences(), changes)
+        current = await self.get(user_id, for_update=True)
+        replaced = self._compose(replace(UserPreferences(), voice=current.voice), changes)
         await self._preferences.save(user_id, replaced)
         return replaced
 

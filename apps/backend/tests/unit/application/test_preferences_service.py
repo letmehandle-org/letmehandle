@@ -256,6 +256,26 @@ class TestReplacing:
         await service.replace_all(USER, PreferenceChanges())
         assert (await service.get(USER)).locale == "en"
 
+    async def test_it_keeps_the_voice_it_cannot_carry(self, service: PreferencesService) -> None:
+        # The one exception, and the reason for it: a replace request has no field for the
+        # voice, so resetting it here is a change nobody asked for and nobody can see coming.
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
+
+        assert (await service.get(USER)).voice.persona_voice_id == "ava"
+
+    async def test_a_replace_that_does_carry_a_voice_uses_it(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="ava")))
+
+        await service.replace_all(
+            USER, PreferenceChanges(voice=VoiceSelection(persona_voice_id="noah"))
+        )
+
+        assert (await service.get(USER)).voice.persona_voice_id == "noah"
+
     async def test_it_resets_a_section_it_does_not_mention(
         self, service: PreferencesService
     ) -> None:
