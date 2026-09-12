@@ -1,0 +1,12 @@
+{
+  "name": "letmehandle",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "mobile": "pnpm --filter mobile"
+  }
+}

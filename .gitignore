@@ -57,3 +57,6 @@ build/
 .claude/
 .cursor/
 scratchpad/
+
+# React Native config, read at build time by the native projects
+apps/mobile/.env
