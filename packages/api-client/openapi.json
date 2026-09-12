@@ -1,6 +1,102 @@
 {
   "components": {
     "schemas": {
+      "AuthorityPayload": {
+        "additionalProperties": false,
+        "description": "What the assistant may do on somebody's behalf. Everything opt-in.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          }
+        },
+        "title": "AuthorityPayload",
+        "type": "object"
+      },
+      "CallHandlingPayload": {
+        "additionalProperties": false,
+        "description": "What happens to a call before anybody has spoken to it.",
+        "properties": {
+          "anonymous_posture": {
+            "$ref": "#/components/schemas/HandlingPosture"
+          },
+          "blocked_categories": {
+            "items": {
+              "$ref": "#/components/schemas/CallerCategory"
+            },
+            "title": "Blocked Categories",
+            "type": "array"
+          },
+          "default_posture": {
+            "$ref": "#/components/schemas/HandlingPosture"
+          },
+          "escalate_at_or_above": {
+            "$ref": "#/components/schemas/CallImportance"
+          },
+          "posture_by_category": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HandlingPosture"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/CallerCategory"
+            },
+            "title": "Posture By Category",
+            "type": "object"
+          }
+        },
+        "required": [
+          "default_posture",
+          "anonymous_posture",
+          "escalate_at_or_above"
+        ],
+        "title": "CallHandlingPayload",
+        "type": "object"
+      },
+      "CallImportance": {
+        "description": "How much this matters to the user, ordered.\n\nAn `IntEnum` because these are compared \u2014 a rule says \"escalate at or above this\" \u2014 and an\nordering written as a lookup table beside an unordered enum is an ordering that drifts\nfrom it.\n\nThe numbers are spaced so that a level can be inserted later without renumbering the ones\neither side, which would silently change the meaning of every stored value.",
+        "enum": [
+          10,
+          20,
+          30,
+          40,
+          50
+        ],
+        "title": "CallImportance",
+        "type": "integer"
+      },
+      "CallerCategory": {
+        "description": "What kind of call this appears to be.\n\nDeliberately coarse. These are the distinctions the user's rules act on \u2014 the difference\nbetween a delivery and a courier is not one anybody would set a different rule for, and a\ncategory nobody can act on is a category that only makes classification harder.",
+        "enum": [
+          "known_contact",
+          "delivery",
+          "healthcare",
+          "education",
+          "financial",
+          "service_provider",
+          "sales",
+          "spam",
+          "unknown"
+        ],
+        "title": "CallerCategory",
+        "type": "string"
+      },
+      "Capability": {
+        "description": "One thing the assistant may be permitted to do.\n\nEach is a distinct decision a user would actually make differently, which is the test for\nwhether a capability belongs here. Splitting further produces a settings screen nobody\nfinishes; merging produces permissions nobody meant to give.",
+        "enum": [
+          "answer_questions_about_availability",
+          "share_delivery_instructions",
+          "confirm_appointments",
+          "reschedule_appointments",
+          "decline_on_the_users_behalf",
+          "take_a_message",
+          "share_contact_details"
+        ],
+        "title": "Capability",
+        "type": "string"
+      },
       "ChallengeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -35,6 +131,16 @@
         "title": "ChallengeResponse",
         "type": "object"
       },
+      "Formality": {
+        "description": "How the assistant should sound.",
+        "enum": [
+          "warm",
+          "neutral",
+          "formal"
+        ],
+        "title": "Formality",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -47,6 +153,16 @@
         },
         "title": "HTTPValidationError",
         "type": "object"
+      },
+      "HandlingPosture": {
+        "description": "What should happen to a call before anyone has spoken to it.",
+        "enum": [
+          "pass_through",
+          "handle_with_agent",
+          "reject"
+        ],
+        "title": "HandlingPosture",
+        "type": "string"
       },
       "Health": {
         "description": "Liveness: is this process running.",
@@ -66,6 +182,329 @@
           "version"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "HoursPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "quiet": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindowPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "working": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindowPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "HoursPayload",
+        "type": "object"
+      },
+      "ImportantContactPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "phone_number": {
+            "maxLength": 20,
+            "minLength": 5,
+            "title": "Phone Number",
+            "type": "string"
+          },
+          "posture": {
+            "$ref": "#/components/schemas/HandlingPosture",
+            "default": "pass_through"
+          }
+        },
+        "required": [
+          "phone_number",
+          "label"
+        ],
+        "title": "ImportantContactPayload",
+        "type": "object"
+      },
+      "NotificationsPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_summary": {
+            "default": false,
+            "title": "Daily Summary",
+            "type": "boolean"
+          },
+          "on_blocked_call": {
+            "default": false,
+            "title": "On Blocked Call",
+            "type": "boolean"
+          },
+          "on_handled_call": {
+            "default": false,
+            "title": "On Handled Call",
+            "type": "boolean"
+          },
+          "on_missed_escalation": {
+            "default": true,
+            "title": "On Missed Escalation",
+            "type": "boolean"
+          },
+          "respect_quiet_hours": {
+            "default": true,
+            "title": "Respect Quiet Hours",
+            "type": "boolean"
+          }
+        },
+        "title": "NotificationsPayload",
+        "type": "object"
+      },
+      "OnboardingResponse": {
+        "description": "Where somebody is in the flow, and what is left.",
+        "properties": {
+          "completed": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            },
+            "title": "Completed",
+            "type": "array"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnboardingStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            },
+            "title": "Remaining",
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "completed",
+          "skipped",
+          "remaining",
+          "next_step",
+          "is_complete"
+        ],
+        "title": "OnboardingResponse",
+        "type": "object"
+      },
+      "OnboardingStep": {
+        "description": "One thing to ask about.\n\nOne step per group of preferences, because a step is a screen and a screen that asks about\ntwo unrelated things is one people abandon.",
+        "enum": [
+          "introduction",
+          "call_handling",
+          "important_contacts",
+          "hours",
+          "authority",
+          "notifications",
+          "personality"
+        ],
+        "title": "OnboardingStep",
+        "type": "string"
+      },
+      "OnboardingUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "skipped": {
+            "default": false,
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "step": {
+            "$ref": "#/components/schemas/OnboardingStep"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "title": "OnboardingUpdate",
+        "type": "object"
+      },
+      "PersonalityPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "formality": {
+            "$ref": "#/components/schemas/Formality",
+            "default": "neutral"
+          },
+          "topics": {
+            "items": {
+              "maxLength": 60,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "verbosity": {
+            "$ref": "#/components/schemas/Verbosity",
+            "default": "normal"
+          }
+        },
+        "title": "PersonalityPayload",
+        "type": "object"
+      },
+      "PreferencesResponse": {
+        "description": "Everything, as it stands.",
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/AuthorityPayload"
+          },
+          "call_handling": {
+            "$ref": "#/components/schemas/CallHandlingPayload"
+          },
+          "hours": {
+            "$ref": "#/components/schemas/HoursPayload"
+          },
+          "important_contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ImportantContactPayload"
+            },
+            "title": "Important Contacts",
+            "type": "array"
+          },
+          "locale": {
+            "title": "Locale",
+            "type": "string"
+          },
+          "notifications": {
+            "$ref": "#/components/schemas/NotificationsPayload"
+          },
+          "personality": {
+            "$ref": "#/components/schemas/PersonalityPayload"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "locale",
+          "call_handling",
+          "important_contacts",
+          "hours",
+          "authority",
+          "notifications",
+          "personality"
+        ],
+        "title": "PreferencesResponse",
+        "type": "object"
+      },
+      "PreferencesUpdate": {
+        "additionalProperties": false,
+        "description": "A change to some of it.\n\nEvery section is optional, and an omitted section is left exactly as it was. That is what\nlets one screen save one section without knowing or caring what the others hold.",
+        "properties": {
+          "authority": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthorityPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "call_handling": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHandlingPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HoursPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "important_contacts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ImportantContactPayload"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Important Contacts"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          },
+          "notifications": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationsPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "personality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonalityPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "PreferencesUpdate",
         "type": "object"
       },
       "ProfileResponse": {
@@ -159,6 +598,35 @@
           "refresh_token"
         ],
         "title": "SignOutRequest",
+        "type": "object"
+      },
+      "TimeWindowPayload": {
+        "additionalProperties": false,
+        "description": "A daily window, in the user's own zone.\n\nThe zone travels with the window rather than being applied later. A window compared in the\nwrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of\nday rather than as anything that looks like a bug.",
+        "properties": {
+          "end": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Start",
+            "type": "string"
+          },
+          "zone": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "zone"
+        ],
+        "title": "TimeWindowPayload",
         "type": "object"
       },
       "TokenResponse": {
@@ -261,6 +729,16 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "Verbosity": {
+        "description": "How much the assistant says.\n\nSeparate from formality because they vary independently: a warm assistant can be brief, and\na formal one can go on. Collapsing them into one dial would make half the combinations\npeople actually want unreachable.",
+        "enum": [
+          "brief",
+          "normal",
+          "detailed"
+        ],
+        "title": "Verbosity",
+        "type": "string"
       },
       "VerifyRequest": {
         "additionalProperties": false,
@@ -573,6 +1051,193 @@
         "summary": "Update the profile",
         "tags": [
           "authentication"
+        ]
+      }
+    },
+    "/v1/onboarding": {
+      "get": {
+        "operationId": "read_onboarding_v1_onboarding_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Where setup is",
+        "tags": [
+          "preferences"
+        ]
+      },
+      "post": {
+        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.",
+        "operationId": "record_onboarding_step_v1_onboarding_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record a step",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/v1/preferences": {
+      "get": {
+        "operationId": "read_preferences_v1_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read preferences",
+        "tags": [
+          "preferences"
+        ]
+      },
+      "patch": {
+        "description": "Change the sections that were sent and leave the rest exactly as they were.\n\nThe ordinary case: one screen saves one section, and has no idea what the others hold.",
+        "operationId": "update_preferences_v1_preferences_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change some of it",
+        "tags": [
+          "preferences"
+        ]
+      },
+      "put": {
+        "description": "Set everything the request mentions, from the defaults.\n\nDistinct from the patch below: this starts from the defaults rather than from what is\nstored, so a section left out is reset rather than kept. That is what a client means when\nit says \"replace\".",
+        "operationId": "replace_preferences_v1_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Replace preferences",
+        "tags": [
+          "preferences"
         ]
       }
     }

@@ -20,6 +20,25 @@ export type TokenPair = Schemas['TokenResponse'];
 export type Profile = Schemas['ProfileResponse'];
 export type UpdateProfileRequest = Schemas['UpdateProfileRequest'];
 
+export type Preferences = Schemas['PreferencesResponse'];
+export type PreferencesUpdate = Schemas['PreferencesUpdate'];
+export type CallHandling = Schemas['CallHandlingPayload'];
+export type Hours = Schemas['HoursPayload'];
+export type TimeWindow = Schemas['TimeWindowPayload'];
+export type ImportantContact = Schemas['ImportantContactPayload'];
+export type Authority = Schemas['AuthorityPayload'];
+export type Notifications = Schemas['NotificationsPayload'];
+export type Personality = Schemas['PersonalityPayload'];
+export type Onboarding = Schemas['OnboardingResponse'];
+export type OnboardingUpdate = Schemas['OnboardingUpdate'];
+export type OnboardingStep = Schemas['OnboardingStep'];
+export type HandlingPosture = Schemas['HandlingPosture'];
+export type CallerCategory = Schemas['CallerCategory'];
+export type Capability = Schemas['Capability'];
+export type Formality = Schemas['Formality'];
+export type Verbosity = Schemas['Verbosity'];
+export type CallImportance = Schemas['CallImportance'];
+
 /**
  * The machine-readable codes the API returns with a failure.
  *
