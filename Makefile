@@ -23,8 +23,28 @@ setup: hooks ## Set up everything a fresh clone needs
 	@if [ -d $(MOBILE) ]; then pnpm install; fi
 	@echo "setup complete"
 
+.PHONY: api-types
+api-types: ## Regenerate the OpenAPI schema and the mobile app's types from it
+	@cd $(BACKEND) && uv run python ../../scripts/generate_openapi.py
+	@pnpm --filter @letmehandle/api-client generate
+
+.PHONY: api-types-check
+api-types-check: ## Fail if the generated types have drifted from the backend
+	@$(MAKE) --no-print-directory api-types
+	@if ! git diff --quiet -- packages/api-client; then \
+		echo ""; \
+		echo "The generated API types are out of date."; \
+		echo "The backend's request or response models changed and this was not regenerated,"; \
+		echo "so the mobile app is compiling against a contract the backend no longer has."; \
+		echo ""; \
+		git --no-pager diff --stat -- packages/api-client; \
+		echo ""; \
+		echo "Run: make api-types   and commit the result."; \
+		exit 1; \
+	fi
+
 .PHONY: verify
-verify: audit lint typecheck test coverage ## Everything. What pre-push and CI run.
+verify: audit lint typecheck test coverage api-types-check ## Everything. What pre-push and CI run.
 	@echo -e "\033[32mverify passed\033[0m"
 
 .PHONY: audit
@@ -50,6 +70,7 @@ format: ## Apply formatting
 typecheck: ## Type check both applications, and the import boundaries
 	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
+	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 
 .PHONY: test
 test: ## Run the unit and integration suites

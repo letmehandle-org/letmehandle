@@ -1,0 +1,16 @@
+{
+  "name": "@letmehandle/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "openapi-typescript ./openapi.json -o ./src/schema.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^6.0.3"
+  }
+}
