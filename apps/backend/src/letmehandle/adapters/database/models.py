@@ -155,3 +155,31 @@ class DeviceRow(Base):
         UniqueConstraint("platform", "token", name="uq_user_devices_platform_token"),
         Index("ix_user_devices_user", "user_id"),
     )
+
+
+class CallReportRow(Base):
+    """One thing a user's handset reported about one of its calls.
+
+    Unique by the handset's event identifier within the user, which is what makes a resent
+    report count once and keeps two accounts' identifiers from ever colliding.
+    """
+
+    __tablename__ = "call_reports"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    screening: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ending: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    caller_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_call_reports_user_event"),
+        Index("ix_call_reports_user_call", "user_id", "call_id"),
+    )
