@@ -433,7 +433,6 @@ async def test_the_user_answering_and_joining_is_one_event(transport: TwilioCall
         (LegStatus.BUSY, "busy"),
         (LegStatus.FAILED, "failed"),
         (LegStatus.CANCELED, "failed"),
-        (LegStatus.COMPLETED, "failed"),
     ],
 )
 async def test_a_user_who_never_joins_is_reported_by_how_it_turned_out(
@@ -527,6 +526,39 @@ async def test_a_completion_arriving_before_the_join_and_leave_it_followed_waits
     transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 5, "user-2"))
     # Not unreachable: the user was on the call, and has left it.
     assert shapes(await drain(transport)) == [("participant_left", "user", None)]
+
+
+async def test_a_user_known_to_have_answered_is_never_reported_unreachable(
+    transport: TwilioCallTransport,
+) -> None:
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    transport.leg_progressed(
+        CALL.value, "user-2", progress("user-2", LegStatus.IN_PROGRESS, 2, "human")
+    )
+    transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 3))
+    # Neither the join nor the leave arrived in time. Somebody who picked up was on the call.
+    assert shapes(await drain(transport)) == [
+        ("participant_joined", "user", "answered"),
+        ("participant_left", "user", None),
+    ]
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 4, "user-2"))
+    assert await drain(transport) == []
+
+
+async def test_a_join_arriving_after_a_leg_was_given_up_on_corrects_it(
+    transport: TwilioCallTransport,
+) -> None:
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 3))
+    assert shapes(await drain(transport)) == [("participant_unreachable", "user", "failed")]
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 4, "user-2"))
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
+    assert shapes(await drain(transport)) == [
+        ("participant_joined", "user", "answered"),
+        ("participant_left", "user", None),
+    ]
 
 
 async def test_a_joined_leg_completing_is_its_leaving_when_the_leave_itself_is_lost(

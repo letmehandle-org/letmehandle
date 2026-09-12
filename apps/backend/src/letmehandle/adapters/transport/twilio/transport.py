@@ -147,6 +147,8 @@ class _Leg:
     joined: bool = False
     finished: bool = False
     removed: bool = False
+    # Reported unreachable only because nothing arrived in time, so a late join can correct it.
+    given_up_on: bool = False
     last_progress: int = -1
     last_conference: int = -1
     applied: _Applied = field(default_factory=_Applied)
@@ -614,6 +616,13 @@ class TwilioCallTransport(CallTransport):
             leg = next(
                 (each for each in call.legs.values() if each.call_sid == update.call_sid), None
             )
+        if leg is not None and leg.given_up_on:
+            # It was on the call after all. Being on it and having left is what happened, and
+            # the leg's call is already over, so both are reported at once.
+            leg.given_up_on = False
+            self._joined(call, leg)
+            self._left(call, leg)
+            return
         if leg is None or update.sequence <= leg.last_conference or leg.finished:
             return
         leg.last_conference = update.sequence
@@ -621,18 +630,21 @@ class TwilioCallTransport(CallTransport):
         if update.event is ConferenceEvent.JOIN:
             if leg.joined:
                 return
-            leg.joined = True
-            outcome = ParticipantOutcome.ANSWERED if leg.role is ParticipantRole.USER else None
-            self._emit(
-                CallEventKind.PARTICIPANT_JOINED,
-                call,
-                f"joined:{leg.label}",
-                participant=leg.role,
-                outcome=outcome,
-            )
+            self._joined(call, leg)
             self._spawn(call, self._apply_presence_locked(call))
             return
         self._left(call, leg)
+
+    def _joined(self, call: _Call, leg: _Leg) -> None:
+        leg.joined = True
+        outcome = ParticipantOutcome.ANSWERED if leg.role is ParticipantRole.USER else None
+        self._emit(
+            CallEventKind.PARTICIPANT_JOINED,
+            call,
+            f"joined:{leg.label}",
+            participant=leg.role,
+            outcome=outcome,
+        )
 
     def _left(self, call: _Call, leg: _Leg) -> None:
         leg.finished = True
@@ -654,8 +666,17 @@ class TwilioCallTransport(CallTransport):
 
     async def _unreachable_unless_heard_of(self, call: _Call, leg: _Leg) -> None:
         await asyncio.sleep(LATE_CALLBACK_GRACE_SECONDS)
-        if not leg.joined and not leg.finished:
-            self._unreachable(call, leg, ParticipantOutcome.FAILED)
+        if leg.joined or leg.finished:
+            return
+        if leg.answered and leg.role is ParticipantRole.USER:
+            # A person picked up, and a person who picks up is put in the conference. Only the
+            # callbacks saying so were lost. The assistant's leg is not read this way: its
+            # application answers it before it has been asked to join anything.
+            self._joined(call, leg)
+            self._left(call, leg)
+            return
+        self._unreachable(call, leg, ParticipantOutcome.FAILED)
+        leg.given_up_on = True
 
     async def _apply_presence_locked(self, call: _Call) -> None:
         async with call.lock:

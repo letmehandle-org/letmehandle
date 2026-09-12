@@ -102,7 +102,9 @@ token header and by the provider's own identifiers (conference and sequence numb
 number and status). State is resolved by sequence number, not arrival: a join arriving after the
 leave that followed it is stale. A leg reported completed after it joined has left, whether or not the conference's leave
 for it ever arrives. A leg reported completed without having joined is given two
-seconds for a delayed join or leave to arrive before it is reported unreachable.
+seconds for a delayed join or leave to arrive before it is reported unreachable — unless it is a
+user's leg known to have been answered, which is reported as having joined and left. A join or
+leave arriving after a leg was reported unreachable that way corrects it: joined, then left.
 
 Handlers change state and return; anything that needs the network runs as a task the transport
 owns, and every such task, socket and stream is released with its call.
