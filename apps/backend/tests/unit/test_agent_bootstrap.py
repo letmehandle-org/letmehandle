@@ -10,18 +10,21 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.bootstrap import build_call_agent
+from letmehandle.bootstrap import build_call_agent, call_agent_on
 from letmehandle.config.settings import ConfigurationError
+from letmehandle.observability.logging import configure_logging
 from tests.support.agent_calls import a_call
 from tests.support.config import make_settings
 from tests.support.recording_call_actions import RecordingCallActions
+from tests.support.scripted_model import CallTool, ScriptedModel, assess
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
 
 @dataclass
@@ -88,6 +91,45 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
     assert isinstance(tools, list)
     offered = {tool["function"]["name"] for tool in tools}
     assert {"request_human_escalation", "end_call", "CallAssessment"} <= offered
+
+
+@pytest.fixture
+def logging_put_back() -> Iterator[None]:
+    yield
+    configure_logging(make_settings())
+
+
+@pytest.mark.usefixtures("logging_put_back")
+async def test_at_debug_neither_the_callers_words_nor_the_key_reach_the_log(
+    endpoint: RefusingEndpoint, capfd: pytest.CaptureFixture[str]
+) -> None:
+    # Distinctive, so a match can only be a leak.
+    said = "my card number is quintessential-walrus-4111"
+    key = "an-example-key-that-must-never-be-logged"
+    settings = make_settings(
+        log_level="debug",
+        llm_base_url=f"http://127.0.0.1:{endpoint.port}/v1",
+        llm_api_key=key,
+        llm_model="an-example-model",
+    )
+    configure_logging(settings)
+
+    # On the wire, where the model client and the HTTP client log requests at debug.
+    await build_call_agent(settings, actions=RecordingCallActions()).judge(a_call(said))
+    # And a model that sends a tool unreadable arguments holding the caller's words, which the SDK
+    # quotes when it warns that it could not parse them.
+    model = ScriptedModel([CallTool("take_a_message", raw='{"message": "' + said), assess()])
+    await call_agent_on(model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)).judge(
+        a_call(said)
+    )
+
+    logged = capfd.readouterr()
+    everything = logged.out + logged.err
+    assert endpoint.heard, "the judgement never reached the endpoint"
+    assert "agent.model_failed" in everything, "nothing was logged, so nothing was proven"
+    assert said not in everything
+    assert "quintessential-walrus" not in everything
+    assert key not in everything
 
 
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
