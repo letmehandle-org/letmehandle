@@ -790,12 +790,60 @@ async def test_closing_releases_every_call_and_ends_the_event_stream(
     await transport.close()
     await transport.close()
     assert transport.active_calls == 0
+    # Nobody is left alone in a conference by the service going away.
+    assert api.ended_conferences == [CONFERENCE]
+    assert api.ended_calls == [(CALL.value, "completed")]
     assert api.closed == 1
     assert [event.kind async for event in events] == [CallEventKind.ENDED]
     assert "<Hangup" in transport.incoming_call(incoming("CAsim-new"))
 
 
-async def test_closing_cancels_work_still_in_flight(api: RecordingApi) -> None:
+async def test_closing_gives_up_on_a_provider_that_does_not_answer_and_releases_anyway(
+    transport: TwilioCallTransport, api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
+    await answered_call(transport)
+
+    async def unanswered(conference_sid: str) -> bool:
+        await asyncio.sleep(10)
+        return True
+
+    api.end_conference = unanswered  # type: ignore[method-assign]
+    async with asyncio.timeout(2):
+        await transport.close()
+    assert transport.active_calls == 0
+    assert api.closed == 1
+
+
+async def test_a_dial_that_outlasts_shutdown_is_ended_as_soon_as_it_exists(
+    transport: TwilioCallTransport, api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
+    transport.incoming_call(incoming())
+    placing = asyncio.Event()
+    finish = asyncio.Event()
+    original = api.create_participant
+
+    async def slow_create(conference_name: str, request: ParticipantRequest) -> str:
+        placing.set()
+        await finish.wait()
+        return await original(conference_name, request)
+
+    api.create_participant = slow_create  # type: ignore[method-assign]
+    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    await placing.wait()
+    await transport.close()
+    assert transport.active_calls == 0
+    finish.set()
+    with pytest.raises(ProviderError, match="ended"):
+        await dialling
+    assert ("CAsim-user-1", "canceled") in api.ended_calls
+
+
+async def test_closing_cancels_work_still_in_flight(
+    api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
     started = asyncio.Event()
 
     async def slow_remove(conference_sid: str, call_sid: str) -> bool:

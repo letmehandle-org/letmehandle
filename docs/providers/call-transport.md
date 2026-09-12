@@ -62,7 +62,9 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
 5. `terminate` ends the conference, and the caller's leg in case the conference never started, and
    cancels any leg still ringing. It is safe to call more than once. A dial still being placed
    finishes first, so its leg can be cancelled too. When the provider refuses one step the rest
-   are still tried and the call is released, and then the first refusal is raised.
+   are still tried and the call is released, and then the first refusal is raised. Shutting the
+   service down terminates every call in progress the same way, for at most five seconds, and
+   then releases whatever is left.
 
 ### What the orchestrator hears
 

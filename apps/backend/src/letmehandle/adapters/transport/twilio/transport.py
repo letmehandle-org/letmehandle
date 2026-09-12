@@ -102,6 +102,11 @@ REMEMBERED_DELIVERIES: Final = 10_000
 # The leg is reported unreachable only if nothing about it arrives for this long.
 LATE_CALLBACK_GRACE_SECONDS: Final = 2.0
 
+# How long shutdown waits for the provider to end the calls still in progress. Bounded, because a
+# deployment waiting on an API that does not answer is not shutting down; long enough for a
+# handful of requests per call when the API is well.
+SHUTDOWN_SECONDS: Final = 5.0
+
 _OUTCOMES: Final = {
     LegStatus.NO_ANSWER: ParticipantOutcome.NO_ANSWER,
     LegStatus.BUSY: ParticipantOutcome.BUSY,
@@ -378,11 +383,29 @@ class TwilioCallTransport(CallTransport):
             await self._apply_presence(call)
 
     async def close(self) -> None:
-        """Release every call and every task. Calls on the provider's side are left to it."""
+        """End every call in progress, then release every call and every task.
+
+        A caller must not be left alone in a conference because the service went away, so each
+        call is ended on the provider's side first — for as long as `SHUTDOWN_SECONDS` allows.
+        What could not be ended in that time is released here regardless, and left to the
+        conference's own end when the caller hangs up.
+        """
         if self._closed:
             return
         self._closed = True
-        for call in list(self._calls.values()):
+        calls = list(self._calls.values())
+        try:
+            async with asyncio.timeout(SHUTDOWN_SECONDS):
+                outcomes = await asyncio.gather(
+                    *(self.terminate(call.call_id) for call in calls), return_exceptions=True
+                )
+        except TimeoutError:
+            logger.warning("telephony.shutdown.incomplete", calls=len(self._calls))
+        else:
+            for outcome in outcomes:
+                if isinstance(outcome, Exception):
+                    logger.warning("telephony.shutdown.refused", error=type(outcome).__name__)
+        for call in calls:
             await self._release(call, "the service is shutting down")
         for task in list(self._tasks):
             task.cancel()
@@ -568,6 +591,15 @@ class TwilioCallTransport(CallTransport):
             self._end_stream(call, leg)
             raise
         leg.call_sid = leg.call_sid or call_sid
+        if call.released:
+            # Released while the dial was being placed, which only a shutdown that could not wait
+            # for it does. Nothing is left to hear this leg's callbacks, so it is ended now rather
+            # than left to ring into a call that is gone.
+            leg.finished = True
+            await self._api.end_call(call_sid, "canceled")
+            raise ProviderError(
+                PROVIDER, "the call ended while it was being dialled", retryable=False
+            )
 
     def _participant_changed(self, call: _Call, update: ConferenceUpdate) -> None:
         if update.label == CALLER_LABEL:
