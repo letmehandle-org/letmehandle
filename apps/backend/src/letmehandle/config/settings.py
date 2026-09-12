@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Final
@@ -89,6 +92,51 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
     return tuple(voices)
 
 
+# How TRANSCRIPT_ENCRYPTION_KEYS is written, quoted in every error about it.
+TRANSCRIPT_KEYS_FORMAT: Final = "newest-id:base64-key,older-id:base64-key"
+TRANSCRIPT_KEY_BYTES: Final = 32
+_KEY_ID: Final = re.compile(r"[a-z0-9][a-z0-9_-]{0,15}")
+
+
+def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
+    """The transcript keys, newest first, each as its id and its 32 bytes.
+
+    Every error names the entry by position and never repeats what it contains: an entry that
+    fails to parse is most often a key pasted without its id, and an error message is copied
+    into chat, tickets and logs far more readily than an environment file is.
+    """
+    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
+    if not entries:
+        raise ValueError(
+            f"TRANSCRIPT_ENCRYPTION_KEYS lists no keys; expected {TRANSCRIPT_KEYS_FORMAT!r}"
+        )
+    keys: list[tuple[str, bytes]] = []
+    for position, entry in enumerate(entries, start=1):
+        key_id, separator, encoded = (part.strip() for part in entry.partition(":"))
+        if not separator or not _KEY_ID.fullmatch(key_id):
+            raise ValueError(
+                f"TRANSCRIPT_ENCRYPTION_KEYS entry {position} is not in the form "
+                f"{TRANSCRIPT_KEYS_FORMAT!r}; an id is 1-16 lower-case letters, digits, - or _"
+            )
+        try:
+            key = base64.urlsafe_b64decode(encoded.replace("+", "-").replace("/", "_"))
+        except (binascii.Error, ValueError):
+            key = b""
+        if len(key) != TRANSCRIPT_KEY_BYTES:
+            raise ValueError(
+                f"TRANSCRIPT_ENCRYPTION_KEYS entry {position} ({key_id!r}) is not "
+                f"{TRANSCRIPT_KEY_BYTES} bytes of base64. Generate one with "
+                '`python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32))'
+                '.decode())"`'
+            )
+        keys.append((key_id, key))
+    ids = [key_id for key_id, _ in keys]
+    repeated = sorted({key_id for key_id in ids if ids.count(key_id) > 1})
+    if repeated:
+        raise ValueError(f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated}")
+    return tuple(keys)
+
+
 def _catalogue_from_text(value: object) -> object:
     # Text is what the environment supplies; a tuple of voices is what code constructing
     # settings directly passes, and that needs no parsing.
@@ -161,6 +209,14 @@ class Settings(BaseSettings):
     ] = None
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
+    # The keys transcripts are encrypted under, newest first (D-014). Optional at startup, like
+    # the database URL: nothing in the running service stores a transcript yet, and a migration
+    # or the purge, which never read one, must not need them. Checked for shape whenever present,
+    # so a truncated key fails at startup rather than on the first call.
+    transcript_encryption_keys: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = (
+        None
+    )
+
     @field_validator("log_level")
     @classmethod
     def _known_level(cls, value: str) -> str:
@@ -205,6 +261,12 @@ class Settings(BaseSettings):
                 f"SPEECH_DEFAULT_VOICE {self.speech_default_voice!r} is not one of the voices "
                 "listed in SPEECH_VOICES"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _transcript_keys_are_well_formed(self) -> Settings:
+        if self.transcript_encryption_keys is not None:
+            parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
         return self
 
     @property
@@ -257,6 +319,15 @@ class Settings(BaseSettings):
                 f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
             )
         return str(endpoint), value
+
+    def require_transcript_keys(self) -> tuple[tuple[str, bytes], ...]:
+        """The transcript keys, newest first, or a failure naming the variable to set."""
+        if self.transcript_encryption_keys is None:
+            raise ConfigurationError(
+                "TRANSCRIPT_ENCRYPTION_KEYS is required to store or read transcripts. "
+                f"Set it in .env as {TRANSCRIPT_KEYS_FORMAT!r}; see .env.example."
+            )
+        return parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
 
     def require_database_url(self) -> str:
         """The database URL, or a failure that names what is missing.
