@@ -16,11 +16,10 @@ from letmehandle.adapters.speech.realtime.protocol import (
     ResponseFinished,
     ResponseStarted,
     ServiceError,
-    Speaker,
     TranscriptDelta,
     TranscriptSettled,
-    Turn,
 )
+from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from tests.support.scripted_realtime_connection import audio_delta
 
 # ----------------------------------------------------------------------------------- inbound

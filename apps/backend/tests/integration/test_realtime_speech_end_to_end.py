@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from letmehandle.adapters.clock import SystemClock
-from letmehandle.adapters.speech.realtime.telemetry import TIME_TO_FIRST_AUDIO
+from letmehandle.adapters.speech.session_support.telemetry import TIME_TO_FIRST_AUDIO
 from letmehandle.application.speech.conversation import (
     Conversation,
     ConversationEnd,

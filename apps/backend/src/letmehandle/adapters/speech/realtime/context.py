@@ -3,22 +3,17 @@
 A reconnect is a new conversation as far as the service knows. Without this the model comes back
 from a dropped connection with no instructions, the wrong voice and no idea what was just said,
 which to the caller is an assistant that has forgotten them mid-sentence.
-
-Held in memory only, and bounded. The history is somebody's words, kept for exactly as long as
-the session lives (D-013), and a long call must not turn it into an ever-growing replay that
-takes longer to send than the outage it recovers from.
 """
 
 from __future__ import annotations
 
-from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from letmehandle.adapters.speech.realtime import protocol
-from letmehandle.domain.errors import InvariantError
+from letmehandle.adapters.speech.session_support.history import ConversationHistory
 
 if TYPE_CHECKING:
-    from letmehandle.adapters.speech.realtime.protocol import Turn
+    from letmehandle.adapters.speech.session_support.history import Turn
 
 
 class SessionContext:
@@ -33,23 +28,19 @@ class SessionContext:
         transcription_model: str | None,
         history_turns: int,
     ) -> None:
-        if history_turns < 0:
-            raise InvariantError("a session cannot remember a negative number of turns")
         self.instructions = instructions
         self._voice_id = voice_id
         self._language = language
         self._transcription_model = transcription_model
-        self._history: deque[Turn] = deque(maxlen=history_turns)
+        self._history = ConversationHistory(history_turns)
 
     def remember(self, turn: Turn) -> None:
         """Keep a settled turn, forgetting the oldest once the bound is reached."""
-        self._history.append(turn)
+        self._history.remember(turn)
 
     def forget(self, turn: Turn) -> None:
         """Drop a turn remembered too early. By identity, so an identical earlier turn stays."""
-        kept = [each for each in self._history if each is not turn]
-        self._history.clear()
-        self._history.extend(kept)
+        self._history.replace(turn, None)
 
     def configuration(self) -> dict[str, Any]:
         """The event that sets a new connection up as this session."""

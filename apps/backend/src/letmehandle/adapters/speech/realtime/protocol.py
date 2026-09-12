@@ -53,9 +53,9 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final
 
+from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.domain.models.audio import AudioEncoding, AudioFormat
 
 if TYPE_CHECKING:
@@ -69,21 +69,6 @@ WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
 NOTHING_TO_CANCEL: Final = "response_cancel_not_active"
 
 type Event = Mapping[str, Any]
-
-
-class Speaker(StrEnum):
-    """Who said a settled turn."""
-
-    CALLER = "caller"
-    ASSISTANT = "assistant"
-
-
-@dataclass(frozen=True, slots=True)
-class Turn:
-    """Something said and settled, kept so that a reconnect can remind the model of it."""
-
-    speaker: Speaker
-    text: str
 
 
 class MalformedEventError(Exception):

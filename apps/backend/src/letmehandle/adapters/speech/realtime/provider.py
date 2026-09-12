@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING, Final
 from letmehandle.adapters.audio.conversion import can_convert
 from letmehandle.adapters.speech.realtime.context import SessionContext
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
-from letmehandle.adapters.speech.realtime.reconnect import ReconnectPolicy
 from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession, SessionSetup
-from letmehandle.adapters.speech.realtime.telemetry import SessionTelemetry
-from letmehandle.adapters.speech.realtime.timing import Timekeeping
+from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
+from letmehandle.adapters.speech.session_support.timing import Timekeeping
 from letmehandle.domain.errors import CapabilityNotSupportedError, InvariantError
 from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechProvider
 
