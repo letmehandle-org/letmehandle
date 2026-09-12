@@ -86,7 +86,7 @@ class ScriptedRealtimeService:
 
     async def wait_for_sent(self, event_type: str, *, connection: int = 1) -> None:
         """Wait until the `connection`th connection opened has been sent this type of event."""
-        await self._wait_until(
+        await self.wait_until(
             lambda: (
                 len(self.connections) >= connection
                 and event_type in self.connections[connection - 1].sent_types()
@@ -95,13 +95,14 @@ class ScriptedRealtimeService:
 
     async def wait_until_delivered(self) -> None:
         """Wait until the current connection has handed over everything it had to say."""
-        await self._wait_until(lambda: self.current.pending == 0)
+        await self.wait_until(lambda: self.current.pending == 0)
 
     async def wait_for_connection_count(self, count: int) -> None:
         """Wait until `count` connections have been opened."""
-        await self._wait_until(lambda: len(self.connections) >= count)
+        await self.wait_until(lambda: len(self.connections) >= count)
 
-    async def _wait_until(self, satisfied: Callable[[], bool]) -> None:
+    async def wait_until(self, satisfied: Callable[[], bool]) -> None:
+        """Wait until something about the connections so far is true."""
         # A bound on a wait for something that should already be on its way, so a broken session
         # fails the test rather than hanging the suite.
         async with asyncio.timeout(2):
@@ -212,6 +213,14 @@ class ScriptedRealtimeConnection:
 
     def sent_types(self) -> list[str]:
         return [str(event["type"]) for event in self.sent]
+
+    def instructions_sent(self) -> list[str]:
+        """The instructions of every configuration this connection was sent, in order."""
+        return [
+            str(event["session"]["instructions"])
+            for event in self.sent
+            if event["type"] == "session.update"
+        ]
 
     @property
     def pending(self) -> int:

@@ -135,6 +135,8 @@ class RealtimeSpeechSession(SpeechSession):
         self._failure: str | None = None
         self._budget = ReconnectBudget()
         self._unproven = False
+        # Instructions changed while no connection could hear them, sent as soon as one can.
+        self._instructions_pending = False
         self._active_response: str | None = None
         self._latest_response: str | None = None
         self._silenced_response: str | None = None
@@ -160,7 +162,7 @@ class RealtimeSpeechSession(SpeechSession):
         except BaseException:
             await self._drop_connection()
             raise
-        self._live = True
+        await self._go_live()
         self._telemetry.opened()
         self._tasks.append(
             asyncio.create_task(self._read(connection), name=f"{self._setup.provider}-reader")
@@ -205,9 +207,17 @@ class RealtimeSpeechSession(SpeechSession):
         return self._outbox.events()
 
     async def update_context(self, context: str) -> None:
+        """Replace the instructions, now or as soon as there is a connection to hear them.
+
+        Kept, so that a replacement connection is configured with them. One made while a
+        replacement is being configured is sent once it is live, since the configuration already
+        on its way was built before the update existed.
+        """
         self._ensure_usable()
-        # Kept first, so that a reconnect in progress restores the new context, not the old.
         self._context.instructions = context
+        if not self._live:
+            self._instructions_pending = True
+            return
         await self._send(protocol.update_instructions(context))
 
     async def interrupt(self) -> None:
@@ -395,7 +405,7 @@ class RealtimeSpeechSession(SpeechSession):
             self._fail(replacement)
             return None
         self._unproven = True
-        self._live = True
+        await self._go_live()
         return replacement
 
     def _forget_responses(self) -> None:
@@ -409,9 +419,17 @@ class RealtimeSpeechSession(SpeechSession):
         # Held before it is configured, so that a failure or a cancellation part-way through
         # configuring it still finds it to close.
         connection = self._connection = await self._setup.opener()
+        # The restoration carries the instructions as they are now; only a later change is pending.
+        self._instructions_pending = False
         for event in self._context.restoration():
             await connection.send(event)
         return connection
+
+    async def _go_live(self) -> None:
+        self._live = True
+        if self._instructions_pending:
+            self._instructions_pending = False
+            await self._send(protocol.update_instructions(self._context.instructions))
 
     def _fail(self, reason: str) -> None:
         self._failure = reason

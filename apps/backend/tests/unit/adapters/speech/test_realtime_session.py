@@ -712,6 +712,24 @@ async def test_a_refusal_that_will_not_change_stops_reconnecting_at_once(
     assert len(sleep.delays) == 2
 
 
+async def test_a_context_update_made_while_a_replacement_is_configured_reaches_it(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    async with await connect(provider) as session:
+        service.stalled = asyncio.Event()
+        service.current.drop()
+        await service.wait_for_connection_count(2)
+        replacement = service.current
+
+        # The replacement's configuration was built with the old instructions and is on its way,
+        # and the connection that dropped hears nothing: the update must follow once it is live.
+        await session.update_context("NEW INSTRUCTIONS")
+        service.stalled.set()
+        await service.wait_until(lambda: "NEW INSTRUCTIONS" in replacement.instructions_sent())
+
+    assert replacement.instructions_sent() == ["answer for someone", "NEW INSTRUCTIONS"]
+
+
 async def test_sending_while_reconnecting_is_dropped_not_raised(
     provider: RealtimeSpeechProvider, service: ScriptedRealtimeService, sleep: RecordedSleep
 ) -> None:
