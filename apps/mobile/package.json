@@ -49,6 +49,14 @@
     "react-test-renderer": "19.2.8",
     "typescript": "^6.0.3"
   },
+  "codegenConfig": {
+    "name": "LetMeHandleSpecs",
+    "type": "modules",
+    "jsSrcsDir": "src/calls/native",
+    "android": {
+      "javaPackageName": "org.letmehandle.app.specs"
+    }
+  },
   "engines": {
     "node": ">= 22.11.0"
   }
