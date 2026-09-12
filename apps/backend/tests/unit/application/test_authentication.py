@@ -16,6 +16,7 @@ from letmehandle.application.auth.service import (
     AuthenticationService,
     RateLimitedError,
 )
+from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.auth import CHALLENGE_LIFETIME, MAX_ATTEMPTS
 from letmehandle.domain.models.phone_number import PhoneNumber
 from tests.contracts.auth_fakes import (
@@ -40,11 +41,13 @@ THE_CODE = "424242"
 class Harness:
     """Everything the service needs, assembled and reachable from a test."""
 
-    def __init__(self, *, limiter: object | None = None) -> None:
+    def __init__(
+        self, *, limiter: object | None = None, otp: RecordingOTPProvider | None = None
+    ) -> None:
         self.users = InMemoryUserRepository()
         self.challenges = InMemoryChallengeRepository()
         self.refresh_tokens = InMemoryRefreshTokenRepository()
-        self.otp = RecordingOTPProvider()
+        self.otp = otp or RecordingOTPProvider()
         self.clock = FixedClock(NOW)
         self.ids = CountingIdGenerator()
         self.signer = FakeTokenSigner()
@@ -335,3 +338,45 @@ class TestSigningOut:
         for token in (first, second):
             with pytest.raises(AuthenticationError):
                 await harness.service.refresh(token)
+
+
+class FixedCodeOTPProvider(RecordingOTPProvider):
+    """A testing provider that fixes the code, optionally claiming to be safe for production."""
+
+    def __init__(self, code: str, *, production_safe: bool = False) -> None:
+        super().__init__()
+        self._code = code
+        self._production_safe = production_safe
+
+    @property
+    def is_safe_for_production(self) -> bool:
+        return self._production_safe
+
+    @property
+    def fixed_code(self) -> str:
+        return self._code
+
+
+class TestAFixedTestingCode:
+    async def test_a_testing_provider_fixes_the_code_it_sends(self) -> None:
+        harness = Harness(otp=FixedCodeOTPProvider("123456"))
+        issued = await harness.service.request_challenge(NUMBER)
+        assert harness.otp.sent == [(NUMBER, "123456")]
+        pair = await harness.service.verify(issued.challenge_id, "123456")
+        assert pair.refresh_token
+
+    async def test_a_provider_without_one_still_sends_a_random_code(self, harness: Harness) -> None:
+        await harness.service.request_challenge(NUMBER)
+        assert harness.otp.sent == [(NUMBER, THE_CODE)]
+
+    async def test_a_real_provider_may_not_fix_the_code(self) -> None:
+        # Every account would share one code, and nothing about the service would look wrong.
+        harness = Harness(otp=FixedCodeOTPProvider("123456", production_safe=True))
+        with pytest.raises(InvariantError, match="must not fix them"):
+            await harness.service.request_challenge(NUMBER)
+        assert harness.otp.sent == []
+
+    async def test_a_fixed_code_must_be_a_real_code(self) -> None:
+        harness = Harness(otp=FixedCodeOTPProvider("12ab"))
+        with pytest.raises(InvariantError, match="6 digits"):
+            await harness.service.request_challenge(NUMBER)

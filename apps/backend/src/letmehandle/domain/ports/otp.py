@@ -32,6 +32,17 @@ class OTPProvider(ABC):
         in as anybody.
         """
 
+    @property
+    def fixed_code(self) -> str | None:
+        """A code every challenge uses instead of a random one, or None for a random one.
+
+        FOR TESTING ONLY. A provider that delivers nowhere offers one so that somebody running
+        the app can sign in without reading the backend log. Only a provider that is not safe
+        for production may offer one; the authentication service refuses a fixed code from any
+        other, so a real provider cannot turn every account's code into a constant by accident.
+        """
+        return None
+
     @abstractmethod
     async def send(self, number: PhoneNumber, code: str) -> None:
         """Deliver the code, or raise `ProviderError`.
