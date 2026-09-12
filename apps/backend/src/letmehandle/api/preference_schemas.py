@@ -25,7 +25,6 @@ from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import OnboardingStep
 from letmehandle.domain.models.preferences import (
     TRANSCRIPT_RETENTION_CEILING_DAYS,
-    TRANSCRIPT_RETENTION_DEFAULT_DAYS,
     TRANSCRIPT_RETENTION_FLOOR_DAYS,
     Formality,
     HandlingPosture,
@@ -117,6 +116,10 @@ class PrivacyPayload(Request):
 
     # Whole days. Bounded here as well as in the domain, so a client learns which field was out
     # of range rather than getting a refusal with no field attached to it.
+    #
+    # Required, with no default. It is the section's only field, so a default would make an
+    # empty section mean "reset my retention" — an update that deletes transcripts the user
+    # chose to keep, sent by a client that only meant to send nothing.
     transcript_retention_days: Annotated[
         int,
         Field(
@@ -124,7 +127,7 @@ class PrivacyPayload(Request):
             le=TRANSCRIPT_RETENTION_CEILING_DAYS,
             strict=True,
         ),
-    ] = TRANSCRIPT_RETENTION_DEFAULT_DAYS
+    ]
 
 
 class PrivacyResponse(Response):

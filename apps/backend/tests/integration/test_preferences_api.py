@@ -541,6 +541,21 @@ class TestTranscriptRetention:
             )
             assert stored.scalar_one() == 365
 
+    async def test_an_empty_privacy_section_is_refused_rather_than_resetting_it(
+        self, api: Api
+    ) -> None:
+        # The section has one field. Filling it from the default would turn "I sent the privacy
+        # screen with nothing on it" into "delete my transcripts after seven days".
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+
+        response = await api.client.patch(
+            "/v1/preferences", headers=bearer(tokens), json={"privacy": {}}
+        )
+
+        assert response.status_code == 422, response.text
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 30
+
     @pytest.mark.parametrize("days", [1, 90])
     async def test_the_floor_and_ceiling_are_accepted(self, api: Api, days: int) -> None:
         tokens = await sign_in(api)
