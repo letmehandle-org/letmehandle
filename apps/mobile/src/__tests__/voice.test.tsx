@@ -90,7 +90,7 @@ describe('the voices on offer', () => {
     }
   });
 
-  it('offers a retry rather than an empty list when the voices cannot be loaded', async () => {
+  it('offers a retry rather than an empty list when the voices cannot be loaded, and takes it', async () => {
     withVoices();
     const view = await render(<App />);
     await waitFor(() => {
@@ -98,13 +98,21 @@ describe('the voices on offer', () => {
     });
     await fireEvent.press(view.getByTestId('open-settings'));
 
+    const working = globalThis.fetch;
     globalThis.fetch = (async () => {
       throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
     await fireEvent.press(view.getByTestId('settings-open-voice'));
 
     expect(await view.findByText(en.voice.loadFailed)).toBeOnTheScreen();
-    expect(view.getByTestId('voice-retry')).toBeOnTheScreen();
+
+    // A retry button that does nothing is worse than none: it is the only thing somebody can
+    // press, and it teaches them the screen is broken rather than the connection.
+    globalThis.fetch = working;
+    await fireEvent.press(view.getByTestId('voice-retry'));
+
+    expect(await view.findByTestId('voice-option-briar')).toBeOnTheScreen();
+    expect(view.queryByText(en.voice.loadFailed)).toBeNull();
   });
 });
 
