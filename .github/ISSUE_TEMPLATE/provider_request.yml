@@ -1,0 +1,38 @@
+name: Provider support
+description: Request or offer an implementation of one of the provider interfaces
+labels: [provider]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every external capability in this project is a port with adapters behind it. Adding
+        support for a new one should not require changing any core code — if it does, that is
+        a bug in the interface and this issue is the right place to say so.
+  - type: dropdown
+    id: port
+    attributes:
+      label: Which port
+      options: [SpeechProvider, LLMProvider, TelephonyProvider, VoiceProvider, NotificationProvider, OTPProvider]
+    validations: { required: true }
+  - type: input
+    id: provider
+    attributes:
+      label: Which provider
+    validations: { required: true }
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: Capabilities
+      description: Which of the port's declared capabilities it supports, and which it does not.
+    validations: { required: true }
+  - type: textarea
+    id: gaps
+    attributes:
+      label: Anything the interface cannot express
+      description: If the provider does something the port has no way to describe, describe it here.
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Are you offering to implement it?
+      options:
+        - label: Yes, I intend to open a pull request

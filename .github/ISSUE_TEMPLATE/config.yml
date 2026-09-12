@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/letmehandle-org/letmehandle/security/advisories/new
+    about: Report privately. Please do not open a public issue for a vulnerability.
+  - name: Question or idea
+    url: https://github.com/letmehandle-org/letmehandle/discussions
+    about: For anything that is not yet a bug or a defined piece of work.

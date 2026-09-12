@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you fill this in: please do not paste real phone numbers, credentials,
+        account identifiers, or call content. Redact them, or use a number from a range
+        reserved for fiction.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [backend, mobile, speech, telephony, agent, notifications, docs, build, other]
+    validations: { required: true }
+  - type: textarea
+    id: providers
+    attributes:
+      label: Configured providers
+      description: Which provider each port is configured with. Names only, never credentials.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Redacted. Correlation ids are more useful here than content.
+      render: shell

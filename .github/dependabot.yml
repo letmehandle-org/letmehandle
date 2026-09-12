@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /apps/backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "build(backend)" }
+
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "build(mobile)" }
+    groups:
+      react-native:
+        patterns: ["react-native*", "@react-native*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    commit-message: { prefix: "ci" }
+
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule: { interval: weekly }
+    commit-message: { prefix: "build(docker)" }

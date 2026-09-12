@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose something the product should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What someone cannot do today. Please describe the problem, not the solution.
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations: { required: true }
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What else you considered
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Does this belong to a phase in PLAN.md?
+      options: ["Yes, an existing phase", "No, it would be new work", "Not sure"]
+    validations: { required: true }
