@@ -239,6 +239,14 @@ class EchoSpeechSession(SpeechSession):
                 return
             yield event
 
+    async def emit(self, event: SpeechEvent) -> None:
+        """Say something as the service would, so a consumer's handling of it can be exercised.
+
+        Echoing only ever reports the model speaking. A caller interrupting, a settled
+        transcript and a failure are what a consumer has to get right, and they need a way in.
+        """
+        await self._queue.put(event)
+
     async def update_context(self, context: str) -> None:
         self.context_updates.append(context)
 
@@ -253,7 +261,11 @@ class EchoSpeechSession(SpeechSession):
         if self._closed:
             return
         self._closed = True
-        await self._queue.put(None)
+        if self._queue.full():
+            # Closing must not wait on a consumer, which may be the thing that stopped. What is
+            # queued is dropped only when there is no room left to say the stream has ended.
+            self._queue.get_nowait()
+        self._queue.put_nowait(None)
 
     @property
     def is_closed(self) -> bool:
