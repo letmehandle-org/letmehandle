@@ -21,6 +21,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
     CallTransport,
     ScreeningDecision,
+    answering,
     audio_streaming,
     bridging,
     screening,
@@ -50,8 +51,7 @@ class CallTransportContract:
 
     # ------------------------------------------------------------ the basics
 
-    async def test_it_can_answer_and_terminate(self, transport: CallTransport) -> None:
-        await transport.answer(A_CALL)
+    async def test_it_can_terminate(self, transport: CallTransport) -> None:
         await transport.terminate(A_CALL)
 
     async def test_terminating_twice_is_safe(self, transport: CallTransport) -> None:
@@ -86,6 +86,7 @@ class CallTransportContract:
         # agree. A transport claiming a capability it has not implemented fails here rather
         # than with an attribute error, mid-call, in front of somebody.
         for capability, narrow in (
+            ("can_answer_under_program_control", answering),
             ("can_screen_before_ringing", screening),
             ("can_bridge_human", bridging),
         ):
@@ -99,11 +100,37 @@ class CallTransportContract:
 
     # -------------------------------------------------- capability behaviours
 
-    async def test_screening_works_where_it_is_declared(self, transport: CallTransport) -> None:
+    async def test_a_call_can_be_answered_and_terminated_where_declared(
+        self, transport: CallTransport
+    ) -> None:
+        if not transport.capabilities.can_answer_under_program_control:
+            pytest.skip("this transport's calls are answered by the person holding the handset")
+        await answering(transport).answer(A_CALL)
+        await transport.terminate(A_CALL)
+
+    def test_a_screening_transport_can_always_let_a_call_ring(
+        self, transport: CallTransport
+    ) -> None:
+        # Letting the call ring is the fallback when a decision cannot be made in time, or
+        # cannot be made safely. A screener that could not do it would have no safe answer.
         if not transport.capabilities.can_screen_before_ringing:
             pytest.skip("this transport does not see calls before they ring")
-        for decision in ScreeningDecision:
-            await screening(transport).screen(A_CALL, decision)
+        assert ScreeningDecision.ALLOW in screening(transport).screening_decisions()
+
+    def test_a_screening_transport_states_its_deadline(self, transport: CallTransport) -> None:
+        if not transport.capabilities.can_screen_before_ringing:
+            pytest.skip("this transport does not see calls before they ring")
+        assert screening(transport).screening_deadline().total_seconds() > 0
+
+    async def test_only_a_screening_transport_reports_a_screening_decision(
+        self, transport: CallTransport
+    ) -> None:
+        # A decision reported by a transport that declares it cannot screen is a claim about
+        # something that did not happen.
+        async for event in transport.events():
+            if event.screening is not None:
+                assert transport.capabilities.can_screen_before_ringing
+            break
 
     async def test_audio_flows_both_ways_where_it_is_declared(
         self, transport: CallTransport

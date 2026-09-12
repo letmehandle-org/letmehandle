@@ -10,8 +10,13 @@ from __future__ import annotations
 import pytest
 
 from letmehandle.domain.errors import InvariantError
-from letmehandle.domain.models.identifiers import CallId
-from letmehandle.domain.ports.call_transport import TransportCapabilities
+from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.ports.call_transport import (
+    CallEvent,
+    CallEventKind,
+    ScreeningDecision,
+    TransportCapabilities,
+)
 from letmehandle.domain.ports.llm import Message, Role
 from letmehandle.domain.ports.notification import (
     DevicePlatform,
@@ -57,6 +62,7 @@ class TestTransportCapabilities:
 
     def test_the_capability_names_are_the_documented_matrix(self) -> None:
         assert set(TransportCapabilities().names()) == {
+            "can_answer_under_program_control",
             "can_screen_before_ringing",
             "can_stream_call_audio_to_ai",
             "can_inject_ai_audio",
@@ -64,6 +70,23 @@ class TestTransportCapabilities:
             "supports_three_way_call",
             "supports_native_ringing",
         }
+
+
+class TestCallEvents:
+    def test_the_incoming_event_carries_the_screening_decision(self) -> None:
+        event = CallEvent(
+            CallEventKind.INCOMING, CallId("c"), EventId("e"), screening=ScreeningDecision.REJECT
+        )
+        assert event.screening is ScreeningDecision.REJECT
+
+    @pytest.mark.parametrize(
+        "kind", [kind for kind in CallEventKind if kind is not CallEventKind.INCOMING]
+    )
+    def test_no_later_event_carries_one(self, kind: CallEventKind) -> None:
+        # There is one decision per call, taken before it rang. On a later event it would read
+        # as a second one.
+        with pytest.raises(InvariantError, match="incoming event only"):
+            CallEvent(kind, CallId("c"), EventId("e"), screening=ScreeningDecision.ALLOW)
 
 
 class TestMessages:

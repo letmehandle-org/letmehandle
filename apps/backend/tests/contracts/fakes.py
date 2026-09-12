@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import count
 from typing import TYPE_CHECKING, TypeVar
 
@@ -322,16 +322,22 @@ class EchoSpeechProvider(SpeechProvider):
 class ScreeningOnlyTransport(CallTransport):
     """A transport shaped like a platform's own call screening.
 
-    It sees a call before the handset rings and can allow, reject or silence it. It cannot hand
-    the application the call's audio, and it cannot add anybody: declaring otherwise is exactly
-    the lie the capability model exists to prevent.
+    It decides a call before the handset rings — allow, reject or silence — and reports the
+    decision on the incoming event. It cannot answer, cannot hand the application the call's
+    audio, and cannot add anybody: declaring otherwise is exactly the lie the capability model
+    exists to prevent.
     """
 
     def __init__(self) -> None:
-        self.decisions: list[tuple[CallId, ScreeningDecision]] = []
-        self.answered: list[CallId] = []
         self.terminated: list[CallId] = []
-        self.pending: list[CallEvent] = []
+        self.pending: list[CallEvent] = [
+            CallEvent(
+                CallEventKind.INCOMING,
+                CallId("screened"),
+                EventId("screened-incoming"),
+                screening=ScreeningDecision.SILENCE,
+            )
+        ]
 
     @property
     def name(self) -> str:
@@ -345,14 +351,14 @@ class ScreeningOnlyTransport(CallTransport):
         for event in self.pending:
             yield event
 
-    async def answer(self, call_id: CallId) -> None:
-        self.answered.append(call_id)
-
     async def terminate(self, call_id: CallId) -> None:
         self.terminated.append(call_id)
 
-    async def screen(self, call_id: CallId, decision: ScreeningDecision) -> None:
-        self.decisions.append((call_id, decision))
+    def screening_decisions(self) -> frozenset[ScreeningDecision]:
+        return frozenset(ScreeningDecision)
+
+    def screening_deadline(self) -> timedelta:
+        return timedelta(seconds=5)
 
 
 class StreamingTransport(CallTransport):
@@ -378,6 +384,7 @@ class StreamingTransport(CallTransport):
     @property
     def capabilities(self) -> TransportCapabilities:
         return TransportCapabilities(
+            can_answer_under_program_control=True,
             can_stream_call_audio_to_ai=True,
             can_inject_ai_audio=True,
             can_bridge_human=True,
@@ -426,6 +433,7 @@ class LyingTransport(CallTransport):
     @property
     def capabilities(self) -> TransportCapabilities:
         return TransportCapabilities(
+            can_answer_under_program_control=True,
             can_bridge_human=True,
             can_screen_before_ringing=True,
             can_stream_call_audio_to_ai=True,
@@ -434,9 +442,6 @@ class LyingTransport(CallTransport):
 
     async def events(self) -> AsyncIterator[CallEvent]:
         yield CallEvent(CallEventKind.INCOMING, CallId("c"), EventId("e"))
-
-    async def answer(self, call_id: CallId) -> None:
-        return None
 
     async def terminate(self, call_id: CallId) -> None:
         return None
