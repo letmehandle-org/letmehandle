@@ -45,9 +45,21 @@ class CallScreeningGraph private constructor(context: Context) {
     }
   }
 
-  /** Validates before storing, so a document the service cannot read is refused to the app. */
+  /**
+   * Validates before storing, so a document the service cannot read is refused to the app.
+   *
+   * A refused document also removes the one stored before it. The app only writes when the
+   * rules changed, so the older copy is known to be out of date — a newer format this build does
+   * not understand, say — and the service must fall back to letting calls ring rather than keep
+   * refusing callers on rules the user has since replaced.
+   */
   fun writeSnapshot(text: String) {
-    CallRulesSnapshotCodec.decode(text)
+    try {
+      CallRulesSnapshotCodec.decode(text)
+    } catch (invalid: CallRulesSnapshotCodec.InvalidSnapshot) {
+      store.write(SNAPSHOT, null)
+      throw invalid
+    }
     store.write(SNAPSHOT, text)
   }
 

@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.letmehandle.app.calls.events.CallEventKind
 import org.letmehandle.app.calls.events.PhoneStateReceiver
+import org.letmehandle.app.calls.rules.CallRulesSnapshotCodec
 import org.letmehandle.app.calls.rules.CallerNumber
 import org.letmehandle.app.calls.rules.ScreenedCaller
 import org.letmehandle.app.calls.rules.Screening
@@ -112,6 +113,19 @@ class CallScreeningInstrumentedTest {
 
     graph.forgetAccount()
     assertNull(graph.readSnapshot())
+  }
+
+  @Test
+  fun a_snapshot_the_handset_cannot_read_leaves_calls_ringing_rather_than_older_rules() {
+    graph.writeSnapshot(rejectEverybody.format(Instant.now()))
+    val newerFormat = rejectEverybody.format(Instant.now()).replace("\"version\":1", "\"version\":2")
+
+    try {
+      graph.writeSnapshot(newerFormat)
+      throw AssertionError("a version this build does not know must be refused")
+    } catch (expected: CallRulesSnapshotCodec.InvalidSnapshot) {
+      assertNull(graph.readSnapshot())
+    }
   }
 
   @Test

@@ -97,7 +97,7 @@ export const en = {
     failed: 'Could not tell whether call screening is on.',
     turnOn: 'Turn on call screening',
     rulesNotSaved:
-      'Your latest rules could not be saved to this phone, so it is still using the ones before.',
+      'Your latest rules could not be applied on this phone, so calls ring as normal until they can.',
     activityTitle: 'Call activity',
     activityWhat:
       'Lets LetMeHandle see that a call was answered or ended, so it can appear in your history. ' +

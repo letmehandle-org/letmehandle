@@ -31,7 +31,7 @@ import { buildRulesSnapshot } from './wire';
 export interface CallScreeningValue {
   /** This handset's call screening, or null where it has none. */
   readonly screening: CallScreening | null;
-  /** Whether the latest rules failed to reach the handset, which is then applying older ones. */
+  /** Whether the latest rules were refused by the handset, which then lets every call ring. */
   readonly rulesNotSaved: boolean;
 }
 
@@ -69,8 +69,8 @@ export function CallScreeningProvider({
           }
         },
         () => {
-          // Said on the screening screen rather than thrown: the handset keeps applying the rules
-          // it had, which is a degraded state the user should know about, not a crash.
+          // Said on the screening screen rather than thrown: the handset has let go of its rules
+          // and lets every call ring, a degraded state the user should know about, not a crash.
           if (!cancelled) {
             setRulesNotSaved(true);
           }
