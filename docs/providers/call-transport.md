@@ -60,7 +60,9 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    only (muted), speak only to the user (coaching them), or leave (removed). Before the user joins,
    and after the last one leaves, the assistant is audible to the caller.
 5. `terminate` ends the conference, and the caller's leg in case the conference never started, and
-   cancels any leg still ringing. It is safe to call more than once.
+   cancels any leg still ringing. It is safe to call more than once. A dial still being placed
+   finishes first, so its leg can be cancelled too. When the provider refuses one step the rest
+   are still tried and the call is released, and then the first refusal is raised.
 
 ### What the orchestrator hears
 

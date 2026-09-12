@@ -66,7 +66,7 @@ from letmehandle.domain.ports.call_transport import (
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 
     from letmehandle.adapters.transport.twilio.rest import TelephonyApi
     from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
@@ -322,8 +322,12 @@ class TwilioCallTransport(CallTransport):
         # Under the call's lock, so a dial still being placed finishes first and its leg has an
         # identifier to be ended by. Otherwise the leg is released unnamed and rings on.
         async with call.lock:
-            await self._end_remotely(call)
-            await self._release(call, "the call was ended")
+            try:
+                await self._end_remotely(call)
+            finally:
+                # Released whether or not the provider did as asked. A call held here after a
+                # refusal could never be ended by trying again: nothing new would be asked.
+                await self._release(call, "the call was ended")
 
     def audio_format(self) -> AudioFormat:
         return TELEPHONY_NARROWBAND
@@ -662,15 +666,30 @@ class TwilioCallTransport(CallTransport):
             await self._api.end_call(leg.call_sid, "completed" if leg.answered else "canceled")
 
     async def _end_remotely(self, call: _Call) -> None:
-        """End the call on the provider's side, whatever state it has reached."""
-        if call.conference_sid is not None:
-            await self._api.end_conference(call.conference_sid)
+        """End the call on the provider's side, whatever state it has reached.
+
+        Every step is tried even when one fails: a refusal to end the conference is no reason to
+        leave a user's phone ringing. The first failure is raised once every step has been tried.
+        """
+        failures: list[ProviderError] = []
+
+        async def attempt(step: Awaitable[object]) -> None:
+            try:
+                await step
+            except ProviderError as failure:
+                failures.append(failure)
+
+        conference_sid = call.conference_sid
+        if conference_sid is not None:
+            await attempt(self._api.end_conference(conference_sid))
         # The conference may never have started, so the caller's own leg is ended too; and a
         # leg still ringing is not in any conference to be ended with it.
-        await self._api.end_call(call.call_id.value, "completed")
-        for leg in call.legs.values():
+        await attempt(self._api.end_call(call.call_id.value, "completed"))
+        for leg in list(call.legs.values()):
             if not leg.joined and not leg.finished and not leg.removed:
-                await self._hang_up_leg(call, leg)
+                await attempt(self._hang_up_leg(call, leg))
+        if failures:
+            raise failures[0]
 
     def _ended_by_provider(self, call: _Call, reason: str) -> None:
         self._emit(CallEventKind.ENDED, call, "ended", detail=reason)

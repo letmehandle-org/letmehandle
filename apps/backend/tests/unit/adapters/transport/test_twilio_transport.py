@@ -759,15 +759,17 @@ async def test_terminating_before_the_conference_exists_ends_the_callers_leg(
     assert api.ended_calls == [(CALL.value, "completed")]
 
 
-async def test_a_terminate_the_provider_refused_can_be_tried_again(
+async def test_a_terminate_the_provider_refuses_still_ends_the_rest_and_releases_the_call(
     transport: TwilioCallTransport, api: RecordingApi
 ) -> None:
     await answered_call(transport)
+    await transport.add_participant(CALL, USER)
     api.failure = FAILURE
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError, match="refused"):
         await transport.terminate(CALL)
-    assert transport.active_calls == 1
-    await transport.terminate(CALL)
+    # The conference could not be ended; the caller's leg and the ringing user still were.
+    assert api.ended_calls == [(CALL.value, "completed"), ("CAsim-user-2", "canceled")]
+    assert shapes(await drain(transport)) == [("ended", None, None)]
     assert transport.active_calls == 0
 
 
