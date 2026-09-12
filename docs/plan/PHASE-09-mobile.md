@@ -25,6 +25,24 @@ doing the work, iPhone-first polish, and as little text as the screen can carry.
 - **Preferences** — the Phase 3 surfaces, brought into the finished design.
 - **Voice** — the Phase 4 surface, brought into the finished design.
 
+### Capability-aware interface
+
+The app renders from what the active transport can do, never from which platform it is running
+on. The platform decides the default transport in bootstrap (D-005); the interface reads
+capabilities.
+
+- An option a transport does not support is **absent**, not disabled and not labelled as
+  unavailable. A control that cannot work teaches a user to distrust the ones that can.
+- Where the native transport is active, the interface exposes the screening controls it
+  genuinely offers: allow, reject, silence, and the rules behind them, plus the role and
+  permission state it depends on.
+- Where the streaming transport is active, the interface exposes the assistant conversation,
+  escalation, and the call activity that follows from them.
+- Home states plainly what the assistant can do on this device, because the honest answer
+  differs between them and a user should not have to infer it.
+- The capability-to-interface mapping is data, not a branch per screen, so a third transport
+  is a new row rather than a new set of conditionals.
+
 ### Foundations
 - A design-token layer: colour, spacing, type, radius, motion. No literal value in a
   component; changing a token changes the app.
@@ -68,7 +86,10 @@ doing the work, iPhone-first polish, and as little text as the screen can carry.
 4. No literal colour, spacing or type value exists outside the token layer.
 5. Accessibility criteria pass, including at the largest dynamic type setting.
 6. No user-facing string bypasses i18n.
-7. The end-to-end flow passes on a device or simulator.
+7. The end-to-end flow passes on a device or simulator, on both platforms.
+8. The interface renders from capabilities. Asserted by a test that drives the same screens
+   with each capability set and checks that unsupported controls are absent from the tree.
+9. No screen branches on the platform to decide what the assistant can do.
 8. Coverage meets the D-020 floors.
 
 ## Risks and open questions

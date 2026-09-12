@@ -31,6 +31,19 @@ Phase 1 port.
   the stream, the queues, and the tasks. Proven by a test that asserts no task and no
   connection survives, not by inspection.
 
+### Independence from the transport
+
+The speech layer must not assume that a call transport supplies audio at all. One of the two
+transports implemented in phase 7 cannot (D-005), so an assumption here would become a
+platform branch there.
+
+- The session consumes an **audio source** and writes to an **audio sink**, both abstract.
+  Neither knows whether frames arrive from a phone call, a microphone, or a file.
+- The harness below supplies a microphone source and a speaker sink; phase 7's streaming
+  transport supplies a call source and sink. The speech adapter is unchanged between them.
+- A speech session can therefore be created, driven, and torn down with no call in existence,
+  which is what makes this phase testable before any transport is written.
+
 ### Metrics
 Recorded from the first session, because latency regressions are invisible without a
 baseline: time to first audio out, per-utterance round trip, interruption-to-silence,
@@ -47,7 +60,8 @@ printing the latency summary at exit.
 
 ## Explicitly out of scope
 
-- Telephony, phone numbers, and call state. Nothing here knows what a call is.
+- Any call transport, phone number, or call state. Nothing here knows what a call is, and
+  nothing here assumes audio comes from one.
 - The agent. This phase produces conversation, not decisions.
 - Persisting anything. Audio is never written to disk (D-013); transcripts are in memory
   only until Phase 8 owns them.
@@ -58,6 +72,7 @@ printing the latency summary at exit.
 | --- | --- |
 | Unit | Session state transitions; the bounded queue applies backpressure rather than growing; interruption discards queued audio; reconnect restores context; backoff is bounded and jittered; a permanent error raises a typed failure. |
 | Unit | Cancellation at each stage releases every resource. Asserted by counting live tasks and open streams after the fact. |
+| Unit | The session runs against a file-backed audio source and sink, with no call and no transport present, proving the speech layer depends on the abstraction rather than on a call. |
 | Contract | The Phase 1 `SpeechProvider` suite passes against the real adapter. |
 | Integration | Against a recorded or simulated stream server: a full conversation, an interruption, a mid-stream disconnect and recovery, and a hard failure. No test requires a paid account to run in CI. |
 | Manual | The harness holds a real spoken conversation, interruption works, and the latency summary is recorded in the verification report. |
@@ -73,6 +88,8 @@ printing the latency summary at exit.
 7. The contract suite passes against the real adapter.
 8. Latency metrics are recorded and a baseline is captured in the verification report.
 9. CI runs the full suite with no vendor credentials.
+10. The speech session works against an audio source and sink that are not a call, proving it
+    makes no assumption about where audio comes from.
 10. Coverage meets the D-020 floors.
 
 ## Risks and open questions
@@ -83,6 +100,9 @@ printing the latency summary at exit.
   by the contract suite being the same one both must pass.
 - **Model availability by region.** Access and region are deployment configuration, kept out
   of tracked files (D-021), and documented as a named variable in `.env.example` only.
-- **Sample-rate mismatch with telephony.** Phase 7 introduces 8 kHz telephony audio. The
-  frame type carries its rate from Phase 1 and conversion is an adapter concern, so this is
-  a known integration point rather than a surprise.
+- **Sample-rate mismatch with a call transport.** Phase 7 introduces 8 kHz narrowband audio.
+  The frame type carries its rate from phase 1 and conversion is an adapter concern, so this
+  is a known integration point rather than a surprise.
+- **A transport that supplies no audio at all.** The Android native transport cannot stream a
+  SIM call's audio. That is not a gap in this phase: it means the speech session simply is not
+  created on that path, decided by capability in phase 8.

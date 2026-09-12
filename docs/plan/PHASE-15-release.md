@@ -19,6 +19,16 @@ a documentation defect and is fixed. Repeated until a run needs no deviation.
 - `docs/providers/` — one page per port: the interface, the capabilities, how to implement
   one, how to configure it, and how to test it against the contract suite. Written so that a
   contributor can add a provider without reading the core.
+- `docs/architecture/call-transport.md` — the `CallTransport` abstraction in full:
+  - what the port is and why it is named for the concern rather than for a vendor;
+  - `AndroidNativeCallTransport`: what the platform provides, what it does not, and why no
+    audio capability is claimed;
+  - `TwilioCallTransport`: streaming, injection, dialling and bridging;
+  - a **capability matrix** — every capability against every transport, stating plainly which
+    product behaviours each combination supports;
+  - how a transport is selected at bootstrap, and how to override the default;
+  - the extension path for SIP, carrier and IMS transports, with the capabilities such a
+    transport would declare and what would then become available.
 - `docs/development/` — setup, testing, the coverage gates, the commit and branch rules, and
   how to run each phase's verification.
 - `docs/development/demo.md` — the demonstration walkthrough, end to end.
@@ -63,6 +73,9 @@ a documentation defect and is fixed. Repeated until a run needs no deviation.
 1. A clean-room installation succeeds with no deviation from the README.
 2. The architecture diagram exists and matches the code.
 3. Every provider extension point is documented with a worked example.
+4. The capability matrix is present, accurate, and matches what the transports declare in code
+   — checked by a test that compares the document against the declarations, because a matrix
+   that drifts is worse than none.
 4. The contributing workflow is documented and has been followed for at least one change.
 5. Coverage meets the D-020 floors.
 6. Every CI workflow is green.

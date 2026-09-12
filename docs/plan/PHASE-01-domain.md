@@ -59,10 +59,30 @@ rate, so an adapter converts at the edge rather than leaking a codec into the co
 lifecycle, so that closing it is a call rather than a hope. Events are a closed union:
 audio out, transcript fragment, speech started, speech ended, error.
 
-**`TelephonyProvider`** — `answer`, `stream_audio`, `add_participant`, `remove_participant`,
-`transfer`, `terminate`, `capabilities`. `add_participant` is the escalation primitive: it
-adds a third party to the call that already exists (D-004). A provider that cannot do this
-declares so in its capabilities and the orchestrator refuses to route escalation to it.
+**`CallTransport`** — the port by which a call exists at all (D-004). Named for what it is
+rather than for a vendor, because a programmable telephony account and a platform's own call
+screening service are the same concern served two ways.
+
+Operations: `observe_incoming`, `screen`, `answer`, `stream_audio`, `inject_audio`,
+`add_participant`, `remove_participant`, `terminate`, `capabilities`.
+
+Transports differ in kind, so the capability model is what callers actually depend on:
+
+```
+can_screen_before_ringing     the transport sees a call before the handset rings
+can_stream_call_audio_to_ai   the caller's audio can reach the speech session
+can_inject_ai_audio           the agent's audio can reach the caller
+can_bridge_human              a third party can be added to the call that already exists
+supports_three_way_call       caller, human and agent can be present at once
+supports_native_ringing       the platform's own ringing and call UI are used
+```
+
+Every operation is reachable only through the capability that permits it. A caller that has
+not checked a capability cannot invoke the operation it guards — that is a property of the
+types, not a runtime check, so a transport can never be asked for something it does not have.
+
+No domain code branches on which transport is configured. If something needs to know, the
+answer is a capability, not a name.
 
 **`LLMProvider`** — `complete`, `complete_structured`, `capabilities`. Structured output is
 a first-class method, because every decision the agent makes is a typed object and parsing
@@ -98,7 +118,8 @@ Run in Phase 1 against in-memory fakes, and against every real adapter from Phas
 | Unit | Every legal transition is accepted; every illegal transition raises, named; terminal states are terminal. Table-driven over the full cartesian product of states, so a new state cannot be added without deciding its transitions. |
 | Unit | Value objects reject invalid construction. An escalation decision cannot exist without a reason; authority cannot be widened by mutation; a caller is either identified or explicitly unknown. |
 | Unit | `resolve_voice` returns the right voice at each step of the fallback chain, including when every step fails. |
-| Contract | Each port's suite passes against an in-memory fake, including the failure paths: a speech session that errors mid-stream still closes; a telephony provider without `add_participant` is rejected at capability check. |
+| Contract | Each port's suite passes against an in-memory fake, including the failure paths: a speech session that errors mid-stream still closes; a transport that cannot bridge is rejected at the capability check rather than at the call. |
+| Unit | Capability gating: for each capability, a fake transport declaring it false makes the guarded operation unreachable, and the failure is typed and names the capability. |
 | Static | import-linter proves `domain/` imports nothing from `adapters/`, `api/`, or any third-party SDK. |
 
 ## Acceptance criteria
@@ -112,6 +133,11 @@ Run in Phase 1 against in-memory fakes, and against every real adapter from Phas
 6. Domain coverage is 100% branch.
 7. No port signature mentions a vendor concept, a codec name, a webhook, or an HTTP status.
 8. Adding a new `CallState` without declaring its transitions fails a test.
+9. `CallTransport` declares the full capability set, and every operation is gated by the
+   capability that permits it.
+10. No domain module refers to a transport by name. Asserted by a test that greps the domain
+    layer for provider names, because this is the rule most likely to be broken by
+    convenience and the one that costs most to undo.
 
 ## Risks and open questions
 

@@ -12,6 +12,24 @@ why before answering.
   rotation, removed on sign-out and on rejection by the platform.
 - Time-critical delivery priority, and a payload small enough to survive platform limits.
 
+### Two escalation paths, one set of domain events
+
+What escalation means physically depends on the transport's capabilities. What it means to the
+product does not: the same domain events and the same outcomes are recorded either way, so
+history, summaries and metrics are transport-independent.
+
+**Where the transport can bridge** (`can_bridge_human`): the user's phone is dialled, the
+caller stays connected throughout, and answering joins the human to the call already in
+progress. This is the full experience and the one the notification was designed for.
+
+**Where it cannot** (the native screening path): no bridge is fabricated. The escalation is the
+handoff the platform genuinely supports — the call is allowed through to ring natively, with
+the notification carrying whatever context was established before it rang. The product does not
+pretend a caller is being held on a line that no longer exists.
+
+The orchestrator selects between these by capability (phase 8). Neither path is named in the
+notification layer, which receives an escalation and its context and nothing else.
+
 ### Payload
 Enough for the user to answer knowing what they are walking into, and no more:
 
@@ -55,6 +73,7 @@ D-016 is the governing rule: the ring is authoritative, the notification supplem
 | Unit | Payload construction and size limits; token lifecycle including rotation and rejection; deduplication by call id; failure recorded and never propagated to the escalation path. |
 | Integration | Escalation dispatches to the correct provider per platform; a failing provider does not affect the call; the context endpoint returns the same information the payload carried. |
 | Ordering | Notification before ring, after ring, and after call end each produce the correct app state. Three named tests. |
+| Capability | Escalation on a bridging transport and on a non-bridging one both produce the same domain events, and only the bridging path attempts a bridge. |
 | Mobile | Cold start from a notification; foreground receipt; permission denied; context fetched when no notification arrived. |
 | E2E | Escalation fires, the handset rings, the notification arrives with correct context, the user answers and joins the live call. |
 | Manual | Verified on a physical iPhone and a physical Android device, recorded in the report. |
@@ -64,6 +83,8 @@ D-016 is the governing rule: the ring is authoritative, the notification supplem
 1. An escalation sends a notification to the correct platform provider.
 2. The notification carries context that explains the call in one reading.
 3. Notification arrival before, after, or long after the ring is handled correctly.
+4. Escalation produces the same domain events and outcomes on both paths.
+5. No path fabricates a bridge the transport cannot perform.
 4. Delivery failure never affects the escalation itself.
 5. Escalation context is retrievable from the backend without a notification.
 6. Duplicates are deduplicated.

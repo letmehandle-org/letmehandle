@@ -7,8 +7,10 @@
 ### Harness — `tests/e2e/`
 - The whole system under test: backend, database, and controllable stand-ins for every
   external provider, driving real code paths through real ports.
-- Telephony is driven by the callback simulator from Phase 7, extended to reproduce
-  duplication, reordering, delay and mid-call disconnection.
+- The streaming transport is driven by the callback simulator from phase 7, extended to
+  reproduce duplication, reordering, delay and mid-call disconnection.
+- The native transport is driven by an instrumented Android harness and, for the orchestration
+  scenarios, by a fake declaring the same capability set.
 - Speech is driven by a scripted provider producing deterministic turns and injectable
   failures.
 - The LLM is scripted for logic scenarios. A separate, non-blocking run exercises a real
@@ -41,6 +43,27 @@ Each is automated, named, and independently runnable.
   everything is cleaned up, and the user is not left with a phone ringing for a call that no
   longer exists.
 
+### Transport-specific scenarios
+
+Every scenario above runs against each transport capability set that can express it. These are
+additionally specific to one:
+
+- **T1 — Native screening, allowed.** A call is screened before ringing, the rules allow it, the
+  handset rings natively, and the activity records the decision.
+- **T2 — Native screening, rejected.** The rules reject it, the handset never rings, and the
+  rejection appears in activity with its reason.
+- **T3 — Native screening, silenced.** The call is silenced rather than rejected and is
+  recorded as such.
+- **T4 — Native screening under a deadline.** The decision is returned within the platform's
+  window; a slow rule path degrades to the safe default rather than missing the deadline.
+- **T5 — Native, role withdrawn.** The screening role is revoked while the product is running.
+  Degradation is graceful, stated in the interface, and recorded.
+- **T6 — Streaming, full escalation.** Scenario B end to end on the streaming transport: agent
+  conversation, escalation, ring, notification, human joins the live call, three parties
+  behave, summary records the join.
+- **T7 — Capability mismatch.** Escalation is requested on a transport that cannot bridge. The
+  transition is unreachable rather than failing, and the non-bridging handoff is taken instead.
+
 Additional scenarios covering combinations that the earlier phases identified as risky:
 escalation requested twice; notification failure with a successful escalation; restart
 mid-call; LLM unavailable at the decision point.
@@ -68,6 +91,8 @@ no sensitive data in anything the run emitted.
 ## Acceptance criteria
 
 1. Scenarios A through H are automated and pass.
+2. Transport scenarios T1 through T7 are automated and pass.
+3. Every scenario that can run against both capability sets does so.
 2. The additional combination scenarios are automated and pass.
 3. Every scenario asserts final state, summary, notifications, and resource cleanup.
 4. The suite runs in CI with no vendor credentials.

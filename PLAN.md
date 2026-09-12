@@ -26,7 +26,7 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 4 | Voice configuration | not started |
 | 5 | Realtime speech foundation | not started |
 | 6 | Agent and decision-making | not started |
-| 7 | Telephony provider | not started |
+| 7 | Call transport | not started |
 | 8 | Call orchestration | not started |
 | 9 | Mobile core experience | not started |
 | 10 | Human escalation experience | not started |

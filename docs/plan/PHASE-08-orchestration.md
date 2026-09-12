@@ -21,12 +21,29 @@ RECEIVED → ROUTING → AGENT_HANDLING → COMPLETED
 any → FAILED
 ```
 
-- **Routing.** Deterministic rules from Phase 3 decide pass-through, assistant, or rejection
-  before the assistant is engaged. A known important caller never waits for a model.
+- **Capability-driven routing.** Deterministic rules from phase 3 decide pass-through,
+  assistant, or rejection before the assistant is engaged, and the transport's capabilities
+  decide which of those outcomes are available at all. A transport that cannot stream audio
+  offers no assistant path; a transport that cannot bridge offers no escalation path. The
+  routing code reads capabilities and never a transport name.
+
+  There is **one** orchestrator. Not one per transport, not a base class with two subclasses
+  that override the interesting parts — those are the same mistake wearing different clothes,
+  and both end with business logic duplicated in two places that drift.
 - **Escalation.** The agent's request is executed: the human is dialled and bridged, the
   notification is dispatched, and the assistant continues per policy while the phone rings.
 - **De-escalation.** If the human does not answer, or declines, the assistant resumes with
   the outcome, rather than the call dying.
+
+### Unavailable transitions are unreachable
+
+A state transition that the configured transport cannot perform must be impossible to attempt,
+not merely guarded at the point of use. The available transitions are derived from the
+transport's capabilities when the call is created, so escalating on a transport that cannot
+bridge is not a runtime error — there is no path to it.
+
+This is the difference between a check that someone can forget and a shape that cannot be
+built wrong, and it is why the capability model is worth its cost.
 
 ### Correctness properties
 Each is a named, individually tested requirement:
@@ -40,7 +57,7 @@ Each is a named, individually tested requirement:
   escalation is in flight; provider callback arrives after teardown.
 - **Timeouts.** Every wait is bounded — human ring time, agent decision time, speech
   response, provider calls. A timeout is a transition, not an exception that escapes.
-- **Partial provider failure.** Speech fails mid-call; telephony rejects a bridge;
+- **Partial provider failure.** Speech fails mid-call; the transport rejects a bridge;
   notification fails (D-016: never blocks escalation); LLM is unavailable. Each has a defined
   degraded behaviour, and each is tested.
 - **Cleanup.** Every terminal path releases the speech session, the media stream, the call,
@@ -69,6 +86,8 @@ Each is a named, individually tested requirement:
 | Integration | Full flows against fakes for every port: pass-through; assistant-only; escalation answered; escalation unanswered; caller hangs up mid-escalation; speech failure mid-call; notification failure with escalation still succeeding. |
 | Integration | Restart mid-call: state is recovered or the call is failed cleanly, never left dangling. |
 | Property | Random legal event sequences never reach an undefined state and always terminate. |
+| Capability | The full orchestrator suite runs against **each** transport capability set. A transport that cannot stream never enters the agent path; one that cannot bridge never enters escalation; neither produces an error, because neither transition exists. |
+| Static | No module under the orchestrator names a transport. Asserted by a test, because this is the rule convenience breaks first. |
 | Data | Transcripts are encrypted at rest; the purge deletes exactly the expired rows and nothing else. |
 
 ## Acceptance criteria
@@ -82,6 +101,9 @@ Each is a named, individually tested requirement:
 7. Notification failure never prevents or delays an escalation.
 8. Every terminal path releases every resource, proven by assertion.
 9. A restart mid-call leaves no call in an indeterminate state.
+10. There is one orchestrator, and no transport-specific business logic anywhere.
+11. No `if transport is X` comparison exists outside bootstrap.
+12. A transition the configured transport cannot perform is unreachable rather than rejected.
 10. Transcripts are encrypted at rest and purged on schedule.
 11. Coverage meets the D-020 floors.
 
@@ -91,6 +113,9 @@ Each is a named, individually tested requirement:
   adapter nudge call state directly. It is the failure this phase exists to prevent; the
   orchestrator is the only writer, and a test asserts no other module imports the state
   mutator.
+- **Two transports, one state machine.** The risk is a state machine shaped around the more
+  capable transport, with the other bolted on. Mitigated by running the whole suite against
+  each capability set from the first test, rather than adding the second one later.
 - **Concurrency tests that pass by luck.** Repetition and deterministic scheduling where
   possible; any test that has ever flaked is treated as a defect in the code until proven
   otherwise.
