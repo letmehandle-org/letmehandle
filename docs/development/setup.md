@@ -35,6 +35,11 @@ Neither example file carries a real value, and neither ever will (D-021). The ba
 its configuration at startup and refuses to run with a message naming the offending variable;
 the mobile app does the same.
 
+**Signing in while testing.** With the default mock code provider (`OTP_PROVIDER=mock`) no text
+message is sent and every sign-in code is `123456`; a development build of the app says so on
+the code screen. This is for testing only and is removed before launch. It cannot reach
+production: the mock provider refuses to start there.
+
 ```bash
 make up
 curl localhost:8000/health
