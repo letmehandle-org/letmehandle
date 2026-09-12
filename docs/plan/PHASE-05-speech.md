@@ -80,7 +80,7 @@ printing the latency summary at exit.
 | --- | --- |
 | Unit | Session state transitions; the bounded queue applies backpressure rather than growing; interruption discards queued audio; reconnect restores context; backoff is bounded and jittered; a permanent error raises a typed failure. |
 | Unit | Cancellation at each stage releases every resource. Asserted by counting live tasks and open streams after the fact. |
-| Unit | The session runs against a file-backed audio source and sink, with no call and no transport present, proving the speech layer depends on the abstraction rather than on a call. |
+| Unit | The session runs against an in-memory audio source and sink, with no call and no transport present, proving the speech layer depends on the abstraction rather than on a call. |
 | Contract | The Phase 1 `SpeechProvider` suite passes against the real adapter. |
 | Integration | Against an in-process websocket server speaking the protocol, so the real client code runs end to end: a full conversation, an interruption, a mid-stream disconnect and recovery, and a hard failure. No test requires an account to run in CI. |
 | Manual | The harness holds a real spoken conversation, interruption works, and the latency summary is recorded in the verification report. |

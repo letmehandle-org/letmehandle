@@ -40,7 +40,13 @@ class AudioSink(ABC):
     @property
     @abstractmethod
     def format(self) -> AudioFormat:
-        """What this sink plays. Conversion to it is the writer's job, not the sink's."""
+        """What this sink plays.
+
+        Frames arrive in whatever format the speech session produces, each saying what it is,
+        and the sink converts them at its own edge. The writer between the two knows neither
+        format and should not have to: a telephone line and a laptop speaker want different
+        audio from the same session.
+        """
 
     @abstractmethod
     async def write(self, frame: AudioFrame) -> None:
