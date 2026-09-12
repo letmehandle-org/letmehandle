@@ -227,7 +227,7 @@ class TestRefreshTokens:
         await tokens.add(a_token("one"))
         with pytest.raises(IntegrityError):
             # S106 reads the argument name as a password; it is a column of hashes.
-            await tokens.add(a_token("two", token_hash="hash-one"))  # noqa: S106
+            await tokens.add(a_token("two", token_hash="hash-one"))
 
     async def test_revoking_a_family_revokes_all_of_it_and_nothing_else(
         self, session: AsyncSession

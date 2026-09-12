@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from letmehandle import __version__
 from letmehandle.config.settings import Environment
+from letmehandle.domain.errors import InvariantError
 from letmehandle.main import create_app
 from tests.support.config import UNREACHABLE_DATABASE, make_settings
 
@@ -61,10 +62,23 @@ async def test_documentation_is_available_outside_production(
     assert (await client.get(path)).status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/docs", "/openapi.json"])
-async def test_documentation_is_absent_in_production(path: str) -> None:
+def test_documentation_is_not_served_in_production() -> None:
+    # Asserted on the application rather than by making a request, because a production
+    # application cannot currently start: the only one-time-password provider is the mock, and
+    # it refuses. See test_a_production_configuration_refuses_the_mock_provider.
     app = create_app(make_settings(app_env=Environment.PRODUCTION))
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://testserver") as http:
-            assert (await http.get(path)).status_code == 404
+    assert app.docs_url is None
+    assert app.openapi_url is None
+
+
+async def test_a_production_configuration_refuses_the_mock_provider() -> None:
+    """The application will not start in production today, and that is the intended state.
+
+    No provider that actually delivers a code exists yet — the first one arrives with the
+    telephony work. Until then a production deployment is refused loudly at startup rather than
+    running with a provider that would let anybody sign in as anybody.
+    """
+    app = create_app(make_settings(app_env=Environment.PRODUCTION))
+    with pytest.raises(InvariantError, match="cannot run in production"):
+        async with app.router.lifespan_context(app):
+            pass  # pragma: no cover - the context never opens

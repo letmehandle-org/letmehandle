@@ -1,0 +1,90 @@
+"""The composition root.
+
+The one place that decides which implementation each port gets. Nothing above this learns which
+it was given, which is what makes a provider replaceable by editing one file.
+
+It is also the only module permitted to name a provider. A test asserts that no module under
+`domain/` does, and the reason this file is exempt is that choosing is precisely its job.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import TYPE_CHECKING, assert_never
+
+from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.otp.mock import MockOTPProvider
+from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
+from letmehandle.adapters.security.hashing import (
+    DeterministicHasher,
+    ScryptHasher,
+    SystemSecretGenerator,
+)
+from letmehandle.adapters.security.tokens import JWTTokenSigner
+from letmehandle.config.settings import OTPProviderName, Settings
+
+if TYPE_CHECKING:
+    from letmehandle.domain.ports.clock import Clock, IdGenerator
+    from letmehandle.domain.ports.otp import OTPProvider
+    from letmehandle.domain.ports.rate_limit import RateLimiter
+    from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+
+
+@dataclass(frozen=True, slots=True)
+class Container:
+    """Everything chosen at startup, held for the life of the process.
+
+    Two hashers, deliberately. A one-time code is salted and slow, because it is checked against
+    one row and a cheap hash is one worth attacking offline. A refresh token is hashed with a
+    keyed, deterministic hash, because it has to be *found* — and a salted hash would turn that
+    lookup into a scan of every row in the table.
+    """
+
+    clock: Clock
+    ids: IdGenerator
+    secrets: SecretGenerator
+    code_hasher: SecretHasher
+    token_hasher: SecretHasher
+    signer: TokenSigner
+    otp: OTPProvider
+    rate_limiter: RateLimiter
+    refresh_token_lifetime: timedelta
+
+
+def build_container(settings: Settings) -> Container:
+    """Choose the implementations for this configuration."""
+    clock = SystemClock()
+    signing_key = settings.require_signing_key()
+
+    return Container(
+        clock=clock,
+        ids=UUIDGenerator(),
+        secrets=SystemSecretGenerator(),
+        code_hasher=ScryptHasher(),
+        token_hasher=DeterministicHasher(signing_key),
+        signer=JWTTokenSigner(
+            signing_key=signing_key,
+            lifetime=timedelta(seconds=settings.auth_access_token_ttl_seconds),
+            clock=clock,
+        ),
+        otp=_build_otp_provider(settings),
+        rate_limiter=InMemoryRateLimiter(clock),
+        refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+    )
+
+
+def _build_otp_provider(settings: Settings) -> OTPProvider:
+    """Which provider delivers sign-in codes.
+
+    A match with an exhaustiveness check rather than a dictionary with a default: adding a
+    provider without deciding what it is called here fails to type-check, instead of quietly
+    falling through to the mock — which is the one failure that must never happen silently.
+    """
+    match settings.otp_provider:
+        case OTPProviderName.MOCK:
+            return MockOTPProvider(is_production=settings.is_production)
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            # Not dead code: it is what makes the type checker reject a new provider that has
+            # not been wired in here. Unreachable at run time is exactly the point.
+            assert_never(unknown)

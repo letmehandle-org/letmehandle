@@ -16,7 +16,7 @@ from __future__ import annotations
 
 # Not moved into a type-checking block, whatever the linter says: SQLAlchemy's
 # declarative mapper evaluates these annotations at run time to build the columns.
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,

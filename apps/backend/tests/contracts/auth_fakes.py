@@ -148,6 +148,25 @@ class Sha256Hasher(SecretHasher):
         return hmac.compare_digest(self.hash(secret), hashed)
 
 
+class SaltedHasher(SecretHasher):
+    """Salted, and therefore never the same twice.
+
+    The shape of a real code hasher, without the cost. Exists so that a test can prove a value
+    hashed with this cannot be looked up by its hash — which is the difference between the two
+    hashers this application uses.
+    """
+
+    def hash(self, secret: str) -> str:
+        salt = secrets.token_hex(8)
+        digest = hashlib.sha256(f"{salt}{secret}".encode()).hexdigest()
+        return f"{salt}${digest}"
+
+    def verify(self, secret: str, hashed: str) -> bool:
+        salt, _, expected = hashed.partition("$")
+        actual = hashlib.sha256(f"{salt}{secret}".encode()).hexdigest()
+        return hmac.compare_digest(actual, expected)
+
+
 class PredictableSecretGenerator(SecretGenerator):
     """Codes and tokens a test can name.
 

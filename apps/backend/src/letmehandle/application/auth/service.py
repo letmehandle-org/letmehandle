@@ -98,7 +98,8 @@ class AuthenticationService:
         challenges: OTPChallengeRepository,
         refresh_tokens: RefreshTokenRepository,
         otp: OTPProvider,
-        hasher: SecretHasher,
+        code_hasher: SecretHasher,
+        token_hasher: SecretHasher,
         secrets: SecretGenerator,
         signer: TokenSigner,
         clock: Clock,
@@ -110,7 +111,13 @@ class AuthenticationService:
         self._challenges = challenges
         self._refresh_tokens = refresh_tokens
         self._otp = otp
-        self._hasher = hasher
+        # Two hashers, and the difference matters. A one-time code is *verified* against one
+        # known row, so it is salted and deliberately slow. A refresh token has to be *found*,
+        # so it is hashed deterministically with a server-held key — a salted hash would make
+        # the lookup a scan of every row, and using one here means no token is ever found at
+        # all, which is a bug that unit tests with a single hasher cannot see.
+        self._code_hasher = code_hasher
+        self._token_hasher = token_hasher
         self._secrets = secrets
         self._signer = signer
         self._clock = clock
@@ -151,7 +158,7 @@ class AuthenticationService:
         challenge = OTPChallenge(
             id=self._ids.generate(),
             phone_number=number,
-            code_hash=self._hasher.hash(code),
+            code_hash=self._code_hasher.hash(code),
             issued_at=now,
             expires_at=now + CHALLENGE_LIFETIME,
         )
@@ -176,7 +183,7 @@ class AuthenticationService:
         if challenge is None or not challenge.is_open_at(now):
             raise AuthenticationError("that code is not valid")
 
-        if not self._hasher.verify(code, challenge.code_hash):
+        if not self._code_hasher.verify(code, challenge.code_hash):
             # The attempt is consumed on failure, or the limit is advisory.
             await self._challenges.update(challenge.with_failed_attempt())
             raise AuthenticationError("that code is not valid")
@@ -200,7 +207,7 @@ class AuthenticationService:
         is revoked: the legitimate user signs in again, and the thief gets nothing.
         """
         now = self._clock.now()
-        stored = await self._refresh_tokens.find_by_hash(self._hasher.hash(refresh_token))
+        stored = await self._refresh_tokens.find_by_hash(self._token_hasher.hash(refresh_token))
 
         if stored is None:
             raise AuthenticationError("that session is not valid")
@@ -224,7 +231,7 @@ class AuthenticationService:
         told their token was already invalid, and saying so tells an attacker whether a token
         they hold is real.
         """
-        stored = await self._refresh_tokens.find_by_hash(self._hasher.hash(refresh_token))
+        stored = await self._refresh_tokens.find_by_hash(self._token_hasher.hash(refresh_token))
         if stored is not None:
             await self._refresh_tokens.revoke_family(stored.family_id, self._clock.now())
 
@@ -243,7 +250,7 @@ class AuthenticationService:
                 id=self._ids.generate(),
                 family_id=family_id,
                 user_id=user_id,
-                token_hash=self._hasher.hash(raw_refresh),
+                token_hash=self._token_hasher.hash(raw_refresh),
                 issued_at=now,
                 expires_at=now + self._policy.refresh_token_lifetime,
             )

@@ -26,6 +26,7 @@ from tests.contracts.auth_fakes import (
     InMemoryUserRepository,
     NeverLimits,
     PredictableSecretGenerator,
+    SaltedHasher,
     Sha256Hasher,
 )
 from tests.contracts.fakes import CountingIdGenerator, FixedClock, RecordingOTPProvider
@@ -53,7 +54,8 @@ class Harness:
             challenges=self.challenges,
             refresh_tokens=self.refresh_tokens,
             otp=self.otp,
-            hasher=Sha256Hasher(),
+            code_hasher=Sha256Hasher(),
+            token_hasher=Sha256Hasher(),
             secrets=PredictableSecretGenerator(THE_CODE),
             signer=self.signer,
             clock=self.clock,
@@ -108,7 +110,8 @@ class TestRequestingACode:
             challenges=harness.challenges,
             refresh_tokens=harness.refresh_tokens,
             otp=harness.otp,
-            hasher=Sha256Hasher(),
+            code_hasher=Sha256Hasher(),
+            token_hasher=Sha256Hasher(),
             secrets=PredictableSecretGenerator(THE_CODE),
             signer=harness.signer,
             clock=harness.clock,
@@ -130,7 +133,8 @@ class TestRequestingACode:
             challenges=harness.challenges,
             refresh_tokens=harness.refresh_tokens,
             otp=harness.otp,
-            hasher=Sha256Hasher(),
+            code_hasher=Sha256Hasher(),
+            token_hasher=Sha256Hasher(),
             secrets=PredictableSecretGenerator(THE_CODE),
             signer=harness.signer,
             clock=harness.clock,
@@ -149,7 +153,8 @@ class TestRequestingACode:
             challenges=harness.challenges,
             refresh_tokens=harness.refresh_tokens,
             otp=harness.otp,
-            hasher=Sha256Hasher(),
+            code_hasher=Sha256Hasher(),
+            token_hasher=Sha256Hasher(),
             secrets=PredictableSecretGenerator(THE_CODE),
             signer=harness.signer,
             clock=harness.clock,
@@ -227,6 +232,37 @@ class TestVerifying:
         # challenge identifier they hold is real.
         with pytest.raises(AuthenticationError):
             await harness.service.verify("no-such-challenge", THE_CODE)
+
+
+class TestHashing:
+    async def test_a_refresh_token_is_found_even_when_codes_are_salted(self) -> None:
+        """The bug this exists to prevent: one hasher used for both jobs.
+
+        A one-time code is verified against a known row, so it is salted. A refresh token has
+        to be found by its hash, which a salted hash makes impossible — every lookup misses,
+        and every renewal fails with the same message as a stolen token. A suite that uses one
+        deterministic hasher for both cannot see it.
+        """
+        harness = Harness()
+        harness.service = AuthenticationService(
+            users=harness.users,
+            challenges=harness.challenges,
+            refresh_tokens=harness.refresh_tokens,
+            otp=harness.otp,
+            code_hasher=SaltedHasher(),
+            token_hasher=Sha256Hasher(),
+            secrets=PredictableSecretGenerator(THE_CODE),
+            signer=harness.signer,
+            clock=harness.clock,
+            ids=harness.ids,
+            rate_limiter=NeverLimits(),
+        )
+
+        issued = await harness.service.request_challenge(NUMBER)
+        pair = await harness.service.verify(issued.challenge_id, THE_CODE)
+
+        renewed = await harness.service.refresh(pair.refresh_token)
+        assert renewed.refresh_token != pair.refresh_token
 
 
 class TestRefreshing:

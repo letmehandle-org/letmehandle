@@ -73,8 +73,17 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests assert; a bare assert is the point. S101 is about production code.
-"tests/**" = ["S101"]
+# Tests assert; a bare assert is the point. S101 is about production code. S105 and S106 fire
+# on names containing "token", which in a product built on bearer tokens is most of them; the
+# real thing they guard against — a committed credential — is gitleaks' job and it runs over
+# the whole history.
+"tests/**" = ["S101", "S105", "S106"]
+# FastAPI resolves annotations at run time to build the dependency graph and the schema, so an
+# import moved into a type-checking block stops the application working rather than tidying it.
+# Scoped to the HTTP layer, where that is true, and nowhere else.
+"src/letmehandle/api/*.py" = ["TC001", "TC002", "TC003"]
+# The declarative mapper evaluates these too.
+"src/letmehandle/adapters/database/models.py" = ["TC003"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["letmehandle", "tests"]
@@ -116,6 +125,11 @@ markers = [
 [tool.coverage.run]
 source = ["src/letmehandle"]
 branch = true
+# SQLAlchemy's async support runs application code inside greenlets. Without this, coverage
+# loses track the moment a request touches the database and reports lines as unrun that the
+# tests demonstrably executed — which is worse than no measurement, because it sends somebody
+# writing tests for code that is already covered.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true

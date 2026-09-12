@@ -9,9 +9,12 @@ from fastapi import FastAPI
 
 from letmehandle import __version__
 from letmehandle.adapters.database.engine import create_engine
+from letmehandle.adapters.database.session import create_session_factory
+from letmehandle.api.auth import router as auth_router
 from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
+from letmehandle.bootstrap import build_container
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
 
@@ -36,12 +39,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.database_url is not None:
             engine = create_engine(settings)
             app.state.engine = engine
-        logger.info("startup", environment=settings.app_env.value, version=__version__)
+            app.state.session_factory = create_session_factory(engine)
+
+        # Built once, at startup, so that a misconfiguration is a process that does not start
+        # rather than a request that fails in front of somebody.
+        app.state.container = build_container(settings)
+
+        logger.info(
+            "startup",
+            environment=settings.app_env.value,
+            version=__version__,
+            otp_provider=app.state.container.otp.name,
+        )
         yield
     finally:
         if engine is not None:
             await engine.dispose()
             app.state.engine = None
+            app.state.session_factory = None
+        app.state.container = None
         logger.info("shutdown")
 
 
@@ -67,10 +83,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.version = __version__
     app.state.engine = None
+    app.state.session_factory = None
+    app.state.container = None
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
     app.include_router(health_router)
+    app.include_router(auth_router)
     return app
 
 
