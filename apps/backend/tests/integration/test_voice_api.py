@@ -142,6 +142,22 @@ class TestChoosing:
         assert preferences["personality"]["formality"] == "warm"
         assert preferences["personality"]["topics"] == ["bins"]
 
+    async def test_a_choice_survives_signing_out_and_back_in(self, api: Api) -> None:
+        # The property somebody actually experiences: the phone is reinstalled, or the token
+        # expired, and the assistant still sounds the way they left it. Held on the server
+        # rather than on the device, which is what makes that true.
+        first = await sign_in(api)
+        await api.client.put(
+            "/v1/preferences/voice",
+            headers=bearer(first),
+            json={"persona_voice_id": ANOTHER_VOICE},
+        )
+
+        again = await sign_in(api)
+
+        assert again["access_token"] != first["access_token"]
+        assert (await selection(api, again))["persona_voice_id"] == ANOTHER_VOICE
+
     async def test_a_choice_belongs_to_one_user(self, api: Api) -> None:
         mine = await sign_in(api)
         await api.client.put(
