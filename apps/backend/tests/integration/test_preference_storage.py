@@ -21,6 +21,7 @@ from letmehandle.adapters.database.repositories import (
     SqlPreferencesRepository,
     SqlUserRepository,
 )
+from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.identifiers import UserId
@@ -135,7 +136,7 @@ class TestMapping:
         # and silently dropping a contact would change who gets through.
         document = preferences_to_document(everything())
         document["important_contacts"][0]["number"] = "not-a-number"
-        with pytest.raises(Exception, match="E.164"):
+        with pytest.raises(InvariantError, match=r"E\.164"):
             document_to_preferences(document)
 
     def test_the_version_is_recorded(self) -> None:
@@ -263,3 +264,33 @@ class TestOnboardingRepository:
         )
 
         assert await repository.get(OTHER) == OnboardingProgress()
+
+
+class TestMalformedDocuments:
+    def test_hours_that_cannot_be_read_are_refused(self) -> None:
+        # Corruption, not a value from a newer deployment — and the two want opposite handling.
+        # Quiet hours that silently disappear mean a phone ringing at three in the morning with
+        # nothing anywhere to say why.
+        document = preferences_to_document(everything())
+        document["rules"]["quiet_hours"]["start"] = "not a time"
+
+        with pytest.raises(InvariantError, match="stored hours"):
+            document_to_preferences(document)
+
+    def test_hours_missing_a_field_are_refused(self) -> None:
+        document = preferences_to_document(everything())
+        del document["rules"]["working_hours"]["zone"]
+
+        with pytest.raises(InvariantError, match="stored hours"):
+            document_to_preferences(document)
+
+    @pytest.mark.parametrize("stored", [99, "urgent", None, True])
+    def test_an_unreadable_escalation_threshold_falls_back(self, stored: object) -> None:
+        # A threshold this version does not recognise becomes the default rather than stopping
+        # somebody loading their settings. Unlike hours, there is a safe answer here.
+        document = preferences_to_document(everything())
+        document["rules"]["escalate_at_or_above"] = stored
+
+        assert document_to_preferences(document).rules.escalate_at_or_above is (
+            CallImportance.NOTABLE
+        )

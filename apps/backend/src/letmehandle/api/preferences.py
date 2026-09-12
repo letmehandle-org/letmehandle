@@ -13,7 +13,7 @@ from datetime import time
 from fastapi import APIRouter, status
 
 from letmehandle.api.dependencies import CurrentUser, Preferences
-from letmehandle.api.errors import ApiError
+from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.preference_schemas import (
     AuthorityPayload,
     CallHandlingPayload,
@@ -98,9 +98,7 @@ async def record_onboarding_step(
     except InvariantError as error:
         # The only way to reach this is skipping a step that has no safe default, which the
         # client should not have offered — so it is a request problem rather than a fault.
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_request", str(error)
-        ) from error
+        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
     return _progress_response(progress)
 
 
@@ -154,9 +152,7 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
             ),
         )
     except InvariantError as error:
-        raise ApiError(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_request", str(error)
-        ) from error
+        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
 
 
 def _rules(handling: CallHandlingPayload | None, hours: HoursPayload | None) -> CallRules | None:

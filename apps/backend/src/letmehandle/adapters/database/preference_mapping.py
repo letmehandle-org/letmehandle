@@ -189,9 +189,10 @@ def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
             zone=document["zone"],
         )
     except (KeyError, ValueError) as error:
-        # A window that cannot be read is dropped rather than raised on. The alternative is a
-        # user who cannot load their settings at all because one field is malformed, and quiet
-        # hours nobody can see are better than an account nobody can open.
+        # Raised, not dropped. This is corruption rather than a value from a newer deployment,
+        # and the two want opposite handling: an unknown enum member is safely ignored, while
+        # quiet hours that silently disappear mean a phone ringing at three in the morning with
+        # nothing anywhere to say why.
         raise InvariantError(f"stored hours could not be read: {error}") from error
 
 

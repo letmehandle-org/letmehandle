@@ -71,7 +71,9 @@ class Topic:
     user's topics are has a way to write them.
 
     Normalised so that "School Run", "school run" and " school run " are one topic rather than
-    three, which is what stops a list nobody can maintain.
+    three, which is what stops a list nobody can maintain. Splitting on whitespace also means a
+    newline cannot survive into a topic, so a multi-line value cannot be smuggled into something
+    the model reads as a list.
     """
 
     name: str
@@ -87,8 +89,6 @@ class Topic:
                 f"a topic is at most {self.MAX_LENGTH} characters; longer than that it is a "
                 f"sentence, and a sentence in a list the agent reads is an instruction"
             )
-        if any(character in normalised for character in "\n\r\t"):
-            raise InvariantError("a topic is a phrase, not several lines")
         object.__setattr__(self, "name", normalised)
 
     def __str__(self) -> str:
