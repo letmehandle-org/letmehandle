@@ -307,10 +307,12 @@ async def test_the_caller_s_speech_and_words_are_reported(
     ]
 
 
-async def test_a_full_queue_stops_reading_instead_of_growing(
+async def test_a_consumer_that_stops_taking_audio_stops_reading_at_the_ceiling(
     make_provider: ProviderFactory, service: ScriptedRealtimeService
 ) -> None:
-    provider = make_provider(queue_size=4)
+    # Four ten-millisecond pieces fill four hundredths of a second, so the fifth waits for room
+    # and everything behind it waits with it.
+    provider = make_provider(audio_ceiling_seconds=0.04)
     async with await connect(provider) as session:
         connection = service.current
         connection.reply(deltas=40)
@@ -319,8 +321,9 @@ async def test_a_full_queue_stops_reading_instead_of_growing(
             await asyncio.sleep(0)
         stalled_at = connection.pending
 
-        # Most of the reply is still with the service: the session read only what fit.
-        assert stalled_at > 30
+        # The rest of the reply is still with the service. Read: its start, the four pieces that
+        # fit, and the one in hand waiting for room.
+        assert stalled_at == (1 + 40 + 3) - (1 + 4 + 1)
 
         events = session.events()
         await take(events, 20)
@@ -359,7 +362,7 @@ async def test_interrupting_a_response_still_in_progress_measures_the_silence(
     metrics: RecordingMetrics,
     clock: ManualClock,
 ) -> None:
-    provider = make_provider(queue_size=2)
+    provider = make_provider(audio_ceiling_seconds=0.02)
     async with await connect(provider) as session:
         connection = service.current
         connection.reply(deltas=10)
@@ -400,7 +403,7 @@ async def test_interruption_keeps_what_the_caller_said(
 async def test_words_the_service_sent_before_it_heard_the_cancel_are_dropped(
     make_provider: ProviderFactory, service: ScriptedRealtimeService
 ) -> None:
-    async with await connect(make_provider(queue_size=2)) as session:
+    async with await connect(make_provider(audio_ceiling_seconds=0.02)) as session:
         connection = service.current
         connection.reply(deltas=4)
         events = session.events()
@@ -427,6 +430,28 @@ async def test_the_service_hearing_the_caller_interrupts_the_model_by_itself(
     # Everything the model had queued is gone; nothing of it was heard.
     assert first == SpeechStarted(by_caller=True)
     assert connection.sent[-1]["audio_end_ms"] == 0
+
+
+async def test_the_caller_speaking_is_acted_on_while_the_consumer_is_behind(
+    provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
+) -> None:
+    # A consumer playing through a speaker takes audio at the speed of speech, and the service
+    # sends a ten-second reply in a moment. The caller talking over it must not wait for the
+    # speaker to work through the reply first.
+    async with await connect(provider) as session:
+        connection = service.current
+        connection.reply(deltas=1_000)
+        events = session.events()
+        await next_of(events, AudioProduced)
+
+        # Still playing the first ten milliseconds when the caller speaks.
+        connection.caller_starts_speaking()
+        await service.wait_for_sent("conversation.item.truncate")
+
+        assert connection.sent_types()[-2:] == ["response.cancel", "conversation.item.truncate"]
+        assert connection.sent[-1]["audio_end_ms"] == 10
+        # The rest of the reply is gone, and the next thing the consumer takes is the caller.
+        assert await anext(events) == SpeechStarted(by_caller=True)
 
 
 async def test_the_caller_speaking_over_silence_interrupts_nothing(
@@ -877,7 +902,7 @@ OPUS = AudioFormat(AudioEncoding.OPUS, 48_000)
 
 
 @pytest.mark.parametrize(
-    ("languages", "input_formats", "output_format", "queue_size"),
+    ("languages", "input_formats", "output_format", "ceiling"),
     [
         ((), (SPEECH_WIDEBAND,), SPEECH_WIDEBAND, 8),
         (("en",), (), SPEECH_WIDEBAND, 8),
@@ -892,7 +917,7 @@ def test_a_configuration_it_cannot_honour_is_refused_at_construction(
     languages: tuple[str, ...],
     input_formats: tuple[AudioFormat, ...],
     output_format: AudioFormat,
-    queue_size: int,
+    ceiling: float,
 ) -> None:
     # Refused when the application starts, not on the first call that happens to need it.
     with pytest.raises(InvariantError):
@@ -902,7 +927,7 @@ def test_a_configuration_it_cannot_honour_is_refused_at_construction(
             languages=languages,
             input_formats=input_formats,
             output_format=output_format,
-            queue_size=queue_size,
+            audio_ceiling_seconds=ceiling,
         )
 
 

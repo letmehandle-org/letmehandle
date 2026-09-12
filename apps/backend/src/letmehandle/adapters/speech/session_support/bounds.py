@@ -8,10 +8,6 @@ from __future__ import annotations
 
 from typing import Final
 
-# Enough for several seconds of model speech at the sizes services send it in, and small enough
-# that a stalled consumer is a stalled reader within a few seconds rather than a growing heap.
-DEFAULT_QUEUE_SIZE: Final = 256
-
 # Speech held for a consumer before reading stops. Minutes, not seconds: a speaker plays in real
 # time and a service sends faster than that, so a whole long reply is routinely waiting, and
 # reading must go on behind it. Two minutes of wideband audio is a few megabytes.

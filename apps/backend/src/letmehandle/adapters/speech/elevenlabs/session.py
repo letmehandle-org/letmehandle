@@ -276,6 +276,7 @@ class ElevenLabsSpeechSession(SpeechSession):
                 self._context.history.remember(Turn(Speaker.CALLER, text))
                 self._outbox.put(TranscriptProduced(text, speaker_is_caller=True, is_final=True))
             case AgentSaid(text=text) if not self._muted:
+                # Not marked as speech to discard: what the agent began to say was said.
                 self._last_reply = Turn(Speaker.ASSISTANT, text)
                 self._context.history.remember(self._last_reply)
                 self._outbox.put(TranscriptProduced(text, speaker_is_caller=False, is_final=True))

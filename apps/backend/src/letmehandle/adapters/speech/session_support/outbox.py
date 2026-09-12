@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from letmehandle.domain.ports.speech import SpeechEvent
 
@@ -32,6 +32,7 @@ class _Held:
     event: SpeechEvent
     spoken: bool
     audio_seconds: float
+    taken: Callable[[], None] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,13 +54,21 @@ class Outbox:
         self._room = asyncio.Event()
         self._room.set()
 
-    def put(self, event: SpeechEvent, *, spoken: bool = False, audio_seconds: float = 0.0) -> None:
+    def put(
+        self,
+        event: SpeechEvent,
+        *,
+        spoken: bool = False,
+        audio_seconds: float = 0.0,
+        taken: Callable[[], None] | None = None,
+    ) -> None:
         """Hold an event for the consumer. Never waits: `room_for_audio` is the one that does.
 
-        `spoken` marks the agent's speech — its audio and the start of it — which is what an
-        interruption discards. Words are not marked: what the agent began to say was said.
+        `spoken` marks what an interruption discards: the agent's speech, as each protocol draws
+        it. `taken` is called when the consumer takes the event, which is the only way a session
+        learns what reached the consumer rather than what it discarded before it could.
         """
-        self._held.append(_Held(event, spoken, audio_seconds))
+        self._held.append(_Held(event, spoken, audio_seconds, taken))
         self._account(audio_seconds)
         self._arrived.set()
 
@@ -98,6 +107,8 @@ class Outbox:
                 return
             self._held.popleft()
             self._account(-held.audio_seconds)
+            if held.taken is not None:
+                held.taken()
             yield held.event
 
     def _account(self, audio_seconds: float) -> None:
