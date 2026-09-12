@@ -189,6 +189,18 @@ class TestCalls:
         assert mine.state is CallState.AGENT_HANDLING
         assert await calls.get(THEM, CallId("call-1")) is None
 
+    async def test_a_call_whose_end_was_reported_before_its_start_saves_reads_and_lists(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        await users(session)
+        call = CallSession(id=CallId("call-1"), user_id=ME, caller=Caller(), started_at=NOW)
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.FAILED, at_instant=NOW - timedelta(milliseconds=5))
+        await calls.save(call)
+
+        assert await calls.get(ME, call.id) == call
+        assert (await calls.list_for_user(ME, limit=10)).calls == (call,)
+
 
 class TestHistory:
     async def test_calls_are_listed_newest_first_and_only_the_user_s_own(

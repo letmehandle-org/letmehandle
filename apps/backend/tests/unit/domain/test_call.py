@@ -69,6 +69,15 @@ class TestState:
     def test_duration_is_unknown_while_the_call_is_running(self) -> None:
         assert a_call().duration_seconds() is None
 
+    def test_an_end_reported_before_the_start_is_recorded_as_the_start(self) -> None:
+        # The start comes from the carrier and the end from this host's clock; a few
+        # milliseconds of skew between them must not make the call unrecordable.
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.FAILED, at_instant=START - timedelta(milliseconds=5))
+        assert call.ended_at == START
+        assert call.duration_seconds() == 0
+
     def test_the_state_cannot_be_assigned_around_the_rules(self) -> None:
         # The whole reason the field is private: without this, any caller could put a call in
         # a state the machine forbids and nothing would notice until much later.

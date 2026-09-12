@@ -162,14 +162,21 @@ class CallSession:
         `at_instant` is required when moving to an ending, because a call's duration is the
         difference between two recorded moments and a missing one makes every later summary
         and metric wrong.
+
+        An end earlier than the start is recorded as the start. The two moments come from
+        different clocks — the start from the carrier, the end from this host — and a few
+        milliseconds of skew between them is ordinary. Refusing would leave a call that
+        happened with no record at all, and storing the earlier moment would make every read
+        of the history refuse it instead; a zero-length call is the honest nearest truth.
         """
-        self._state = move(self._state, state)
-        if is_terminal(self._state):
+        moved = move(self._state, state)
+        if is_terminal(moved):
             if at_instant is None:
                 raise InvariantError(
                     "a call that has ended must record when; its duration is read from it"
                 )
-            self.ended_at = at_instant
+            self.ended_at = max(at_instant, self.started_at)
+        self._state = moved
 
     def add_participant(self, role: ParticipantRole, at_instant: datetime) -> None:
         """Put somebody on the call.
