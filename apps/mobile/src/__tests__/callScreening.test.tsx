@@ -294,22 +294,23 @@ describe('keeping the handset in step', () => {
     });
   });
 
-  it('keeps what could not be reported for the next time', async () => {
-    const native = new FakeNativeCallScreening();
-    native.pending = [SCREENED];
-    const backend = runningBackend();
-    backend.failNextReport();
-    await signedIn(callScreeningFrom(native));
+  it('keeps what could not be reported, and tries again shortly', async () => {
+    // Fake timers, so the wait before trying again passes without the test waiting through it.
+    jest.useFakeTimers();
+    try {
+      const native = new FakeNativeCallScreening();
+      native.pending = [SCREENED];
+      const backend = runningBackend();
+      backend.failNextReport();
+      await signedIn(callScreeningFrom(native));
 
-    await waitFor(() => {
-      expect(native.pending).toHaveLength(1);
-    });
-    native.record();
-
-    await waitFor(() => {
-      expect(backend.reports).toHaveLength(1);
-    });
-    expect(native.pending).toEqual([]);
+      await waitFor(() => {
+        expect(backend.reports).toHaveLength(1);
+      });
+      expect(native.pending).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('forgets the account on the handset when somebody signs out', async () => {

@@ -1,13 +1,18 @@
 /**
- * Reporting the handset's calls: nothing forgotten before the backend has it, nothing sent twice
- * at once, and nothing lost when the backend is away.
+ * Reporting the handset's calls: nothing forgotten before the backend has answered for it, nothing
+ * sent twice at once, nothing lost when the backend is away, and no one report the backend refuses
+ * holding back the ones behind it.
  */
-import type {
-  CallReportBatch,
-  CallReportReceipt,
-} from '@letmehandle/api-client';
+import type { CallReportBatch } from '@letmehandle/api-client';
 
-import { CallReporter, REPORTS_PER_REQUEST } from '../calls/CallReporter';
+import { ApiError, NetworkError } from '../api/errors';
+import {
+  CallReporter,
+  FIRST_RETRY_DELAY_MS,
+  REPORTS_PER_REQUEST,
+  SEND_ATTEMPTS,
+  type CallReportOutcome,
+} from '../calls/CallReporter';
 import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
 
@@ -21,11 +26,18 @@ function event(index: number): Record<string, unknown> {
   };
 }
 
+function serverFault(): ApiError {
+  return new ApiError(503, { error: 'internal_error', message: 'down' });
+}
+
 class RecordingSender {
   readonly batches: CallReportBatch[] = [];
-  failNext = false;
+  /** What the next requests fail with, in order, before the backend answers again. */
+  readonly failures: Error[] = [];
   /** Event ids the backend already has, so it answers for them as duplicates. */
   readonly known = new Set<string>();
+  /** Event ids the backend will never store, and says so. */
+  readonly refused = new Set<string>();
   private release: (() => void) | null = null;
 
   hold(): void {
@@ -42,19 +54,23 @@ class RecordingSender {
     this.held = null;
   }
 
-  async reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
+  async reportCalls(batch: CallReportBatch): Promise<CallReportOutcome> {
     this.batches.push(batch);
     if (this.held !== null) {
       await this.held;
     }
-    if (this.failNext) {
-      this.failNext = false;
-      throw new Error('the backend is away');
+    const failure = this.failures.shift();
+    if (failure !== undefined) {
+      throw failure;
     }
     const ids = batch.reports.map(report => report.event_id);
+    const stored = ids.filter(id => !this.refused.has(id));
     return {
-      accepted: ids.filter(id => !this.known.has(id)),
-      duplicates: ids.filter(id => this.known.has(id)),
+      accepted: stored.filter(id => !this.known.has(id)),
+      duplicates: stored.filter(id => this.known.has(id)),
+      rejected: ids
+        .filter(id => this.refused.has(id))
+        .map(id => ({ event_id: id, reason: 'caller_number is not E.164' })),
     };
   }
 }
@@ -63,11 +79,21 @@ function setUp(): {
   native: FakeNativeCallScreening;
   sender: RecordingSender;
   reporter: CallReporter;
+  waits: number[];
 } {
   const native = new FakeNativeCallScreening();
   const screening = callScreeningFrom(native) as CallScreening;
   const sender = new RecordingSender();
-  return { native, sender, reporter: new CallReporter(screening, sender) };
+  const waits: number[] = [];
+  const wait = async (milliseconds: number): Promise<void> => {
+    waits.push(milliseconds);
+  };
+  return {
+    native,
+    sender,
+    waits,
+    reporter: new CallReporter(screening, sender, wait),
+  };
 }
 
 describe('reporting what the handset observed', () => {
@@ -95,17 +121,79 @@ describe('reporting what the handset observed', () => {
     expect(native.pending).toEqual([]);
   });
 
-  it('keeps everything when the backend is away, and sends it next time', async () => {
+  it('forgets a report the backend refuses, so it is not sent again', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1), event(2)];
+    sender.refused.add('event-0001');
+
+    await reporter.drain();
+    expect(native.pending).toEqual([]);
+
+    await reporter.drain();
+    expect(sender.batches).toHaveLength(1);
+  });
+
+  it('does not let a refused report hold back the ones behind it', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = Array.from({ length: REPORTS_PER_REQUEST + 1 }, (_, i) =>
+      event(i),
+    );
+    sender.refused.add('event-0000');
+
+    await reporter.drain();
+    native.record(event(500));
+    await reporter.drain();
+
+    const sent = sender.batches.flatMap(batch =>
+      batch.reports.map(report => report.event_id),
+    );
+    expect(sent.filter(id => id === 'event-0000')).toHaveLength(1);
+    expect(sent).toContain('event-0100');
+    expect(sent).toContain('event-0500');
+    expect(native.pending).toEqual([]);
+  });
+
+  it('tries again, waiting longer each time, when the backend is briefly away', async () => {
+    const { native, sender, reporter, waits } = setUp();
+    native.pending = [event(1)];
+    sender.failures.push(
+      new NetworkError(new TypeError('offline')),
+      serverFault(),
+    );
+
+    await reporter.drain();
+
+    expect(sender.batches).toHaveLength(3);
+    expect(waits).toEqual([FIRST_RETRY_DELAY_MS, FIRST_RETRY_DELAY_MS * 2]);
+    expect(native.pending).toEqual([]);
+  });
+
+  it('gives up after a few tries, keeps everything, and sends it next time', async () => {
     const { native, sender, reporter } = setUp();
     native.pending = [event(1)];
-    sender.failNext = true;
+    for (let attempt = 0; attempt < SEND_ATTEMPTS; attempt += 1) {
+      sender.failures.push(serverFault());
+    }
 
-    await expect(reporter.drain()).rejects.toThrow('away');
+    await expect(reporter.drain()).rejects.toThrow('down');
+    expect(sender.batches).toHaveLength(SEND_ATTEMPTS);
     expect(native.pending).toHaveLength(1);
 
     await reporter.drain();
     expect(native.pending).toEqual([]);
-    expect(sender.batches).toHaveLength(2);
+  });
+
+  it('does not repeat a request the backend refused outright', async () => {
+    const { native, sender, reporter, waits } = setUp();
+    native.pending = [event(1)];
+    sender.failures.push(
+      new ApiError(401, { error: 'not_authenticated', message: 'signed out' }),
+    );
+
+    await expect(reporter.drain()).rejects.toThrow('signed out');
+    expect(sender.batches).toHaveLength(1);
+    expect(waits).toEqual([]);
+    expect(native.pending).toHaveLength(1);
   });
 
   it('sends no more in one request than the backend accepts', async () => {
