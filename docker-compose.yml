@@ -42,6 +42,12 @@ services:
       # SPEECH_VOICES and SPEECH_DEFAULT_VOICE in .env to your service's own.
       SPEECH_VOICES: ${SPEECH_VOICES:-example-voice-a:Example voice A (not a real voice):en,example-voice-b:Example voice B (not a real voice):en}
       SPEECH_DEFAULT_VOICE: ${SPEECH_DEFAULT_VOICE:-example-voice-a}
+      TELEPHONY_PROVIDER: ${TELEPHONY_PROVIDER:-}
+      TELEPHONY_ACCOUNT_ID: ${TELEPHONY_ACCOUNT_ID:-}
+      TELEPHONY_AUTH_TOKEN: ${TELEPHONY_AUTH_TOKEN:-}
+      TELEPHONY_NUMBERS: ${TELEPHONY_NUMBERS:-}
+      TELEPHONY_APP_ID: ${TELEPHONY_APP_ID:-}
+      TELEPHONY_WEBHOOK_BASE_URL: ${TELEPHONY_WEBHOOK_BASE_URL:-}
     ports:
       # Configurable, because 8000 is a popular port and a clash with something else on a
       # contributor's machine should not need a file to be edited.

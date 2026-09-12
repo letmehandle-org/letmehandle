@@ -11,6 +11,7 @@ from letmehandle.config.settings import (
     LogFormat,
     Settings,
     SpeechProviderName,
+    TelephonyProviderName,
     get_settings,
     parse_voice_catalogue,
 )
@@ -288,3 +289,97 @@ def test_a_repeated_voice_id_is_refused() -> None:
 def test_a_default_voice_outside_the_catalogue_is_refused() -> None:
     with pytest.raises(ValidationError, match="SPEECH_DEFAULT_VOICE 'absent' is not one of"):
         make_settings(speech_default_voice="absent")
+
+
+# --------------------------------------------------------------------------- streaming telephony
+
+A_TELEPHONY_ENVIRONMENT = {
+    "TELEPHONY_PROVIDER": "twilio",
+    "TELEPHONY_ACCOUNT_ID": "account-for-tests",
+    "TELEPHONY_AUTH_TOKEN": "token-for-tests",
+    "TELEPHONY_NUMBERS": "+1 202 555 0143, +12025550144",
+    "TELEPHONY_APP_ID": "app-for-tests",
+    "TELEPHONY_WEBHOOK_BASE_URL": "https://calls.example.com/",
+}
+
+
+def test_streaming_telephony_is_optional_at_startup() -> None:
+    settings = make_settings()
+    assert settings.telephony_provider is None
+    with pytest.raises(ConfigurationError) as failure:
+        settings.require_streaming_telephony()
+    for name in (
+        "TELEPHONY_ACCOUNT_ID",
+        "TELEPHONY_AUTH_TOKEN",
+        "TELEPHONY_NUMBERS",
+        "TELEPHONY_APP_ID",
+        "TELEPHONY_WEBHOOK_BASE_URL",
+    ):
+        assert name in str(failure.value)
+
+
+def test_streaming_telephony_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None
+) -> None:
+    for name, value in A_TELEPHONY_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    settings = Settings()
+    assert settings.telephony_provider is TelephonyProviderName.TWILIO
+    telephony = settings.require_streaming_telephony()
+    assert [number.value for number in telephony.numbers] == ["+12025550143", "+12025550144"]
+    # Without the trailing slash, so appending a path cannot produce a URL nobody signed.
+    assert telephony.webhook_base_url == "https://calls.example.com"
+    assert telephony.auth_token == "token-for-tests"
+
+
+def test_only_what_is_missing_is_named(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None
+) -> None:
+    for name, value in A_TELEPHONY_ENVIRONMENT.items():
+        if name != "TELEPHONY_APP_ID":
+            monkeypatch.setenv(name, value)
+    with pytest.raises(ConfigurationError) as failure:
+        Settings().require_streaming_telephony()
+    assert "TELEPHONY_APP_ID" in str(failure.value)
+    assert "TELEPHONY_ACCOUNT_ID" not in str(failure.value)
+
+
+def test_blank_telephony_variables_count_as_unset(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None
+) -> None:
+    for name in A_TELEPHONY_ENVIRONMENT:
+        monkeypatch.setenv(name, "")
+    settings = Settings()
+    assert settings.telephony_provider is None
+    assert settings.telephony_numbers is None
+    assert settings.telephony_webhook_base_url is None
+
+
+def test_the_auth_token_is_not_rendered_by_accident(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None
+) -> None:
+    monkeypatch.setenv("TELEPHONY_AUTH_TOKEN", "token-that-must-not-appear")
+    settings = Settings()
+    assert "token-that-must-not-appear" not in repr(settings)
+    assert "token-that-must-not-appear" not in str(settings.model_dump())
+
+
+@pytest.mark.parametrize("text", ["2025550143", ", ,"])
+def test_a_number_list_that_cannot_be_read_is_refused_without_repeating_it(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None, text: str
+) -> None:
+    monkeypatch.setenv("TELEPHONY_NUMBERS", text)
+    with pytest.raises(ValidationError) as failure:
+        Settings()
+    assert "TELEPHONY_NUMBERS" in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "url", ["https://calls.example.com/?a=b", "https://calls.example.com/#part"]
+)
+def test_a_base_url_with_a_query_or_fragment_is_refused(
+    monkeypatch: pytest.MonkeyPatch, required_environment: None, url: str
+) -> None:
+    monkeypatch.setenv("TELEPHONY_WEBHOOK_BASE_URL", url)
+    with pytest.raises(ValidationError, match="query or a fragment"):
+        Settings()
