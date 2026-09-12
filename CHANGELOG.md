@@ -12,3 +12,10 @@ the first release.
 - Build plan covering phases 0 to 15, with per-phase scope, tests and acceptance criteria.
 - Architecture decision record.
 - Disclosure and secret audits, wired into commit, push and CI.
+- Backend: FastAPI application with typed configuration validated at startup, structured
+  logging with a request correlation id, health and readiness endpoints, and enforced
+  architectural boundaries.
+- Mobile: React Native application shell with typed navigation, a design-token layer, and
+  translation wired from the first screen.
+- Local development stack, backend image, and CI covering lint, types, tests, coverage, the
+  backend image, and native builds for both platforms.

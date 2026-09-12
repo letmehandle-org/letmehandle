@@ -127,3 +127,78 @@ product behaviour in it.
   to reach later.
 - **macOS CI minutes.** Free for public repositories. The path filter keeps mobile builds
   off backend-only pull requests regardless.
+
+---
+
+# Phase 0 verification
+
+```
+PHASE 0 VERIFICATION
+
+Planned tasks:        complete
+Acceptance criteria:  12/12 passed
+Unit tests:           passed   apps/backend: uv run pytest — 51 passed
+                               apps/mobile:  pnpm test — 22 passed, 5 suites
+Integration tests:    passed   included in the 51 above: health, readiness against a live
+                               database, lifespan symmetry, import boundaries
+E2E tests:            not applicable — there is no product behaviour to exercise yet
+Coverage:             100.00%  backend, floor 98
+                      100% statements / 95.65% branches mobile logic, floor 90
+Lint:                 passed   ruff check; eslint --max-warnings 0
+Format:               passed   ruff format --check; prettier --check
+Typecheck:            passed   mypy --strict over src and tests; tsc --noEmit
+Static analysis:      passed   import-linter, 3 contracts kept
+Build:                passed   backend image builds; iOS and Android both build in CI
+Application runs:     yes      docker compose up; /health 200, /health/ready 200 against
+                               PostgreSQL; correlation id present on every response and log line
+Manual verification:  a clean clone of the public repository, following README only, reached a
+                      running backend and a passing `make verify`. The gates were each tested by
+                      deliberately breaking them: a staged credential, a commit message carrying
+                      an address and a phone number, a non-conventional subject, and a vendor
+                      import added to the domain layer. Each was rejected.
+Docs updated:         README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, CHANGELOG, architecture
+                      overview, decision record, setup, providers, both .env.example files
+Known issues:         two npm advisories in the build toolchain remain open and are recorded in
+                      the phase 12 plan rather than inherited silently: `image-size`, which has
+                      no patched version published, and `decode-uri-component`, whose patched
+                      version is ESM only and breaks the test runner. Neither reaches a running
+                      application.
+Commits created:      30 on main
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | A fresh clone reaches a running system from the README alone | Cloned the public repository into a clean directory; `make setup`, `cp .env.example .env`, `docker compose up` produced a healthy stack and `make verify` passed, with no step the README does not state |
+| 2 | `make verify` runs every gate and passes | Run on main and required on every pull request |
+| 3 | Health and readiness behave differently | `/health` 200 with no database configured; `/health/ready` 503 without one and 200 with PostgreSQL up |
+| 4 | Clean startup and shutdown, nothing leaked | `test_lifecycle.py` asserts the pool is disposed on the success path **and** when the body raises |
+| 5 | The mobile app builds for iOS and for Android | Both jobs green in CI on #17. iOS also verified locally (`BUILD SUCCEEDED`); Android could not be built locally because this machine has no Android SDK, so CI is the evidence |
+| 6 | CI passes on a pull request | #12, #17, #19 |
+| 7 | Coverage meets the floors | 100% backend, 100%/95.65% mobile logic |
+| 8 | A vendor import in the domain layer fails the build | `test_import_boundaries.py` writes one and asserts the contracts break, for a driver, a framework and an adapter |
+| 9 | A staged credential is rejected at commit | Verified by hand; gitleaks also runs over the whole history in CI |
+| 10 | A commit message carrying personal data is rejected | Verified by hand with an address and a phone number |
+| 11 | `docker compose up` brings the stack up and readiness turns green | Verified locally and from the clean clone |
+| 12 | No tracked file holds a credential, account identifier or personal datum | `scripts/disclosure_audit.py` clean over the tree; gitleaks clean over all 35 commits |
+
+## What was found and fixed along the way
+
+Each of these was a defect the gates or the tests caught, not something noticed by reading.
+
+- **The correlation id was missing from exactly the response that needed it most.** An unhandled
+  exception is turned into a response by Starlette's outermost error middleware, which runs
+  after ours has unwound and reset the context variable. A 500 therefore carried no id. The id
+  is now also written to the request scope, which outlives the middleware.
+- **Android could not build in this repository at all.** The template resolves
+  `../node_modules`, which does not exist in a pnpm workspace. Paths are now resolved by asking
+  node, as the Podfile always did — which is why only Android was affected.
+- **The iOS toolchain could not run on CI.** macOS ships Ruby 2.6, whose bundler is recorded in
+  `Gemfile.lock` and calls a method removed from the language in Ruby 3.2.
+- **The disclosure gate had three defects of its own**, each found by it blocking legitimate
+  work: it matched the userinfo of a database URL as an address, it blocked every automated
+  dependency commit on the forge's own service address, and its argument parsing could not
+  accept a rev range containing `--not`.
+- **Six advisories were being held open by two version pins** inherited from the template, for
+  incompatibilities that no longer exist.
