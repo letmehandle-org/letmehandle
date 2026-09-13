@@ -2,6 +2,7 @@ package org.letmehandle.app.calls.rules
 
 import java.time.Duration
 import java.time.Instant
+import org.letmehandle.app.calls.WireValue
 
 /**
  * The user's deterministic call rules, as the handset holds them.
@@ -60,20 +61,14 @@ data class CallRulesSnapshot(
 }
 
 /** What should happen to a call before anybody has spoken to it. Mirrors `HandlingPosture`. */
-enum class HandlingPosture(val wire: String) {
+enum class HandlingPosture(override val wire: String) : WireValue {
   PASS_THROUGH("pass_through"),
   HANDLE_WITH_AGENT("handle_with_agent"),
-  REJECT("reject");
-
-  companion object {
-    fun fromWire(value: String): HandlingPosture =
-        entries.firstOrNull { it.wire == value }
-            ?: throw IllegalArgumentException("unknown posture")
-  }
+  REJECT("reject"),
 }
 
 /** What kind of caller this is. Mirrors `CallerCategory`. */
-enum class CallerCategory(val wire: String) {
+enum class CallerCategory(override val wire: String) : WireValue {
   KNOWN_CONTACT("known_contact"),
   DELIVERY("delivery"),
   HEALTHCARE("healthcare"),
@@ -82,13 +77,7 @@ enum class CallerCategory(val wire: String) {
   SERVICE_PROVIDER("service_provider"),
   SALES("sales"),
   SPAM("spam"),
-  UNKNOWN("unknown");
-
-  companion object {
-    fun fromWire(value: String): CallerCategory =
-        entries.firstOrNull { it.wire == value }
-            ?: throw IllegalArgumentException("unknown caller category")
-  }
+  UNKNOWN("unknown"),
 }
 
 /** Somebody the user has told the assistant about, by number. */

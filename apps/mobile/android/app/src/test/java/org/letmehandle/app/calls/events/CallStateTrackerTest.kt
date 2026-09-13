@@ -151,8 +151,8 @@ class CallStateTrackerTest {
   @Test
   fun `the call being followed survives being written down`() {
     val call = TrackedCall("call", screenedAt = start, ringing = true, answered = false)
-    assertEquals(call, TrackedCall.fromJson(call.toJson()))
+    assertEquals(call, TrackedCall.fromJson(call.toJson().toString()))
     val unscreened = call.copy(screenedAt = null, answered = true)
-    assertEquals(unscreened, TrackedCall.fromJson(unscreened.toJson()))
+    assertEquals(unscreened, TrackedCall.fromJson(unscreened.toJson().toString()))
   }
 }

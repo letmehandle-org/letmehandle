@@ -1,9 +1,10 @@
 package org.letmehandle.app.calls.rules
 
 import java.time.Instant
+import org.letmehandle.app.calls.WireValue
 
 /** What was done with a call before it rang. Mirrors `ScreeningDecision`. */
-enum class ScreeningDecision(val wire: String) {
+enum class ScreeningDecision(override val wire: String) : WireValue {
   ALLOW("allow"),
   REJECT("reject"),
   SILENCE("silence"),

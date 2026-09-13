@@ -3,6 +3,8 @@ package org.letmehandle.app.calls.events
 import java.time.Duration
 import java.time.Instant
 import org.json.JSONObject
+import org.letmehandle.app.calls.optStringOrNull
+import org.letmehandle.app.calls.readingJson
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
 /** The handset's telephony call state, as `TelephonyManager` reports it. */
@@ -31,14 +33,17 @@ data class TrackedCall(
       }
 
   companion object {
-    fun fromJson(json: JSONObject): TrackedCall =
-        TrackedCall(
-            callId = json.getString("call_id"),
-            screenedAt =
-                if (json.has("screened_at")) Instant.parse(json.getString("screened_at")) else null,
-            ringing = json.getBoolean("ringing"),
-            answered = json.getBoolean("answered"),
-        )
+    /** Reads the stored call, or throws [UnreadableRecord] and nothing else. */
+    fun fromJson(text: String): TrackedCall =
+        readingJson(::UnreadableRecord) {
+          val json = JSONObject(text)
+          TrackedCall(
+              callId = json.getString("call_id"),
+              screenedAt = json.optStringOrNull("screened_at")?.let(Instant::parse),
+              ringing = json.getBoolean("ringing"),
+              answered = json.getBoolean("answered"),
+          )
+        }
   }
 }
 

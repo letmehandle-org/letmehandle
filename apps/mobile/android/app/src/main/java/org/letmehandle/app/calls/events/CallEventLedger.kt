@@ -1,10 +1,8 @@
 package org.letmehandle.app.calls.events
 
 import java.time.Instant
-import java.time.format.DateTimeParseException
 import org.json.JSONArray
 import org.json.JSONException
-import org.json.JSONObject
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
 /** Durable text by key, written before returning; a null value removes the key. */
@@ -96,28 +94,16 @@ class CallEventLedger(
     }
   }
 
-  /**
-   * The call being followed, or none if what is stored cannot be read.
-   *
-   * Forgotten rather than thrown: a corrupt record here would otherwise stop every later screening
-   * decision and phone state from being recorded at all. The next event starts from nothing, which
-   * at worst reports one call as two.
-   */
+  /** The call being followed, forgotten and reported when what is stored cannot be read. */
   private fun readTracked(): TrackedCall? {
     val text = store.read(TRACKED) ?: return null
     return try {
-      TrackedCall.fromJson(JSONObject(text))
-    } catch (unreadable: JSONException) {
-      forgetTracked(unreadable)
-    } catch (unreadable: DateTimeParseException) {
-      forgetTracked(unreadable)
+      TrackedCall.fromJson(text)
+    } catch (unreadable: UnreadableRecord) {
+      store.write(TRACKED, null)
+      onUnreadable(unreadable)
+      null
     }
-  }
-
-  private fun forgetTracked(failure: Exception): TrackedCall? {
-    store.write(TRACKED, null)
-    onUnreadable(failure)
-    return null
   }
 
   private fun readPending(): List<CallEventRecord> {
@@ -133,8 +119,8 @@ class CallEventLedger(
     val events =
         (0 until entries.length()).mapNotNull { index ->
           try {
-            CallEventRecord.fromJson(entries.optJSONObject(index) ?: throw CallEventRecord.UnreadableRecord(null))
-          } catch (unreadable: CallEventRecord.UnreadableRecord) {
+            CallEventRecord.fromJson(entries.optJSONObject(index) ?: throw UnreadableRecord(null))
+          } catch (unreadable: UnreadableRecord) {
             onUnreadable(unreadable)
             null
           }
