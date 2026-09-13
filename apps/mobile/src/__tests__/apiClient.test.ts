@@ -175,6 +175,57 @@ describe('authenticated requests', () => {
 });
 
 describe('failures', () => {
+  it('gives up on a request the network swallows, as a network error', async () => {
+    let aborted = false;
+    globalThis.fetch = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new Error('aborted'));
+        });
+      })) as unknown as typeof fetch;
+
+    await expect(
+      new ApiClient(handleFor({}), BASE, 20).me(),
+    ).rejects.toBeInstanceOf(NetworkError);
+    expect(aborted).toBe(true);
+  });
+
+  it('keeps the session when a renewal cannot reach the server', async () => {
+    const fake = new FakeFetch([
+      { status: 401, body: { error: 'not_authenticated', message: 'no' } },
+    ]);
+    globalThis.fetch = fake.fn;
+    const handle = {
+      ...handleFor({ token: 'stale' }),
+      renew: async () => {
+        throw new NetworkError(new TypeError('Network request failed'));
+      },
+    };
+
+    await expect(new ApiClient(handle, BASE).me()).rejects.toBeInstanceOf(
+      NetworkError,
+    );
+    expect(handle.signedOut).toBe(false);
+  });
+
+  it('reads how long to wait from a refusal', async () => {
+    globalThis.fetch = (async () =>
+      ({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '90' }),
+        json: async () => ({ error: 'rate_limited', message: 'no' }),
+      } as Response)) as unknown as typeof fetch;
+
+    const refused = await new ApiClient(handleFor({}), BASE)
+      .requestChallenge('+12025550143')
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ApiError);
+    expect((refused as ApiError).retryAfterSeconds).toBe(90);
+    expect((refused as ApiError).isRateLimited).toBe(true);
+  });
+
   it('turns an unreachable service into a network error', async () => {
     globalThis.fetch = (async () => {
       throw new TypeError('Network request failed');

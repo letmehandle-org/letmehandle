@@ -95,6 +95,35 @@ given as content, not paths.
 
 A device on a platform with no provider is recorded as `not_configured` at dispatch; nothing fails.
 
+## Adding one
+
+A worked example: a provider for a third platform, reaching devices through a push gateway.
+
+1. **The platform.** A member of `DevicePlatform` in `domain/ports/notification.py`, so devices can
+   register for it.
+2. **The adapter**, in `adapters/notification/<gateway>/`. `send` returns a `DeliveryOutcome` for
+   every ordinary failure and never raises for one; a token the gateway reports dead is
+   `TOKEN_INVALID`, so the dispatcher removes it. `payload_size` measures what would actually be sent, so a notification too
+   large for the gateway is shortened before sending rather than refused by it.
+3. **The contract**, in `apps/backend/tests/contracts/test_<gateway>_notification_contract.py`,
+   against a simulated gateway:
+
+   ```python
+   class TestGatewayNotificationProvider(NotificationProviderContract):
+       @pytest.fixture
+       def notifier(self) -> GatewayNotificationProvider:
+           return GatewayNotificationProvider(client=simulated_gateway_client())
+
+       @pytest.fixture
+       def call_id(self) -> CallId:
+           return CallId("call-for-contract")
+   ```
+
+4. **The settings and the choice.** Its variables in `Settings`, set together or not at all, and a
+   branch in `build_notification_providers` in `bootstrap.py` that builds it when any is set.
+
+The dispatcher, the escalation flow and the app's fallback fetch need no change.
+
 ## Dispatch and the rest of the lifecycle
 
 `EscalationDispatcher` (`application/escalation/dispatch.py`) claims the escalation's context in

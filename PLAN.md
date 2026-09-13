@@ -34,7 +34,7 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 12 | Security, privacy and hardening | in progress — review done, mobile and build audits open |
 | 13 | Observability and failure handling | **complete** — real-call investigation held |
 | 14 | Full system end to end | in progress — automated scenarios pass, manual run held |
-| 15 | Release readiness | not started |
+| 15 | Release readiness | in progress — docs, sample, release workflow done; tag, real calls, CI and dependency audit held |
 
 ## The completion rule
 

@@ -23,7 +23,7 @@ What a deployment has to do for itself is not repeated here; the data it holds i
 | F7 | Personal data | Deleting a call left its escalation context behind | Medium | Fixed |
 | F8 | Transcripts | Escalation contexts stored the caller's label and what the caller said they wanted in plain text | Medium | Fixed |
 | F9 | Personal data | There was no account deletion | High | Fixed |
-| F10 | Authentication | Outside `APP_ENV=production` every account accepts one published development code, and no production code provider exists yet | High (deployment) | Accepted by design, documented below |
+| F10 | Authentication | Outside `APP_ENV=production` every account accepts one published development code while the mock provider is configured | High (deployment) | Accepted by design, documented below |
 | F11 | Mobile | No screenshot or app-switcher exclusion on screens that show call content | Low | Open |
 
 ## Authentication
@@ -54,12 +54,15 @@ behind them, then drove the sign-in routes against PostgreSQL with requests sent
   first exchange was in flight, so a replay arriving at the same moment as the genuine use was not
   detected. The token row is now locked for the exchanging or revoking unit of work.
   Evidence: `test_a_refresh_token_being_exchanged_is_not_read_as_unused_elsewhere`.
-- **F10 (accepted by design).** The only code provider is the development mock, which accepts a
+- **F10 (accepted by design).** The default code provider is the development mock, which accepts a
   fixed, published code for every account and refuses to start when `APP_ENV=production`. The
-  default `APP_ENV` is `development`. A deployment reachable from a network and not set to
-  production therefore lets anybody sign in as anybody. This is D-010's intent for development,
-  and production cannot be started at all until a real provider exists, but it is the single most
-  dangerous misconfiguration available and must be stated to anyone deploying.
+  default `APP_ENV` is `development`. A deployment reachable from a network, not set to production
+  and left on the mock therefore lets anybody sign in as anybody. This is D-010's intent for
+  development. Production starts with the text-message provider (`OTP_PROVIDER=twilio_sms`,
+  D-037), which generates no code of its own, fixes none, and is refused at startup when its
+  account is incomplete; but the mock left exposed is still the single most dangerous
+  misconfiguration available and must be stated to anyone deploying.
+  Evidence: `tests/unit/test_otp_bootstrap.py`, `tests/integration/test_sign_in_by_text.py`.
 
 ## Authorisation and user scoping
 

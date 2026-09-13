@@ -36,6 +36,6 @@ font and scales as a vector.
 ## Assets
 
 - **Web** (`web/`, served from the site root): favicons, Apple touch icon, PWA and maskable icons, Safari pinned-tab icon, `site.webmanifest`, 1200 × 630 `og-image.png`, logo SVGs. `head.html` is the `<head>` block that wires them up, title included.
-- **Stores and social** (`export/`): App Store icon (no alpha), Play Store icon, Play feature graphic, social avatar.
+- **Stores and social** (`export/`): App Store icon (no alpha), Play Store icon, Play feature graphic, social avatar, and the 2560 × 1280 `readme-banner.png` at the top of the repository README.
 - **iOS** (`apps/mobile/ios/LetMeHandle/Images.xcassets`): `AppIcon`, `LaunchLogo`, `LaunchBackground`, used by `LaunchScreen.storyboard`.
 - **Android** (`apps/mobile/android/app/src/main/res`): adaptive icon with monochrome layer, legacy launcher PNGs, `ic_notification` for push, launch screen and API 31+ splash, brand colours in `values/colors.xml`.

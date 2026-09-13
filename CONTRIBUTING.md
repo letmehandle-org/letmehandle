@@ -13,6 +13,11 @@ make verify    # everything CI will run
 `make setup` installs the git hooks. They are not cloned with the repository, so this step is
 not optional — the hooks are what stop a mistake becoming permanent.
 
+[`docs/development/setup.md`](docs/development/setup.md) has the rest of the setup,
+[`docs/development/testing.md`](docs/development/testing.md) the suites and their gates, and
+[`docs/development/workflow.md`](docs/development/workflow.md) the branch, pull request and release
+process in full.
+
 ## The rules
 
 **Small commits.** One logical change each, each leaving the repository working, each with
@@ -24,6 +29,9 @@ commit-msg hook. Types: `feat fix refactor perf test docs build ci chore revert`
 
 **Branch, then pull request.** `feature/*`, `fix/*`, `refactor/*`, `docs/*`. No direct
 commits to `main`.
+
+**The changelog comes with the change.** Anything a user or a contributor would notice gets a line
+under `## [Unreleased]` in `CHANGELOG.md`, in the same pull request.
 
 **Tests come with the change.** Coverage floors are 98% for the backend and 90% for mobile
 logic. They are floors, not targets — a test written only to move the number will be asked

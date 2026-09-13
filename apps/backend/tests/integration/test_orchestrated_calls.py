@@ -34,8 +34,10 @@ from letmehandle.adapters.transport.twilio import transport as transport_module
 from letmehandle.application.orchestration.ports import AssistantServices
 from letmehandle.bootstrap import (
     build_call_orchestrator,
+    build_call_transport,
     build_container,
     build_escalation_dispatcher,
+    build_reported_calls,
     call_judging_on,
     call_summariser_on,
 )
@@ -56,7 +58,13 @@ from tests.contracts.fakes import EchoSpeechProvider, RecordingNotificationProvi
 from tests.support.config import TEST_TRANSCRIPT_KEYS, make_settings
 from tests.support.observability import recorded_observability
 from tests.support.scripted_model import ScriptedModel, assess, write_summary
-from tests.support.simulated_twilio import Answering, Deployment, eventually, simulated_deployment
+from tests.support.simulated_twilio import (
+    Answering,
+    Deployment,
+    eventually,
+    simulated_deployment,
+    telephony_settings,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -390,7 +398,7 @@ async def test_speech_failing_mid_call_fails_the_call_and_ends_it_for_the_caller
         call = await running.ended()
 
         assert call.state is CallState.FAILED
-        assert running.provider.conference_of(CALL).ended
+        await eventually(lambda: running.provider.conference_of(CALL).ended)
         assert await running.summary_outcome() is CallOutcome.FAILED
         running.nothing_held()
 
@@ -456,3 +464,37 @@ async def test_a_restart_ends_the_call_the_last_process_left_running(
         async with unit_of_work(running.factory) as session:
             repository = SqlCallRepository(session, cipher, running.container.clock)
             assert await repository.unfinished(limit=MAX_CALL_PAGE) == ()
+
+
+async def test_a_restart_ends_the_users_phone_still_ringing_for_a_call_left_running(
+    storage: tuple[str, str],
+) -> None:
+    async with orchestrating(storage, steps=[WANTS_THE_USER]) as running:
+        running.provider.answering[USERS_LINE.value] = Answering.KEEPS_RINGING
+        await running.arrives()
+        await running.reaches(CallState.AGENT_HANDLING)
+        await running.caller_says("Please put her on.")
+        await running.reaches(CallState.HUMAN_RINGING)
+        await running.deployment.settle()
+
+        # The process that dialled her stops hearing anything, as a stopped process does, and the
+        # one started after it, which holds nothing about the call, ends it.
+        running.provider.hold()
+        successor = build_call_transport(
+            telephony_settings(),
+            reported_calls=build_reported_calls(),
+            observability=recorded_observability(),
+            http_transport=running.provider.rest,
+        )
+        assert successor is not None
+        try:
+            await successor.transport.terminate(CallId(CALL))
+        finally:
+            await successor.close()
+
+        assert running.provider.user_leg(USERS_LINE).finished
+        await eventually(lambda: running.provider.conference_of(CALL).ended)
+        await running.provider.release()
+        call = await running.ended()
+        assert call.state is CallState.COMPLETED
+        running.nothing_held()

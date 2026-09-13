@@ -806,15 +806,15 @@ class TwilioCallTransport(CallTransport):
         """End a call this process never held, such as one a stopped process left up.
 
         Nothing is known of it here but its identifier, which is the caller's leg, and the name
-        its conference was given. Both are ended, each tried whatever became of the other; a leg
-        dialled into that conference and still ringing has no name to be found by, and answers
-        into a conference that is over. Already ended is done, not a failure, so asking twice is
-        safe.
+        its conference was given. The caller's leg, the conference and whoever was dialled for the
+        call are each ended, each tried whatever became of the others. Already ended is done, not
+        a failure, so asking twice is safe.
         """
         failures: list[ProviderError] = []
         steps: tuple[Callable[[], Awaitable[object]], ...] = (
             lambda: self._api.end_call(call_id.value, "completed"),
             lambda: self._api.end_conferences_named(_conference_name(call_id)),
+            lambda: self._end_dialled_for(call_id),
         )
         for step in steps:
             try:
@@ -823,6 +823,23 @@ class TwilioCallTransport(CallTransport):
                 failures.append(failure)
         if failures:
             raise failures[0]
+
+    async def _end_dialled_for(self, call_id: CallId) -> None:
+        """End the user's leg a stopped process dialled for this call and left unfinished.
+
+        A leg still ringing is not yet in the conference, so ending the conference leaves it
+        ringing, and answering it puts the user in a conference nobody else is in. Nothing records
+        its identifier, so it is found by its numbers: dialled from the number this call reached,
+        as every leg for a call is, to the line the call was forwarded from, which is the number of
+        the only user it could be for (D-033). A call not forwarded was nobody's and dialled no one.
+        Any other leg between those two numbers is one a stopped process left too: this runs before
+        a process takes calls, and only one process runs against an account.
+        """
+        found = await self._api.find_call(call_id.value)
+        line = None if found is None else _number_or_none(found.forwarded_from)
+        if found is None or line is None:
+            return
+        await self._api.end_calls_between(self._number_to_call_from(found.to).value, line.value)
 
     def _ended_by_provider(self, call: _Call, reason: str) -> None:
         self._emit(CallEventKind.ENDED, call, "ended", detail=reason)

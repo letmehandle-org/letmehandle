@@ -1,6 +1,6 @@
 [project]
 name = "letmehandle-backend"
-version = "0.1.0"
+version = "2026.9.13"
 description = "LetMeHandle backend: the agent, the call orchestration, and the provider adapters"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

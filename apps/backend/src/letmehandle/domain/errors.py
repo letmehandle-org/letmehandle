@@ -106,6 +106,34 @@ class ProviderError(DomainError):
         self.failure_kind = FailureKind.UNAVAILABLE if retryable else FailureKind.REFUSED
 
 
+class DeliveryUncertainError(ProviderError):
+    """A request reached a provider, which never said what it did with it.
+
+    A timeout or a dropped connection after sending is not a refusal: the provider may have
+    acted on the request. Its own type so that a caller can count what may have happened rather
+    than assume it did not.
+    """
+
+    failure_kind = FailureKind.UNAVAILABLE
+
+    def __init__(self, provider: str, reason: str) -> None:
+        super().__init__(provider, reason, retryable=True)
+
+
+class UnreachableNumberError(ProviderError):
+    """A provider will not deliver to this number, and asking again will not change that.
+
+    Its own type because what somebody can do about it differs from every other provider failure:
+    a number mistyped, or one that cannot receive a text, is fixed by the person entering it, while
+    an outage or a refused account is fixed by nobody on the other end of the request.
+    """
+
+    failure_kind = FailureKind.REFUSED
+
+    def __init__(self, provider: str, reason: str) -> None:
+        super().__init__(provider, reason, retryable=False)
+
+
 class RecordNotFoundError(DomainError):
     """A stored record this user asked to write against does not exist for them.
 

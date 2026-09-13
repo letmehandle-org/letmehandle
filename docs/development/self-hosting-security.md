@@ -9,22 +9,24 @@ The values in this document are examples. `api.example.com` stands for your publ
 `+15555550100` for a phone number, and `AKIAIOSFODNN7EXAMPLE` for any credential. Never paste a
 real key into an issue, a log or a pull request.
 
-## Before anything else: the development sign-in provider
+## Before anything else: the sign-in code provider
 
-The only sign-in code provider today is the development one (`OTP_PROVIDER=mock`). It sends
-nothing, and it accepts **one fixed, published code for every phone number**. Anybody who can
-reach a deployment running it can sign in as any user, read their calls and change their
-preferences.
+The default sign-in code provider is the development one (`OTP_PROVIDER=mock`). It sends nothing,
+and it accepts **one fixed, published code for every phone number**. Anybody who can reach a
+deployment running it can sign in as any user, read their calls and change their preferences.
 
-It refuses to start when `APP_ENV=production`, and because it is the only provider, a production
-deployment cannot start at all yet. `APP_ENV` defaults to `development`. Therefore:
+It refuses to start when `APP_ENV=production`. `APP_ENV` defaults to `development`, and
+`OTP_PROVIDER` to `mock`. Therefore:
 
 - **Anything reachable from a network you do not fully control must run with
-  `APP_ENV=production`.** Until a real code provider exists, that means no deployment built from
-  this repository is fit to be exposed.
-- A development or test deployment binds to loopback or sits on a private network whose every
-  member you would trust with every account on it. Not behind a public tunnel, not "only for a
-  day", not with an obscure URL.
+  `APP_ENV=production` and `OTP_PROVIDER=twilio_sms`.** The text-message provider sends each code
+  from `SMS_FROM_NUMBER` on the account `SMS_ACCOUNT_ID` and `SMS_AUTH_TOKEN` name, and the process
+  refuses to start naming whichever of the three is missing. It generates no code of its own and
+  fixes none: the application generates each one and stores only its hash.
+- **Never expose a deployment running the mock**, whatever its `APP_ENV`. A development or test
+  deployment binds to loopback or sits on a private network whose every member you would trust
+  with every account on it. Not behind a public tunnel, not "only for a day", not with an obscure
+  URL.
 - `docker-compose.yml` is for local development. Its database password is published in the
   repository.
 
@@ -38,9 +40,10 @@ variables. The application reads nothing else: no key files, no mounted paths. D
 into an image, and do not commit a `.env` file.
 
 The secrets are `AUTH_SIGNING_KEY`, `TRANSCRIPT_ENCRYPTION_KEYS`, `DATABASE_URL` (it carries a
-password), `TELEPHONY_AUTH_TOKEN`, `SPEECH_API_KEY`, `LLM_API_KEY`, any `LLM_HEADERS` values,
-`APNS_PRIVATE_KEY` and `FCM_SERVICE_ACCOUNT_JSON`. Configuration errors name the variable and
-never print its value, so an error message is safe to share; an environment dump is not.
+password), `TELEPHONY_AUTH_TOKEN`, `SMS_AUTH_TOKEN`, `SPEECH_API_KEY`, `LLM_API_KEY`, any
+`LLM_HEADERS` values, `APNS_PRIVATE_KEY` and `FCM_SERVICE_ACCOUNT_JSON`. Configuration errors name
+the variable and never print its value, so an error message is safe to share; an environment dump
+is not.
 
 ## The signing key
 
@@ -235,6 +238,12 @@ environment, so one can be revoked without touching another.
   that token also signs every callback. Use an account or subaccount that serves only this
   deployment, with only the numbers it needs. Anybody holding the token can forge callbacks and
   control calls: rotate it in the provider's console and restart if it may have leaked.
+- **Text messages.** The sign-in provider needs only to send messages. Give it an account or
+  subaccount that serves this deployment, and set a spending limit and the destination countries
+  your users sign in from at the provider: sign-in is unauthenticated, and what limits how many
+  texts a stranger can make it send is the application's per-number and per-address limits
+  together with yours at the proxy. A refused number answers `422`; a provider that is throttling
+  or down answers `503`, and that attempt does not count against the number.
 - **Speech and model.** Keys limited to the models this deployment uses, with a spending limit set
   at the provider. On an ElevenLabs agent, allow only the overrides the adapter needs (system
   prompt, first message, language and voice). Consider what each provider retains of the audio and
@@ -273,6 +282,7 @@ environment, so one can be revoked without touching another.
 ## Checklist
 
 - [ ] `APP_ENV=production` on anything reachable from a network you do not fully control
+- [ ] `OTP_PROVIDER=twilio_sms` with its `SMS_` account; never the mock where it can be reached
 - [ ] `AUTH_SIGNING_KEY` generated for this deployment, stored in a secret store
 - [ ] `TRANSCRIPT_ENCRYPTION_KEYS` generated, backed up apart from the database
 - [ ] TLS terminated at a proxy; port 8000 not exposed

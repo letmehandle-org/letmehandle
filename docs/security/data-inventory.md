@@ -39,6 +39,7 @@ Audio is never stored (D-013).
 | Handset call feed | Reported call events awaiting the orchestrator | Bounded per user |
 | In-process metrics | Counts, and the most recent thousand measurements per series, labelled only by declared dimensions | The process's life |
 | Development code provider | Numbers codes were sent to, and the codes | The process's life; refused in production |
+| Text-message code provider | Nothing: each number and code is sent to the provider in one request | Not kept; the provider keeps the message under its own retention |
 
 ## Logs
 

@@ -1,95 +1,201 @@
+<p align="center">
+  <a href="https://www.letmehandle.org">
+    <img src="brand/export/readme-banner.png" alt="LetMeHandle — your phone, handled. An open-source assistant that answers your calls and rings you only when it matters." width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.letmehandle.org"><b>🌐 letmehandle.org</b></a>
+  &nbsp;·&nbsp;
+  <a href="PLAN.md">Plan</a>
+  &nbsp;·&nbsp;
+  <a href="docs/architecture/overview.md">Architecture</a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml"><img src="https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue.svg" alt="Licence: MIT"></a>
+  <a href="https://www.letmehandle.org"><img src="https://img.shields.io/badge/website-letmehandle.org-7C6BEA.svg" alt="Website"></a>
+</p>
+
 # LetMeHandle
 
-[![CI](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml/badge.svg)](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml)
-[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+An AI assistant that **answers your phone calls**, works out what the caller wants, and follows
+your preferences. It resolves the routine calls on its own and **brings you into the same live
+call** when it really needs you.
 
-An AI agent that answers your phone calls, understands what the caller wants, applies your
-preferences, resolves the routine ones on its own, and pulls you into the same live call
-when it genuinely needs you.
+> [!NOTE]
+> **Status: first release, not ready to deploy.** Every piece of a call is built and tested end to end
+> against simulated providers, but no real phone call, real model or real device has been through
+> it yet, and there is no sign-in provider that sends a real text message — so no deployment of
+> this project is safe to expose to anybody but its developers. [Maturity](#maturity) says exactly
+> what that means.
 
-> **Status: early construction.** The repository is public from its first commit because the
-> architecture is the point and it should be reviewable from the start. It does not yet
-> answer calls. [`PLAN.md`](PLAN.md) states exactly what is built, what is being built, and
-> what is not.
+## How it works
 
-## What it is meant to do
+```mermaid
+flowchart LR
+    A[📞 Call arrives] --> B{Your rules}
+    B -->|Blocked| C[🚫 Rejected]
+    B -->|Important| D[🔔 Rings you]
+    B -->|Everyone else| E[🤖 Assistant answers]
+    E -->|Routine| F[✅ Resolved]
+    E -->|Needs you| G[🔔 You join the live call]
+    F --> H[📝 Short summary]
+    G --> H
+```
 
-A call arrives. Deterministic rules decide whether it goes straight through to you, is
-rejected, or is handled. If it is handled, the assistant talks to the caller in real time,
-works out the intent, and either resolves it or decides a human is required. When a human is
-required your phone rings, a notification tells you why before you answer, and answering
-joins you to the conversation that is already happening. The caller never redials.
+1. **A call arrives.** Fixed rules you set decide whether it rings you, is rejected, or is
+   handled.
+2. **The assistant talks to the caller** in real time and works out why they are calling.
+3. **Routine calls get resolved.** When a person is needed, your phone rings, a notification
+   says why before you answer, and answering joins you to the call already in progress. The
+   caller never has to call back.
+4. **You get a short summary** afterwards, not a transcript dump.
 
-Afterwards you get a short summary, not a transcript dump.
+How much of that a deployment offers depends on how calls reach it:
 
-## What it is not
+- **Programmable telephony**, with your carrier forwarding unanswered and busy calls to it: the
+  whole product — the assistant on the call, escalation into it, summaries.
+- **Android call screening**, on your own phone: your rules decide each call before it rings —
+  let it ring, reject it, or silence it — and the call is recorded. Android does not give an app
+  the audio of a phone call, so there is no assistant on this path, and the product does not
+  pretend otherwise.
 
-- Not a voicemail transcriber. It holds the conversation.
-- Not an app-to-app calling product. It is built around real phone calls.
-- Not finished. See the status note above.
+[`docs/architecture/call-transport.md`](docs/architecture/call-transport.md) has the full matrix.
+
+## What it does not do
+
+- Transcribe voicemail. It holds the conversation.
+- Make app-to-app calls. It is built around real phone calls.
+- Place calls on your behalf. It answers them.
+- Record audio. Calls are never recorded, anywhere (D-013).
+- Run hosted. There is no service to sign up to; you run it.
+- Speak anything but English, yet (D-017).
+
+## Maturity
+
+| | State |
+| --- | --- |
+| Domain, routing, escalation policy, call orchestration | built; every path tested, 100% of branches |
+| Backend API, storage, encryption, retention | built and tested against PostgreSQL |
+| Streaming telephony transport | built; tested against a simulated provider, **never on a real call** |
+| Realtime speech (two protocols) | built; tested against simulated services, **no live call** |
+| Agent and summaries | built; tested with a scripted model, **no real model evaluated** |
+| Push notifications (iOS, Android) | built; tested against simulated services, **no real device** |
+| Android call screening | built; tested on the JVM and end to end, **no real handset** |
+| Sign-in codes | **mock only.** Accepts `123456` and refuses to start in production |
+| Mobile app | in progress |
+| Observability, dependency audit | in progress |
+
+Where the code met a question only a real provider can answer, it is written down rather than
+guessed, in [`docs/providers/call-transport.md`](docs/providers/call-transport.md#verified-on-the-first-real-call-not-here),
+and scripted for the first real run in
+[`docs/testing/manual-verification.md`](docs/testing/manual-verification.md). [`PLAN.md`](PLAN.md)
+has the state of every phase.
+
+## What it costs to run
+
+**Trying it: nothing.** The quick start below needs no account with anybody. Sign-in is mocked,
+and every provider a call needs is simulated in the test suite.
+
+**Running it for real**, every cost is somebody else's price and scales with calls:
+
+| What | Paid for |
+| --- | --- |
+| A server and PostgreSQL | whatever hosts them; the backend is one small container |
+| Programmable telephony | a phone number per month, and every minute of every call, including the leg to your phone when you are brought in |
+| A realtime speech service | every minute the assistant is on a call; a server you run yourself costs only its hardware |
+| A model endpoint | tokens for each judgement and each summary; any OpenAI-compatible endpoint, including one you run |
+| Push notifications | free to send; iOS needs an Apple developer account |
+| Carrier call forwarding | usually part of your phone plan; check yours |
+
+Android call screening needs none of the telephony, speech or model costs, and offers none of what
+they pay for.
+
+## Quick start
+
+Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Node 22, pnpm 9, and Docker with
+Compose. The mobile app also needs Xcode or Android Studio.
+
+```bash
+git clone https://github.com/letmehandle-org/letmehandle.git
+cd letmehandle
+make setup        # dependencies and git hooks
+make sample-env   # a .env with fresh keys and mock providers, no paid account
+make up           # PostgreSQL, migrations, and the backend on port 8000
+curl localhost:8000/health
+```
+
+`make up` builds the backend image the first time, which takes a few minutes. When port 8000 or
+5432 is taken, run every `make` command with `BACKEND_PORT=8100 POSTGRES_PORT=5433` in front, and
+`curl localhost:8100/health`.
+
+Then sign in and look around, or run whole simulated calls with `make e2e`:
+[`docs/development/demo.md`](docs/development/demo.md). The mobile toolchain and everything else
+about working on the project is in [`docs/development/setup.md`](docs/development/setup.md).
+
+## Privacy at a glance
+
+| | |
+| --- | --- |
+| 🎙️ **No recordings** | Calls are not recorded. |
+| 🔐 **Encrypted transcripts** | Encrypted at rest and deleted on a schedule each user controls, 7 days by default. |
+| 📝 **Summaries stay** | The structured summary is kept after the transcript is deleted. |
+| 📇 **Contacts stay on your phone** | Only the contacts you mark as important reach the server. |
+
+The full policy is at [letmehandle.org/privacy](https://www.letmehandle.org/privacy). What the
+project does and does not protect against is written down in
+[`docs/architecture/security.md`](docs/architecture/security.md). Before deploying it anywhere
+reachable, read
+[`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md).
 
 ## Replaceable by design
 
-Every external capability is a port with adapters behind it, and the domain layer imports
-none of them. That is enforced by the build, not by convention.
+Every outside service sits behind a port with adapters, and the domain layer imports none of
+them. The build enforces this, not just convention.
 
 | Port | What you can swap |
 | --- | --- |
-| `SpeechProvider` | the realtime speech model |
-| `CallAgent` | the model that makes decisions — any OpenAI-compatible endpoint, hosted or local |
 | `CallTransport` | how calls physically reach the system — programmable telephony, the platform's own call screening, or a future SIP or carrier integration |
+| `SpeechProvider` | the realtime speech service |
+| `CallAgent` | the model that makes decisions — any OpenAI-compatible endpoint, hosted or local |
 | `VoiceProvider` | how the assistant sounds |
 | `NotificationProvider` | how you are alerted |
 | `OTPProvider` | how sign-in codes are delivered |
 
 Providers declare their capabilities. The product adapts to what yours can actually do, and
-never presents a feature your provider does not support.
-
-Call transports differ in kind rather than only in vendor, so this matters most there. Android
-can screen a call before the handset rings but cannot hand an application the audio of a SIM
-call; programmable telephony can stream that audio and bridge a second person into a call
-already in progress. Both are the same interface, and the product asks what a transport can do
-rather than which one it is.
-
-See [`docs/providers/`](docs/providers/) to implement one.
-
-## Getting started
-
-Requirements: Python 3.12, Node 22, pnpm 9, Docker, and — for the mobile app — Xcode or
-Android Studio.
-
-```bash
-git clone https://github.com/letmehandle-org/letmehandle.git
-cd letmehandle
-make setup
-cp .env.example .env
-make up
-curl localhost:8000/health
-```
-
-Full instructions, including the mobile toolchain, are in
-[`docs/development/setup.md`](docs/development/setup.md).
+never presents a feature your provider does not support. See [`docs/providers/`](docs/providers/)
+to implement one.
 
 ## Documentation
 
-- [`PLAN.md`](PLAN.md) — how this is being built, phase by phase
+- [`docs/development/demo.md`](docs/development/demo.md) — a walkthrough, with no paid account
+- [`docs/development/setup.md`](docs/development/setup.md) — setting up, running, troubleshooting
+- [`docs/development/configuration.md`](docs/development/configuration.md) — every variable, generated from the code
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — the shape of the system
+- [`docs/architecture/call-flow.md`](docs/architecture/call-flow.md) — the life of a call and the escalation sequence
+- [`docs/architecture/call-transport.md`](docs/architecture/call-transport.md) — call transports and what each can do
 - [`docs/architecture/decisions.md`](docs/architecture/decisions.md) — why it is shaped that way
 - [`docs/providers/`](docs/providers/) — writing a provider
+- [`docs/development/testing.md`](docs/development/testing.md) — the suites and the coverage gates
+- [`docs/development/workflow.md`](docs/development/workflow.md) — branches, commits, releases and versioning
 - [`docs/architecture/security.md`](docs/architecture/security.md) — the threat model, and what is not defended
 - [`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md) — running a deployment securely
-- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
+- [`PLAN.md`](PLAN.md) — how this is being built, phase by phase
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed in each release
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
-
-## Privacy
-
-Calls are not recorded. Transcripts are encrypted at rest and deleted on a schedule each user
-controls, defaulting to seven days. The structured summary outlives the transcript. What the
-project does and does not protect against is written down rather than implied — see
-[`docs/architecture/security.md`](docs/architecture/security.md). Before deploying it anywhere
-reachable, read
-[`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md).
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 
 ## Licence
 
-MIT. See [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE). Third-party licences are listed in
+[`docs/development/licences.md`](docs/development/licences.md).
+
+<p align="center">
+  <a href="https://www.letmehandle.org"><img src="brand/source/lockup.svg" alt="LetMeHandle" width="180"></a>
+  <br>
+  <sub><a href="https://www.letmehandle.org">letmehandle.org</a></sub>
+</p>

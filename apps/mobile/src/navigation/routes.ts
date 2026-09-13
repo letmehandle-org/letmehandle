@@ -12,7 +12,12 @@
 export type AuthStackParamList = {
   Welcome: undefined;
   PhoneNumber: undefined;
-  VerifyCode: { challengeId: string; phoneNumber: string };
+  VerifyCode: {
+    challengeId: string;
+    phoneNumber: string;
+    /** Seconds until another code may be asked for, as the server said when this one was sent. */
+    resendAfterSeconds: number;
+  };
 };
 
 export type OnboardingStackParamList = {
@@ -29,7 +34,11 @@ export type AppStackParamList = {
   Personalise: undefined;
   Topics: undefined;
   Account: undefined;
+  Privacy: undefined;
   CallScreening: undefined;
+  Call: { callId: string };
+  Transcript: { callId: string };
+  Escalation: { callId: string };
 };
 
 export const AUTH_ROUTES = {
@@ -52,5 +61,9 @@ export const APP_ROUTES = {
   personalise: 'Personalise',
   topics: 'Topics',
   account: 'Account',
+  privacy: 'Privacy',
   callScreening: 'CallScreening',
+  call: 'Call',
+  transcript: 'Transcript',
+  escalation: 'Escalation',
 } as const satisfies Record<string, keyof AppStackParamList>;

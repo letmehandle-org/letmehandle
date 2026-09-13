@@ -8,6 +8,8 @@ import { Icon, type IconName } from './icon/Icon';
 interface Props {
   readonly title: string;
   readonly subtitle?: string;
+  /** Destroys something: the title is drawn in the one red the system has. */
+  readonly destructive?: boolean;
   readonly icon?: IconName;
   readonly tone?: Tone;
   /** A short value shown on the right, such as "24/7" or "2 of 7". */
@@ -29,6 +31,7 @@ interface Props {
 export function Row({
   title,
   subtitle,
+  destructive = false,
   icon,
   tone = 'quiet',
   value,
@@ -41,7 +44,9 @@ export function Row({
     <>
       {icon !== undefined && <Disc icon={icon} tone={tone} size={40} />}
       <View style={styles.text}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.title, destructive && styles.destructive]}>
+          {title}
+        </Text>
         {subtitle !== undefined && (
           <Text style={styles.subtitle}>{subtitle}</Text>
         )}
@@ -95,6 +100,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
   text: { flex: 1, gap: 2 },
   title: { ...theme.type.body, color: theme.colour.text },
+  destructive: { color: theme.colour.warning },
   subtitle: { ...theme.type.caption, color: theme.colour.textFaint },
   end: { flexDirection: 'row', alignItems: 'center', gap: theme.space.xs },
   value: { ...theme.type.caption, color: theme.colour.textFaint },

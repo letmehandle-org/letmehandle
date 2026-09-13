@@ -62,6 +62,9 @@ def make_settings(
     log_format: LogFormat = LogFormat.CONSOLE,
     database_url: str | None = None,
     otp_provider: OTPProviderName = OTPProviderName.MOCK,
+    sms_account_id: str | None = None,
+    sms_auth_token: str | None = None,
+    sms_from_number: PhoneNumber | None = None,
     auth_signing_key: str | None = TEST_SIGNING_KEY,
     speech_voices: tuple[Voice, ...] = EXAMPLE_VOICES,
     speech_default_voice: str = EXAMPLE_DEFAULT_VOICE,
@@ -78,6 +81,7 @@ def make_settings(
     telephony_numbers: tuple[PhoneNumber, ...] | None = None,
     telephony_app_id: str | None = None,
     telephony_webhook_base_url: str | None = None,
+    call_max_duration_seconds: int = 14_400,
     llm_base_url: str | None = None,
     llm_api_key: str | None = None,
     llm_model: str | None = None,
@@ -104,6 +108,9 @@ def make_settings(
         log_format=log_format,
         database_url=PostgresDsn(database_url) if database_url is not None else None,
         otp_provider=otp_provider,
+        sms_account_id=sms_account_id,
+        sms_auth_token=SecretStr(sms_auth_token) if sms_auth_token is not None else None,
+        sms_from_number=sms_from_number,
         auth_signing_key=SecretStr(auth_signing_key) if auth_signing_key is not None else None,
         speech_provider=speech_provider,
         speech_endpoint_url=(
@@ -132,6 +139,7 @@ def make_settings(
             if telephony_webhook_base_url is not None
             else None
         ),
+        call_max_duration_seconds=call_max_duration_seconds,
         llm_base_url=AnyHttpUrl(llm_base_url) if llm_base_url is not None else None,
         llm_api_key=SecretStr(llm_api_key) if llm_api_key is not None else None,
         llm_model=llm_model,

@@ -97,3 +97,82 @@ a documentation defect and is fixed. Repeated until a run needs no deviation.
   stated in the report rather than glossed.
 - **Expectation setting.** The README must be honest about what does not work yet. An
   overstated README is the fastest way to lose the first contributors.
+
+## Verification
+
+```
+PHASE 15 VERIFICATION
+
+Planned tasks:        in progress — documentation, sample, configuration reference, changelog,
+                      release workflow, licence report, templates and history scan done; the tag,
+                      real-call verification, CI on the branch and the dependency audit held
+Acceptance criteria:  9/15 passed, 6 held (table below)
+Unit tests:           passed   POSTGRES_PORT=5433 make verify: backend 3091 passed, 14 skipped
+Integration tests:    passed   the same run, against PostgreSQL
+E2E tests:            passed   make e2e, 23 passed, in each clean-room run
+Coverage:             100%     backend (9528 statements, 1744 branches), floor 98
+                      mobile Jest suites 237 passed with the 90% threshold enforced
+Lint:                 passed   make lint
+Format:               passed   ruff format --check, prettier
+Typecheck:            passed   mypy --strict including the new scripts, tsc
+Static analysis:      passed   import-linter, 4 contracts kept
+Build:                passed   docker compose build, in the clean-room runs
+Application runs:     yes      make sample-env && make up from a fresh clone: migrate exited 0,
+                               /health ok, /health/ready ready; sign-in with the mock code, profile,
+                               onboarding, preferences, voices and call history answered
+Manual verification:  clean-room runs of the README and the demo, recorded below; the mobile half
+                      and the real-provider script held
+Docs updated:         README.md, CHANGELOG.md, CONTRIBUTING.md, docs/architecture/{overview,
+                      call-flow,call-transport}.md, docs/providers/{README,agent,clock,otp,speech,
+                      voice,notifications,call-transport}.md, docs/development/{setup,testing,
+                      workflow,verification,demo,configuration,licences}.md, PR template
+Known issues:         listed under "Held" below
+```
+
+### Clean-room runs
+
+Each run cloned the branch into an empty directory, used a separate Compose project and the
+documented port overrides (`BACKEND_PORT=8100 POSTGRES_PORT=5544`, because another stack on this
+machine holds 8000), and followed only documented commands. The machine had the toolchain installed;
+a machine without it was not available, and the mobile half was not run.
+
+| Run | Deviation found | Fixed by |
+| --- | --- | --- |
+| 1 | `cp .env.example .env && make up`: the backend exited, `AUTH_SIGNING_KEY is required`; the compose file never passed it, and nothing migrated the database | `make sample-env`; a `migrate` service and the image carrying its migrations; the auth, OTP and transcript-key settings passed to the backend |
+| 1 | A failed start left a stale network; the next `make up` failed resolving `postgres` | troubleshooting entry in setup |
+| 2 | `uv run --env-file ../../.env letmehandle` stopped at the unquoted spaces in `SPEECH_VOICES` | the example value quoted |
+| 2 | setup said ports set in `.env` take effect through `make`; `make` exports its own defaults, which win | setup corrected |
+| 2 | outside Docker the server listens on 8000 whatever `BACKEND_PORT` says; demo responses ran together | setup and demo corrected |
+| 3 | README quick start then demo ran `make sample-env` twice, and the second exited 1 | an existing `.env` is left alone with exit 0 |
+| 4 | none: README quick start, demo parts 1 and 2 (sign-in, five reads, `make e2e` 23 passed, one scenario file 5 passed), `docker compose down -v` | — |
+
+### Acceptance criteria
+
+| # | Criterion | State | Evidence |
+| --- | --- | --- | --- |
+| 1 | Clean room with no deviation | passed for the backend; mobile held | run 4 above |
+| 2 | Architecture diagram matches the code | passed | `overview.md`; the state diagram checked by `test_call_flow_document.py` |
+| 3 | Every provider extension point has a worked example | passed | an "Adding one" section on every page in `docs/providers/` |
+| 4 | Capability matrix matches the declarations | passed | `test_capability_matrix_document.py` builds both transports through bootstrap |
+| 4 (second) | Contributing workflow followed for one change | held | this branch follows it; no pull request opened yet |
+| 5 | Coverage meets the floors | passed | 100% backend; mobile threshold enforced |
+| 6 | Every CI workflow green | held | nothing pushed; `release.yml` has never run |
+| 7 | No secret in history | passed, gitleaks held locally | `disclosure_audit.py --history` clean over 298 commits on all refs; gitleaks is not installed here and runs in CI |
+| 8 | Dependency audit clean | held | pending phase 13's audit targets; licences are clean (`licences.md`: 0 flagged, 3 conditional) |
+| 9 | `.env.example` verified against the settings | passed | `make config-reference-check`, also in CI |
+| 10 | Sample configuration runs with no paid account | passed | `make sample-env && make up`, run 4 |
+| 11 | Issue and PR templates in place | passed, exercise held | PR template updated; see held repository settings |
+| 12 | Changelog and release notes prepared | passed | `CHANGELOG.md` 2026.9.13; `release.yml` extracts it (checked locally with the same awk) |
+| 13 | Every documentation code block executes | held | shell blocks in the README, setup and demo ran in the clean room; Python worked examples are fragments and are not executed |
+| 14 | Demonstration performed and recorded | passed for parts 1–2; parts 3–4 held | run 4 |
+
+### Held
+
+- **The tag and the first release.** A maintainer's; nothing here creates one.
+- **Real calls, a real model and real devices.** `docs/testing/manual-verification.md` has not been run.
+- **No production sign-in provider.** No deployment is safe to expose until one exists.
+- **Dependency vulnerability audit.** Phase 13.
+- **Repository settings, a maintainer's:** private vulnerability reporting is disabled, yet it is the only
+  channel `SECURITY.md` and the issue chooser name; the `provider` label the provider issue form
+  applies does not exist.
+- **The plan numbers two acceptance criteria 4**; the table keeps both.

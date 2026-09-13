@@ -66,7 +66,18 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    finishes first, so its leg can be cancelled too. When the provider refuses one step the rest
    are still tried and the call is released, and then the first refusal is raised. Shutting the
    service down terminates every call in progress the same way, for at most five seconds, and
-   then releases whatever is left.
+   then releases whatever is left. A call this process never held — one a stopped process left
+   up, ended as the next one starts — is ended by what the provider still knows: the caller's leg,
+   the conference by its name, and any leg dialled for the call that is still ringing or answered,
+   found by its numbers, from the number the call reached to the line it was forwarded from.
+
+### Whose call it is
+
+A caller dials the user's own number and the user's carrier forwards it to the account's number,
+which every user shares. The carrier's `ForwardedFrom` names the user's line, and the call belongs
+to the user who signed in with that number (`ForwardedCallOwnership`, D-033). A call dialled at the
+account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
+it and records nothing.
 
 ### Whose call it is
 
@@ -209,6 +220,23 @@ a different path prefix, a trailing slash the tunnel adds — is rejected with `
 No account is needed for the test suite: `tests/support/simulated_twilio.py` answers the REST API,
 signs every callback exactly as the provider does, opens real websockets to the application on
 loopback, and can duplicate, reorder and drop callbacks, fail a dial, and hang up either party.
+
+## Adding one
+
+The steps, the contract fixture and the capabilities a SIP, carrier or IMS transport would declare
+are in [`docs/architecture/call-transport.md`](../architecture/call-transport.md#adding-a-transport).
+The contract fixture for a new transport has the shape of the streaming transport's:
+
+```python
+class TestExampleCallTransport(CallTransportContract):
+    @pytest.fixture
+    async def transport(self) -> AsyncIterator[ExampleCallTransport]:
+        async with simulated_example_deployment() as deployment:
+            await deployment.provider.place_call(A_CALL.value)
+            yield deployment.transport
+```
+
+Add its column to the capability matrix in the same pull request; a test fails until it is there.
 
 ## Verified on the first real call, not here
 

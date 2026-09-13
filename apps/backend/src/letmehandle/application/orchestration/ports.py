@@ -100,7 +100,10 @@ class Bounds:
     one request to the transport, and `storage` one unit of work. `speaker_gone` is how long a
     conversation whose audio stopped waits for the transport to say the call ended. `summary` is how
     long teardown waits for a summary to be written before writing the facts' own; it is shorter
-    than `shutdown`, which is how long stopping waits for every call to be torn down.
+    than `shutdown`, which is how long stopping waits for every call to be torn down. `duration` is
+    how long a call may last at all: a transport whose report of a call ending is lost, as a
+    handset's is when the app is killed or offline, would otherwise leave the call held for as long
+    as the process runs.
     """
 
     ring: timedelta = timedelta(seconds=30)
@@ -111,6 +114,7 @@ class Bounds:
     speaker_gone: timedelta = timedelta(seconds=5)
     summary: timedelta = timedelta(seconds=10)
     shutdown: timedelta = timedelta(seconds=15)
+    duration: timedelta = timedelta(hours=4)
 
     def __post_init__(self) -> None:
         for bound in fields(self):

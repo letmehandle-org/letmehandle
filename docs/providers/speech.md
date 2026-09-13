@@ -53,6 +53,37 @@ the agent's security settings:
 
 The key is sent from the backend, which holds it. It is never sent to a device.
 
+## Adding one
+
+A new protocol is a new adapter; a new service that speaks an existing protocol is only
+configuration. A worked example, for a service with a websocket protocol of its own:
+
+1. **The adapter**, in `adapters/speech/<protocol>/`: a `SpeechProvider` whose `connect` returns a
+   `SpeechSession`, declaring `SpeechCapabilities` honestly. Reuse
+   `adapters/speech/session_support/` for bounded queues, reconnection and timing, as both existing
+   adapters do, so the guarantees above hold without being written a third time.
+2. **The contract**, in `apps/backend/tests/contracts/test_<protocol>_speech_contract.py`, against a
+   scripted service rather than the real one:
+
+   ```python
+   class TestExampleSpeechProvider(SpeechProviderContract):
+       @pytest.fixture
+       def provider(self) -> ExampleSpeechProvider:
+           self.service = ScriptedExampleService()
+           return ExampleSpeechProvider(
+               self.service.open,
+               RecordingMetrics(),
+               languages=("en",),
+               input_formats=(SPEECH_WIDEBAND, TELEPHONY_NARROWBAND),
+               output_format=SPEECH_WIDEBAND,
+           )
+   ```
+
+3. **The settings.** A member of `SpeechProviderName`, and any variable of its own in `Settings`
+   with a `description`, `.env.example` and the backend's environment in `docker-compose.yml`;
+   `make config-reference` writes the reference and `make verify` fails until they agree.
+4. **The choice.** A case in `build_speech_provider` in `bootstrap.py`. The match is exhaustive.
+
 ## Verifying without an account
 
 Every behaviour above is exercised in CI against in-process websocket servers that speak each

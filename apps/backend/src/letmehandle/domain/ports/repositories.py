@@ -79,11 +79,30 @@ class OTPChallengeRepository(ABC):
         """Store a changed challenge: one more attempt used, or one that has been verified."""
 
     @abstractmethod
-    async def count_issued_since(self, number: PhoneNumber, since: datetime) -> int:
-        """How many challenges this number has been sent lately.
+    async def issued_since(self, number: PhoneNumber, since: datetime) -> list[datetime]:
+        """When this number was sent each of its recent challenges, oldest first.
 
-        The basis of the rate limit. Counted per number rather than per account, because an
-        attacker enumerating numbers has no account.
+        The basis of the per-number limits and the resend cooldown. Counted per number rather than
+        per account, because an attacker enumerating numbers has no account.
+        """
+
+    @abstractmethod
+    async def failed_attempts_since(self, number: PhoneNumber, since: datetime) -> int:
+        """Wrong codes entered for this number, across every challenge issued since then.
+
+        Across challenges, because asking for a new code must not reset the count of guesses.
+        """
+
+    @abstractmethod
+    async def supersede_open(self, number: PhoneNumber, instant: datetime) -> int:
+        """Close every challenge still open for this number, returning how many were closed."""
+
+    @abstractmethod
+    async def count_all_issued_since(self, since: datetime, calling_code: str | None = None) -> int:
+        """Challenges sent to anybody since then, or to numbers with this calling code.
+
+        The deployment's own budget, which no single number or source can see: the shape of an
+        attack that sends codes to many numbers in one country to earn from the messages.
         """
 
     @abstractmethod

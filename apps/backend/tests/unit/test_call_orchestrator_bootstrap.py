@@ -3,17 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 
 from letmehandle.application.calls.summariser import ModelCallSummariser
 from letmehandle.application.orchestration.ports import AssistantServices
-from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
+from letmehandle.bootstrap import call_bounds
+from letmehandle.config.settings import (
+    ConfigurationError,
+    Settings,
+    TelephonyProviderName,
+    get_settings,
+)
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.ports.call_transport import CallEvent, CallEventKind
 from letmehandle.main import create_app
 from tests.contracts.fakes import StaticVoiceProvider
-from tests.support.config import TEST_TRANSCRIPT_KEYS, UNREACHABLE_DATABASE, make_settings
+from tests.support.config import (
+    REQUIRED_ENVIRONMENT,
+    TEST_TRANSCRIPT_KEYS,
+    UNREACHABLE_DATABASE,
+    make_settings,
+)
 from tests.support.orchestration import Agent, ControlledSpeech, eventually, running_tasks
 from tests.unit.test_call_transport_bootstrap import telephony_settings
 
@@ -114,3 +126,21 @@ async def test_a_streaming_deployment_builds_its_speech_service_and_agent_from_s
     async with app.router.lifespan_context(app):
         assert app.state.orchestrator is not None
         assert isinstance(app.state.orchestrator._context.summariser, ModelCallSummariser)
+
+
+def test_how_long_a_call_may_last_is_the_configured_bound() -> None:
+    assert call_bounds(make_settings()).duration == timedelta(hours=4)
+    assert call_bounds(make_settings(call_max_duration_seconds=600)).duration == timedelta(
+        minutes=10
+    )
+
+
+@pytest.mark.parametrize("seconds", ["30", "86401", "forever"])
+def test_a_call_duration_outside_a_minute_to_a_day_stops_startup(
+    monkeypatch: pytest.MonkeyPatch, seconds: str
+) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("CALL_MAX_DURATION_SECONDS", seconds)
+    with pytest.raises(ConfigurationError, match="CALL_MAX_DURATION_SECONDS"):
+        get_settings()

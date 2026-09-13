@@ -18,11 +18,13 @@ SOURCE = Path(__file__).resolve().parents[2] / "src" / "letmehandle"
 TRANSPORT_NAMES = ("twilio", "telnyx", "plivo", "vonage", "android", "android_native")
 
 # Each transport's own package, the one place besides bootstrap and configuration it may be named.
-# A name with no package here has no adapter yet, so it belongs nowhere else at all.
+# A name with no package here has no adapter yet, so it belongs nowhere else at all. The streaming
+# provider's account also delivers sign-in codes, and that adapter speaks through the transport's
+# API client, so it names the provider too; it is a provider of codes, not a transport choice.
 ADAPTERS = {
-    "twilio": "adapters/transport/twilio/",
-    "android": "adapters/transport/android_native/",
-    "android_native": "adapters/transport/android_native/",
+    "twilio": ("adapters/transport/twilio/", "adapters/otp/twilio_sms.py"),
+    "android": ("adapters/transport/android_native/",),
+    "android_native": ("adapters/transport/android_native/",),
 }
 
 # Where a transport's name belongs.
@@ -63,7 +65,7 @@ def test_a_transport_is_named_only_where_it_is_chosen_or_implemented(name: str) 
         relative = path.relative_to(SOURCE).as_posix()
         if (
             relative in ALWAYS_ALLOWED
-            or (name in ADAPTERS and relative.startswith(ADAPTERS[name]))
+            or relative.startswith(ADAPTERS.get(name, ()))
             or (relative, name) in EXEMPT
         ):
             continue

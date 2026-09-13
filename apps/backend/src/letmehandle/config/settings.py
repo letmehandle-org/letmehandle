@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import (
@@ -49,6 +50,7 @@ class OTPProviderName(StrEnum):
     """Which provider delivers sign-in codes."""
 
     MOCK = "mock"
+    TWILIO_SMS = "twilio_sms"
 
 
 class SpeechProviderName(StrEnum):
@@ -98,6 +100,15 @@ class TelephonyProviderName(StrEnum):
 
     TWILIO = "twilio"
     ANDROID_NATIVE = "android_native"
+
+
+@dataclass(frozen=True, slots=True)
+class SmsAccount:
+    """Everything the text-message code provider needs, present and checked."""
+
+    account_id: str
+    auth_token: str = field(repr=False)
+    sender: PhoneNumber
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +246,51 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+def _sender_from_text(value: object) -> object:
+    # The message names the variable and never repeats the value, as every number error here does.
+    if not isinstance(value, str):
+        return value
+    try:
+        return PhoneNumber.parse(value)
+    except InvariantError:
+        raise ValueError("SMS_FROM_NUMBER is not an international number in E.164 form") from None
+
+
+def parse_calling_codes(text: str) -> frozenset[str] | None:
+    """Country calling codes, comma-separated and without the plus: "91,1,44". Blank is any."""
+    entries = [entry.strip().lstrip("+") for entry in text.split(",") if entry.strip()]
+    if not entries:
+        return None
+    for position, entry in enumerate(entries, 1):
+        if not entry.isdigit() or not 1 <= len(entry) <= 3 or entry.startswith("0"):
+            raise ValueError(
+                f"OTP_ALLOWED_CALLING_CODES entry {position} is not a country calling code, "
+                "such as 91 or 1"
+            )
+    return frozenset(entries)
+
+
+def _calling_codes_from_text(value: object) -> object:
+    return parse_calling_codes(value) if isinstance(value, str) else value
+
+
+def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """The networks whose forwarding headers are believed, comma-separated CIDRs. Blank is none."""
+    networks: list[IPv4Network | IPv6Network] = []
+    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+        try:
+            networks.append(ip_network(entry, strict=False))
+        except ValueError:
+            raise ValueError(
+                f"TRUSTED_PROXY_CIDRS entry {position} is not a network, such as 10.0.0.0/8"
+            ) from None
+    return tuple(networks)
+
+
+def _proxy_networks_from_text(value: object) -> object:
+    return parse_proxy_networks(value) if isinstance(value, str) else value
+
+
 # How LLM_HEADERS is written, quoted in every error about it.
 LLM_HEADERS_FORMAT: Final = "Header-Name=value;Other-Header=value"
 
@@ -302,6 +358,13 @@ def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
     return value
 
 
+# When a group of variables is required, named once so the generated reference says it one way.
+_STREAMING_CALLS: Final = "`TELEPHONY_PROVIDER=twilio`"
+_MODEL: Final = "the agent judges calls or a model writes summaries; all three together"
+_APNS: Final = "any `APNS_` variable is set"
+_FCM: Final = "any `FCM_` variable is set"
+
+
 def _blank_is_absent(value: object) -> object:
     # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
     # leave them unset, not set to an empty string that then fails as a malformed URL.
@@ -327,19 +390,111 @@ class Settings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    app_env: Environment = Environment.DEVELOPMENT
-    log_level: str = "info"
-    log_format: LogFormat = LogFormat.CONSOLE
+    app_env: Environment = Field(
+        default=Environment.DEVELOPMENT,
+        description="Where the process runs. Production refuses what must never run there, such "
+        "as the mock sign-in provider.",
+    )
+    log_level: str = Field(default="info", description="How much is logged.")
+    log_format: LogFormat = Field(
+        default=LogFormat.CONSOLE, description="`json` in production, `console` in development."
+    )
 
-    database_url: Annotated[PostgresDsn | None, BeforeValidator(_blank_is_absent)] = None
+    database_url: Annotated[
+        PostgresDsn | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The PostgreSQL database, as `postgresql+asyncpg://user:password@host/db`.",
+            json_schema_extra={"required_when": "anything is stored: sign-in, calls, migrations"},
+        ),
+    ] = None
 
     # Authentication. The signing key has no default: a default signing key is a signing key
     # somebody forgets to change, and then anyone who has read this repository can mint a
     # token for any account.
-    auth_signing_key: SecretStr | None = None
-    auth_access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
-    auth_refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=3600)
-    otp_provider: OTPProviderName = OTPProviderName.MOCK
+    auth_signing_key: SecretStr | None = Field(
+        default=None,
+        description="Signs access tokens and keys the refresh-token hash. At least 32 characters, "
+        "fresh for every deployment; changing it signs everybody out.",
+        json_schema_extra={"required_when": "the API starts"},
+    )
+    auth_access_token_ttl_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=3600,
+        description="How long an access token lives. Short, because it cannot be revoked.",
+    )
+    auth_refresh_token_ttl_seconds: int = Field(
+        default=7_776_000,
+        ge=3600,
+        description="How long a refresh token lives: ninety days, sliding, so a phone that opens "
+        "the app within that long of the last time is never asked for its number again. Refresh "
+        "tokens rotate on every use.",
+    )
+    otp_provider: OTPProviderName = Field(
+        default=OTPProviderName.MOCK,
+        description="Who delivers sign-in codes. `mock` delivers nowhere, accepts the development "
+        "code, and refuses to start in production.",
+    )
+    otp_allowed_calling_codes: Annotated[
+        frozenset[str] | None,
+        NoDecode,
+        BeforeValidator(_calling_codes_from_text),
+        Field(
+            description="Country calling codes sign-in codes may be sent to, comma-separated "
+            "without the plus, such as 91,1,44. Blank sends anywhere; a production deployment "
+            "should list only the countries it serves (D-036).",
+        ),
+    ] = None
+    otp_challenges_per_hour: int | None = Field(
+        default=500,
+        ge=1,
+        description="The most sign-in codes the deployment sends in an hour. Past it, codes stop "
+        "for everybody until the hour rolls on (D-036).",
+    )
+    otp_challenges_per_hour_per_calling_code: int | None = Field(
+        default=100,
+        ge=1,
+        description="The most sign-in codes sent in an hour to numbers with any one calling code.",
+    )
+    trusted_proxy_cidrs: Annotated[
+        tuple[IPv4Network | IPv6Network, ...],
+        NoDecode,
+        BeforeValidator(_proxy_networks_from_text),
+        Field(
+            description="The proxies in front of the backend, as comma-separated CIDRs. Only "
+            "their X-Forwarded-For is believed when counting what one client asks for.",
+        ),
+    ] = ()
+    # The account the text-message code provider sends from, required only when it is chosen.
+    # Its own variables rather than the telephony account's: a deployment whose calls arrive on a
+    # handset has no telephony account at all and still needs codes delivered, and a credential
+    # that can only send texts is revoked without touching the one that carries calls.
+    sms_account_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The account sign-in texts are sent from.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
+    sms_auth_token: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="That account's auth token; anyone holding it can send texts on it.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
+    sms_from_number: Annotated[
+        PhoneNumber | None,
+        BeforeValidator(_sender_from_text),
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The number sign-in texts come from, in E.164 form.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
 
     # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
     # is optional at startup: nothing opens a speech session in a request yet, and a process that
@@ -347,15 +502,50 @@ class Settings(BaseSettings):
     # against. The shape is still checked when a value is present, so a typo fails here rather
     # than on the first call. The model names what a realtime service runs; the agent id names
     # which ElevenLabs agent to talk to; each is required only by its own protocol.
-    speech_provider: SpeechProviderName = SpeechProviderName.REALTIME
-    speech_endpoint_url: Annotated[AnyWebsocketUrl | None, BeforeValidator(_blank_is_absent)] = None
-    speech_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    speech_agent_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    speech_provider: SpeechProviderName = Field(
+        default=SpeechProviderName.REALTIME,
+        description="Which protocol the speech service speaks.",
+    )
+    speech_endpoint_url: Annotated[
+        AnyWebsocketUrl | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The speech service's `ws://` or `wss://` URL.",
+            json_schema_extra={"required_when": "the assistant takes calls"},
+        ),
+    ] = None
+    speech_model: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The model a `realtime` service runs.",
+            json_schema_extra={"required_when": "the assistant takes calls over `realtime`"},
+        ),
+    ] = None
+    speech_agent_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The agent an `elevenlabs` service talks as.",
+            json_schema_extra={"required_when": "the assistant takes calls over `elevenlabs`"},
+        ),
+    ] = None
     # Which model transcribes the caller, for a protocol that is told. Optional, and consequential:
     # without it the service answers the caller without writing down what they said, so the
     # conversation's record holds only one side of it.
-    speech_transcription_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    speech_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    speech_transcription_model: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="`realtime` only: the model that writes down what the caller says. Without "
+            "it only the assistant's side of a call is recorded."
+        ),
+    ] = None
+    speech_api_key: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="The speech service's key. Empty for a service that needs none."),
+    ] = None
 
     # The voices this deployment offers, and the one a call gets when nobody chose. No default: a
     # compatible server decides its own voices, so any list written here would be a list of voices
@@ -369,17 +559,35 @@ class Settings(BaseSettings):
         NoDecode,
         BeforeValidator(_blank_is_absent),
         BeforeValidator(_catalogue_from_text),
+        Field(
+            description="The voices offered, as `id:Display name:locale|locale`, comma-separated. "
+            "They must be voices the speech service can speak.",
+            json_schema_extra={"required_when": "the API starts"},
+        ),
     ] = None
-    speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    speech_default_voice: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="One of the ids in `SPEECH_VOICES`, for a call whose user chose none.",
+            json_schema_extra={"required_when": "the API starts"},
+        ),
+    ] = None
 
     # The keys transcripts are encrypted under, newest first (D-014). Optional at startup, like
     # the database URL: call history cannot be read without them and answers 503 instead, while
     # a migration or the purge, which never read a sealed record, must not need them. Checked
     # for shape whenever present, so a truncated key fails at startup rather than on the first
     # call.
-    transcript_encryption_keys: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = (
-        None
-    )
+    transcript_encryption_keys: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="AES-256-GCM keys for transcripts and summaries, as "
+            "`id:base64-key` pairs, comma-separated, newest first.",
+            json_schema_extra={"required_when": "call history is read or calls are carried"},
+        ),
+    ] = None
 
     # Telephony. All optional at startup, like the speech service. The provider chooses the call
     # transport; the rest is the streaming transport's account, which a deployment without one
@@ -387,23 +595,68 @@ class Settings(BaseSettings):
     # variable that is missing. The token is a secret and is never
     # rendered; the numbers are the ones calls are placed from, never anybody's own.
     telephony_provider: Annotated[
-        TelephonyProviderName | None, BeforeValidator(_blank_is_absent)
+        TelephonyProviderName | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="Which call transport carries calls. Empty carries none."),
     ] = None
-    telephony_account_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    telephony_auth_token: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    telephony_account_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The telephony account the REST API authenticates as.",
+            json_schema_extra={"required_when": _STREAMING_CALLS},
+        ),
+    ] = None
+    telephony_auth_token: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The account's auth token, which signs every callback.",
+            json_schema_extra={"required_when": _STREAMING_CALLS},
+        ),
+    ] = None
     telephony_numbers: Annotated[
         tuple[PhoneNumber, ...] | None,
         NoDecode,
         # Validators run last-listed first: a blank is set aside before anything parses it.
         BeforeValidator(_numbers_from_text),
         BeforeValidator(_blank_is_absent),
+        Field(
+            description="The numbers calls are placed from, comma-separated, in E.164 form.",
+            json_schema_extra={"required_when": _STREAMING_CALLS},
+        ),
     ] = None
-    telephony_app_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    telephony_app_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The provider-side application the assistant joins each call through.",
+            json_schema_extra={"required_when": _STREAMING_CALLS},
+        ),
+    ] = None
     # The URL the provider reaches this service on, and the one its signatures are computed
     # over. Configured rather than read from a request, because behind a proxy or a tunnel the
     # Host a request arrives with is not the URL the provider signed.
-    telephony_webhook_base_url: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = (
-        None
+    telephony_webhook_base_url: Annotated[
+        AnyHttpUrl | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The public base URL the provider calls back on, exactly as configured "
+            "there. Signatures are checked against it.",
+            json_schema_extra={"required_when": _STREAMING_CALLS},
+        ),
+    ] = None
+
+    # How long a call may last before its run ends it as failed. Generous, because a long call is a
+    # real call; bounded, because a call whose ending is never reported is otherwise held for as
+    # long as the process runs. Between a minute and a day.
+    call_max_duration_seconds: int = Field(
+        default=14_400,
+        ge=60,
+        le=86_400,
+        description="How long a call may last before it is ended as failed: generous, because a "
+        "long call is a real call, and bounded, because an ending never reported is otherwise "
+        "held for as long as the process runs.",
     )
 
     @field_validator("telephony_webhook_base_url")
@@ -418,15 +671,43 @@ class Settings(BaseSettings):
     # startup, like the speech service and for the same reason: nothing in a request asks the agent
     # for a judgement yet. The timeout bounds a whole judgement — every model turn and every tool —
     # because a caller is waiting on the line while it runs.
-    llm_base_url: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = None
-    llm_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
-    llm_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    llm_base_url: Annotated[
+        AnyHttpUrl | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The OpenAI-compatible endpoint the agent and the summariser use.",
+            json_schema_extra={"required_when": _MODEL},
+        ),
+    ] = None
+    llm_api_key: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The endpoint's key. Any value for a server that checks none.",
+            json_schema_extra={"required_when": _MODEL},
+        ),
+    ] = None
+    llm_model: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="The model to ask.", json_schema_extra={"required_when": _MODEL}),
+    ] = None
     llm_headers: Annotated[
         tuple[tuple[str, SecretStr], ...],
         NoDecode,
         BeforeValidator(_headers_from_text),
+        Field(
+            description="Extra headers some gateways ask for, as "
+            "`Header-Name=value;Other-Header=value`. Cannot set `Authorization`."
+        ),
     ] = ()
-    llm_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    llm_timeout_seconds: float = Field(
+        default=20,
+        gt=0,
+        le=120,
+        description="How long one judgement may take, in seconds, every model turn and tool "
+        "included.",
+    )
     # Push notifications for escalations (D-015). Each platform is optional and independent: a
     # deployment with neither still escalates, because the phone ringing is the escalation (D-016)
     # and the app fetches the context when no push arrives. Setting any variable of a platform
@@ -435,25 +716,79 @@ class Settings(BaseSettings):
     # Keys are given as their content rather than a path. A secret store or a container runtime
     # injects a value, not a file; a path would need a mounted volume as well as a variable, and a
     # second place for the secret to be left behind.
-    apns_key_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    apns_team_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    apns_private_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
-    apns_topic: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    apns_environment: Annotated[APNsEnvironmentName | None, BeforeValidator(_blank_is_absent)] = (
-        None
-    )
-    fcm_project_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
-    fcm_service_account_json: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    apns_key_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The 10-character id of the push token-signing key.",
+            json_schema_extra={"required_when": _APNS},
+        ),
+    ] = None
+    apns_team_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The 10-character team id of the developer account.",
+            json_schema_extra={"required_when": _APNS},
+        ),
+    ] = None
+    apns_private_key: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The .p8 key's content on one line, each newline written as `\\n`.",
+            json_schema_extra={"required_when": _APNS},
+        ),
+    ] = None
+    apns_topic: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The app's bundle identifier, which notifications are sent to.",
+            json_schema_extra={"required_when": _APNS},
+        ),
+    ] = None
+    apns_environment: Annotated[
+        APNsEnvironmentName | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="`sandbox` for development builds, `production` for distributed ones.",
+            json_schema_extra={"required_when": _APNS},
+        ),
+    ] = None
+    fcm_project_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="The Firebase project id.", json_schema_extra={"required_when": _FCM}),
+    ] = None
+    fcm_service_account_json: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The service account's JSON key, on one line, allowed to send messages.",
+            json_schema_extra={"required_when": _FCM},
+        ),
+    ] = None
 
     # Observability. Spans are exported over OTLP's HTTP protocol to this URL, a collector's traces
     # endpoint, and to nowhere without one: a deployment with no tracing backend runs with none and
     # loses nothing else. The URL is the collector's, never a credential; one that needs a key is
     # reached through a collector beside the service rather than configured here.
-    tracing_otlp_endpoint: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = None
+    tracing_otlp_endpoint: Annotated[
+        AnyHttpUrl | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="An OTLP/HTTP collector spans are exported to. Blank exports none."),
+    ] = None
     # The bearer token the diagnostics routes require. Without one they do not exist: they list live
     # calls and every provider's latency, which no signed-in user of the app is owed.
     diagnostics_token: Annotated[
-        SecretStr | None, BeforeValidator(_blank_is_absent), AfterValidator(_long_enough_to_guard)
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        AfterValidator(_long_enough_to_guard),
+        Field(
+            description="The bearer token the diagnostics routes require, at least 32 characters. "
+            "Blank leaves those routes unmounted.",
+        ),
     ] = None
 
     @field_validator("log_level")
@@ -574,6 +909,25 @@ class Settings(BaseSettings):
                 f"Set it in .env as {TRANSCRIPT_KEYS_FORMAT!r}; see .env.example."
             )
         return parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
+
+    def require_sms_account(self) -> SmsAccount:
+        """What the text-message code provider needs, or a failure naming every variable missing."""
+        account_id, token, sender = self.sms_account_id, self.sms_auth_token, self.sms_from_number
+        if account_id is None or token is None or sender is None:
+            missing = [
+                name
+                for name, value in (
+                    ("SMS_ACCOUNT_ID", account_id),
+                    ("SMS_AUTH_TOKEN", token),
+                    ("SMS_FROM_NUMBER", sender),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to send sign-in codes with "
+                f"OTP_PROVIDER={self.otp_provider}. Set them in .env; see .env.example."
+            )
+        return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.

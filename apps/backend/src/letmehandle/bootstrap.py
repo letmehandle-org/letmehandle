@@ -10,7 +10,7 @@ It is also the only module permitted to name a provider. A test asserts that no 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
@@ -44,6 +44,7 @@ from letmehandle.adapters.notification.fcm import provider as fcm
 from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
 from letmehandle.adapters.notification.shared import CredentialError
 from letmehandle.adapters.otp.mock import MockOTPProvider
+from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
 from letmehandle.adapters.security.hashing import (
     DeterministicHasher,
@@ -73,6 +74,7 @@ from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
+from letmehandle.application.auth.service import AuthenticationPolicy
 from letmehandle.application.calls.reports import ReportedCallOwnership
 from letmehandle.application.calls.summariser import ModelCallSummariser
 from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
@@ -101,6 +103,7 @@ from letmehandle.observability.tracing import NoTracer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
+    from ipaddress import IPv4Network, IPv6Network
 
     import httpx
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -162,6 +165,11 @@ class Container:
     # One per configured platform, possibly none. A platform without one is an outcome at
     # dispatch, not a startup failure: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
+    # Where sign-in codes may go and how many the deployment sends: see AuthenticationPolicy.
+    auth_limits: AuthenticationPolicy = field(default_factory=AuthenticationPolicy)
+    # Proxies whose forwarding headers are believed when counting what one client asks for.
+    trusted_proxies: tuple[IPv4Network | IPv6Network, ...] = ()
+    metrics: MetricsRecorder | None = None
 
 
 def build_container(
@@ -204,6 +212,14 @@ def build_container(
         notifications=build_notification_providers(settings, clock=clock),
         reported_calls=reported_calls,
         forwarding=build_call_forwarding(settings),
+        auth_limits=AuthenticationPolicy(
+            refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+            allowed_calling_codes=settings.otp_allowed_calling_codes,
+            challenges_per_hour=settings.otp_challenges_per_hour,
+            challenges_per_hour_per_calling_code=settings.otp_challenges_per_hour_per_calling_code,
+        ),
+        trusted_proxies=settings.trusted_proxy_cidrs,
+        metrics=LoggingMetricsRecorder(),
     )
 
 
@@ -359,9 +375,9 @@ class _Closable(Protocol):
         """Release what it holds."""
 
 
-async def close_notification_providers(container: Container) -> None:
+async def close_providers(container: Container) -> None:
     """Close each provider's connection. Called once, as the application stops."""
-    for provider in container.notifications:
+    for provider in (container.otp, *container.notifications):
         if isinstance(provider, _Closable):
             await provider.aclose()
 
@@ -580,7 +596,7 @@ def build_call_orchestrator(
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
     # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
-    bounds = Bounds()
+    bounds = call_bounds(settings)
     if summariser is None and settings.llm_configured:
         summariser = build_call_summariser(settings, timeout=bounds.summary)
     return CallOrchestrator(
@@ -596,6 +612,11 @@ def build_call_orchestrator(
         summariser=summariser,
         bounds=bounds,
     )
+
+
+def call_bounds(settings: Settings) -> Bounds:
+    """How long anything on a call may take, with how long a call may last as configured."""
+    return Bounds(duration=timedelta(seconds=settings.call_max_duration_seconds))
 
 
 def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:
@@ -661,6 +682,13 @@ def _build_otp_provider(settings: Settings) -> OTPProvider:
     match settings.otp_provider:
         case OTPProviderName.MOCK:
             return MockOTPProvider(is_production=settings.is_production)
+        case OTPProviderName.TWILIO_SMS:
+            account = settings.require_sms_account()
+            return SmsOTPProvider(
+                account_id=account.account_id,
+                auth_token=account.auth_token,
+                sender=account.sender,
+            )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             # Not dead code: it is what makes the type checker reject a new provider that has
             # not been wired in here. Unreachable at run time is exactly the point.

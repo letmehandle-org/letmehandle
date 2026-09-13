@@ -67,8 +67,24 @@ api-types-check: ## Fail if the generated types have drifted from the backend
 		exit 1; \
 	fi
 
+.PHONY: config-reference
+config-reference: ## Regenerate the configuration reference from the settings definition
+	@cd $(BACKEND) && uv run python ../../scripts/generate_config_reference.py
+
+.PHONY: config-reference-check
+config-reference-check: ## Fail if the reference, .env.example or the compose file drifted from the settings
+	@cd $(BACKEND) && uv run python ../../scripts/generate_config_reference.py --check
+
+.PHONY: docs-check
+docs-check: ## Fail if a link between the repository's documents points at nothing
+	@python3 scripts/check_doc_links.py
+
+.PHONY: licences
+licences: ## Regenerate the third-party licence report
+	@cd $(BACKEND) && uv run python ../../scripts/licence_report.py
+
 .PHONY: verify
-verify: audit lint typecheck test coverage api-types-check ## Everything. What pre-push and CI run.
+verify: audit lint typecheck test coverage api-types-check config-reference-check docs-check ## Everything. What pre-push and CI run.
 	@echo -e "\033[32mverify passed\033[0m"
 
 .PHONY: audit
@@ -99,7 +115,7 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py ../../scripts/generate_config_reference.py ../../scripts/licence_report.py && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 
@@ -135,10 +151,14 @@ database-or-explain:
 		exit 1; \
 	}
 
+.PHONY: sample-env
+sample-env: ## Write a .env that runs with mock providers and fresh keys, no paid account
+	@python3 scripts/create_sample_env.py
+
 .PHONY: up
-up: ## Start the local dependencies and the backend
+up: ## Start the database, migrate it, and start the backend
 	@docker compose up -d --wait
-	@echo "backend: http://localhost:8000/health"
+	@echo "backend: http://localhost:$(BACKEND_PORT)/health"
 
 .PHONY: down
 down: ## Stop them

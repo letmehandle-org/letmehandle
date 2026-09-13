@@ -68,11 +68,34 @@ class InMemoryChallengeRepository(OTPChallengeRepository):
     async def update(self, challenge: OTPChallenge) -> None:
         self.by_id[challenge.id] = challenge
 
-    async def count_issued_since(self, number: PhoneNumber, since: datetime) -> int:
+    async def issued_since(self, number: PhoneNumber, since: datetime) -> list[datetime]:
+        return sorted(
+            challenge.issued_at
+            for challenge in self.by_id.values()
+            if challenge.phone_number == number and challenge.issued_at >= since
+        )
+
+    async def failed_attempts_since(self, number: PhoneNumber, since: datetime) -> int:
+        return sum(
+            challenge.failed_attempts
+            for challenge in self.by_id.values()
+            if challenge.phone_number == number and challenge.issued_at >= since
+        )
+
+    async def supersede_open(self, number: PhoneNumber, instant: datetime) -> int:
+        closed = 0
+        for key, challenge in list(self.by_id.items()):
+            if challenge.phone_number == number and challenge.is_open_at(instant):
+                self.by_id[key] = challenge.superseded(instant)
+                closed += 1
+        return closed
+
+    async def count_all_issued_since(self, since: datetime, calling_code: str | None = None) -> int:
         return sum(
             1
             for challenge in self.by_id.values()
-            if challenge.phone_number == number and challenge.issued_at >= since
+            if challenge.issued_at >= since
+            and (calling_code is None or challenge.phone_number.calling_code == calling_code)
         )
 
     async def delete_expired(self, before: datetime) -> int:

@@ -68,6 +68,10 @@ type Asking = Callable[[asyncio.Future[None]], Request]
 # rather than taken for a new call. Bounded: a process runs for weeks.
 REMEMBERED_ENDINGS: Final = 10_000
 
+# How many live calls one account may have. More than a person has at once on any line, and few
+# enough that a handset reporting new calls in a loop holds a handful of runs, not thousands.
+LIVE_CALLS_PER_ACCOUNT: Final = 5
+
 
 class CallOrchestrator:
     """Owns every live call on one transport, from arrival to teardown.
@@ -111,6 +115,7 @@ class CallOrchestrator:
             circuits=circuits,
             bounds=bounds or Bounds(),
             summariser=summariser,
+            admits=self._admits,
         )
         self._assistance = (
             None
@@ -223,6 +228,11 @@ class CallOrchestrator:
             self._context.metrics.increment(DEGRADED, {"stage": "speech"})
             return None
         return self._assistance
+
+    def _admits(self, user_id: UserId) -> bool:
+        """Whether this account has fewer live calls than `LIVE_CALLS_PER_ACCOUNT`."""
+        live = sum(1 for run in self._runs.values() if run.owner == user_id and not run.is_over)
+        return live < LIVE_CALLS_PER_ACCOUNT
 
     async def _consume(self) -> None:
         async for event in self._transport.events():
