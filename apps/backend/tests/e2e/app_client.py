@@ -1,9 +1,4 @@
-"""The mobile app, as far as the backend can tell: HTTP requests with a bearer token.
-
-Everything a scenario sets up or reads back about a user goes through here, over the real routes, so
-a scenario proves what the app would see rather than what storage holds. Signing in reads the code
-the mock one-time-password provider recorded, which is reading the text message.
-"""
+"""The mobile app as the backend sees it: HTTP requests over the real routes with a bearer token."""
 
 from __future__ import annotations
 
@@ -37,11 +32,7 @@ def call_handling(
     anonymous: str = "handle_with_agent",
     escalate_at_or_above: int = 40,
 ) -> Json:
-    """Call handling stated in full, with no hours: the assistant answers around the clock (D-030).
-
-    Every posture is explicit, so a scenario does not depend on which routing function reads it or
-    on a default that later changes.
-    """
+    """Every posture explicit and no hours, so the assistant always answers (D-030)."""
     return {
         "call_handling": {
             "default_posture": default,

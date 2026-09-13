@@ -1,19 +1,4 @@
-"""The whole system, running, with a controllable stand-in wherever the world would be.
-
-A system here is the application `create_app` builds, served over real HTTP on loopback with its
-real lifespan — so the orchestrator is the one that lifespan starts, storing in PostgreSQL through
-the application's own engine — and the stand-ins it talks to:
-
-- telephony: the simulated provider, calling the application back with signed requests and opening
-  a real media websocket to it; or a handset, reporting over the application's own route;
-- speech: an echo session a scenario speaks through, or the real speech adapter against the
-  simulated realtime service when what is under test is the speech connection itself;
-- the model: a script, run inside the real agent loop, tools and escalation policy;
-- push: a recording provider per platform, behind the real dispatcher.
-
-Every scenario ends by counting what is left, and by reading what the run emitted for anything
-that identifies a caller.
-"""
+"""The whole application on loopback, with a controllable stand-in for each outside service."""
 
 from __future__ import annotations
 
@@ -87,15 +72,13 @@ CALLER: Final = "+12025550123"
 DRIVER: Final = "+12025550124"
 IMPORTANT_CALLER: Final = "+12025550145"
 
-# What the scenarios' deployments guard diagnostics with. Made up here, and good for nothing else.
+# The bearer token the scenarios' deployments guard diagnostics with.
 DIAGNOSTICS_TOKEN: Final = "diagnostics-bearer-for-e2e-scenarios-only"
 
-# How long one judgement may take the scripted model. It answers at once, so this only bounds a
-# scenario that has gone wrong.
+# How long one judgement by the scripted model may take.
 JUDGEMENT: Final = timedelta(seconds=5)
 
-# How long a scenario waits for something the system is about to do. Everything here happens over
-# loopback in milliseconds; a wait that runs this long is a defect, not a slow machine.
+# How long a scenario waits for something the system is about to do.
 PATIENCE_SECONDS: Final = 10.0
 
 # How often a scenario reads again what offers nothing to await.
@@ -126,12 +109,7 @@ def product_tasks() -> set[asyncio.Task[object]]:
 
 
 class WithoutBridging(CallTransport):
-    """The streaming transport with bridging withheld.
-
-    A capability set that answers and carries a conversation but cannot add anybody to a call —
-    the one on which escalation has no step to take. Everything it does declare is the real
-    transport's, so the only difference a scenario on it can see is the missing capability.
-    """
+    """The streaming transport with bridging withheld, and every other capability its own."""
 
     def __init__(self, inner: TwilioCallTransport) -> None:
         self.inner = inner
@@ -216,10 +194,7 @@ class System:
         return await self.stored_when(account, call_id, lambda call: call.state is state)
 
     async def joined_by_the_user(self, account: Account, call_id: str) -> CallSession:
-        """The call once the user has joined it and that is stored.
-
-        The move and the join are two writes, so a read between them sees one without the other.
-        """
+        """The stored call once the user has joined it and is recorded as a participant."""
         return await self.stored_when(
             account,
             call_id,
@@ -352,8 +327,7 @@ def _party(to: str) -> str:
 async def a_user(
     system: System, *, preferences: Json | None = None, devices: bool = True
 ) -> Account:
-    """The user, signed in through the app, with their call handling set and, by default, a phone
-    on each push platform."""
+    """The user signed in with call handling set and, by default, a device on each push platform."""
     account = await system.api.sign_in(USERS_LINE)
     await system.api.configure(account, preferences or call_handling())
     if devices:
@@ -367,11 +341,7 @@ class HandsetSystem(System):
 
 
 def streaming_settings(database: str, *, speech_endpoint: str | None = None) -> Settings:
-    """A deployment on the simulated telephony account, storing in `database`.
-
-    With `speech_endpoint`, it speaks to that realtime service and asks for the caller's words.
-    Its diagnostics are on, behind `DIAGNOSTICS_TOKEN`, as a deployment investigating a call has.
-    """
+    """A deployment on the simulated telephony account, optionally speaking to `speech_endpoint`."""
     return make_settings(
         database_url=database,
         diagnostics_token=DIAGNOSTICS_TOKEN,
@@ -400,11 +370,7 @@ async def streaming_system(
     provider: SimulatedTwilio | None = None,
     without_bridging: bool = False,
 ) -> AsyncIterator[StreamingSystem]:
-    """The application on the streaming transport, with the model reading `steps`.
-
-    `provider` is a simulated provider already carrying calls, for a system started in place of one
-    that stopped; it is left open for whoever made it. Without one, a provider is made and closed.
-    """
+    """The streaming application, the model reading `steps`; a given `provider` is left open."""
     chosen = settings or streaming_settings(database)
     simulated = provider or SimulatedTwilio()
     # The deployment's own observability, with its spans kept for the scenario to read.
@@ -474,7 +440,7 @@ class Emitted:
 
     def mentions(self, *texts: str) -> list[str]:
         """Which of `texts` appear anywhere in what was emitted."""
-        # A capture that saw nothing would find nothing, and pass for the wrong reason.
+        # An empty capture would find nothing.
         assert self.lines, "no log line was captured"
         everything = "\n".join([*self.lines, *map(repr, self.pushes.sent())])
         return [text for text in texts if text in everything]

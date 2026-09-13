@@ -1,9 +1,4 @@
-"""Calls the assistant takes, or does not, before anybody has to be reached.
-
-A: a routine call the assistant handles to the end. C: a caller the user marked as important, put
-straight through without the assistant or the model. D: a caller asking the assistant for something
-it was never allowed to do, and telling it to ignore its instructions.
-"""
+"""Calls the assistant takes, or does not, before anybody has to be reached: A, C and D."""
 
 from __future__ import annotations
 

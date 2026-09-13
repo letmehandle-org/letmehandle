@@ -1,14 +1,4 @@
-"""E: the speech service failing, with the real speech adapter on the call.
-
-Here the assistant's voice is the product's own realtime speech adapter, over a real websocket to
-the simulated realtime service, carrying the caller's audio from the telephony stream and speaking
-back onto it. The service fails in the three places a call can meet it: refusing the connection as
-the call is answered, dropping mid-utterance, and refusing the reconnection after a drop.
-
-What is documented for each: a session that cannot open fails the call and ends it for the caller;
-a dropped connection is replaced and the conversation carries on; a replacement refused ends the
-call too. In none of them is the caller left on an open line with nobody speaking.
-"""
+"""E: the speech service refusing, dropping and refusing to reconnect, on the real adapter."""
 
 from __future__ import annotations
 

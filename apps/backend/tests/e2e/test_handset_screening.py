@@ -1,18 +1,4 @@
-"""Calls a handset screened before they rang, as the backend learns of them: afterwards, by report.
-
-The decision itself is made on the handset from its snapshot of the user's rules (D-028), and the
-Android code that makes it is tested on the JVM. What these scenarios run is everything after that:
-the handset's reports over the authenticated route, repeated as a handset resends them, the one
-orchestrator reading them, and the activity the user reads back.
-
-T1: allowed, rung natively and answered. T2: rejected, never rung. T3: silenced. The handset's
-rules never choose to silence a call — every posture becomes ring or reject there — so T3 cannot
-arise from the rules today; a report of one is still accepted, and what is recorded is below.
-
-T4 (a decision under the platform's deadline) and T5 (the screening role withdrawn while running)
-happen inside the Android process and are not reached from here. T4's logic is covered on the JVM
-by `DeadlineScreenerTest`; T5 has no instrumented run and is held for the manual script.
-"""
+"""Calls a handset screened before ringing, reported afterwards: T1, T2 and T3 (D-028)."""
 
 from __future__ import annotations
 
@@ -35,11 +21,7 @@ STARTED = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
 
 
 def handset_id(serial: str) -> str:
-    """An identifier in the handset's own form: a random UUID, as `CallScreeningGraph` makes one.
-
-    Not a short label, because the product stores the call under the account's identifier and
-    this one together, and only the handset's real length shows whether that still fits.
-    """
+    """An identifier in the handset's own form, a random UUID as `CallScreeningGraph` makes one."""
     return f"00000000-0000-4000-8000-{serial:0>12}"
 
 
@@ -60,8 +42,7 @@ def recorded_as(account: Account, call: str) -> str:
 
 
 async def reported_twice(system: HandsetSystem, account: Account, *reports: Json) -> None:
-    """Each report sent, then the whole batch again, as a handset resends what it did not see
-    acknowledged."""
+    """Each report sent, then the whole batch again, as a handset resends unacknowledged reports."""
     for each in reports:
         receipt = await system.api.report(account, each)
         assert receipt["accepted"] == [each["event_id"]]
@@ -156,8 +137,7 @@ async def test_t3_a_silenced_call_is_recorded_as_one_that_rang(
         )
         detail = await system.ended(account, call_id)
 
-        # A silenced call still rings, without sound, and the user may answer it: the activity
-        # records it the way it records a call allowed to ring, and says nothing about the silence.
+        # A silenced call is recorded as a call allowed to ring.
         assert detail["handling"] == "passed_through"
         assert detail["outcome"] == "passed_through"
         call = await system.stored(account, call_id)

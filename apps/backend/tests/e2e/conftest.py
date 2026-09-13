@@ -1,10 +1,4 @@
-"""What every end-to-end scenario stands on: a database of its own, and push services to read.
-
-The scenarios run the application the way a deployment runs it — its own settings, its own engine,
-its own lifespan starting the orchestrator — so it cannot be pointed at a schema the way the
-integration suites point their engines. It gets a database instead, created for this run, named
-after the process, emptied before every scenario and dropped at the end.
-"""
+"""Fixtures for end-to-end scenarios: a database for the run, recorded pushes and captured logs."""
 
 from __future__ import annotations
 
@@ -36,8 +30,7 @@ if TYPE_CHECKING:
 
 DATABASE = f"letmehandle_e2e_{os.getpid()}_{secrets.token_hex(4)}"
 
-# How long the transport waits for news of a dialled leg before calling it unreachable. Two seconds
-# in production; a scenario whose every leg is heard of waits that long for nothing at teardown.
+# How long the transport waits for news of a dialled leg before calling it unreachable.
 GRACE_SECONDS = 0.2
 
 
@@ -77,11 +70,7 @@ async def database(e2e_database: str) -> str:
 
 @pytest.fixture
 def pushes(monkeypatch: pytest.MonkeyPatch) -> Pushes:
-    """Both push platforms, recording what they were asked to deliver.
-
-    Put where the application chooses its providers from configuration, because the real ones need
-    credentials and a platform's servers; everything from the dispatcher inward is the product's.
-    """
+    """Both push platforms, recording what they were asked to deliver."""
     recorded = Pushes(
         ios=RecordingNotificationProvider(DevicePlatform.IOS),
         android=RecordingNotificationProvider(DevicePlatform.ANDROID),
@@ -113,12 +102,7 @@ _PRINTING_METHODS = (
 
 @pytest.fixture
 def emitted(monkeypatch: pytest.MonkeyPatch, pushes: Pushes) -> Emitted:
-    """What the run logs and pushes, kept so a scenario can look for anything identifying in it.
-
-    Read where a rendered line is written rather than through structlog's processors: a logger
-    is cached on first use with the processors configured at the time, so a capture installed
-    later would miss every logger an earlier test had already used.
-    """
+    """What the run logs and pushes, captured where structlog writes each line."""
     recorded = Emitted(lines=[], pushes=pushes)
     printing = structlog.PrintLogger.msg
 
