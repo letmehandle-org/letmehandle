@@ -185,6 +185,10 @@ class CallRow(Base):
     caller_category: Mapped[str] = mapped_column(String(32), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Whom routing gave the call to, and when the assistant first asked for the user: what
+    # history shows of a call's path once its final state no longer says.
+    handling: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Set by the first line written, and never cleared, least of all by the purge: once every
     # line has expired this is the only thing that tells a purged transcript from a call nothing

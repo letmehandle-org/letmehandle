@@ -21,6 +21,7 @@ from sqlalchemy.orm import aliased
 
 from letmehandle.domain.errors import AlreadyRecordedError, InvariantError, RecordNotFoundError
 from letmehandle.domain.models.call import (
+    CallHandling,
     CallSession,
     Participant,
     ParticipantRole,
@@ -118,6 +119,8 @@ class SqlCallRepository(CallRepository):
             "caller_ciphertext": sealed.ciphertext,
             "caller_category": call.caller.category.value,
             "ended_at": call.ended_at,
+            "handling": None if call.handling is None else call.handling.value,
+            "escalated_at": call.escalated_at,
             "updated_at": self._clock.now(),
         }
         statement = insert(CallRow).values(
@@ -237,6 +240,8 @@ class SqlCallRepository(CallRepository):
             state=CallState(row.state),
             participants=participants,
             ended_at=row.ended_at,
+            handling=None if row.handling is None else CallHandling(row.handling),
+            escalated_at=row.escalated_at,
         )
 
 

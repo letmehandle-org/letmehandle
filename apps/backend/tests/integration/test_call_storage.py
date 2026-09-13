@@ -32,6 +32,7 @@ from letmehandle.domain.errors import (
     UnknownKeyError,
 )
 from letmehandle.domain.models.call import (
+    CallHandling,
     CallSession,
     Participant,
     ParticipantRole,
@@ -134,7 +135,7 @@ class TestCalls:
 
         call.move_to(CallState.AGENT_HANDLING)
         call.add_participant(ParticipantRole.AGENT, later(1))
-        call.move_to(CallState.ESCALATION_REQUESTED)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
         call.move_to(CallState.HUMAN_RINGING)
         call.move_to(CallState.HUMAN_JOINED)
         call.add_participant(ParticipantRole.HUMAN, later(20))
@@ -156,6 +157,8 @@ class TestCalls:
         assert stored.participants[1] == Participant(ParticipantRole.AGENT, later(1), later(21))
         assert stored.caller == Caller()
         assert stored.duration_seconds() == 90
+        assert stored.handling is CallHandling.ASSISTANT
+        assert stored.escalated_at == later(10)
 
     async def test_saving_again_replaces_the_participants(
         self, session: AsyncSession, calls: SqlCallRepository

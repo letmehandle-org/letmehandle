@@ -74,7 +74,7 @@ def escalated(
     call = a_call(caller)
     call.move_to(CallState.AGENT_HANDLING)
     call.add_participant(ParticipantRole.AGENT, at(1))
-    call.move_to(CallState.ESCALATION_REQUESTED)
+    call.move_to(CallState.ESCALATION_REQUESTED, at_instant=at(10))
     call.move_to(CallState.HUMAN_RINGING)
     if answered:
         call.move_to(CallState.HUMAN_JOINED)
