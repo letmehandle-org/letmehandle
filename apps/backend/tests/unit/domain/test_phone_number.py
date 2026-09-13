@@ -86,3 +86,15 @@ def test_the_default_string_form_is_masked() -> None:
     number = PhoneNumber.parse(FICTIONAL)
     assert f"{number}" == number.masked
     assert number.value not in f"{number}"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        FICTIONAL + "\n",  # `$` alone would let a trailing newline through
+        "+" + "".join(chr(0x0660 + int(digit)) for digit in FICTIONAL[1:]),  # Arabic-Indic digits
+    ],
+)
+def test_only_ascii_digits_and_nothing_after_them_make_the_stored_form(value: str) -> None:
+    with pytest.raises(InvariantError):
+        PhoneNumber(value)
