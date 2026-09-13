@@ -18,6 +18,42 @@ def enableProguardInReleaseBuilds = false
 // The JavaScriptCore flavour; the -intl variant adds ICU locale data.
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * What a release build is, given from outside: the release workflow passes the version it builds
+ * and where the published app looks for newer ones. A contributor's build passes nothing and gets
+ * version 1 with self-update switched off, so an app built from source never replaces itself with
+ * a published one.
+ */
+def lmhVersionName = (findProperty('lmhVersionName') ?: '1.0').toString()
+def lmhVersionCode = (findProperty('lmhVersionCode') ?: '1').toString()
+// 2100000000 is the largest versionCode Google Play accepts; staying under it keeps that door open.
+if (!(lmhVersionCode ==~ /[1-9][0-9]{0,9}/) || lmhVersionCode.toLong() > 2100000000L) {
+    throw new GradleException("lmhVersionCode must be a whole number from 1 to 2100000000, got ${lmhVersionCode}")
+}
+def lmhUpdateManifestUrl = (findProperty('lmhUpdateManifestUrl') ?: '').toString()
+// Written into Java source as a string literal, so nothing that could end the literal is let in.
+if (!(lmhUpdateManifestUrl.isEmpty() || lmhUpdateManifestUrl ==~ /https:\/\/[^\s"\\]+/)) {
+    throw new GradleException("lmhUpdateManifestUrl must be empty or an https URL")
+}
+
+/**
+ * The release key, from the environment only, so no file in the repository ever names it. Without
+ * it a release build is signed with the debug key, which is enough to try a release build locally.
+ * The release workflow passes -PlmhRequireReleaseSigning=true, so a published APK can never be a
+ * debug-signed one.
+ */
+def releaseSigningVariables = [
+    'LMH_ANDROID_KEYSTORE_FILE',
+    'LMH_ANDROID_KEYSTORE_PASSWORD',
+    'LMH_ANDROID_KEY_ALIAS',
+    'LMH_ANDROID_KEY_PASSWORD',
+]
+def missingReleaseSigning = releaseSigningVariables.findAll { !System.getenv(it) }
+def hasReleaseSigning = missingReleaseSigning.isEmpty()
+if (!hasReleaseSigning && (findProperty('lmhRequireReleaseSigning') ?: 'false').toString().toBoolean()) {
+    throw new GradleException("release signing is required, and these are not set: ${missingReleaseSigning.join(', ')}")
+}
+
 android {
     // Fonts come from apps/mobile/assets, shared with iOS.
     sourceSets {
@@ -32,8 +68,10 @@ android {
         applicationId "org.letmehandle.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode lmhVersionCode.toInteger()
+        versionName lmhVersionName
+        // Empty turns self-update off entirely (see update/SelfUpdater.kt).
+        buildConfigField "String", "UPDATE_MANIFEST_URL", "\"${lmhUpdateManifestUrl}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     testOptions {
@@ -49,14 +87,21 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(System.getenv('LMH_ANDROID_KEYSTORE_FILE'))
+                storePassword System.getenv('LMH_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('LMH_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('LMH_ANDROID_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Release builds are signed with the debug keystore.
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

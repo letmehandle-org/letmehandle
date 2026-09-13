@@ -37,6 +37,7 @@ apps/mobile/android/app/build/
 apps/mobile/android/local.properties
 *.keystore
 !debug.keystore
+*.jks
 
 # React Native, Metro
 .metro-health-check*
