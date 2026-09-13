@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.domain.failures import classify
+from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.call import TranscriptEntry
+from letmehandle.domain.models.call_state import CallState
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -25,20 +27,23 @@ if TYPE_CHECKING:
 
     from letmehandle.application.orchestration.ports import Bounds, CallStores, OpenCallStores
     from letmehandle.domain.models.call import CallSession, ParticipantRole, Speaker
-    from letmehandle.domain.models.call_state import CallState
     from letmehandle.domain.models.summary import CallSummary
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
 
 logger = get_logger(__name__)
 
-STORAGE_FAILED: Final = "call.storage_failed"
+STORAGE_FAILED: Final = catalogue.count(
+    "call.storage_failed",
+    stage={"open", "move", "join", "leave", "transcript", "final", "summary"},
+    kind=FailureKind,
+)
 
 # How many times teardown's final save is tried, each within the storage bound. More than once,
 # because the one write a call cannot do without meeting a connection reset is worth another try;
 # few, because a database that is down stays down for longer than a teardown should wait.
 FINAL_SAVE_ATTEMPTS: Final = 3
-TRANSITION: Final = "call.transition"
+TRANSITION: Final = catalogue.count("call.transition", outcome=CallState)
 
 
 class CallLedger:

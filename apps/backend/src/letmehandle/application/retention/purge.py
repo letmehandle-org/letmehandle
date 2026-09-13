@@ -39,6 +39,7 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
 )
 from letmehandle.domain.ports.repositories import MAX_PURGE_BATCH, check_page_size
+from letmehandle.observability import catalogue
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,12 +54,16 @@ if TYPE_CHECKING:
         TranscriptRetentionRepository,
     )
 
-PURGE_RUNS: Final = "transcripts.purge.runs"
-PURGE_DELETED: Final = "transcripts.purge.deleted_entries"
-PURGE_USERS: Final = "transcripts.purge.users_examined"
-PURGE_SKIPPED: Final = "transcripts.purge.users_skipped"
+PURGE_RUNS: Final = catalogue.count(
+    "transcripts.purge.runs", outcome={"completed", "incomplete", "failed"}
+)
+PURGE_DELETED: Final = catalogue.measure("transcripts.purge.deleted_entries")
+PURGE_USERS: Final = catalogue.measure("transcripts.purge.users_examined")
+PURGE_SKIPPED: Final = catalogue.measure("transcripts.purge.users_skipped")
 # One count per user passed over, labelled with why and never with who.
-PURGE_USER_SKIPPED: Final = "transcripts.purge.user_skipped"
+PURGE_USER_SKIPPED: Final = catalogue.count(
+    "transcripts.purge.user_skipped", kind={"unreadable_preferences", "retention_beyond_ceiling"}
+)
 
 DEFAULT_BATCH_SIZE: Final = 500
 

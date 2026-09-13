@@ -34,9 +34,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
-from letmehandle.domain.failures import classify
+from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.escalation_context import NotificationDelivery
-from letmehandle.domain.ports.notification import DeliveryStatus
+from letmehandle.domain.ports.notification import DeliveryStatus, DevicePlatform
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -48,7 +49,6 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.notification import (
-        DevicePlatform,
         DeviceToken,
         EscalationNotification,
         NotificationProvider,
@@ -64,13 +64,9 @@ logger = get_logger(__name__)
 # a caller awaiting this — rather than starting it in the background — waits at most this long.
 DEFAULT_TIMEOUT: Final = timedelta(seconds=5)
 
-DISPATCH_METRIC: Final = "escalation.dispatch"
-DELIVERY_METRIC: Final = "escalation.delivery"
 # How many ended calls are remembered, so a context claimed after its call ended is marked ended.
 # Bounded: a process runs for weeks, and a claim arrives within moments of its call or not at all.
 REMEMBERED_ENDINGS: Final = 10_000
-
-TOKEN_REMOVED_METRIC: Final = "escalation.token_removed"  # noqa: S105 - a metric name
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +97,20 @@ class AttemptResult(StrEnum):
     ERRORED = "errored"
     NOT_CONFIGURED = "not_configured"
 
+
+DISPATCH_METRIC: Final = catalogue.count("escalation.dispatch", outcome=DispatchResult)
+DELIVERY_METRIC: Final = catalogue.count(
+    "escalation.delivery",
+    platform=DevicePlatform,
+    provider=catalogue.NAMED_IN_CODE,
+    outcome=AttemptResult,
+)
+TOKEN_REMOVED_METRIC: Final = catalogue.count(
+    "escalation.token_removed", platform=DevicePlatform, provider=catalogue.NAMED_IN_CODE
+)
+STORAGE_FAILED: Final = catalogue.count(
+    "escalation.storage_failed", stage={"claim", "record", "end"}, kind=FailureKind
+)
 
 _FROM_STATUS: Final = {
     DeliveryStatus.DELIVERED: AttemptResult.DELIVERED,
@@ -316,9 +326,7 @@ class EscalationDispatcher:
 
     def _failed(self, stage: str, error: Exception) -> None:
         logger.error("escalation.storage_failed", stage=stage, error=type(error).__name__)
-        self._metrics.increment(
-            "escalation.storage_failed", {"stage": stage, "kind": classify(error).kind}
-        )
+        self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": classify(error).kind})
 
 
 def _within_limit(provider: NotificationProvider) -> Callable[[EscalationNotification], bool]:

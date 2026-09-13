@@ -15,6 +15,7 @@ from letmehandle.application.orchestration.ledger import CallLedger
 from letmehandle.application.preferences.context import DEFAULT_LOCALE
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.ports.repositories import MAX_CALL_PAGE
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-RECOVERED: Final = "call.recovered"
+RECOVERED: Final = catalogue.count("call.recovered", outcome={"failed", "unavailable"})
 
 
 class Recovery:

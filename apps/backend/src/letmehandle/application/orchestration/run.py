@@ -52,7 +52,7 @@ from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
-from letmehandle.domain.models.call_state import CallState
+from letmehandle.domain.models.call_state import TERMINAL, CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation_context import (
     MAX_CALL_ID_LENGTH,
@@ -63,6 +63,7 @@ from letmehandle.domain.models.preferences import UserPreferences
 from letmehandle.domain.policy.routing import route
 from letmehandle.domain.ports.call_transport import CallEventKind, ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -91,10 +92,14 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-PROVIDER_FAILED: Final = "call.provider_failed"
-JUDGEMENT_FAILED: Final = "call.judgement_failed"
-SUMMARY_FAILED: Final = "call.summary_failed"
-CALL_ENDED: Final = "call.ended"
+PROVIDER_FAILED: Final = catalogue.count(
+    "call.provider_failed",
+    stage={"owner", "speech", "answer", "dial", "cancel", "terminate"},
+    kind=FailureKind,
+)
+JUDGEMENT_FAILED: Final = catalogue.count("call.judgement_failed", kind=FailureKind)
+SUMMARY_FAILED: Final = catalogue.count("call.summary_failed", kind=FailureKind)
+CALL_ENDED: Final = catalogue.count("call.ended", outcome=TERMINAL)
 
 # While the assistant is on the call and the user is not, something the caller says is worth
 # another look. Once the user has joined, the call is theirs to handle.

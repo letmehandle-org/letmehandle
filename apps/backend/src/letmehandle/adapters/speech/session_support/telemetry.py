@@ -13,16 +13,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.observability import catalogue
+
 if TYPE_CHECKING:
     from letmehandle.adapters.speech.session_support.timing import MonotonicClock
     from letmehandle.domain.ports.metrics import MetricsRecorder
-
-TIME_TO_FIRST_AUDIO: Final = "speech.time_to_first_audio_seconds"
-ROUND_TRIP: Final = "speech.round_trip_seconds"
-INTERRUPTION_TO_SILENCE: Final = "speech.interruption_to_silence_seconds"
-RECONNECTIONS: Final = "speech.reconnections"
-RECONNECTION_DURATION: Final = "speech.reconnection_seconds"
-STREAM_ERRORS: Final = "speech.stream_errors"
 
 
 class StreamErrorKind(StrEnum):
@@ -31,6 +26,25 @@ class StreamErrorKind(StrEnum):
     CONNECTION = "connection"
     SERVICE = "service"
     MALFORMED = "malformed"
+
+
+TIME_TO_FIRST_AUDIO: Final = catalogue.measure(
+    "speech.time_to_first_audio_seconds", provider=catalogue.NAMED_IN_CODE
+)
+ROUND_TRIP: Final = catalogue.measure("speech.round_trip_seconds", provider=catalogue.NAMED_IN_CODE)
+INTERRUPTION_TO_SILENCE: Final = catalogue.measure(
+    "speech.interruption_to_silence_seconds", provider=catalogue.NAMED_IN_CODE
+)
+_RECONNECTION_OUTCOMES: Final = frozenset({"succeeded", "failed"})
+RECONNECTIONS: Final = catalogue.count(
+    "speech.reconnections", provider=catalogue.NAMED_IN_CODE, outcome=_RECONNECTION_OUTCOMES
+)
+RECONNECTION_DURATION: Final = catalogue.measure(
+    "speech.reconnection_seconds", provider=catalogue.NAMED_IN_CODE, outcome=_RECONNECTION_OUTCOMES
+)
+STREAM_ERRORS: Final = catalogue.count(
+    "speech.stream_errors", provider=catalogue.NAMED_IN_CODE, kind=StreamErrorKind
+)
 
 
 class SessionTelemetry:

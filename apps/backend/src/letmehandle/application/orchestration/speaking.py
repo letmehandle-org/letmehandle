@@ -20,8 +20,9 @@ from letmehandle.application.speech.conversation import (
     Transcript,
     TranscriptTurn,
 )
-from letmehandle.domain.failures import classify
+from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.ports.voice import resolve_voice
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-SPEECH_CLOSE_FAILED: Final = "call.speech_close_failed"
+SPEECH_CLOSE_FAILED: Final = catalogue.count("call.speech_close_failed", kind=FailureKind)
 
 
 class UserReach(StrEnum):
