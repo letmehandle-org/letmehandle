@@ -58,6 +58,20 @@ def test_a_missing_signing_key_is_named_when_it_is_asked_for() -> None:
         make_settings(auth_signing_key=None).require_signing_key()
 
 
+@pytest.mark.usefixtures("required_environment")
+def test_a_blank_signing_key_counts_as_unset_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTH_SIGNING_KEY", "")
+    with pytest.raises(ConfigurationError, match="AUTH_SIGNING_KEY"):
+        get_settings()
+
+
+def test_a_signing_key_too_short_to_sign_with_is_refused_naming_the_variable() -> None:
+    with pytest.raises(ValidationError, match="AUTH_SIGNING_KEY must be at least 32") as raised:
+        make_settings(auth_signing_key="short-key")
+    assert "short-key" not in str(raised.value)
+
+
 def test_the_signing_key_is_not_rendered_by_accident() -> None:
     # pydantic's SecretStr, so that a settings object in a log line or a traceback does not
     # hand over the key every token is signed with.

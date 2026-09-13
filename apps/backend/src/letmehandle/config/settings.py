@@ -419,16 +419,19 @@ class LLMEndpoint:
     timeout_seconds: float
 
 
-# The shortest diagnostics token accepted: as long as the shortest signing key, for the same reason.
-MIN_DIAGNOSTICS_TOKEN_LENGTH: Final = 32
+# The fewest characters a signing key or a bearer token may have.
+MIN_SECRET_LENGTH: Final = 32
 
 
-def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
-    if value is not None and len(value.get_secret_value()) < MIN_DIAGNOSTICS_TOKEN_LENGTH:
-        raise ValueError(
-            f"DIAGNOSTICS_TOKEN must be at least {MIN_DIAGNOSTICS_TOKEN_LENGTH} characters"
-        )
-    return value
+def _at_least_min_length(variable: str) -> AfterValidator:
+    """Refuse a secret shorter than `MIN_SECRET_LENGTH`, naming `variable` and never the value."""
+
+    def check(value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < MIN_SECRET_LENGTH:
+            raise ValueError(f"{variable} must be at least {MIN_SECRET_LENGTH} characters")
+        return value
+
+    return AfterValidator(check)
 
 
 # When a group of variables is required, named once so the generated reference says it one way.
@@ -486,12 +489,16 @@ class Settings(BaseSettings):
     # Authentication. The signing key has no default: a default signing key is a signing key
     # somebody forgets to change, and then anyone who has read this repository can mint a
     # token for any account.
-    auth_signing_key: SecretStr | None = Field(
-        default=None,
-        description="Signs access tokens and keys the refresh-token hash. At least 32 characters, "
-        "fresh for every deployment; changing it signs everybody out.",
-        json_schema_extra={"required_when": "the API starts"},
-    )
+    auth_signing_key: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        _at_least_min_length("AUTH_SIGNING_KEY"),
+        Field(
+            description="Signs access tokens and keys the refresh-token hash. At least 32 "
+            "characters, fresh for every deployment; changing it signs everybody out.",
+            json_schema_extra={"required_when": "the API starts"},
+        ),
+    ] = None
     auth_access_token_ttl_seconds: int = Field(
         default=900,
         ge=60,
@@ -936,7 +943,7 @@ class Settings(BaseSettings):
     diagnostics_token: Annotated[
         SecretStr | None,
         BeforeValidator(_blank_is_absent),
-        AfterValidator(_long_enough_to_guard),
+        _at_least_min_length("DIAGNOSTICS_TOKEN"),
         Field(
             description="The bearer token the diagnostics routes require, at least 32 characters. "
             "Blank leaves those routes unmounted.",
