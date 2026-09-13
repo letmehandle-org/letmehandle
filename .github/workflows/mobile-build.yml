@@ -73,6 +73,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Unit tests
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
       - name: Build
         working-directory: apps/mobile/android
         run: ./gradlew assembleDebug --no-daemon
