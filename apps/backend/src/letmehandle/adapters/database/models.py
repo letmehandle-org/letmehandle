@@ -34,7 +34,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.sql.expression import false
+from sqlalchemy.sql.expression import false, text
 
 
 class Base(DeclarativeBase):
@@ -204,6 +204,13 @@ class CallRow(Base):
         UniqueConstraint("id", "user_id", name="uq_calls_id_user"),
         # History: one user's calls, newest first, continued from a cursor on both columns.
         Index("ix_calls_user_started", "user_id", "started_at", "id"),
+        # Recovery after a restart: the calls nothing has ended, which are few among all calls.
+        Index(
+            "ix_calls_unfinished",
+            "started_at",
+            "id",
+            postgresql_where=text("ended_at IS NULL"),
+        ),
     )
 
 

@@ -283,6 +283,16 @@ class CallRepository(ABC):
         """
 
     @abstractmethod
+    async def unfinished(self, *, limit: int) -> tuple[CallSession, ...]:
+        """Calls of every user that have not ended, oldest first, at most `limit` of them.
+
+        The one read here not scoped to an owner, because it serves no user: a process starting
+        after a restart finds the calls the last one left running, so it can end them rather
+        than leave them in a state nothing will ever move them out of. `limit` is between 1 and
+        `MAX_CALL_PAGE`.
+        """
+
+    @abstractmethod
     async def delete(self, user_id: UserId, call_id: CallId) -> None:
         """Delete this user's call and everything recorded about it, at once and together.
 

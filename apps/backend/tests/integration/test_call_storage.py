@@ -346,6 +346,43 @@ class TestHistory:
             await calls.list_for_user(ME, limit=limit)
 
 
+class TestUnfinished:
+    async def test_every_user_s_unfinished_calls_are_found_oldest_first(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        await users(session)
+        await calls.save(a_call("mine-late", started_at=later(20), state=CallState.HUMAN_RINGING))
+        await calls.save(a_call("theirs-early", THEM, state=CallState.ROUTING))
+        await calls.save(a_call("ended", started_at=later(5), state=CallState.COMPLETED))
+        await calls.save(a_call("mine-middle", started_at=later(10), state=CallState.PASSTHROUGH))
+
+        found = await calls.unfinished(limit=MAX_CALL_PAGE)
+
+        assert [(call.id.value, call.user_id) for call in found] == [
+            ("theirs-early", THEM),
+            ("mine-middle", ME),
+            ("mine-late", ME),
+        ]
+        # Whole calls, caller opened: what recovery records is what was stored.
+        assert found[2] == a_call("mine-late", started_at=later(20), state=CallState.HUMAN_RINGING)
+
+    async def test_at_most_a_page_is_found(
+        self, session: AsyncSession, calls: SqlCallRepository
+    ) -> None:
+        await users(session)
+        for number in range(3):
+            await calls.save(a_call(f"call-{number}", started_at=later(number)))
+        found = await calls.unfinished(limit=2)
+        assert [call.id.value for call in found] == ["call-0", "call-1"]
+
+    @pytest.mark.parametrize("limit", [0, MAX_CALL_PAGE + 1])
+    async def test_a_page_outside_the_bounds_is_refused(
+        self, calls: SqlCallRepository, limit: int
+    ) -> None:
+        with pytest.raises(InvariantError):
+            await calls.unfinished(limit=limit)
+
+
 class TestTranscripts:
     async def test_entries_come_back_in_the_order_they_were_said(
         self, session: AsyncSession, calls: SqlCallRepository, transcripts: SqlTranscriptRepository

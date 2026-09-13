@@ -200,6 +200,18 @@ class SqlCallRepository(CallRepository):
             next_cursor=None if last is None else CallCursor(last.started_at, CallId(last.id)),
         )
 
+    async def unfinished(self, *, limit: int) -> tuple[CallSession, ...]:
+        check_page_size(limit, MAX_CALL_PAGE)
+        result = await self._session.execute(
+            select(CallRow)
+            .where(CallRow.ended_at.is_(None))
+            .order_by(CallRow.started_at, CallRow.id)
+            .limit(limit)
+        )
+        rows = list(result.scalars().all())
+        participants = await self._participants([row.id for row in rows])
+        return tuple(self._to_call(row, participants.get(row.id, ())) for row in rows)
+
     async def delete(self, user_id: UserId, call_id: CallId) -> None:
         # One statement. The participants, transcript lines and summary are removed by the
         # foreign keys' cascades within it, so there is no moment — and no failure part-way —
