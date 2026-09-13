@@ -96,9 +96,6 @@ class PhoneNumber:
         guessing: a number this cannot parse is one a human should look at, and silently
         accepting a malformed one means calls that never arrive.
         """
-        if not isinstance(raw, str):  # pragma: no cover - defensive, the type says otherwise
-            raise InvariantError("a phone number must be text")
-
         candidate = _DECORATION.sub("", raw.strip())
         if candidate.startswith("00"):
             candidate = "+" + candidate[2:]
