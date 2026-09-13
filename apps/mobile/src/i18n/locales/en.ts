@@ -63,6 +63,11 @@ export const en = {
     loadFailed: 'Could not load your setup.',
     saveFailed: "That couldn't be saved. Nothing has changed.",
     who: { title: 'How your calls work' },
+    forwarding: {
+      title: 'Send missed calls here',
+      how: "In your phone's call settings, forward calls you don't answer, and calls when you're busy, to:",
+      why: 'Your assistant only hears calls your phone forwards. Calls you answer never reach it.',
+    },
     when: { title: "When you're called" },
     hours: { title: 'When should it work?' },
     authority: { title: 'What may it do?' },

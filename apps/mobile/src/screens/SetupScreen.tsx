@@ -9,6 +9,7 @@ import type {
   TimeWindow,
 } from '@letmehandle/api-client';
 
+import { useSession } from '../auth/SessionProvider';
 import { describeFailure } from '../api/messages';
 import { Button } from '../components/Button';
 import { CallGraph } from '../components/CallGraph';
@@ -32,6 +33,7 @@ interface Props {
 /** The steps setup asks, in the order the server asks them (D-032). */
 export const SETUP_STEPS = [
   'call_handling',
+  'call_forwarding',
   'hours',
   'authority',
   'notifications',
@@ -39,7 +41,8 @@ export const SETUP_STEPS = [
 
 export function SetupScreen({ step }: Props): React.JSX.Element {
   const { t } = useTranslation();
-  const { preferences, save, recordStep } = usePreferences();
+  const { preferences, onboarding, save, recordStep } = usePreferences();
+  const { profile } = useSession();
   const [granted, setGranted] = useState<readonly Capability[]>(
     preferences.authority.capabilities ?? [],
   );
@@ -49,8 +52,10 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const changes: PreferencesUpdate = {
+  // Forwarding is set on the phone's own carrier settings, so that step saves nothing here.
+  const changes: PreferencesUpdate | null = {
     call_handling: { call_handling: twoLanes(preferences.call_handling) },
+    call_forwarding: null,
     hours: { hours: { active: hours } },
     authority: { authority: { capabilities: [...granted] } },
     // The graph is the rule itself and asks nothing; the notifications stand as they are.
@@ -60,7 +65,7 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
   const answer = (): void => {
     setBusy(true);
     setProblem(null);
-    save(changes)
+    (changes === null ? Promise.resolve() : save(changes))
       .then(() => recordStep(step, false))
       .catch((error: unknown) => {
         setProblem(
@@ -72,7 +77,14 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
       });
   };
 
-  const index = SETUP_STEPS.indexOf(step) + 1;
+  // Only the steps this deployment asks: forwarding is asked only where calls arrive forwarded.
+  const asked = new Set<OnboardingStep>([
+    ...onboarding.completed,
+    ...onboarding.skipped,
+    ...onboarding.remaining,
+  ]);
+  const steps = SETUP_STEPS.filter(each => asked.has(each));
+  const index = steps.indexOf(step) + 1;
 
   return (
     <Screen
@@ -81,16 +93,17 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
       header={
         <Steps
           current={index}
-          total={SETUP_STEPS.length}
+          total={steps.length}
           label={t('setup.progress', {
             done: index,
-            total: SETUP_STEPS.length,
+            total: steps.length,
           })}
         />
       }
       title={t(
         {
           call_handling: 'setup.who.title',
+          call_forwarding: 'setup.forwarding.title',
           hours: 'setup.hours.title',
           authority: 'setup.authority.title',
           notifications: 'setup.when.title',
@@ -115,6 +128,15 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
       }
     >
       {step === 'call_handling' && <WhoGetsThrough />}
+      {step === 'call_forwarding' && (
+        <Card>
+          <Text style={styles.body}>{t('setup.forwarding.how')}</Text>
+          <Text style={styles.number} testID="forwarding-number">
+            {profile?.call_forwarding?.number ?? ''}
+          </Text>
+          <Text style={styles.body}>{t('setup.forwarding.why')}</Text>
+        </Card>
+      )}
       {step === 'hours' && <HoursEditor value={hours} onChange={setHours} />}
       {step === 'notifications' && <CallGraph />}
       {step === 'authority' && (
@@ -175,4 +197,10 @@ const styles = StyleSheet.create({
     gap: theme.space.sm,
   },
   asideText: { ...theme.type.subtitle, color: theme.colour.textFaint },
+  body: { ...theme.type.subtitle, color: theme.colour.text },
+  number: {
+    ...theme.type.label,
+    color: theme.colour.text,
+    marginVertical: theme.space.sm,
+  },
 });
