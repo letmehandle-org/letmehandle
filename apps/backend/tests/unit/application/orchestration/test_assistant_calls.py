@@ -232,6 +232,30 @@ class TestTheAssistantHandlesACall:
             assert connection["voice_id"] == "calm"
             assert '"user": "not_asked"' in str(connection["system_context"])
 
+    async def test_a_hindi_users_call_opens_in_hindi_with_a_voice_that_speaks_it(self) -> None:
+        async with orchestrating(
+            streaming(), preferences=UserPreferences(locale="hi-IN")
+        ) as running:
+            running.speech.languages = ("en", "hi")
+            await with_the_assistant(running)
+            connection = running.speech.connections[0]
+            assert connection["locale"] == "hi-IN"
+            assert connection["voice_id"] == "gentle"
+            assert str(connection["greeting"]).startswith("नमस्ते")
+
+    async def test_a_language_the_speech_service_cannot_speak_opens_the_call_in_english(
+        self,
+    ) -> None:
+        async with orchestrating(
+            streaming(), preferences=UserPreferences(locale="hi-IN")
+        ) as running:
+            await with_the_assistant(running)
+            connection = running.speech.connections[0]
+            assert connection["locale"] == "en"
+            assert connection["voice_id"] == "calm"
+            assert connection["greeting"] == "Hello, how can I help?"
+            assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
+
     async def test_what_the_assistant_says_is_kept_and_does_not_start_a_judgement(self) -> None:
         async with orchestrating(streaming()) as running:
             await with_the_assistant(running)
@@ -354,6 +378,18 @@ class TestEscalation:
                 ParticipantRole.AGENT,
                 ParticipantRole.HUMAN,
             ]
+
+    async def test_the_user_is_told_why_they_are_rung_in_their_own_language(self) -> None:
+        line = streaming()
+        async with orchestrating(
+            line, preferences=UserPreferences(locale="hi-IN"), looks=[Look(proposal=WANTS_THE_USER)]
+        ) as running:
+            await ringing(running)
+            await eventually(lambda: bool(running.notifications.sent))
+            [(_, notification)] = running.notifications.sent
+            assert notification.title == "कॉल करने वाले ने आपसे बात करनी चाही"
+            line.hangs_up(CALL)
+            await running.ended(CALL)
 
     async def test_an_escalation_answered_joins_the_user_and_ends_when_they_leave(self) -> None:
         line = streaming()
@@ -646,6 +682,23 @@ class TestDegradedProviders:
             await with_the_assistant(running)
             line.leaves(CALL, Leg.ASSISTANT)
             assert (await running.ended(CALL)).state is CallState.FAILED
+
+    async def test_the_assistant_leaving_before_the_hang_up_is_reported_waits_for_it(
+        self,
+    ) -> None:
+        line = streaming()
+        async with orchestrating(line) as running:
+            await with_the_assistant(running)
+            # A caller hanging up ends the conference, and the assistant's leg can be heard of
+            # leaving before the caller's.
+            line.leaves(CALL, Leg.ASSISTANT)
+            session = await running.session()
+            await eventually(lambda: session.is_closed)
+            assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
+            line.hangs_up(CALL)
+            assert (await running.ended(CALL)).state is CallState.COMPLETED
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert summary.outcome is CallOutcome.CALLER_HUNG_UP
 
     async def test_audio_that_stops_before_the_hang_up_is_reported_waits_for_it(self) -> None:
         line = streaming()

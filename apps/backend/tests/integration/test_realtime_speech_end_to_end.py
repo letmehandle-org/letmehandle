@@ -91,6 +91,7 @@ async def connect(provider: SpeechProvider) -> SpeechSession:
     return await provider.connect(
         system_context="You answer calls for somebody who is busy.",
         voice_id=EXAMPLE_DEFAULT_VOICE,
+        greeting="Hello.",
         locale="en",
         input_format=SPEECH_WIDEBAND,
     )

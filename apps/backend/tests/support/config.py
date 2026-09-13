@@ -69,6 +69,7 @@ def make_settings(
     speech_voices: tuple[Voice, ...] = EXAMPLE_VOICES,
     speech_default_voice: str = EXAMPLE_DEFAULT_VOICE,
     speech_provider: SpeechProviderName = SpeechProviderName.REALTIME,
+    speech_languages: tuple[str, ...] = ("en",),
     speech_endpoint_url: str | None = None,
     speech_model: str | None = None,
     speech_agent_id: str | None = None,
@@ -113,6 +114,7 @@ def make_settings(
         sms_from_number=sms_from_number,
         auth_signing_key=SecretStr(auth_signing_key) if auth_signing_key is not None else None,
         speech_provider=speech_provider,
+        speech_languages=speech_languages,
         speech_endpoint_url=(
             AnyWebsocketUrl(speech_endpoint_url) if speech_endpoint_url is not None else None
         ),

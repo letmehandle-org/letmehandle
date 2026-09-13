@@ -16,9 +16,10 @@ It needs a PostgreSQL server (a throwaway database is created on it and dropped 
 is printed, and every other secret — the signing key, the transcript keys, the diagnostics token —
 is generated for the run and forgotten with it.
 
-Each run is two calls and costs a little speech and model usage. Nothing is recorded: the caller's
-audio exists in memory until it is sent, and the assistant's is counted as it arrives, not kept
-(D-013). What is printed is structure, the scripted lines, and what the product stored about them.
+Each run is up to four calls and costs a little speech and model usage. Nothing is recorded: the
+caller's audio exists in memory until it is sent, and the assistant's is counted as it arrives, not
+kept (D-013). What is printed is structure, the scripted lines, and what the product stored about
+them.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ from letmehandle.bootstrap import build_call_transport, build_observability, bui
 from letmehandle.config.settings import (
     SpeechProviderName,
     TelephonyProviderName,
+    parse_speech_languages,
     parse_voice_catalogue,
 )
 from letmehandle.domain.models.call_state import CallState
@@ -86,6 +88,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.notification import NotificationProvider
     from tests.e2e.app_client import Account, Json
+    from tests.support.simulated_twilio import Delivery
 
 # A phone line carries 8 kHz mu-law in 20 ms frames: 160 bytes each.
 _FRAME_BYTES: Final = 160
@@ -101,11 +104,22 @@ _TURN_PAUSE_SECONDS: Final = 1.5
 _TURN_PATIENCE_SECONDS: Final = 20.0
 # How long the caller and the user talk once the user has joined, before the caller hangs up.
 _WITH_THE_USER_SECONDS: Final = 3.0
+# How long after the caller hangs up the provider's callbacks arrive, in the order a real call sent
+# them: the assistant's leg first.
+_HANG_UP_HEARD_AFTER_SECONDS: Final = 2.0
+_SERVICE_RECORD_SECONDS: Final = 8.0
 # How long a whole call may take to be answered, streamed, ended and summarised. A real model is
 # slower than loopback by orders of magnitude, and a summary is written after the call ends.
 _CALL_PATIENCE_SECONDS: Final = 90.0
 
 _ENV_PREFIXES: Final = ("SPEECH_", "LLM_")
+
+# What the rehearsed agent is prepared to speak unless the env file says otherwise: its own English,
+# and Hindi through a language preset and its language detection (D-039).
+_REHEARSED_LANGUAGES: Final = "en,hi"
+# The model that can speak a caller's Hindi line; the service's default voices speak English only.
+_MULTILINGUAL_TTS_MODEL: Final = "eleven_multilingual_v2"
+_DEVANAGARI: Final = range(0x0900, 0x0980)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +131,12 @@ class Scenario:
     lines: tuple[str, ...]
     users_phone: Answering
     expects_escalation: bool
+    # The user's locale, and the language the caller speaks.
+    locale: str = "en"
+    caller_language: str = "en"
+    # Whether the callbacks about the assistant's leg reach the application before the caller's,
+    # with its media stream already stopped, as a real hang-up delivered them.
+    hang_up_heard_late: bool = False
 
 
 SCENARIOS: Final = (
@@ -139,6 +159,31 @@ SCENARIOS: Final = (
         ),
         users_phone=Answering.ANSWERS,
         expects_escalation=True,
+    ),
+    Scenario(
+        name="C: a Hindi caller rings an English-speaking user",
+        call_id="CAsim-rehearsal-hindi-caller",
+        lines=(
+            "नमस्ते, मैं कूरियर कंपनी से बोल रहा हूँ। आपका पार्सल कल सुबह दस बजे पहुँचेगा।",
+            "ठीक है, बस इतना ही बताना था। धन्यवाद, नमस्ते।",
+        ),
+        users_phone=Answering.KEEPS_RINGING,
+        expects_escalation=False,
+        caller_language="hi",
+        hang_up_heard_late=True,
+    ),
+    Scenario(
+        name="D: a Hindi caller rings a Hindi-speaking user",
+        call_id="CAsim-rehearsal-hindi-user",
+        lines=(
+            "नमस्ते, मैं दवाखाने से बोल रही हूँ। आपकी दवाइयाँ तैयार हैं, आप शाम छह बजे तक ले जा सकते हैं।",
+            "जी, बस यही बताना था। धन्यवाद।",
+        ),
+        users_phone=Answering.KEEPS_RINGING,
+        expects_escalation=False,
+        locale="hi",
+        caller_language="hi",
+        hang_up_heard_late=True,
     ),
 )
 
@@ -180,6 +225,7 @@ def rehearsal_settings(
         telephony_app_id=SIMULATED_APP,
         telephony_webhook_base_url=PUBLIC_BASE_URL,
         speech_provider=SpeechProviderName(env["SPEECH_PROVIDER"]),
+        speech_languages=parse_speech_languages(env.get("SPEECH_LANGUAGES", _REHEARSED_LANGUAGES)),
         speech_endpoint_url=env["SPEECH_ENDPOINT_URL"],
         speech_model=env.get("SPEECH_MODEL"),
         speech_agent_id=env.get("SPEECH_AGENT_ID"),
@@ -242,32 +288,124 @@ class Pushes:
 class CallerVoice:
     """Speaks the caller's lines with the speech service's text-to-speech, as a phone line's audio.
 
-    Asked for in the line's own format, so nothing is converted, and held in memory only.
+    Asked for in the line's own format, so nothing is converted, and held in memory only. A line in
+    another language is spoken by a native voice where the service lets this key use one — the
+    agent's own preset voice for that language — and otherwise by a catalogue voice on the
+    service's multilingual model.
     """
 
     def __init__(self, env: dict[str, str]) -> None:
         endpoint = urlsplit(env["SPEECH_ENDPOINT_URL"])
         self._base = f"https://{endpoint.netloc}"
         self._key = env.get("SPEECH_API_KEY", "")
+        self._agent_id = env.get("SPEECH_AGENT_ID", "")
         voices = parse_voice_catalogue(env["SPEECH_VOICES"])
         default = env["SPEECH_DEFAULT_VOICE"]
         # A voice other than the assistant's where the catalogue has one, so the two are told apart.
         self._voice = next((each.id for each in voices if each.id != default), default)
+        self.native_refused: set[str] = set()
 
-    async def synthesise(self, line: str) -> bytes:
-        async with httpx.AsyncClient(base_url=self._base, timeout=30.0) as client:
-            response = await client.post(
-                f"/v1/text-to-speech/{self._voice}",
-                params={"output_format": "ulaw_8000"},
-                headers={"xi-api-key": self._key},
-                json={"text": line},
+    async def synthesise(self, line: str, language: str) -> bytes:
+        async with httpx.AsyncClient(base_url=self._base, timeout=90.0) as client:
+            if language == "en":
+                return _audio(await self._speak(client, self._voice, line, model=None))
+            native = await self._preset_voice(client, language)
+            if native is not None:
+                response = await self._speak(client, native, line, model=_MULTILINGUAL_TTS_MODEL)
+                if response.status_code == 200:
+                    return response.content
+                self.native_refused.add(f"{language}: HTTP {response.status_code}")
+            return _audio(
+                await self._speak(client, self._voice, line, model=_MULTILINGUAL_TTS_MODEL)
             )
+
+    async def _speak(
+        self, client: httpx.AsyncClient, voice: str, line: str, *, model: str | None
+    ) -> httpx.Response:
+        body = {"text": line} if model is None else {"text": line, "model_id": model}
+        return await client.post(
+            f"/v1/text-to-speech/{voice}",
+            params={"output_format": "ulaw_8000"},
+            headers={"xi-api-key": self._key},
+            json=body,
+        )
+
+    async def _preset_voice(self, client: httpx.AsyncClient, language: str) -> str | None:
+        """The voice the agent's preset for `language` speaks in, if it has one."""
+        response = await client.get(
+            f"/v1/convai/agents/{self._agent_id}", headers={"xi-api-key": self._key}
+        )
         if response.status_code != 200:
-            # The status alone: a refusal's body can echo what was sent with it.
-            raise SystemExit(
-                f"text-to-speech refused the caller's line: HTTP {response.status_code}"
-            )
-        return response.content
+            return None
+        presets = response.json()["conversation_config"].get("language_presets") or {}
+        tts = ((presets.get(language) or {}).get("overrides") or {}).get("tts") or {}
+        voice = tts.get("voice_id")
+        return voice if isinstance(voice, str) else None
+
+
+def _audio(response: httpx.Response) -> bytes:
+    if response.status_code != 200:
+        # The status alone: a refusal's body can echo what was sent with it.
+        raise SystemExit(f"text-to-speech refused the caller's line: HTTP {response.status_code}")
+    return response.content
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceRecord:
+    """What the speech service recorded of the call's conversation, reduced to structure."""
+
+    language_asked_for: str | None
+    voice_sent: bool
+    first_message_sent: bool
+    replies: int
+    # The share of the agent's replies' letters that are Devanagari.
+    devanagari: float
+
+
+async def service_record(env: dict[str, str]) -> ServiceRecord | None:
+    """The newest conversation the agent held, read back from the service, or `None`."""
+    endpoint = urlsplit(env["SPEECH_ENDPOINT_URL"])
+    headers = {"xi-api-key": env.get("SPEECH_API_KEY", "")}
+    async with httpx.AsyncClient(base_url=f"https://{endpoint.netloc}", timeout=30.0) as client:
+        listed = await client.get(
+            "/v1/convai/conversations",
+            params={"agent_id": env.get("SPEECH_AGENT_ID", ""), "page_size": 1},
+            headers=headers,
+        )
+        conversations = listed.json().get("conversations") if listed.status_code == 200 else None
+        if not conversations:
+            return None
+        detail = await client.get(
+            f"/v1/convai/conversations/{conversations[0]['conversation_id']}", headers=headers
+        )
+    if detail.status_code != 200:
+        return None
+    body = detail.json()
+    overrides = (body.get("conversation_initiation_client_data") or {}).get(
+        "conversation_config_override"
+    ) or {}
+    agent = overrides.get("agent") or {}
+    tts = overrides.get("tts") or {}
+    replies = [
+        turn.get("message") or ""
+        for turn in body.get("transcript") or []
+        if turn.get("role") == "agent"
+    ]
+    return ServiceRecord(
+        language_asked_for=agent.get("language"),
+        voice_sent=bool(tts.get("voice_id")),
+        first_message_sent=bool(agent.get("first_message")),
+        replies=len(replies),
+        devanagari=devanagari_share(" ".join(replies)),
+    )
+
+
+def devanagari_share(text: str) -> float:
+    """The share of `text`'s letters that are Devanagari, so no words need printing."""
+    letters = [character for character in text if character.isalpha()]
+    if not letters:
+        return 0.0
+    return sum(ord(character) in _DEVANAGARI for character in letters) / len(letters)
 
 
 # --------------------------------------------------------------------------------- the phone line
@@ -426,6 +564,7 @@ class Result:
     pushes: list[str] = field(default_factory=list)
     timeline: Json | None = None
     hung_up_by: str = ""
+    service: ServiceRecord | None = None
 
 
 async def rehearse(
@@ -444,7 +583,8 @@ async def rehearse(
     result = Result(scenario)
     # Synthesised before the call, so the time text-to-speech takes is not counted as the caller's
     # pauses, and the assistant is not left waiting on it.
-    spoken = [await voice.synthesise(line) for line in scenario.lines]
+    spoken = [await voice.synthesise(line, scenario.caller_language) for line in scenario.lines]
+    await api.configure(account, {"locale": scenario.locale})
     provider.answering[USERS_LINE] = scenario.users_phone
     pushed_before = {each.platform: len(each.sent) for each in (pushes.ios, pushes.android)}
 
@@ -486,6 +626,13 @@ async def rehearse(
             listening.cancel()
         if provider.conference_of(scenario.call_id).ended:
             result.hung_up_by = "the product"
+        elif scenario.hang_up_heard_late:
+            result.hung_up_by = "the caller, heard of after the assistant's leg"
+            provider.hold()
+            await provider.caller_hangs_up(scenario.call_id)
+            # Long enough for the stream's end to reach the conversation before any callback does.
+            await asyncio.sleep(_HANG_UP_HEARD_AFTER_SECONDS)
+            await provider.release(_assistants_leg_first(scenario.call_id))
         else:
             result.hung_up_by = "the caller"
             await provider.caller_hangs_up(scenario.call_id)
@@ -517,6 +664,28 @@ async def rehearse(
     timeline = await api.http.get(f"/diagnostics/calls/{scenario.call_id}", headers=diagnostics)
     result.timeline = timeline.json() if timeline.status_code == 200 else None
     return result
+
+
+async def with_service_record(result: Result, env: dict[str, str]) -> Result:
+    """The result, with what an ElevenLabs agent recorded of the conversation, once it has."""
+    if env["SPEECH_PROVIDER"] != SpeechProviderName.ELEVENLABS:
+        return result
+    # The service writes a conversation's record a few seconds after it ends.
+    await asyncio.sleep(_SERVICE_RECORD_SECONDS)
+    result.service = await service_record(env)
+    return result
+
+
+def _assistants_leg_first(call_id: str) -> Callable[[list[Delivery]], list[Delivery]]:
+    """Held callbacks about the assistant's leg first, then the caller's and the conference's."""
+
+    def order(held: list[Delivery]) -> list[Delivery]:
+        assistant = [
+            each for each in held if dict(each.params).get("CallSid") not in {None, call_id}
+        ]
+        return assistant + [each for each in held if each not in assistant]
+
+    return order
 
 
 def recognised(scripted: Sequence[str], transcribed: Sequence[str]) -> float:
@@ -590,6 +759,19 @@ def report(result: Result) -> None:
         f"importance={detail.get('importance')} human_joined={detail.get('human_joined')}"
     )
     print(f"  headline: {detail.get('headline')!r}")
+    print(
+        f"  user locale {result.scenario.locale}, "
+        f"caller speaking {result.scenario.caller_language}; "
+        f"headline {devanagari_share(str(detail.get('headline') or '')):.0%} Devanagari"
+    )
+    if result.service is not None:
+        record = result.service
+        print(
+            f"  the service's record: language asked for {record.language_asked_for}, "
+            f"voice sent {'yes' if record.voice_sent else 'no'}, "
+            f"greeting sent {'yes' if record.first_message_sent else 'no'}, "
+            f"{record.replies} replies, {record.devanagari:.0%} of their letters Devanagari"
+        )
     caller_lines, assistant_lines = result.transcript_lines
     print(
         f"  transcript lines stored: {caller_lines} the caller's, {assistant_lines} the "
@@ -693,12 +875,20 @@ async def main_async(env_file: Path, server_url: str, only: str | None, log_leve
                         continue
                     print(f"\n-- placing {scenario.name}")
                     results.append(
-                        await rehearse(
-                            app, api, provider, account, voice, pushes, scenario, diagnostics
+                        await with_service_record(
+                            await rehearse(
+                                app, api, provider, account, voice, pushes, scenario, diagnostics
+                            ),
+                            env,
                         )
                     )
                 for result in results:
                     report(result)
+                for refusal in sorted(voice.native_refused):
+                    print(
+                        f"\n  a native voice could not speak the caller's lines ({refusal}); "
+                        "a catalogue voice on the multilingual model spoke them"
+                    )
                 metrics = await api.http.get("/diagnostics/metrics", headers=diagnostics)
                 report_metrics(metrics.json())
             finally:
@@ -721,7 +911,7 @@ def main() -> None:
         default="postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:5433/letmehandle",
         help="a PostgreSQL server the run may create and drop a database on",
     )
-    parser.add_argument("--only", choices=("A", "B"), help="rehearse one scenario")
+    parser.add_argument("--only", choices=("A", "B", "C", "D"), help="rehearse one scenario")
     parser.add_argument("--log-level", default="warning")
     arguments = parser.parse_args()
     raise SystemExit(

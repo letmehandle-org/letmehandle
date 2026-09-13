@@ -40,6 +40,7 @@ from letmehandle.adapters.speech.websocket.connection import (
     ConnectionOpener,
     EventConnection,
 )
+from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.application.speech.conversation import Conversation, Transcript
 from letmehandle.bootstrap import build_speech_provider
 from letmehandle.config.settings import ConfigurationError, get_settings
@@ -287,6 +288,7 @@ async def _run(context: str, locale: str) -> None:
             await provider.connect(
                 system_context=context,
                 voice_id=settings.require_voice_catalogue()[1],
+                greeting=load_prompts(locale).greeting(),
                 locale=locale,
                 input_format=SPEECH_WIDEBAND,
             ) as session,

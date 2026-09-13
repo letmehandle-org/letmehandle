@@ -500,7 +500,13 @@ class CallRun:
         ledger = live.ledger
         if leg is Leg.ASSISTANT:
             await ledger.left(ParticipantRole.AGENT, at=at)
-            await self._assistant_lost(live, at)
+            await self._speaking.stop()
+            if ledger.state is CallState.AGENT_HANDLING:
+                # A caller hanging up ends the conference around the assistant, and the provider
+                # can report the assistant's leg leaving seconds before the caller's. The call
+                # fails only if the transport does not say it ended in the time the audio stopping
+                # is given.
+                self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
             return
         await ledger.left(ParticipantRole.HUMAN, at=at)
         if ledger.state in {CallState.HUMAN_JOINED, CallState.PASSTHROUGH}:
@@ -625,6 +631,7 @@ class CallRun:
                 caller_label=None if contact is None else contact.label,
                 established=None if summary is None else summary[:MAX_DETAIL_LENGTH],
             ),
+            locale=live.owner.preferences.locale,
         )
 
     async def _not_reached(

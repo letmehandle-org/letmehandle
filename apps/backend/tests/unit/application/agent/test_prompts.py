@@ -94,7 +94,53 @@ class TestChoosingTemplates:
         assert [version.name for version in versions if version.name == PROMPT_VERSION]
         for version in versions:
             for language in (entry for entry in version.iterdir() if entry.is_dir()):
-                assert read_prompts(SHIPPED, language.name, version.name).language == language.name
+                assert read_prompts(SHIPPED, language.name, version.name)
+
+    def test_a_language_translating_only_some_templates_reads_the_rest_in_english(
+        self, tmp_path: Path
+    ) -> None:
+        # Translation arrives a template at a time: a greeting before the instructions.
+        write_version(tmp_path, "en", greeting="Hello.")
+        (tmp_path / "v9" / "hi").mkdir()
+        (tmp_path / "v9" / "hi" / "greeting.md").write_text("नमस्ते।\n", encoding="utf-8")
+        prompts = read_prompts(tmp_path, "hi-IN", "v9")
+        assert prompts.language == "en"
+        assert prompts.greeting() == "नमस्ते।"
+
+    def test_a_version_written_before_greetings_cannot_give_one(self, tmp_path: Path) -> None:
+        write_version(tmp_path, "en")
+        with pytest.raises(InvariantError, match=r"'v9'.*greeting"):
+            read_prompts(tmp_path, "en", "v9").greeting()
+
+
+class TestTheOpening:
+    @pytest.mark.parametrize("locale", ["en", "en-GB", "fr"])
+    def test_a_caller_is_greeted_in_english_where_there_is_no_greeting_of_its_own(
+        self, locale: str
+    ) -> None:
+        assert load_prompts(locale).greeting() == "Hello, how can I help?"
+
+    @pytest.mark.parametrize("locale", ["hi", "hi-IN"])
+    def test_a_hindi_users_callers_are_greeted_in_hindi_and_english(self, locale: str) -> None:
+        greeting = load_prompts(locale).greeting()
+        assert greeting.startswith("नमस्ते")
+        assert "hello" in greeting.lower()
+
+    def test_the_assistant_is_told_to_answer_in_the_language_the_caller_speaks(self) -> None:
+        call = a_call()
+        context = load_prompts("hi").conversation_context(
+            call.preferences, call.authority, situation={"user": "not_asked"}
+        )
+        instructions = " ".join(context.split("<situation>", 1)[0].split())
+        assert "Answer in the language the caller speaks" in instructions
+
+    def test_what_the_user_reads_is_asked_for_in_the_users_language(self) -> None:
+        call = a_call()
+        system = load_prompts("hi").system_prompt(
+            call.preferences, call.authority, assessment_tool="Assess"
+        )
+        instructions = " ".join(system.split("<preferences>", 1)[0].split())
+        assert "in the language of the user's locale" in instructions
 
 
 class TestWhatTheModelIsShown:

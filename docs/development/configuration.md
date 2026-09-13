@@ -52,12 +52,13 @@ every paid provider unset.
 | Variable | Required | Default | Accepts | Secret | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `SPEECH_PROVIDER` | no | `realtime` | `realtime` or `elevenlabs` |  | Which protocol the speech service speaks. |
+| `SPEECH_LANGUAGES` | no | `('en',)` |  |  | The languages the speech service speaks, comma-separated, such as `en,hi`. A call opens in the user's language when it is one of them (D-039). |
 | `SPEECH_ENDPOINT_URL` | when the assistant takes calls | — |  |  | The speech service's `ws://` or `wss://` URL. |
 | `SPEECH_MODEL` | when the assistant takes calls over `realtime` | — |  |  | The model a `realtime` service runs. |
 | `SPEECH_AGENT_ID` | when the assistant takes calls over `elevenlabs` | — |  |  | The agent an `elevenlabs` service talks as. |
 | `SPEECH_TRANSCRIPTION_MODEL` | no | — |  |  | `realtime` only: the model that writes down what the caller says. Without it only the assistant's side of a call is recorded. |
 | `SPEECH_API_KEY` | no | — |  | yes | The speech service's key. Empty for a service that needs none. |
-| `SPEECH_VOICES` | when the API starts | — |  |  | The voices offered, as `id:Display name:locale\|locale`, comma-separated. They must be voices the speech service can speak. |
+| `SPEECH_VOICES` | when the API starts | — |  |  | The voices offered, as `id:Display name:locale\|locale`, comma-separated, such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices the speech service can speak; a call is spoken in a voice listed for its language. |
 | `SPEECH_DEFAULT_VOICE` | when the API starts | — |  |  | One of the ids in `SPEECH_VOICES`, for a call whose user chose none. |
 
 ## Privacy

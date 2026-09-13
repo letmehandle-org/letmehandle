@@ -642,13 +642,26 @@ class ControlledSpeech(EchoSpeechProvider):
         self.refusing_updates = False
 
     async def connect(
-        self, *, system_context: str, voice_id: str, locale: str, input_format: AudioFormat
+        self,
+        *,
+        system_context: str,
+        voice_id: str,
+        greeting: str,
+        locale: str,
+        input_format: AudioFormat,
     ) -> SpeechSession:
         if self.never_answering:
             await asyncio.Event().wait()
         if self.refusing:
             raise ProviderError("echo", "the speech service refused", retryable=True)
-        self.connections.append({"system_context": system_context, "voice_id": voice_id})
+        self.connections.append(
+            {
+                "system_context": system_context,
+                "voice_id": voice_id,
+                "greeting": greeting,
+                "locale": locale,
+            }
+        )
         session = ControlledSession()
         session.refusing_updates = self.refusing_updates
         self.sessions.append(session)

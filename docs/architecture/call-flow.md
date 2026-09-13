@@ -179,7 +179,8 @@ What ends a call:
 | The caller hangs up (`ended`) | any live state | `completed` |
 | The transport reports a failure (`failed`) | any live state | `failed` |
 | The user leaves | `human_joined`, `passthrough` | `completed` |
-| The assistant's leg is lost, or its conversation stops | `agent_handling` | `failed` |
+| The assistant's leg is unreachable, or its conversation fails | `agent_handling` | `failed` |
+| The assistant's leg leaves, or its audio stops, with no hang-up reported within `speaker_gone` | `agent_handling` | `failed` |
 | The agent ends the call, other than by handing over | `agent_handling`, `escalation_requested`, `human_ringing`, `human_joined` | `completed` |
 | Nobody picks up a call put through | `passthrough` | `completed` |
 | The process stops | any live state | `failed` |
@@ -196,7 +197,7 @@ Every wait has a bound, and every expiry is a transition rather than an exceptio
 | `speech_open` | 10 s | the call fails |
 | `provider` | 10 s | the request to the transport is treated as refused |
 | `storage` | 5 s | a write is logged and counted; finding an owner treats the call as nobody's |
-| `speaker_gone` | 5 s | a conversation whose audio stopped, with no ending reported, is treated as lost |
+| `speaker_gone` | 5 s | a conversation whose audio stopped, or an assistant's leg that left, with no ending reported, is treated as lost |
 | `summary` | 10 s | the call is summarised from its facts |
 | `shutdown` | 15 s | stopping gives up waiting for calls to tear down |
 

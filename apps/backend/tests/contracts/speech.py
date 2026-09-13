@@ -122,6 +122,7 @@ class SpeechProviderContract:
         return await provider.connect(
             system_context="a contract test",
             voice_id="any",
+            greeting="Hello.",
             locale=provider.capabilities.languages[0],
             input_format=provider.capabilities.input_formats[0],
         )

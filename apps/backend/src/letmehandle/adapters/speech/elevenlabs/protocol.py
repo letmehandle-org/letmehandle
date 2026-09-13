@@ -16,7 +16,9 @@ Sent:
 - `conversation_initiation_client_data` opens the conversation. Its
   `conversation_config_override` carries `agent.prompt.prompt` (the system context),
   `agent.first_message`, `agent.language` and `tts.voice_id`. An empty first message is how a
-  client asks the agent to wait for the caller instead of greeting them.
+  client asks the agent to wait for the caller instead of greeting them. The language chooses the
+  agent's language preset, if it has one for that language, and with it the preset's voice. A
+  `tts.voice_id` overrides that voice for the whole conversation, a language switch included.
 - `user_audio_chunk` is caller audio, base64, in the agent's input format. The one event with
   no `type`: the field name is the whole event.
 - `pong` answers a `ping` with the same `event_id`. The service pings to keep the conversation
@@ -49,6 +51,12 @@ Received:
   its own turn-taking, and a threshold chosen here would be a guess.
 - `client_tool_call`: `tool_name`, `tool_call_id`, `parameters` and `expects_response`.
 - `client_error`: `error_event` with an integer `code`, `error_name` and `message`.
+
+There is no event this adapter reads that says the agent changed language. An agent with the
+language detection tool switches language, and the voice its preset for that language names, when
+its model calls the tool; the client hears the replies change, and the call is listed in the
+conversation's record afterwards. Overrides cannot be sent again once a conversation has begun, so
+there is nothing a client could do about a switch as it happens.
 
 There is no event that stops the agent speaking. Barge-in is the service's own, announced by
 `interruption`; a client that wants silence can only stop playing what arrives.
@@ -288,20 +296,24 @@ def _as_integer(value: object) -> int | None:
 
 
 def begin_conversation(
-    *, prompt: str, language: str, voice_id: str, first_message: str | None
+    *, prompt: str, language: str, voice_id: str | None, first_message: str | None
 ) -> dict[str, Any]:
     """The event that opens a conversation as this session.
 
     `first_message` is only sent when given. Left out, the agent greets the caller as it was
     configured to; given as empty, it waits for them — which is what a conversation resumed after
-    a dropped connection wants, and costs one more override the agent must allow.
+    a dropped connection wants. `voice_id` is only sent when given: left out, the agent speaks
+    each language in its own voice for it, and a voice sent here would hold across a switch.
     """
     agent: dict[str, Any] = {"prompt": {"prompt": prompt}, "language": language}
     if first_message is not None:
         agent["first_message"] = first_message
+    overrides: dict[str, Any] = {"agent": agent}
+    if voice_id is not None:
+        overrides["tts"] = {"voice_id": voice_id}
     return {
         "type": "conversation_initiation_client_data",
-        "conversation_config_override": {"agent": agent, "tts": {"voice_id": voice_id}},
+        "conversation_config_override": overrides,
     }
 
 

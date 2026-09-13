@@ -135,24 +135,34 @@ class VoiceProvider(ABC):
 
 
 async def resolve_voice(provider: VoiceProvider, selection: VoiceSelection, *, locale: str) -> str:
-    """Which voice this call will actually use.
+    """Which voice a call in `locale` will actually use.
 
     The fallback chain, implemented once, in the domain:
 
-        the user's cloned voice → the persona voice they chose → the provider's default
+        the user's cloned voice
+        → the persona voice they chose, if it speaks the language
+        → the provider's default, if it speaks the language
+        → the first voice in the catalogue that does
+        → the provider's default
 
     Each step falls through when the voice is unavailable, so a revoked or broken custom voice
     produces a call that sounds different rather than a call that does not happen. Silence is
     the one outcome this must never produce.
 
-    The locale is accepted and unused when a voice is already chosen: a user who picked a voice
-    gets that voice. It matters only for a provider whose default varies by language, which is
-    why it is part of the contract rather than an argument the caller has to remember later.
+    A cloned voice is the user's own voice, which speaks whatever they speak, so the language is
+    not asked of it. Every other voice is held to the language (D-039): a voice chosen in English
+    reading Hindi is a call the caller cannot follow, and a different voice is the lesser change.
     """
-    for candidate in (selection.cloned_voice_id, selection.persona_voice_id):
-        if candidate is not None and await provider.is_available(candidate):
-            return candidate
+    cloned = selection.cloned_voice_id
+    if cloned is not None and await provider.is_available(cloned):
+        return cloned
 
     if not locale.strip():
-        raise InvariantError("a locale is required to fall back to a provider's default voice")
-    return provider.default_voice_id
+        raise InvariantError("a locale is required to choose a voice for a call")
+    speaking = [voice.id for voice in await provider.list_voices(locale)]
+    default = provider.default_voice_id
+    preferred = [selection.persona_voice_id, default, *speaking]
+    for candidate in preferred:
+        if candidate in speaking and await provider.is_available(candidate):
+            return candidate
+    return default
