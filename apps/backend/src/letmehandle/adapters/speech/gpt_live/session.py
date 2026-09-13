@@ -32,7 +32,6 @@ from letmehandle.domain.ports.speech import (
     SpeechStarted,
     TranscriptProduced,
 )
-from letmehandle.observability import catalogue
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,12 +45,6 @@ if TYPE_CHECKING:
         EventConnection,
         EventConnectionError,
     )
-    from letmehandle.domain.ports.metrics import MetricsRecorder
-
-# The voice time a finalised session reports, which is what it is billed for.
-SESSION_SECONDS: Final = catalogue.measure(
-    "speech.session_seconds", provider=catalogue.NAMED_IN_CODE
-)
 
 # The RMS of 16-bit samples above which the assistant's audio is speech rather than silence.
 _SPEECH_LEVEL: Final = 300.0
@@ -77,7 +70,6 @@ class LiveOptions:
     start_timeout: float
     close_timeout: float
     turn_gap_ms: int
-    metrics: MetricsRecorder
 
 
 class GptLiveSpeechSession(StreamingSpeechSession[Inbound]):
@@ -217,8 +209,7 @@ class GptLiveSpeechSession(StreamingSpeechSession[Inbound]):
     async def _closed_by_service(self, closed: SessionClosed) -> None:
         """The service finalised the session: done, ended for good, or worth replacing."""
         if closed.seconds is not None:
-            labels = {"provider": self._setup.provider}
-            self._options.metrics.observe(SESSION_SECONDS, closed.seconds, labels)
+            self._telemetry.billed(closed.seconds)
         if self._closing:
             await self._settle(self._turns.flush())
             await self._drop_connection()

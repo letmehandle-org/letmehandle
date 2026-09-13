@@ -42,6 +42,9 @@ RECONNECTIONS: Final = catalogue.count(
 RECONNECTION_DURATION: Final = catalogue.measure(
     "speech.reconnection_seconds", provider=catalogue.NAMED_IN_CODE, outcome=_RECONNECTION_OUTCOMES
 )
+SESSION_SECONDS: Final = catalogue.measure(
+    "speech.session_seconds", provider=catalogue.NAMED_IN_CODE
+)
 STREAM_ERRORS: Final = catalogue.count(
     "speech.stream_errors", provider=catalogue.NAMED_IN_CODE, kind=StreamErrorKind
 )
@@ -102,6 +105,10 @@ class SessionTelemetry:
         self._recorder.increment(RECONNECTIONS, labels)
         elapsed = self._clock() - self._reconnecting_since
         self._recorder.observe(RECONNECTION_DURATION, elapsed, labels)
+
+    def billed(self, seconds: float) -> None:
+        """The service reported the voice time a finished session is billed for."""
+        self._recorder.observe(SESSION_SECONDS, seconds, self._labels)
 
     def stream_error(self, kind: StreamErrorKind) -> None:
         """Something went wrong on the stream, whether or not the session survived it."""

@@ -15,7 +15,7 @@ import pytest
 from letmehandle.adapters.speech.gpt_live import language
 from letmehandle.adapters.speech.gpt_live.context import APPEND_CHARACTERS
 from letmehandle.adapters.speech.gpt_live.provider import GptLiveSpeechProvider
-from letmehandle.adapters.speech.gpt_live.session import NO_DELEGATE, SESSION_SECONDS
+from letmehandle.adapters.speech.gpt_live.session import NO_DELEGATE
 from letmehandle.adapters.speech.session_support import telemetry
 from letmehandle.domain.errors import CapabilityNotSupportedError, InvariantError, ProviderError
 from letmehandle.domain.models.audio import (
@@ -685,7 +685,7 @@ async def test_a_session_the_service_ends_for_its_own_reasons_is_replaced(
     async with await connect(provider):
         service.current.close_session("expired")
         await service.wait_for_sent("session.instructions.append", connection=2)
-    assert metrics.observed(SESSION_SECONDS) == [USAGE_SECONDS, USAGE_SECONDS]
+    assert metrics.observed(telemetry.SESSION_SECONDS) == [USAGE_SECONDS, USAGE_SECONDS]
 
 
 async def test_a_session_the_service_ends_over_its_content_is_not_replaced(
@@ -818,7 +818,7 @@ async def test_closing_finalises_the_session_and_records_its_voice_time(
     session = await connect(provider)
     await session.close()
     assert service.current.sent_types()[-1] == "session.close"
-    assert metrics.observed(SESSION_SECONDS) == [USAGE_SECONDS]
+    assert metrics.observed(telemetry.SESSION_SECONDS) == [USAGE_SECONDS]
     assert service.open_connections == 0
     assert live_tasks() == set()
 
@@ -829,7 +829,7 @@ async def test_a_session_the_service_never_finalises_is_released_anyway(
     service.finalises = False
     session = await connect(make_provider(close_timeout=0.05))
     await session.close()
-    assert metrics.observed(SESSION_SECONDS) == []
+    assert metrics.observed(telemetry.SESSION_SECONDS) == []
     assert service.open_connections == 0
     assert live_tasks() == set()
 

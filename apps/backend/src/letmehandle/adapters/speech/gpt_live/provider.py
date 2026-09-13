@@ -164,7 +164,6 @@ class GptLiveSpeechProvider(SpeechProvider):
                 start_timeout=self._start_timeout,
                 close_timeout=self._close_timeout,
                 turn_gap_ms=self._turn_gap_ms,
-                metrics=self._metrics,
             ),
         )
         await session.start()
