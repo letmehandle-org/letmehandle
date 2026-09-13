@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Final
 from letmehandle.adapters.speech.gpt_live.context import SessionContext
 from letmehandle.adapters.speech.gpt_live.language import base_language
 from letmehandle.adapters.speech.gpt_live.protocol import DEFAULT_WIRE_FORMAT, wire_format_for
-from letmehandle.adapters.speech.gpt_live.session import GptLiveSpeechSession, SessionSetup
+from letmehandle.adapters.speech.gpt_live.session import GptLiveSpeechSession, LiveOptions
 from letmehandle.adapters.speech.gpt_live.turns import DEFAULT_GAP_MS
 from letmehandle.adapters.speech.session_support.bounds import (
     DEFAULT_AUDIO_CEILING_SECONDS,
@@ -41,6 +41,7 @@ from letmehandle.adapters.speech.session_support.offer import (
     checked_capabilities,
 )
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.streaming import SessionSetup
 from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
 from letmehandle.adapters.speech.session_support.timing import Timekeeping
 from letmehandle.domain.errors import InvariantError
@@ -143,15 +144,9 @@ class GptLiveSpeechProvider(SpeechProvider):
                 opener=self._opener,
                 input_format=input_format,
                 output_format=self._output_format,
-                wire_format=wire_format,
-                languages=self._capabilities.languages,
                 reconnect=self._reconnect,
                 audio_ceiling_seconds=self._audio_ceiling_seconds,
-                start_timeout=self._start_timeout,
-                close_timeout=self._close_timeout,
-                turn_gap_ms=self._turn_gap_ms,
                 timekeeping=self._timekeeping,
-                metrics=self._metrics,
             ),
             SessionContext(
                 model=self._model,
@@ -163,6 +158,14 @@ class GptLiveSpeechProvider(SpeechProvider):
                 history_turns=self._history_turns,
             ),
             SessionTelemetry(self._metrics, self._timekeeping.clock, self.name),
+            LiveOptions(
+                wire_format=wire_format,
+                languages=self._capabilities.languages,
+                start_timeout=self._start_timeout,
+                close_timeout=self._close_timeout,
+                turn_gap_ms=self._turn_gap_ms,
+                metrics=self._metrics,
+            ),
         )
         await session.start()
         return session

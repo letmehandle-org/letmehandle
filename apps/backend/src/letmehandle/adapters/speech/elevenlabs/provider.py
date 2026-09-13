@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.adapters.speech.elevenlabs.context import ConversationContext, switching
 from letmehandle.adapters.speech.elevenlabs.protocol import DEFAULT_WIRE_FORMAT
-from letmehandle.adapters.speech.elevenlabs.session import ElevenLabsSpeechSession, SessionSetup
+from letmehandle.adapters.speech.elevenlabs.session import ElevenLabsSpeechSession
 from letmehandle.adapters.speech.session_support.bounds import (
     DEFAULT_AUDIO_CEILING_SECONDS,
     DEFAULT_HISTORY_TURNS,
@@ -40,6 +40,7 @@ from letmehandle.adapters.speech.session_support.offer import (
     checked_capabilities,
 )
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.streaming import SessionSetup
 from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
 from letmehandle.adapters.speech.session_support.timing import Timekeeping
 from letmehandle.domain.errors import InvariantError
@@ -132,7 +133,6 @@ class ElevenLabsSpeechProvider(SpeechProvider):
                 output_format=self._output_format,
                 reconnect=self._reconnect,
                 audio_ceiling_seconds=self._audio_ceiling_seconds,
-                initiation_timeout=self._initiation_timeout,
                 timekeeping=self._timekeeping,
             ),
             ConversationContext(
@@ -144,6 +144,7 @@ class ElevenLabsSpeechProvider(SpeechProvider):
                 history_turns=self._history_turns,
             ),
             SessionTelemetry(self._metrics, self._timekeeping.clock, self.name),
+            initiation_timeout=self._initiation_timeout,
         )
         await session.start()
         return session

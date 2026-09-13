@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.adapters.speech.realtime.context import SessionContext
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT
-from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession, SessionSetup
+from letmehandle.adapters.speech.realtime.session import RealtimeSpeechSession
 from letmehandle.adapters.speech.session_support.bounds import (
     DEFAULT_AUDIO_CEILING_SECONDS,
     DEFAULT_HISTORY_TURNS,
@@ -29,6 +29,7 @@ from letmehandle.adapters.speech.session_support.offer import (
     checked_capabilities,
 )
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+from letmehandle.adapters.speech.session_support.streaming import SessionSetup
 from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
 from letmehandle.adapters.speech.session_support.timing import Timekeeping
 from letmehandle.domain.errors import InvariantError
