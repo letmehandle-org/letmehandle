@@ -17,12 +17,7 @@ interface Props<K extends string> {
   readonly onSelect: (key: K) => void;
 }
 
-/**
- * The three places in the app: Home, Activity, Settings.
- *
- * The current tab sits in a soft violet pill as well as being coloured, so which one is open
- * does not depend on telling two colours apart.
- */
+/** The three tabs, the current one in a pill as well as in colour. */
 export function TabBar<K extends string>({
   tabs,
   current,
@@ -50,8 +45,7 @@ export function TabBar<K extends string>({
             style={styles.tab}
           >
             <View style={styles.pill}>
-              {/* Mounted rather than restyled: Android loses the corner radius of a view whose
-                  background is added after it was drawn, and the pill turns square. */}
+              {/* Mounted rather than restyled, as Android squares a view whose background arrives late. */}
               {selected && <View style={styles.pillOn} />}
               <Icon name={tab.icon} colour={ink} size={22} />
             </View>

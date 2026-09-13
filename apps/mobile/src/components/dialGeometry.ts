@@ -1,9 +1,4 @@
-/**
- * The ring's geometry, apart from the drawing.
- *
- * Kept pure so that what the ring claims is testable: a dial that drew 24 handled calls as a
- * third of the ring would be the one place in the app lying with a picture.
- */
+/** The ring's geometry, apart from the drawing. */
 
 export interface Segment {
   /** How much of the whole this part is, from 0 to 1. */
@@ -19,13 +14,7 @@ export interface Arc {
   readonly offset: number;
 }
 
-/**
- * Lay segments end to end around a circle.
- *
- * Fractions that add to more than the whole are clipped at the whole rather than wrapping past
- * the top, and empty or negative ones draw nothing: a ring with more in it than a day holds is
- * a bug upstream, and drawing it twice round would hide that.
- */
+/** Lays segments end to end around a circle, clipping at the whole and skipping empty parts. */
 export function arcsFor(
   segments: readonly Segment[],
   circumference: number,

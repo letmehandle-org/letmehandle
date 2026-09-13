@@ -16,12 +16,7 @@ interface Props<T extends string> {
   readonly testID?: string;
 }
 
-/**
- * A choice between a few things that are each a whole answer, like "all the time" or "set hours".
- *
- * The selected option is mounted as a raised pill rather than restyled, for the reason the tab
- * bar's is: Android drops the corner radius of a view whose background arrives after it drew.
- */
+/** A choice between a few whole answers; the selected pill is mounted, as Android drops late radii. */
 export function Segmented<T extends string>({
   label,
   value,

@@ -29,13 +29,7 @@ const HOT_PORTS = [
   [165, 270],
 ] as const;
 
-/**
- * When the user's phone rings, drawn as the rule the code follows.
- *
- * The assistant answers; if it cannot resolve the call, or the call is urgent, the phone rings;
- * anything else waits in Activity. The lines end exactly at the node edges, and the two that
- * lead to the user are apricot, the colour that only ever means the user is needed.
- */
+/** When the user's phone rings, drawn as the rule the code follows. */
 export function CallGraph(): React.JSX.Element {
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
@@ -49,8 +43,7 @@ export function CallGraph(): React.JSX.Element {
       style={styles.frame}
       testID="call-graph"
     >
-      {/* A box of the scaled size holds the canvas, which is scaled about its own centre — so the
-          translation puts its top-left corner back where the box starts. */}
+      {/* The canvas is scaled about its centre, so this translation puts its corner back at the box's. */}
       <View
         style={{ width: CANVAS.width * scale, height: CANVAS.height * scale }}
       >

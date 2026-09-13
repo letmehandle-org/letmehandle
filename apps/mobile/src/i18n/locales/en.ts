@@ -1,13 +1,4 @@
-/**
- * British English, the only shipped locale (D-017).
- *
- * Keys are grouped by the screen or concept they belong to. A key used in two places belongs
- * under `common`: duplicating a string under two keys means one of them gets changed and the
- * other does not.
- *
- * The design asks for as few words as a screen can carry. Where an icon or a drawing says it,
- * there is no string here for it to repeat.
- */
+/** British English, the only shipped locale; a key used in two places lives under `common` (D-017). */
 export const en = {
   common: {
     appName: 'LetMeHandle',
@@ -94,7 +85,7 @@ export const en = {
     resendIn: 'Send another code in {{clock}}',
     resent: 'A new code is on its way. Only the newest code works.',
     locked: 'Too many wrong codes. Try again in {{wait}}.',
-    // FOR TESTING ONLY — remove before launch, with showsTestingCode.
+    // Shown only by development builds; see showsTestingCode.
     testingHint: 'Testing build: the code is 123456.',
   },
   setup: {
@@ -363,10 +354,7 @@ export const en = {
     privacy: 'Privacy',
     account: 'Account',
   },
-  /**
-   * Call screening on this handset: what it does, what it cannot, and what refusing it means.
-   * Only shown where the handset has a screening service to grant.
-   */
+  /** Call screening on this handset, shown only where it has a screening service. */
   screening: {
     title: 'Screen calls before they ring',
     subtitle: 'Your rules, applied on this phone.',
@@ -453,10 +441,7 @@ export const en = {
   voice: {
     default: 'Whichever your assistant picks',
   },
-  /**
-   * Keys under `preferences` are named for the API sections they edit, and validation messages
-   * are looked up here by the code that raises them.
-   */
+  /** Keys named for the API sections they edit, including their validation messages. */
   preferences: {
     personality: {
       invalidTopic: 'A topic is a short phrase, not a sentence.',

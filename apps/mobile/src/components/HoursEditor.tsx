@@ -25,13 +25,7 @@ interface Props {
 
 type End = 'start' | 'end';
 
-/**
- * When the assistant answers, as one ring on a clock (D-030).
- *
- * Around the clock is a full ring and nothing else to decide. Set hours draw the window where it
- * falls in the day, with the two times as the only inputs and one line saying what happens
- * outside them. Shared by setup, which saves on Next, and settings, which saves on every change.
- */
+/** When the assistant answers, as one ring on a clock, shared by setup and settings (D-030). */
 export function HoursEditor({ value, onChange }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [choosing, setChoosing] = useState<End | null>(null);

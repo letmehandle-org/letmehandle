@@ -18,12 +18,7 @@ interface Props extends Omit<TextInputProps, 'style'> {
   readonly leading?: React.ReactNode;
 }
 
-/**
- * A labelled input, with room for what is wrong with it.
- *
- * The problem sits with the field rather than in a banner elsewhere on the screen: a message
- * next to the thing it is about is one people read.
- */
+/** A labelled input with its problem shown beside it. */
 export function Field({
   label,
   problem = null,

@@ -19,12 +19,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * The ring: the app's one status object.
- *
- * Segments run clockwise from the top, or from `start` for a ring that is a clock. With no data it is drawn as a hairline rather than as an
- * empty grey ring, so "nothing yet" and "nothing handled" never look the same.
- */
+/** The ring: segments clockwise from the top or `start`, and a hairline when there is nothing yet. */
 export function Dial({
   size = 220,
   segments = [],
@@ -58,7 +53,7 @@ export function Dial({
             fill="none"
           />
         ) : (
-          // Rotated so that zero is at the top rather than at three o'clock, then on to `start`.
+          // Rotated so zero is at the top, then on to `start`.
           <G rotation={-90 + start * 360} origin={`${centre}, ${centre}`}>
             <Circle
               cx={centre}

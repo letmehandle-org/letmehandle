@@ -23,12 +23,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * One line of a card: what it is on the left, where it stands on the right.
- *
- * Tappable rows show a chevron, and only tappable rows do. A chevron on something that does not
- * open is a promise the screen breaks.
- */
+/** One line of a card; only tappable rows show a chevron. */
 export function Row({
   title,
   subtitle,

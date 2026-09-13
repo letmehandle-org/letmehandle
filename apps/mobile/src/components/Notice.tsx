@@ -36,14 +36,7 @@ const LOOK: Record<
   },
 };
 
-/**
- * Something the screen needs to say, announced rather than only drawn.
- *
- * A live region, because these appear after the screen has settled — a save failed, a save
- * worked — and a message that only changes the pixels is one a screen reader never mentions.
- * A problem is assertive and a confirmation is polite: being interrupted matters for the first
- * and is rude for the second.
- */
+/** A message announced as a live region: assertive for a problem, polite for a confirmation. */
 export function Notice({
   message,
   tone = 'quiet',

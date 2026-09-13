@@ -23,12 +23,7 @@ export const TONES: Record<
   warning: { fill: theme.colour.warningWash, ink: theme.colour.warning },
 };
 
-/**
- * An icon in a soft circle, coloured by what it means.
- *
- * The tone is the meaning and the icon is the subject: a courier who was handled and a courier
- * who needs the user share the truck, and differ only here.
- */
+/** An icon in a soft circle, coloured by what it means. */
 export function Disc({
   icon,
   tone = 'quiet',

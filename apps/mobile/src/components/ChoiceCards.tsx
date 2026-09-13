@@ -18,12 +18,7 @@ interface Props<T> {
   readonly testID?: string;
 }
 
-/**
- * One answer out of a few, each shown as a picture.
- *
- * For choices a word describes badly — how warm, how long — so the answer is seen rather than
- * read. Radios, so assistive technology announces the count and the choice.
- */
+/** One answer out of a few, each shown as a picture, announced as radios. */
 export function ChoiceCards<T extends string>({
   label,
   value,

@@ -66,13 +66,7 @@ function End({
   );
 }
 
-/**
- * Where a kind of call goes, read left to right.
- *
- * One lane per rule, with nothing to toggle. The assistant's lane sits on the pastel ground and
- * ends in the filled violet circle, so the two lanes differ in exactly the way the two outcomes
- * do.
- */
+/** Where a kind of call goes, read left to right; the assistant's lane sits on the pastel ground. */
 export function Lane(props: LaneProps): React.JSX.Element {
   const { t } = useTranslation();
   const described = t('common.labelled', {
