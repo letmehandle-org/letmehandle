@@ -1,19 +1,6 @@
 #!/usr/bin/env python3
 """Writes a `.env` that runs the whole local stack with no paid account."""
 
-# `.env.example` documents every variable and carries no value that could be anybody's secret
-# (D-021). Copied as it is, the backend refuses to start: signing a token needs a key, and a key
-# written into a tracked file is a key every clone shares. This fills in the two keys with fresh
-# random values and leaves everything else as the example has it — the mock sign-in provider, the
-# example voices, and no speech service, model, call transport or push credentials.
-#
-# What that runs: the API, sign-in with the development code, preferences, voices and call
-# history. What it does not: a phone call. Every provider a call needs is left unset, and each
-# one's page under docs/providers/ says what to set.
-#
-#   python3 scripts/create_sample_env.py            write .env, leaving an existing one alone
-#   python3 scripts/create_sample_env.py --force    replace it
-
 from __future__ import annotations
 
 import argparse
@@ -39,12 +26,7 @@ def generated_values() -> dict[str, str]:
 
 
 def fill(example: str, values: dict[str, str]) -> str:
-    """The example with each named variable's empty assignment given its value.
-
-    Only an assignment with nothing after the equals sign is filled, so a value somebody already
-    put in the example is never overwritten, and a variable the example stopped listing fails
-    loudly instead of being silently skipped.
-    """
+    """The example with each named variable's empty assignment filled; fails when one is missing."""
     filled = example
     for name, value in values.items():
         pattern = re.compile(rf"^{re.escape(name)}=$", re.MULTILINE)
@@ -60,8 +42,7 @@ def main() -> int:
     arguments = parser.parse_args()
 
     if TARGET.exists() and not arguments.force:
-        # Not a failure: there is a configuration, which is what was asked for. Refusing to replace
-        # it is what keeps somebody's own keys and providers from being overwritten by a rerun.
+        # An existing configuration is kept, with its own keys and providers.
         print(f"{TARGET.name} already exists; left as it is. Pass --force to replace it.")
         return 0
     TARGET.write_text(fill(EXAMPLE.read_text(), generated_values()))

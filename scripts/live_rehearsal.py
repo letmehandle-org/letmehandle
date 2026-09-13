@@ -1,26 +1,5 @@
 # ruff: noqa: T201, E402 - a terminal tool whose output is the point; imports follow the path
-"""Rehearse whole calls on the configured speech service and model, only telephony simulated.
-
-The application runs on loopback exactly as the end-to-end scenarios run it — its own lifespan and
-orchestrator, storage in PostgreSQL, the simulated telephony provider calling it back over signed
-HTTP and a real media websocket — except that nothing here is scripted on the product's side: the
-assistant speaks through the configured speech service, and the agent and the summariser think
-with the configured model. The caller's side is a script of spoken lines, synthesised by the same
-speech service and fed into the call's media stream at the pace a phone line carries it.
-
-    cd apps/backend
-    uv run python ../../scripts/live_rehearsal.py --env-file ../../.env
-
-It needs a PostgreSQL server (a throwaway database is created on it and dropped afterwards), and
-`SPEECH_*` and `LLM_*` in the env file. Nothing else is read from that file, nothing read from it
-is printed, and every other secret — the signing key, the transcript keys, the diagnostics token —
-is generated for the run and forgotten with it.
-
-Each run is up to four calls and costs a little speech and model usage. Nothing is recorded: the
-caller's audio exists in memory until it is sent, and the assistant's is counted as it arrives, not
-kept (D-013). What is printed is structure, the scripted lines, and what the product stored about
-them.
-"""
+"""Rehearse whole calls on the configured speech service and model, telephony simulated (D-013)."""
 
 from __future__ import annotations
 
@@ -97,25 +76,21 @@ _BYTES_PER_SECOND: Final = 8_000
 # Mu-law's zero: what an open line sends between words.
 _SILENCE: Final = b"\xff" * _FRAME_BYTES
 
-# How long the assistant has been quiet before the caller takes it as their turn. Roughly a person's
-# pause; shorter, and the caller talks over a reply the service delivers in two parts.
+# How long the assistant has been quiet before the caller takes it as their turn.
 _TURN_PAUSE_SECONDS: Final = 1.5
 # How long the caller waits for the assistant to say anything at all before speaking regardless.
 _TURN_PATIENCE_SECONDS: Final = 20.0
 # How long the caller and the user talk once the user has joined, before the caller hangs up.
 _WITH_THE_USER_SECONDS: Final = 3.0
-# How long after the caller hangs up the provider's callbacks arrive, in the order a real call sent
-# them: the assistant's leg first.
+# How long after the caller hangs up the held callbacks are released, the assistant's leg first.
 _HANG_UP_HEARD_AFTER_SECONDS: Final = 2.0
 _SERVICE_RECORD_SECONDS: Final = 8.0
-# How long a whole call may take to be answered, streamed, ended and summarised. A real model is
-# slower than loopback by orders of magnitude, and a summary is written after the call ends.
+# How long a whole call may take to be answered, streamed, ended and summarised.
 _CALL_PATIENCE_SECONDS: Final = 90.0
 
 _ENV_PREFIXES: Final = ("SPEECH_", "LLM_")
 
-# What the rehearsed agent is prepared to speak unless the env file says otherwise: its own English,
-# and Hindi through a language preset and its language detection (D-039).
+# The languages the rehearsed agent speaks unless the env file says otherwise (D-039).
 _REHEARSED_LANGUAGES: Final = "en,hi"
 # The model that can speak a caller's Hindi line; the service's default voices speak English only.
 _MULTILINGUAL_TTS_MODEL: Final = "eleven_multilingual_v2"
@@ -134,8 +109,7 @@ class Scenario:
     # The user's locale, and the language the caller speaks.
     locale: str = "en"
     caller_language: str = "en"
-    # Whether the callbacks about the assistant's leg reach the application before the caller's,
-    # with its media stream already stopped, as a real hang-up delivered them.
+    # Whether the assistant's leg's callbacks arrive before the caller's, after its stream stopped.
     hang_up_heard_late: bool = False
 
 
@@ -220,11 +194,7 @@ def read_env(path: Path) -> dict[str, str]:
 def rehearsal_settings(
     env: dict[str, str], database_url: str, diagnostics_token: str, log_level: str
 ) -> Settings:
-    """A deployment on the simulated telephony account and the configured speech service and model.
-
-    Every key is made for this run: nothing the rehearsal stores outlives it, so nothing needs a
-    key that does.
-    """
+    """The simulated telephony account with the configured speech and model, keyed for this run."""
     return make_settings(
         database_url=database_url,
         log_level=log_level,
@@ -299,13 +269,7 @@ class Pushes:
 
 
 class CallerVoice:
-    """Speaks the caller's lines with the speech service's text-to-speech, as a phone line's audio.
-
-    Asked for in the line's own format, so nothing is converted, and held in memory only. A line in
-    another language is spoken by a native voice where the service lets this key use one — the
-    agent's own preset voice for that language — and otherwise by a catalogue voice on the
-    service's multilingual model.
-    """
+    """Speaks the caller's lines as phone-line audio, in a native voice where the service allows."""
 
     def __init__(self, env: dict[str, str]) -> None:
         endpoint = urlsplit(env["SPEECH_ENDPOINT_URL"])
@@ -425,11 +389,7 @@ def devanagari_share(text: str) -> float:
 
 
 class CallerLine:
-    """The caller's side of the media stream: speech when there is some, silence otherwise.
-
-    Always sending, at the pace of the line, because a speech service decides a turn has ended by
-    hearing the silence after it; a stream that simply stops is a caller who has gone.
-    """
+    """The caller's side of the media stream, always sending speech or silence."""
 
     def __init__(self, provider: SimulatedTwilio, call_id: str) -> None:
         self._provider = provider
@@ -461,8 +421,7 @@ class CallerLine:
                 self.finished_speaking_at = loop.time()
                 done.set()
                 done = None
-            # A line that fell behind is late, not faster: the debt is dropped rather than sent as a
-            # burst, which a speech service would hear as speech sped up.
+            # A line that fell behind drops the debt rather than sending a burst.
             next_frame = max(next_frame + _FRAME_SECONDS, loop.time())
             await asyncio.sleep(next_frame - loop.time())
 
@@ -594,8 +553,7 @@ async def rehearse(
     loop = asyncio.get_running_loop()
     orchestrator: CallOrchestrator = app.state.orchestrator
     result = Result(scenario)
-    # Synthesised before the call, so the time text-to-speech takes is not counted as the caller's
-    # pauses, and the assistant is not left waiting on it.
+    # Synthesised before the call, so text-to-speech time is not counted as the caller's pauses.
     spoken = [await voice.synthesise(line, scenario.caller_language) for line in scenario.lines]
     await api.configure(account, {"locale": scenario.locale})
     provider.answering[USERS_LINE] = scenario.users_phone
@@ -631,8 +589,7 @@ async def rehearse(
             await speak(scenario.lines, spoken)
             if scenario.expects_escalation:
                 await _until(lambda: watch.reached(CallState.HUMAN_JOINED), _TURN_PATIENCE_SECONDS)
-                # The user on the call for a moment, as a person picking up would be, before the
-                # caller, satisfied, hangs up.
+                # The user and the caller talk for a moment before the caller hangs up.
                 await asyncio.sleep(_WITH_THE_USER_SECONDS)
         finally:
             speaking.cancel()
@@ -702,10 +659,7 @@ def _assistants_leg_first(call_id: str) -> Callable[[list[Delivery]], list[Deliv
 
 
 def recognised(scripted: Sequence[str], transcribed: Sequence[str]) -> float:
-    """The share of the script's words that appear anywhere in what was transcribed.
-
-    A measure of whether the caller was heard, computed here so that nothing transcribed is printed.
-    """
+    """The share of the script's words that appear anywhere in what was transcribed."""
     wanted = [word for line in scripted for word in words(line)]
     heard = {word for line in transcribed for word in words(line)}
     return sum(word in heard for word in wanted) / len(wanted) if wanted else 0.0
@@ -867,16 +821,14 @@ async def main_async(env_file: Path, server_url: str, only: str | None, log_leve
             observability=observability,
             http_transport=provider.rest,
         )
-        # No assistant is handed in: the composition root builds the speech service and the agent
-        # from settings, as a deployment's does.
+        # The composition root builds the speech service and the agent from settings.
         app = create_app(settings, telephony=bindings, observability=observability)
         async with serving(app) as url:
             provider.attach(url)
             api = AppClient(app, url)
             try:
                 account = await api.sign_in(USERS_LINE)
-                # Messages allowed and nothing more, the way a user who has just set up the app
-                # has it: the assistant may take a message, and anything else is the user's.
+                # The assistant may take a message, and nothing more.
                 preferences = {
                     **call_handling(escalate_at_or_above=40),
                     "authority": {"capabilities": ["take_a_message"]},

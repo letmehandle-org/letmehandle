@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 """Fails when a link between this repository's own documents points at nothing."""
 
-# Documentation is read by following links, and a link that resolves to nothing is where a
-# newcomer stops. Files move and headings are renamed without anybody searching for what pointed
-# at them, so every relative link in every tracked Markdown file is checked: the file must exist,
-# and a `#fragment` into a Markdown file must name one of its headings, slugged as GitHub slugs
-# them. Links to other sites are not fetched; that would make the check depend on the network.
-#
-#   python3 scripts/check_doc_links.py
-
 from __future__ import annotations
 
 import re

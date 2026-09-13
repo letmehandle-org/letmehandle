@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Write the configuration reference from the settings definition, and check what copies it.
-
-`Settings` in `apps/backend/src/letmehandle/config/settings.py` is the only place the backend reads
-its environment. Three other files repeat what it declares, and each drifts the moment somebody
-adds a variable and forgets one of them:
-
-- `docs/development/configuration.md`, the reference, which this script writes;
-- `.env.example`, which must list every variable and nothing else but the stack's own ports;
-- `docker-compose.yml`, whose backend must be handed every variable, or setting one in `.env`
-  silently does nothing in the development stack.
-
-`--check` writes nothing and fails naming each difference. `make verify` runs it.
-"""
+"""Write the configuration reference from `Settings`, and check what copies its variables."""
 
 from __future__ import annotations
 
@@ -37,8 +25,7 @@ COMPOSE: Final = ROOT / "docker-compose.yml"
 
 sys.path.insert(0, str(BACKEND / "src"))
 
-# Read by the Makefile and docker-compose.yml to choose host ports, never by the backend, which
-# listens on 8000 inside its container whatever these say.
+# Host ports read by the Makefile and docker-compose.yml, never by the backend.
 STACK_VARIABLES: Final = {
     "BACKEND_PORT": "Host port the development stack publishes the backend on. Default `8000`.",
     "POSTGRES_PORT": "Host port the development stack publishes PostgreSQL on. Default `5432`.",
@@ -181,11 +168,7 @@ def assigned_in_env_example(text: str) -> set[str]:
 
 
 def backend_environment_in_compose(text: str) -> set[str]:
-    """The variable names under the backend service's `environment:` in the compose file.
-
-    Read by indentation rather than with a YAML parser: the file's shape is fixed and simple, and
-    a parser would be a dependency for one list of keys.
-    """
+    """The variable names under the backend service's `environment:`, read by indentation."""
     section = re.search(
         r"^  backend:\n(?:^    .*\n|^\s*\n)*?^    environment:\n((?:^      .*\n|^\s*\n)+)",
         text,
