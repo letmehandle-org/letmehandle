@@ -58,8 +58,9 @@ export function VerifyCodeScreen({
   const [now, setNow] = useState(() => Date.now());
 
   const waitLeft = Math.max(0, (resendAt - now) / 1000);
+  const waiting = waitLeft > 0;
   useEffect(() => {
-    if (waitLeft <= 0) {
+    if (!waiting) {
       return undefined;
     }
     const tick = setInterval(() => {
@@ -68,7 +69,7 @@ export function VerifyCodeScreen({
     return () => {
       clearInterval(tick);
     };
-  }, [waitLeft]);
+  }, [waiting]);
 
   const resend = (): void => {
     setProblem(null);
@@ -147,14 +148,14 @@ export function VerifyCodeScreen({
           />
           <Button
             label={
-              waitLeft > 0
+              waiting
                 ? t('code.resendIn', { clock: clockWords(waitLeft) })
                 : t('code.resend')
             }
             variant="quiet"
             onPress={resend}
             busy={sending}
-            disabled={waitLeft > 0}
+            disabled={waiting}
             testID="code-resend"
           />
         </>
