@@ -195,6 +195,21 @@ sign-in challenges. [`data-inventory.md`](../security/data-inventory.md) lists e
 - Keep them only as long as you need to. A backup outlives deletion: a call or account a user
   deleted is still in every backup taken before, and restoring one brings it back.
 
+## Diagnostics and tracing
+
+`DIAGNOSTICS_TOKEN` switches on the `/diagnostics` routes: live calls, one call's timeline by its
+id, and every latency and circuit. They carry no personal data, but they describe every call in
+flight, so treat the token as a secret, give it only to whoever investigates the deployment, and
+prefer to leave it unset where nobody does. It is compared in constant time and must be at least
+32 characters. Leaving it unset removes the routes altogether.
+
+`TRACING_OTLP_ENDPOINT` sends spans to a collector. Spans hold call ids, states, timings and failure
+kinds. Run the collector on a network you control, and configure any credential it needs on the
+collector rather than here: the backend sends to one URL and holds no tracing key.
+
+`/health/ready` needs no token and says which dependencies are failing, by role. Expose it to your
+orchestrator, not to the internet.
+
 ## Retention
 
 How long transcripts are kept is each user's own setting: 7 days by default, between 1 and 90. The

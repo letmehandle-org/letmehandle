@@ -28,9 +28,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from letmehandle.domain.errors import DeliveryUncertainError, DomainError, InvariantError
+from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
     CODE_LENGTH,
@@ -40,6 +41,14 @@ from letmehandle.domain.models.auth import (
 )
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.user import User
+from letmehandle.observability import catalogue
+
+# A sign-in code sent, and one refused before it was: the counts to alert on when codes are pumped.
+CHALLENGE_SENT: Final = catalogue.count("auth.challenge.sent")
+CHALLENGE_REFUSED: Final = catalogue.count(
+    "auth.challenge.refused",
+    outcome={"budget", "country_budget", "locked", "number", "source", "unserved_country"},
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -65,6 +74,8 @@ class AuthenticationError(DomainError):
     a phone-number identity.
     """
 
+    failure_kind = FailureKind.NOT_PERMITTED
+
 
 class UnservedNumberError(DomainError):
     """Codes are not sent to numbers in this country from this deployment.
@@ -73,12 +84,16 @@ class UnservedNumberError(DomainError):
     an account, since it is true of every number with that calling code.
     """
 
+    failure_kind = FailureKind.INVALID
 
-class CodeMayHaveBeenSentError(Exception):
+
+class CodeMayHaveBeenSentError(DomainError):
     """The provider never said whether the code went out, so it is counted as if it did.
 
     Carries when another code may be asked for: the same wait a code that did go out imposes.
     """
+
+    failure_kind = FailureKind.UNAVAILABLE
 
     def __init__(self, retry_after_seconds: int) -> None:
         super().__init__("the code may have been sent; try again shortly")
@@ -87,6 +102,8 @@ class CodeMayHaveBeenSentError(Exception):
 
 class RateLimitedError(AuthenticationError):
     """Too many attempts. Carries when to try again, so a client does not simply retry."""
+
+    failure_kind = FailureKind.RATE_LIMITED
 
     def __init__(self, retry_after_seconds: int) -> None:
         super().__init__("too many attempts; try again shortly")
@@ -260,7 +277,7 @@ class AuthenticationService:
             # is a way past the cooldown and the budgets while the bill still arrives.
             raise CodeMayHaveBeenSentError(self._wait_for_another([*issued, now], now)) from error
         if self._metrics is not None:
-            self._metrics.increment("auth.challenge.sent")
+            self._metrics.increment(CHALLENGE_SENT)
 
         return ChallengeIssued(
             challenge_id=challenge.id,
@@ -332,7 +349,7 @@ class AuthenticationService:
 
     def _refused(self, reason: str) -> None:
         if self._metrics is not None:
-            self._metrics.increment("auth.challenge.refused", {"outcome": reason})
+            self._metrics.increment(CHALLENGE_REFUSED, {"outcome": reason})
 
     def _challenge_code(self) -> str:
         """The code for a new challenge: random, unless a testing provider fixes it.

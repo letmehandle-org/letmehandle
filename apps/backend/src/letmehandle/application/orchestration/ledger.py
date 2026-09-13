@@ -16,28 +16,40 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.resilience.retry import RetryPolicy, retry_idempotent
+from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.call import TranscriptEntry
-from letmehandle.observability.logging import get_logger
+from letmehandle.domain.models.call_state import CallState
+from letmehandle.domain.models.timeline import MarkKind, TimelineMark
+from letmehandle.observability import catalogue
+from letmehandle.observability.logging import get_logger, log_failure
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import datetime
 
     from letmehandle.application.orchestration.ports import Bounds, CallStores, OpenCallStores
     from letmehandle.domain.models.call import CallSession, ParticipantRole, Speaker
-    from letmehandle.domain.models.call_state import CallState
     from letmehandle.domain.models.summary import CallSummary
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
 
 logger = get_logger(__name__)
 
-STORAGE_FAILED: Final = "call.storage_failed"
+STORAGE_FAILED: Final = catalogue.count(
+    "call.storage_failed",
+    stage={"open", "move", "join", "leave", "transcript", "final", "summary"},
+    kind=FailureKind,
+)
 
-# How many times teardown's final save is tried, each within the storage bound. More than once,
-# because the one write a call cannot do without meeting a connection reset is worth another try;
-# few, because a database that is down stays down for longer than a teardown should wait.
-FINAL_SAVE_ATTEMPTS: Final = 3
-TRANSITION: Final = "call.transition"
+# How teardown's final save is tried again, each attempt within the storage bound. More than once,
+# because the one write a call cannot do without meeting a connection reset is worth another try,
+# and storing the whole call again is safe; few, because a database that is down stays down for
+# longer than a teardown should wait.
+FINAL_SAVE: Final = RetryPolicy(attempts=3)
+TRANSITION: Final = catalogue.count("call.transition", outcome=CallState)
+# How long a call spent in the state it has just left, labelled by that state.
+STATE_SECONDS: Final = catalogue.measure("call.state_seconds", outcome=CallState)
 
 
 class CallLedger:
@@ -57,6 +69,10 @@ class CallLedger:
         self._clock = clock
         self._bounds = bounds
         self._metrics = metrics
+        self._state_since = call.started_at
+        # Marks not yet stored. They go with the call's next save, in its unit of work, so a
+        # timeline never holds a mark for a move the stored call has not made.
+        self._marks: list[TimelineMark] = []
 
     @property
     def call(self) -> CallSession:
@@ -66,9 +82,21 @@ class CallLedger:
     def state(self) -> CallState:
         return self._call.state
 
+    @property
+    def state_since(self) -> datetime:
+        """When the call entered the state it is in."""
+        return self._state_since
+
     async def opened(self) -> None:
         """Store the call as it arrived."""
+        self._marks.append(
+            TimelineMark(self._call.started_at, MarkKind.TRANSITION, self.state.value)
+        )
         await self._save("open")
+
+    def note(self, kind: MarkKind, name: str) -> None:
+        """Mark something that happened to the call now. Stored with the call's next save."""
+        self._marks.append(TimelineMark(self._clock.now(), kind, name))
 
     async def move(self, state: CallState) -> None:
         """Move the call, stamped now. Raises for a move the state machine forbids.
@@ -77,8 +105,14 @@ class CallLedger:
         everything go, so a process that stops part-way through a teardown leaves the call
         unfinished for the next start to end rather than ended with no summary.
         """
-        self._call.move_to(state, at_instant=self._clock.now())
+        left, now = self._call.state, self._clock.now()
+        self._call.move_to(state, at_instant=now)
         self._metrics.increment(TRANSITION, {"outcome": state.value})
+        self._metrics.observe(
+            STATE_SECONDS, max((now - self._state_since).total_seconds(), 0.0), {"outcome": left}
+        )
+        self._state_since = now
+        self._marks.append(TimelineMark(now, MarkKind.TRANSITION, state.value))
         if not self._call.is_over:
             await self._save("move")
 
@@ -113,10 +147,7 @@ class CallLedger:
         storage, and the next start ends and summarises it as the failure it then is; a summary
         written beside it would say the call went one way while its record says another.
         """
-        for _ in range(FINAL_SAVE_ATTEMPTS):
-            if await self._save("final"):
-                break
-        else:
+        if not await self._save("final", retry=FINAL_SAVE):
             return
 
         async def add(stores: CallStores) -> None:
@@ -124,29 +155,54 @@ class CallLedger:
 
         await self._write("summary", add)
 
-    async def _save(self, stage: str) -> bool:
+    async def _save(self, stage: str, *, retry: RetryPolicy | None = None) -> bool:
+        stored = 0
+
         async def save(stores: CallStores) -> None:
+            nonlocal stored
+            marks = tuple(self._marks)
             await stores.calls.save(self._call)
+            await stores.timeline.append(self._call.id, marks)
+            stored = len(marks)
 
-        return await self._write(stage, save)
+        saved = await self._write(stage, save, retry=retry)
+        if saved:
+            # Only those this save stored: a judgement may have noted another while it ran.
+            del self._marks[:stored]
+        return saved
 
-    async def _write(self, stage: str, work: Callable[[CallStores], Awaitable[None]]) -> bool:
-        """Do `work` in one unit of work, within the storage bound, and say whether it was done."""
+    async def _write(
+        self,
+        stage: str,
+        work: Callable[[CallStores], Awaitable[None]],
+        *,
+        retry: RetryPolicy | None = None,
+    ) -> bool:
+        """Do `work` in one unit of work, within the storage bound, and say whether it was done.
+
+        With `retry`, which only work safe to repeat is given, a failure that may pass is tried
+        again. Every failed attempt is counted; giving up is logged once.
+        """
+
+        async def attempt() -> None:
+            try:
+                async with asyncio.timeout(self._bounds.storage.total_seconds()):
+                    async with self._stores() as stores:
+                        await work(stores)
+            except Exception as error:
+                kind = classify(error).kind
+                self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": kind})
+                raise
+
         try:
-            async with asyncio.timeout(self._bounds.storage.total_seconds()):
-                async with self._stores() as stores:
-                    await work(stores)
+            if retry is None:
+                await attempt()
+            else:
+                await retry_idempotent(attempt, policy=retry)
         # Broad on purpose, and not swallowed: logged and counted by kind. A storage driver fails in
         # its own terms, a timeout in another, and a live call outlasts every one of them.
         except Exception as error:  # noqa: BLE001
-            # Without a traceback: its frames can hold what was said.
-            logger.error(  # noqa: TRY400
-                "call.storage_failed", stage=stage, error=type(error).__name__
-            )
-            self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": _kind(error)})
+            log_failure(logger, "call.storage_failed", error, stage=stage)
+            self.note(MarkKind.FAILURE, f"storage.{stage}.{classify(error).kind}")
             return False
         return True
-
-
-def _kind(error: Exception) -> str:
-    return "timeout" if isinstance(error, TimeoutError) else "error"

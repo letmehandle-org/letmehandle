@@ -26,6 +26,7 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.ports.call_transport import CallEvent, CallEventKind
+from letmehandle.observability.logging import correlation_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -146,4 +147,5 @@ def _to_event(user_id: UserId, report: CallReport) -> CallEvent:
         caller=None if report.caller_number is None else Caller(number=report.caller_number),
         detail=None if report.ending is None else report.ending.value,
         screening=report.screening,
+        correlation_id=correlation_id.get(),
     )

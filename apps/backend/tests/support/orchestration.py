@@ -35,12 +35,14 @@ from letmehandle.application.orchestration.ports import (
     CallOwnership,
     CallStores,
 )
+from letmehandle.application.resilience.circuit import CircuitPolicy, Circuits
 from letmehandle.domain.errors import AlreadyRecordedError, ProviderError, RecordNotFoundError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFormat, AudioFrame
 from letmehandle.domain.models.call import CallSession
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.timeline import CallOutline, MarkKind, TimelineMark
 from letmehandle.domain.models.user import User
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
@@ -63,6 +65,7 @@ from letmehandle.domain.ports.notification import (
 from letmehandle.domain.ports.repositories import (
     CallPage,
     CallRepository,
+    CallTimelineRepository,
     SummaryRepository,
     TranscriptRepository,
     TranscriptStatus,
@@ -81,6 +84,7 @@ from tests.contracts.preference_fakes import InMemoryPreferencesRepository
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.recording_call_actions import RecordingCallActions
 from tests.support.recording_metrics import RecordingMetrics
+from tests.support.recording_tracer import RecordingTracer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -241,6 +245,38 @@ class MemorySummaries(SummaryRepository):
 
 
 @dataclass
+class MemoryTimeline(CallTimelineRepository):
+    """Marks per stored call, refused for a call never stored as the foreign key refuses them."""
+
+    calls: MemoryCalls
+    summaries: MemorySummaries
+    marks: dict[CallId, list[TimelineMark]] = field(default_factory=lambda: defaultdict(list))
+
+    async def append(self, call_id: CallId, marks: Sequence[TimelineMark]) -> None:
+        if call_id not in self.calls.stored:
+            raise RecordNotFoundError("call", call_id.value)
+        self.marks[call_id].extend(marks)
+
+    async def outline(self, call_id: CallId) -> CallOutline | None:
+        call = self.calls.stored.get(call_id)
+        if call is None:
+            return None
+        summary = self.summaries.stored.get(call_id)
+        return CallOutline(
+            call_id=call_id,
+            state=call.state,
+            handling=call.handling,
+            started_at=call.started_at,
+            ended_at=call.ended_at,
+            escalated_at=call.escalated_at,
+            participants=call.participants,
+            escalation=None,
+            outcome=None if summary is None else summary.outcome,
+            marks=tuple(self.marks[call_id]),
+        )
+
+
+@dataclass
 class MemoryCallStores:
     """Orchestration's storage, which can be told to stop answering."""
 
@@ -254,6 +290,7 @@ class MemoryCallStores:
     def __post_init__(self) -> None:
         self.transcripts = MemoryTranscripts(self.calls)
         self.summaries = MemorySummaries(self.calls)
+        self.timeline = MemoryTimeline(self.calls, self.summaries)
 
     @asynccontextmanager
     async def scope(self) -> AsyncIterator[CallStores]:
@@ -265,6 +302,7 @@ class MemoryCallStores:
             calls=self.calls,
             transcripts=self.transcripts,
             summaries=self.summaries,
+            timeline=self.timeline,
         )
 
     async def with_owner(self, preferences: UserPreferences | None = None) -> None:
@@ -277,6 +315,10 @@ class MemoryCallStores:
 
     def states(self, call_id: str) -> list[CallState]:
         return self.calls.states[CallId(call_id)]
+
+    def marks(self, call_id: str) -> list[tuple[MarkKind, str]]:
+        """The call's stored timeline, as kinds and names in order."""
+        return [(mark.kind, mark.name) for mark in self.timeline.marks[CallId(call_id)]]
 
 
 class EveryCallIsTheOwners(CallOwnership):
@@ -333,8 +375,9 @@ class CallSpeaker(AudioSink):
 class Line(CallTransport):
     """A transport a test drives. What it may be asked depends on the subclass's capabilities.
 
-    `refusing` names requests that raise as a provider refusing them; `holding` names requests that
-    wait until their event is set, which is how a request that never returns is made.
+    `refusing` names requests that raise as a provider refusing them; `failing` names requests that
+    raise as a provider that cannot be reached, which trying again may get past; `holding` names
+    requests that wait until their event is set, which is how a request that never returns is made.
     """
 
     def __init__(self) -> None:
@@ -344,6 +387,7 @@ class Line(CallTransport):
         # Every event delivered twice, as providers do.
         self.duplicating = False
         self.refusing: set[str] = set()
+        self.failing: set[str] = set()
         self.holding: dict[str, asyncio.Event] = {}
 
     @property
@@ -399,6 +443,8 @@ class Line(CallTransport):
             await gate.wait()
         if request in self.refusing:
             raise ProviderError("line", f"{request} refused", retryable=False)
+        if request in self.failing:
+            raise ProviderError("line", f"{request} could not be reached", retryable=True)
 
 
 class StreamingLine(Line):
@@ -667,6 +713,8 @@ class Running:
     escalations: InMemoryStores
     dispatcher: EscalationDispatcher
     metrics: RecordingMetrics
+    tracer: RecordingTracer
+    circuits: Circuits
     summariser: WritingSummariser
 
     async def settled(self, call: str, state: CallState) -> CallSession:
@@ -727,6 +775,7 @@ async def orchestrating(
     bounds: Bounds = QUICK,
     stores: MemoryCallStores | None = None,
     start: bool = True,
+    circuit_policy: CircuitPolicy | None = None,
 ) -> AsyncIterator[Running]:
     """An orchestrator on `line`, started, and stopped afterwards with nothing of it left running.
 
@@ -741,8 +790,14 @@ async def orchestrating(
     await escalations.devices.register(OWNER, DEVICE)
     notifications = HeldNotifications()
     metrics = RecordingMetrics()
+    tracer = RecordingTracer()
+    circuits = Circuits(metrics=metrics, policy=circuit_policy)
     dispatcher = EscalationDispatcher(
-        providers=[notifications], stores=escalations.scope, metrics=metrics
+        providers=[notifications],
+        stores=escalations.scope,
+        metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
     )
     speech = ControlledSpeech()
     agent = Agent(list(looks))
@@ -754,6 +809,8 @@ async def orchestrating(
         dispatcher=dispatcher,
         clock=FixedClock(),
         metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
         assistant=AssistantServices(
             speech=speech, voices=StaticVoiceProvider(), judging=agent.judging
         ),
@@ -770,6 +827,8 @@ async def orchestrating(
         escalations=escalations,
         dispatcher=dispatcher,
         metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
         summariser=summariser,
     )
     if start:

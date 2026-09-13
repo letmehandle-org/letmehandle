@@ -79,6 +79,14 @@ to the user who signed in with that number (`ForwardedCallOwnership`, D-033). A 
 account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
 it and records nothing.
 
+### Whose call it is
+
+A caller dials the user's own number and the user's carrier forwards it to the account's number,
+which every user shares. The carrier's `ForwardedFrom` names the user's line, and the call belongs
+to the user who signed in with that number (`ForwardedCallOwnership`, D-033). A call dialled at the
+account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
+it and records nothing.
+
 ### What the orchestrator hears
 
 | Event | Participant | Outcome | When |

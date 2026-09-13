@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkab
 
 from fastapi import APIRouter
 
+from letmehandle import __version__
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
@@ -33,6 +34,7 @@ from letmehandle.adapters.database.repositories import (
     SqlUserRepository,
 )
 from letmehandle.adapters.database.session import unit_of_work
+from letmehandle.adapters.database.timeline import SqlCallTimelineRepository
 from letmehandle.adapters.notification.apns.provider import (
     APNsEnvironment,
     APNsNotificationProvider,
@@ -61,6 +63,7 @@ from letmehandle.adapters.speech.elevenlabs.websocket import (
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
+from letmehandle.adapters.tracing.opentelemetry import otlp_tracer
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
 from letmehandle.adapters.transport.twilio.ownership import ForwardedCallOwnership
 from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
@@ -83,6 +86,7 @@ from letmehandle.application.orchestration.ports import (
     CallOwnership,
     CallStores,
 )
+from letmehandle.application.resilience.circuit import Circuits
 from letmehandle.config.settings import (
     APNsEnvironmentName,
     ConfigurationError,
@@ -93,7 +97,9 @@ from letmehandle.config.settings import (
 )
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.observability.in_process import InProcessMetrics, MetricsFanOut
 from letmehandle.observability.metrics import LoggingMetricsRecorder
+from letmehandle.observability.tracing import NoTracer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -122,6 +128,7 @@ if TYPE_CHECKING:
         TranscriptCipher,
     )
     from letmehandle.domain.ports.speech import SpeechProvider
+    from letmehandle.domain.ports.tracing import Tracer
     from letmehandle.domain.ports.voice import VoiceProvider
 
 
@@ -280,11 +287,50 @@ _APNS_ENVIRONMENTS: Final = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class Observability:
+    """How the process reports on itself, chosen once: where metrics and spans go, and circuits.
+
+    `metrics` is what everything records to; `in_process` is the part of it diagnostics reads back.
+    `close` flushes spans not yet exported, once, as the process stops.
+    """
+
+    metrics: MetricsRecorder
+    in_process: InProcessMetrics
+    tracer: Tracer
+    circuits: Circuits
+    close: Callable[[], None]
+
+
+def build_observability(settings: Settings) -> Observability:
+    """Metrics to the log and to diagnostics, and spans to a collector when one is configured."""
+    in_process = InProcessMetrics()
+    metrics = MetricsFanOut(LoggingMetricsRecorder(), in_process)
+    endpoint = settings.tracing_otlp_endpoint
+    if endpoint is None:
+        tracer: Tracer = NoTracer()
+        close: Callable[[], None] = _nothing_to_flush
+    else:
+        exporting = otlp_tracer(str(endpoint), version=__version__)
+        tracer, close = exporting.tracer, exporting.shutdown
+    return Observability(
+        metrics=metrics,
+        in_process=in_process,
+        tracer=tracer,
+        circuits=Circuits(metrics=metrics),
+        close=close,
+    )
+
+
+def _nothing_to_flush() -> None:
+    return None
+
+
 def build_escalation_dispatcher(
     container: Container,
     session_factory: async_sessionmaker[AsyncSession],
     *,
-    metrics: MetricsRecorder,
+    observability: Observability,
 ) -> EscalationDispatcher:
     """The dispatcher, storing through its own short units of work.
 
@@ -306,7 +352,13 @@ def build_escalation_dispatcher(
                 contexts=SqlEscalationContextRepository(session, cipher),
             )
 
-    return EscalationDispatcher(providers=container.notifications, stores=stores, metrics=metrics)
+    return EscalationDispatcher(
+        providers=container.notifications,
+        stores=stores,
+        metrics=observability.metrics,
+        tracer=observability.tracer,
+        circuits=observability.circuits,
+    )
 
 
 def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
@@ -429,6 +481,7 @@ def build_call_transport(
     settings: Settings,
     *,
     reported_calls: AndroidNativeCallTransport,
+    observability: Observability,
     http_transport: httpx.AsyncBaseTransport | None = None,
 ) -> CallTransportBinding | None:
     """The call transport this deployment is configured for, if any.
@@ -472,7 +525,9 @@ def build_call_transport(
             )
             return CallTransportBinding(
                 transport=transport,
-                router=build_twilio_router(transport),
+                router=build_twilio_router(
+                    transport, tracer=observability.tracer, metrics=observability.metrics
+                ),
                 close=transport.close,
                 ownership=partial(ForwardedCallOwnership, transport),
             )
@@ -496,7 +551,7 @@ def build_call_orchestrator(
     session_factory: async_sessionmaker[AsyncSession],
     telephony: CallTransportBinding,
     dispatcher: EscalationDispatcher,
-    metrics: MetricsRecorder,
+    observability: Observability,
     assistant: AssistantServices | None = None,
     summariser: CallSummariser | None = None,
 ) -> CallOrchestrator:
@@ -522,6 +577,7 @@ def build_call_orchestrator(
                 calls=SqlCallRepository(session, cipher, clock),
                 transcripts=SqlTranscriptRepository(session, cipher),
                 summaries=SqlSummaryRepository(session, cipher, clock),
+                timeline=SqlCallTimelineRepository(session),
             )
 
     async def find_user(number: PhoneNumber) -> UserId | None:
@@ -535,7 +591,7 @@ def build_call_orchestrator(
     )
     if assistant is None and takes_calls:
         assistant = AssistantServices(
-            speech=build_speech_provider(settings, metrics=metrics),
+            speech=build_speech_provider(settings, metrics=observability.metrics),
             voices=container.voices,
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
@@ -549,7 +605,9 @@ def build_call_orchestrator(
         stores=stores,
         dispatcher=dispatcher,
         clock=clock,
-        metrics=metrics,
+        metrics=observability.metrics,
+        tracer=observability.tracer,
+        circuits=observability.circuits,
         assistant=assistant,
         summariser=summariser,
         bounds=bounds,

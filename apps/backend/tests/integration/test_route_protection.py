@@ -20,6 +20,7 @@ from letmehandle.bootstrap import build_call_transport, build_reported_calls
 from letmehandle.domain.ports.voice import VoiceSample
 from letmehandle.main import create_app
 from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES, make_settings
+from tests.support.observability import recorded_observability
 from tests.support.simulated_twilio import telephony_settings
 
 if TYPE_CHECKING:
@@ -43,7 +44,11 @@ OVERSIZED_BODY: Final = b"{" + b" " * (2 * 1024 * 1024) + b"}"
 
 def _application() -> FastAPI:
     """The application with every optional route present: telephony, and voice preview."""
-    binding = build_call_transport(telephony_settings(), reported_calls=build_reported_calls())
+    binding = build_call_transport(
+        telephony_settings(),
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+    )
     voices = BuiltInVoiceProvider(
         EXAMPLE_VOICES,
         default_voice_id=EXAMPLE_DEFAULT_VOICE,

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.call_transport import CallEvent
     from letmehandle.domain.ports.repositories import (
         CallRepository,
+        CallTimelineRepository,
         PreferencesRepository,
         SummaryRepository,
         TranscriptRepository,
@@ -50,6 +51,7 @@ class CallStores:
     calls: CallRepository
     transcripts: TranscriptRepository
     summaries: SummaryRepository
+    timeline: CallTimelineRepository
 
 
 type OpenCallStores = Callable[[], AbstractAsyncContextManager[CallStores]]

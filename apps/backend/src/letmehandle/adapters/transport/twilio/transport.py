@@ -66,7 +66,7 @@ from letmehandle.domain.ports.call_transport import (
     ParticipantRole,
     TransportCapabilities,
 )
-from letmehandle.observability.logging import get_logger
+from letmehandle.observability.logging import correlation_id, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
@@ -898,6 +898,7 @@ class TwilioCallTransport(CallTransport):
                 detail=detail,
                 participant=participant,
                 outcome=outcome,
+                correlation_id=correlation_id.get(),
             )
         )
 
@@ -929,6 +930,7 @@ class TwilioCallTransport(CallTransport):
                     call.call_id,
                     EventId(f"{call.call_id}:failed:{id(task)}"),
                     detail=str(failure),
+                    correlation_id=correlation_id.get(),
                 )
             )
 

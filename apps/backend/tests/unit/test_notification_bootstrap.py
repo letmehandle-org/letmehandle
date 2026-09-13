@@ -29,6 +29,7 @@ from letmehandle.config.settings import (
 from letmehandle.main import create_app
 from tests.contracts.fakes import FixedClock, RecordingNotificationProvider
 from tests.support.config import TEST_TRANSCRIPT_KEYS, UNREACHABLE_DATABASE, make_settings
+from tests.support.observability import recorded_observability
 from tests.support.push_services import (
     EXAMPLE_KEY_ID,
     EXAMPLE_PROJECT,
@@ -38,7 +39,6 @@ from tests.support.push_services import (
     rsa_key_pem,
     service_account_json,
 )
-from tests.support.recording_metrics import RecordingMetrics
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -182,7 +182,9 @@ class TestProviders:
             settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
         )
         factory: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
-        dispatcher = build_escalation_dispatcher(container, factory, metrics=RecordingMetrics())
+        dispatcher = build_escalation_dispatcher(
+            container, factory, observability=recorded_observability()
+        )
         assert isinstance(dispatcher, EscalationDispatcher)
         assert [each.name for each in dispatcher._providers.values()] == ["fcm"]
 
@@ -193,7 +195,7 @@ class TestProviders:
         )
         factory: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
         with pytest.raises(ConfigurationError, match="TRANSCRIPT_ENCRYPTION_KEYS"):
-            build_escalation_dispatcher(container, factory, metrics=RecordingMetrics())
+            build_escalation_dispatcher(container, factory, observability=recorded_observability())
 
 
 class TestLifespan:

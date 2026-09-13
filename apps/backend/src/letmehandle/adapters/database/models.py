@@ -237,6 +237,26 @@ class CallParticipantRow(Base):
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class CallTimelineMarkRow(Base):
+    """One mark in a call's timeline: a state it entered, or a stage that failed, and when.
+
+    Nothing here is content. The kind and the name come from a closed vocabulary the domain checks,
+    and the row belongs to its call, going with it by the foreign key's cascade.
+    """
+
+    __tablename__ = "call_timeline_marks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    call_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+    )
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (Index("ix_call_timeline_marks_call", "call_id", "id"),)
+
+
 class TranscriptEntryRow(Base):
     """One thing somebody said, encrypted (D-014).
 
