@@ -23,9 +23,14 @@ if TYPE_CHECKING:
 
 
 class TestTwilioCallTransport(CallTransportContract):
+    # Which line by region the account is, or None for the single line at the root.
+    line_name: str | None = None
+
     @pytest.fixture
     async def transport(self) -> AsyncIterator[TwilioCallTransport]:
-        async with simulated_deployment(collect_events=False) as deployment:
+        async with simulated_deployment(
+            collect_events=False, line_name=self.line_name
+        ) as deployment:
             await deployment.provider.place_call(A_CALL.value)
             await answering(deployment.transport).answer(A_CALL)
             await deployment.settle()
@@ -44,3 +49,9 @@ class TestTwilioCallTransport(CallTransportContract):
         # It never sees a call before the call connects, and it rings nothing natively.
         assert not capabilities.can_screen_before_ringing
         assert not capabilities.supports_native_ringing
+
+
+class TestTwilioLineByRegionCallTransport(TestTwilioCallTransport):
+    """The same transport as one line of several, called back under its own prefix (D-040)."""
+
+    line_name = "in"

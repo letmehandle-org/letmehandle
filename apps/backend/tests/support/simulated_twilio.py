@@ -834,8 +834,22 @@ class Deployment:
         ]
 
 
-def telephony_settings(public_base_url: str = PUBLIC_BASE_URL) -> Settings:
-    """Settings for a deployment whose telephony account is the simulated one."""
+def telephony_settings(
+    public_base_url: str = PUBLIC_BASE_URL, *, line_name: str | None = None
+) -> Settings:
+    """Settings for a deployment whose telephony account is the simulated one.
+
+    With `line_name`, the account is that one line by region, serving every region, rather than
+    the single line `TELEPHONY_PROVIDER` configures.
+    """
+    if line_name is not None:
+        return make_settings(
+            telephony_lines=(
+                f"{line_name}:provider=twilio;regions=*;numbers={OUR_NUMBER.value};"
+                f"account={SIMULATED_ACCOUNT};app={SIMULATED_APP};webhook={public_base_url}"
+            ),
+            telephony_line_auth_tokens=f"{line_name}:{SIMULATED_TOKEN}",
+        )
     return make_settings(
         telephony_provider=TelephonyProviderName.TWILIO,
         telephony_account_id=SIMULATED_ACCOUNT,
@@ -848,18 +862,25 @@ def telephony_settings(public_base_url: str = PUBLIC_BASE_URL) -> Settings:
 
 @asynccontextmanager
 async def simulated_deployment(
-    *, public_base_url: str = PUBLIC_BASE_URL, collect_events: bool = True
+    *,
+    public_base_url: str = PUBLIC_BASE_URL,
+    collect_events: bool = True,
+    line_name: str | None = None,
 ) -> AsyncIterator[Deployment]:
     """The whole application on loopback, wired to a simulated provider, and torn down after.
 
     Events are collected into the deployment unless the test reads them itself: the transport's
-    event stream has one reader, as the orchestrator is its one reader in the product.
+    event stream has one reader, as the orchestrator is its one reader in the product. With
+    `line_name`, the account is a line by region of that name, called back under its own prefix.
     """
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
     from tests.support.observability import recorded_observability
 
-    provider = SimulatedTwilio(public_base_url=public_base_url)
-    settings = telephony_settings(public_base_url)
+    provider = SimulatedTwilio(
+        public_base_url=public_base_url,
+        path_prefix="" if line_name is None else f"/lines/{line_name}",
+    )
+    settings = telephony_settings(public_base_url, line_name=line_name)
     (binding,) = build_call_transports(
         settings,
         reported_calls=build_reported_calls(),
