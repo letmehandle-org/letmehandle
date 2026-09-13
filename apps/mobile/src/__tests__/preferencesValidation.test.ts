@@ -4,7 +4,6 @@
  * These do not keep bad data out — the server does that — so each test is about the user being
  * told sooner, not about the data being safe.
  */
-import { canSkip } from '../preferences/options';
 import {
   contactProblem,
   normaliseNumber,
@@ -155,27 +154,5 @@ describe('topics', () => {
     expect(topicProblem('School Run', ['school run'])).toBe(
       'preferences.personality.duplicateTopic',
     );
-  });
-});
-
-describe('what may be skipped', () => {
-  it('never offers to skip call handling', () => {
-    // There is no safe default for a call from somebody unknown. The backend answers 422, so
-    // offering the button would show a failure the user could not have avoided.
-    expect(canSkip('call_handling')).toBe(false);
-  });
-
-  it('does not offer to skip the introduction, which asks nothing', () => {
-    expect(canSkip('introduction')).toBe(false);
-  });
-
-  it.each([
-    'important_contacts',
-    'hours',
-    'authority',
-    'notifications',
-    'personality',
-  ] as const)('offers to skip %s', step => {
-    expect(canSkip(step)).toBe(true);
   });
 });

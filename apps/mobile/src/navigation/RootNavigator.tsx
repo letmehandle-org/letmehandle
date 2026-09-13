@@ -1,6 +1,9 @@
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  type Theme as NavigationTheme,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useSession } from '../auth/SessionProvider';
@@ -8,16 +11,22 @@ import {
   PreferencesProvider,
   usePreferences,
 } from '../preferences/PreferencesProvider';
-import { HomeScreen } from '../screens/HomeScreen';
-import { OnboardingScreen } from '../screens/OnboardingScreen';
+import { MainTabs } from '../screens/MainTabs';
 import { PhoneNumberScreen } from '../screens/PhoneNumberScreen';
-import { ProfileScreen } from '../screens/ProfileScreen';
-import { SettingsScreen } from '../screens/SettingsScreen';
-import { SettingsSectionScreen } from '../screens/SettingsSectionScreen';
+import { SetupDoneScreen } from '../screens/SetupDoneScreen';
+import { SetupScreen } from '../screens/SetupScreen';
+import type { SettingsPage } from '../screens/SettingsScreen';
 import { VerifyCodeScreen } from '../screens/VerifyCodeScreen';
 import { WelcomeScreen } from '../screens/WelcomeScreen';
+import { AccountScreen } from '../screens/settings/AccountScreen';
+import { AuthorityScreen } from '../screens/settings/AuthorityScreen';
+import { HoursScreen } from '../screens/settings/HoursScreen';
+import { PersonaliseScreen } from '../screens/settings/PersonaliseScreen';
+import { SayScreen } from '../screens/settings/SayScreen';
+import { TopicsScreen } from '../screens/settings/TopicsScreen';
+import { WhenCalledScreen } from '../screens/settings/WhenCalledScreen';
+import { WhoGetsThroughScreen } from '../screens/settings/WhoGetsThroughScreen';
 import { theme } from '../theme';
-import { VoiceScreen } from '../voice/VoiceScreen';
 import {
   APP_ROUTES,
   AUTH_ROUTES,
@@ -31,22 +40,32 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const OnboardingStack = createNativeStackNavigator<OnboardingStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
 
-const navigationTheme = {
-  dark: true,
+const navigationTheme: NavigationTheme = {
+  dark: false,
   colors: {
     primary: theme.colour.accent,
     background: theme.colour.background,
     card: theme.colour.surface,
     text: theme.colour.text,
     border: theme.colour.border,
-    notification: theme.colour.accent,
+    notification: theme.colour.needsYouDeep,
   },
   fonts: {
-    regular: { fontFamily: 'System', fontWeight: '400' as const },
-    medium: { fontFamily: 'System', fontWeight: '500' as const },
-    bold: { fontFamily: 'System', fontWeight: '700' as const },
-    heavy: { fontFamily: 'System', fontWeight: '800' as const },
+    regular: { fontFamily: theme.font.regular, fontWeight: '400' },
+    medium: { fontFamily: theme.font.regular, fontWeight: '400' },
+    bold: { fontFamily: theme.font.strong, fontWeight: '600' },
+    heavy: { fontFamily: theme.font.strong, fontWeight: '600' },
   },
+};
+
+const SETTINGS_ROUTES: Record<SettingsPage, keyof AppStackParamList> = {
+  who: APP_ROUTES.who,
+  when: APP_ROUTES.when,
+  hours: APP_ROUTES.hours,
+  authority: APP_ROUTES.authority,
+  say: APP_ROUTES.say,
+  personalise: APP_ROUTES.personalise,
+  account: APP_ROUTES.account,
 };
 
 /**
@@ -107,6 +126,9 @@ function SignedOut(): React.JSX.Element {
       <AuthStack.Screen name={AUTH_ROUTES.phoneNumber}>
         {({ navigation }) => (
           <PhoneNumberScreen
+            onBack={() => {
+              navigation.goBack();
+            }}
             onCodeSent={(challengeId, phoneNumber) => {
               navigation.navigate(AUTH_ROUTES.verifyCode, {
                 challengeId,
@@ -133,59 +155,91 @@ function SignedOut(): React.JSX.Element {
 }
 
 /**
- * Setting up, or using the thing.
+ * Setting up, just finished, or using the thing.
  *
- * The server decides which, through `next_step`. Holding that here rather than on the device is
- * what lets somebody who reinstalls carry on where they were instead of answering everything a
- * second time.
+ * The server decides between the first and last, through `next_step`. Holding that on the server
+ * is what lets somebody who reinstalls carry on where they were. "Just finished" is this device's
+ * alone: it is shown once, when setup ends in front of the user, and never to somebody who opens
+ * an account that was set up elsewhere.
  */
 function SignedIn(): React.JSX.Element {
   const { onboarding } = usePreferences();
   const step = onboarding.next_step;
 
+  const previous = useRef(step);
+  const [justFinished, setJustFinished] = useState(false);
+
+  useEffect(() => {
+    if (previous.current !== null && step === null) {
+      setJustFinished(true);
+    }
+    previous.current = step;
+  }, [step]);
+
   if (step !== null) {
     return (
       <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
         <OnboardingStack.Screen name={ONBOARDING_ROUTES.step}>
-          {() => <OnboardingScreen step={step} />}
+          {() => <SetupScreen step={step} />}
         </OnboardingStack.Screen>
       </OnboardingStack.Navigator>
     );
   }
 
+  if (justFinished) {
+    return (
+      <SetupDoneScreen
+        onDone={() => {
+          setJustFinished(false);
+        }}
+      />
+    );
+  }
+
   return (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
-      <AppStack.Screen name={APP_ROUTES.home}>
+      <AppStack.Screen name={APP_ROUTES.tabs}>
         {({ navigation }) => (
-          <HomeScreen
-            onOpenProfile={() => {
-              navigation.navigate(APP_ROUTES.profile);
-            }}
-            onOpenSettings={() => {
-              navigation.navigate(APP_ROUTES.settings);
+          <MainTabs
+            onOpenSetting={page => {
+              navigation.navigate(SETTINGS_ROUTES[page]);
             }}
           />
         )}
       </AppStack.Screen>
-      <AppStack.Screen name={APP_ROUTES.profile} component={ProfileScreen} />
-      <AppStack.Screen name={APP_ROUTES.settings}>
+      <AppStack.Screen name={APP_ROUTES.who}>
         {({ navigation }) => (
-          <SettingsScreen
-            onOpenSection={section => {
-              navigation.navigate(APP_ROUTES.settingsSection, { section });
-            }}
-            onOpenVoice={() => {
-              navigation.navigate(APP_ROUTES.voice);
+          <WhoGetsThroughScreen onBack={navigation.goBack} />
+        )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.when}>
+        {({ navigation }) => <WhenCalledScreen onBack={navigation.goBack} />}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.hours}>
+        {({ navigation }) => <HoursScreen onBack={navigation.goBack} />}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.authority}>
+        {({ navigation }) => <AuthorityScreen onBack={navigation.goBack} />}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.say}>
+        {({ navigation }) => <SayScreen onBack={navigation.goBack} />}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.personalise}>
+        {({ navigation }) => (
+          <PersonaliseScreen
+            onBack={navigation.goBack}
+            onOpenTopics={() => {
+              navigation.navigate(APP_ROUTES.topics);
             }}
           />
         )}
       </AppStack.Screen>
-      <AppStack.Screen name={APP_ROUTES.settingsSection}>
-        {({ route }) => (
-          <SettingsSectionScreen section={route.params.section} />
-        )}
+      <AppStack.Screen name={APP_ROUTES.topics}>
+        {({ navigation }) => <TopicsScreen onBack={navigation.goBack} />}
       </AppStack.Screen>
-      <AppStack.Screen name={APP_ROUTES.voice} component={VoiceScreen} />
+      <AppStack.Screen name={APP_ROUTES.account}>
+        {({ navigation }) => <AccountScreen onBack={navigation.goBack} />}
+      </AppStack.Screen>
     </AppStack.Navigator>
   );
 }

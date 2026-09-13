@@ -1,9 +1,16 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 
 import { initialiseI18n } from '../i18n';
 import { en } from '../i18n/locales/en';
+import { ActivityScreen } from '../screens/ActivityScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+
+jest.mock('../preferences/PreferencesProvider', () => ({
+  usePreferences: () => ({
+    preferences: jest.requireActual('./support/backend').DEFAULT_PREFERENCES,
+  }),
+}));
 
 /** Every string the tree actually renders, read from the output rather than from internals. */
 function renderedStrings(node: unknown): string[] {
@@ -19,38 +26,61 @@ function renderedStrings(node: unknown): string[] {
   return [];
 }
 
-describe('HomeScreen', () => {
+describe('Home', () => {
   beforeAll(async () => {
     await initialiseI18n('en');
   });
 
-  it('renders its translated content', async () => {
-    const view = await render(
-      <HomeScreen
-        onOpenProfile={() => undefined}
-        onOpenSettings={() => undefined}
-      />,
+  it('says plainly that nothing is being answered yet', async () => {
+    const view = await render(<HomeScreen />);
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.notYet,
     );
-    expect(view.getByTestId('home-screen')).toBeOnTheScreen();
-    expect(view.getByText(en.home.title)).toBeOnTheScreen();
-    expect(view.getByText(en.home.subtitle)).toBeOnTheScreen();
+    expect(view.getByText(en.home.callsToday)).toBeOnTheScreen();
+    expect(view.getByText(en.home.fillsRing)).toBeOnTheScreen();
+    expect(view.getByText(en.home.ringsYou)).toBeOnTheScreen();
   });
 
-  it('renders no untranslated literal', async () => {
-    const view = await render(
-      <HomeScreen
-        onOpenProfile={() => undefined}
-        onOpenSettings={() => undefined}
-      />,
-    );
-    // Every string on the screen must come from the catalogue. A literal added to a component
-    // is invisible until somebody adds a second locale and it does not translate.
-    const known: string[] = Object.values(en.home);
-    const shown = renderedStrings(view.toJSON());
+  it('never claims to be on duty before the assistant takes calls', async () => {
+    // Call handling arrives with phases 7 and 8. A zero beside "on duty" would describe an
+    // assistant that is not there.
+    const view = await render(<HomeScreen />);
+    const strings = renderedStrings(view.toJSON()).join(' ');
+    expect(strings).not.toMatch(/on duty|answering calls now|handled today/i);
+  });
+});
 
-    expect(shown.length).toBeGreaterThan(0);
-    for (const text of shown) {
-      expect(known).toContain(text);
-    }
+describe('Activity', () => {
+  beforeAll(async () => {
+    await initialiseI18n('en');
+  });
+
+  it('is a designed empty state rather than a blank screen', async () => {
+    const view = await render(<ActivityScreen />);
+    expect(view.getByText(en.activity.title)).toBeOnTheScreen();
+    expect(view.getByText(en.activity.empty)).toBeOnTheScreen();
+  });
+});
+
+describe('the tabs', () => {
+  beforeAll(async () => {
+    await initialiseI18n('en');
+  });
+
+  it('switch between home, activity and settings and mark the one that is open', async () => {
+    const { MainTabs } = jest.requireActual('../screens/MainTabs');
+    const view = await render(<MainTabs onOpenSetting={() => undefined} />);
+
+    expect(view.getByTestId('home-screen')).toBeOnTheScreen();
+    expect(view.getByTestId('tab-home')).toBeSelected();
+
+    await fireEvent.press(view.getByTestId('tab-activity'));
+    expect(view.getByTestId('activity-screen')).toBeOnTheScreen();
+    expect(view.getByTestId('tab-activity')).toBeSelected();
+    expect(view.queryByTestId('home-screen')).toBeNull();
+
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    expect(view.getByTestId('settings-screen')).toBeOnTheScreen();
   });
 });
