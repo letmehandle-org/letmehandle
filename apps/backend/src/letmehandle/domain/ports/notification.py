@@ -1,10 +1,4 @@
-"""Reaching the user's device.
-
-Best effort, and the return type says so. The authoritative event when the assistant needs a
-human is the user's phone ringing; this is context for that ring. A caller that treats a
-delivery failure as fatal would cancel an escalation because a push did not arrive, which is
-exactly backwards.
-"""
+"""Reaching the user's device, best effort, as context for a ring that never depends on it."""
 
 from __future__ import annotations
 
@@ -28,7 +22,7 @@ class DevicePlatform(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class DeviceToken:
-    """Where to send. Opaque: its shape belongs to the platform, not to this product."""
+    """Where to send, opaque to this product."""
 
     platform: DevicePlatform
     value: str
@@ -38,18 +32,13 @@ class DeviceToken:
             raise InvariantError("a device token with nothing in it reaches nobody")
 
     def __str__(self) -> str:
-        """Truncated. A device token identifies a person's handset."""
+        """The platform and the token's first characters only."""
         return f"{self.platform}:{self.value[:6]}…"
 
 
 @dataclass(frozen=True, slots=True)
 class EscalationNotification:
-    """What the user reads while their phone is ringing.
-
-    Enough to walk into the call already knowing something, and no more. In particular no
-    transcript and no recording: the notification is delivered through two companies' servers
-    and stored on a lock screen.
-    """
+    """What the user reads while their phone rings, with no transcript and no recording."""
 
     call_id: CallId
     title: str
@@ -77,13 +66,7 @@ class DeliveryStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class DeliveryOutcome:
-    """The result, returned rather than raised.
-
-    Returned because the caller must carry on regardless, and an exception is a poor way to
-    say "this did not work and it does not matter much". `TOKEN_INVALID` is separated out
-    because it is the one outcome that requires an action: the token should be removed rather
-    than retried forever.
-    """
+    """The result of one delivery, returned rather than raised."""
 
     status: DeliveryStatus
     detail: str | None = None
@@ -117,19 +100,10 @@ class NotificationProvider(ABC):
 
     @abstractmethod
     def payload_size(self, notification: EscalationNotification) -> int:
-        """How many bytes of that limit this notification would use, as this provider encodes it.
-
-        Asked rather than estimated elsewhere, so that whatever trims a notification to fit
-        measures the payload that is actually sent rather than a guess at it.
-        """
+        """How many bytes of that limit this notification uses, as this provider encodes it."""
 
     @abstractmethod
     async def send(
         self, token: DeviceToken, notification: EscalationNotification
     ) -> DeliveryOutcome:
-        """Attempt delivery and report what happened.
-
-        Must not raise for an ordinary delivery failure. Raising is reserved for a programming
-        error — a token for the wrong platform, for instance — because that is a defect rather
-        than a network having a bad day.
-        """
+        """Attempt delivery and report what happened, raising only for a defect."""

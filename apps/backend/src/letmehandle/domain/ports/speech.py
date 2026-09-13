@@ -1,13 +1,4 @@
-"""Realtime spoken conversation.
-
-Deliberately unaware of calls. One of the two transports this product supports cannot supply
-call audio at all, so a speech layer that assumed a call would become a platform branch
-somewhere else. It consumes an audio source and writes to a sink; whether those are a phone
-call, a microphone or a file is not its business.
-
-A session is an async context manager, so the only way to open one without closing it is to
-write code that would not survive review.
-"""
+"""Realtime spoken conversation over an audio source and sink, unaware of calls (D-006)."""
 
 from __future__ import annotations
 
@@ -26,11 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class SpeechCapabilities:
-    """What a speech provider can do.
-
-    `barge_in` is the one that decides whether the conversation feels like a conversation: a
-    provider that cannot be interrupted talks over the caller, and callers hang up on that.
-    """
+    """What a speech provider can do; `barge_in` is whether the caller can interrupt it."""
 
     barge_in: bool = False
     context_updates_mid_session: bool = False
@@ -40,6 +27,7 @@ class SpeechCapabilities:
     output_format: AudioFormat | None = None
 
     def speaks(self, locale: str) -> bool:
+        """Whether any declared language shares the locale's base language."""
         base = locale.split("-")[0]
         return any(known == locale or known.split("-")[0] == base for known in self.languages)
 
@@ -58,11 +46,7 @@ class AudioProduced(SpeechEvent):
 
 @dataclass(frozen=True, slots=True)
 class TranscriptProduced(SpeechEvent):
-    """Words, from either side.
-
-    `is_final` distinguishes a partial recognition from a settled one. Acting on a partial is
-    how an assistant answers a question the caller had not finished asking.
-    """
+    """Words from either side, partial until `is_final`."""
 
     text: str
     speaker_is_caller: bool
@@ -75,7 +59,7 @@ class TranscriptProduced(SpeechEvent):
 
 @dataclass(frozen=True, slots=True)
 class SpeechStarted(SpeechEvent):
-    """Somebody began speaking. The signal barge-in is built on."""
+    """Somebody began speaking, the signal barge-in is built on."""
 
     by_caller: bool
 
@@ -89,24 +73,14 @@ class SpeechEnded(SpeechEvent):
 
 @dataclass(frozen=True, slots=True)
 class SessionFailed(SpeechEvent):
-    """The session cannot continue.
-
-    An event rather than an exception, because it arrives while a caller is iterating the
-    stream, and a raised exception there is a resource leak waiting for somebody to forget a
-    `finally`.
-    """
+    """The session cannot continue, reported as an event in the stream rather than raised."""
 
     reason: str
     retryable: bool
 
 
 class SpeechSession(ABC):
-    """One live conversation.
-
-    Opened through `SpeechProvider.connect`, and closed by leaving its context. Everything it
-    holds — the connection, the queues, the tasks — is released on every exit path, including
-    cancellation, which is the path most often left out.
-    """
+    """One live conversation, releasing all it holds on every exit path, cancellation included."""
 
     @abstractmethod
     async def send_audio(self, frame: AudioFrame) -> None:
@@ -114,28 +88,15 @@ class SpeechSession(ABC):
 
     @abstractmethod
     def events(self) -> AsyncIterator[SpeechEvent]:
-        """Everything the model produces, in order.
-
-        Bounded internally. An unbounded queue turns a slow consumer into an out-of-memory
-        failure rather than a visible backpressure error, and the slow consumer is the normal
-        case when something downstream is struggling.
-        """
+        """Everything the model produces, in order, through a bounded queue."""
 
     @abstractmethod
     async def update_context(self, context: str) -> None:
-        """Change what the model knows, without reconnecting.
-
-        Required for escalation: when the user joins, the model has to be told that the person
-        it was speaking for is now on the call.
-        """
+        """Change what the model knows, without reconnecting, as when the user joins the call."""
 
     @abstractmethod
     async def interrupt(self) -> None:
-        """Stop the model speaking, now, and discard what it had queued.
-
-        Discarding the queue is the part that gets missed, and missing it is why interruption
-        feels broken: the model stops producing, then plays out everything it already made.
-        """
+        """Stop the model speaking now, and discard what it had queued."""
 
     @abstractmethod
     async def close(self) -> None:
@@ -176,15 +137,7 @@ class SpeechProvider(ABC):
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:
-        """Open a session in `locale`, or raise `ProviderError`.
-
-        The input format is supplied by the caller rather than assumed, because the audio comes
-        from a transport whose format is not this provider's choice. A provider that cannot
-        accept it converts, or says so.
-
-        `greeting` is what the assistant says first, in `locale`. A protocol with no way to open
-        with words of the client's waits for the caller to speak first, and its adapter says so.
-        """
+        """Open a session in `locale` that opens with `greeting`, or raise `ProviderError`."""
 
     def supported_locales(self) -> Sequence[str]:
         return self.capabilities.languages

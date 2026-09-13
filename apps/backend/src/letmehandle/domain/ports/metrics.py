@@ -1,13 +1,4 @@
-"""Numbers about how the product is behaving.
-
-A port so that what is measured is decided where the behaviour is, and how it is reported is
-decided once, somewhere else. The observability work later replaces the implementation without
-touching a single call site.
-
-Labels are for dimensions — which provider, which outcome — and never for content. Nothing a
-person said, and no identifier that leads back to them, belongs in a metric: metrics are kept
-longer and shared more widely than anything else a service produces.
-"""
+"""Numbers about how the product is behaving, labelled by dimension and never by content (D-038)."""
 
 from __future__ import annotations
 
