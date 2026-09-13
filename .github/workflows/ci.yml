@@ -135,6 +135,9 @@ jobs:
           uv run python ../../scripts/generate_openapi.py
           git diff --exit-code -- ../../packages/api-client/openapi.json
 
+      - name: The configuration reference, .env.example and the compose file match the settings
+        run: uv run python ../../scripts/generate_config_reference.py --check
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
