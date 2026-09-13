@@ -5,12 +5,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.UiThreadUtil
 import org.letmehandle.app.specs.NativeSecureScreenSpec
 
-/**
- * The window's secure flag, for screens that show what callers said.
- *
- * With it set, the system refuses screenshots and screen recording and shows a blank card in the
- * recent apps list. Set on the UI thread, because a window's flags belong to it.
- */
+/** Sets or clears the window's secure flag on the UI thread (D-035). */
 class SecureScreenModule(private val context: ReactApplicationContext) :
     NativeSecureScreenSpec(context) {
 

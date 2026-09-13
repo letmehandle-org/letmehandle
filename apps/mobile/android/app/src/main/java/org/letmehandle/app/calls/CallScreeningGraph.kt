@@ -12,12 +12,7 @@ import org.letmehandle.app.calls.events.TextStore
 import org.letmehandle.app.calls.rules.CallRulesSnapshot
 import org.letmehandle.app.calls.rules.CallRulesSnapshotCodec
 
-/**
- * The pieces the screening service, the phone-state receiver and the React Native bridge share.
- *
- * One per process. Each of those three can be the first thing a process starts for — a call can
- * arrive while the app has never been opened since boot — so none of them can own the wiring.
- */
+/** The per-process wiring shared by the screening service, the phone-state receiver and the bridge. */
 class CallScreeningGraph private constructor(context: Context) {
   private val preferences: SharedPreferences =
       context.applicationContext.getSharedPreferences(STORE_NAME, Context.MODE_PRIVATE)
@@ -43,20 +38,13 @@ class CallScreeningGraph private constructor(context: Context) {
     return try {
       CallRulesSnapshotCodec.decode(text)
     } catch (invalid: CallRulesSnapshotCodec.InvalidSnapshot) {
-      // Refused rather than half-read, and said: the call will ring as if there were no rules.
+      // An unreadable snapshot is logged and read as none, so the call rings.
       Log.w(TAG, "the stored call rules could not be read: ${FailureSummary.of(invalid)}")
       null
     }
   }
 
-  /**
-   * Validates before storing, so a document the service cannot read is refused to the app.
-   *
-   * A refused document also removes the one stored before it. The app only writes when the
-   * rules changed, so the older copy is known to be out of date — a newer format this build does
-   * not understand, say — and the service must fall back to letting calls ring rather than keep
-   * refusing callers on rules the user has since replaced.
-   */
+  /** Stores a readable snapshot, or removes the stored one and throws for an unreadable one. */
   fun writeSnapshot(text: String) {
     try {
       CallRulesSnapshotCodec.decode(text)
@@ -67,12 +55,12 @@ class CallScreeningGraph private constructor(context: Context) {
     store.write(SNAPSHOT, text)
   }
 
-  /** Start recording calls, for the account that has signed in. */
+  /** Starts recording calls for the account that has signed in. */
   fun rememberAccount() {
     ledger.startRecording()
   }
 
-  /** Forget the account's rules and its unreported calls, and stop recording, for a sign-out. */
+  /** Forgets the account's rules and unreported calls and stops recording, in one write. */
   fun forgetAccount() {
     ledger.clear(alsoRemoving = listOf(SNAPSHOT))
   }

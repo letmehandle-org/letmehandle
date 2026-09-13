@@ -13,16 +13,7 @@ import org.letmehandle.app.calls.FailureSummary
 import org.letmehandle.app.calls.rules.DialingCountry
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
-/**
- * Decides each incoming call before the handset rings, from the user's own rules.
- *
- * Bound by the platform only while this app holds the call-screening role, which the user grants.
- * It is told the caller's number and presentation and nothing else — never the call's audio —
- * and it must answer within five seconds.
- *
- * Enabled from API 29, where the role exists and a ringing call can be silenced. Below that the
- * platform binds a screening service only for the phone app, which this is not.
- */
+/** Screens each incoming call from the stored rules while the app holds the call-screening role (D-028). */
 @RequiresApi(Build.VERSION_CODES.Q)
 class RulesScreeningService : CallScreeningService() {
   override fun onScreenCall(callDetails: Call.Details) {
@@ -59,14 +50,7 @@ class RulesScreeningService : CallScreeningService() {
     private val SCREENER =
         DeadlineScreener(worker = Executors.newSingleThreadExecutor(), timer = Executors.newSingleThreadScheduledExecutor())
 
-    /**
-     * The platform's response for each decision.
-     *
-     * Reject disallows and rejects, so the caller is refused as if the user had declined; the call
-     * is logged by the platform as blocked. Silence lets the call through without a ringtone. Allow
-     * sets nothing. Skipping the call log is not attempted: the platform honours it only for
-     * carrier and system screening apps, and a user deserves to see what was refused anyway.
-     */
+    /** The platform response for a decision; the call log entry is never skipped. */
     fun responseFor(decision: ScreeningDecision): CallResponse =
         when (decision) {
           ScreeningDecision.ALLOW -> CallResponse.Builder().build()

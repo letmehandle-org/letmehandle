@@ -17,7 +17,7 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // The app's own module, which autolinking only finds in libraries.
+          // The app's own modules, which autolinking does not register.
           add(CallScreeningPackage())
           add(SecureScreenPackage())
           add(DeviceCountryPackage())

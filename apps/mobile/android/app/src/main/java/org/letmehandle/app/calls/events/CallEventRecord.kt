@@ -9,10 +9,7 @@ import org.letmehandle.app.calls.readingJson
 import org.letmehandle.app.calls.wireValueOf
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
-/**
- * What a handset can observe about its own call. Mirrors the backend's `ReportedCallKind`, which
- * is the same vocabulary every transport reports in, less what a handset cannot see.
- */
+/** What a handset observes about its own call; mirrors the backend's `ReportedCallKind`. */
 enum class CallEventKind(override val wire: String) : WireValue {
   INCOMING("incoming"),
   ANSWERED("answered"),
@@ -26,13 +23,7 @@ enum class CallEnding(override val wire: String) : WireValue {
   COMPLETED("completed"),
 }
 
-/**
- * One thing that happened to one call, waiting to be reported.
- *
- * Its wire form is exactly the backend's `CallReportPayload`, so the app forwards what it is
- * given without translating it. The example documents in `src/calls/wire-examples.json` are read
- * by this codec's tests and by the TypeScript side's, which is what holds the two in step.
- */
+/** One event of one call awaiting report, in the wire form of the backend's `CallReportPayload`. */
 data class CallEventRecord(
     val eventId: String,
     val callId: String,

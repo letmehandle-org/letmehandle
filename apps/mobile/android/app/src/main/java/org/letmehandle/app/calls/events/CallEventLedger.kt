@@ -18,26 +18,7 @@ interface TextStore {
 /** The handset's storage refused a write. */
 class StoreUnavailable : IllegalStateException("call screening state could not be written")
 
-/**
- * The handset's record of call events not yet acknowledged by the backend, and the call being
- * followed.
- *
- * Records only while an account is signed in: from [startRecording] until [clear]. A call that
- * arrives with nobody signed in is nobody's to report, and on a shared phone it is somebody
- * else's; kept, it would be reported as the calls of whoever signed in next. The switch is stored
- * beside the events and read under the same lock, so a sign-out can never be followed by one
- * more event recorded for the account that left.
- *
- * Written from the screening service and the phone-state receiver, read and emptied by the app.
- * Those can run on different threads, so every operation holds the one lock.
- *
- * Bounded: a handset whose app is never opened would otherwise grow this without end. The
- * oldest events go first, and [onOverflow] is told how many, so the loss is visible.
- *
- * Forgiving on read: an entry that cannot be read is dropped, [onUnreadable] is told why, and the
- * ledger is written back without it. Refusing the whole list instead would hold every call behind
- * that one entry on the handset for good, and fail every read after.
- */
+/** The unreported call events and the tracked call, recorded under one lock only while an account is signed in (D-028). */
 class CallEventLedger(
     private val store: TextStore,
     private val tracker: CallStateTracker,
@@ -48,7 +29,7 @@ class CallEventLedger(
 ) {
   private val lock = Any()
 
-  /** Record calls from now on, for the account that has signed in. */
+  /** Records calls from now on, for the account that has signed in. */
   fun startRecording() {
     synchronized(lock) { store.write(RECORDING, RECORDING_ON) }
   }
@@ -68,10 +49,7 @@ class CallEventLedger(
     }
   }
 
-  /**
-   * Forget everything and stop recording, for a sign-out: these calls belong to the account that
-   * is leaving, and the next ones to nobody until another signs in.
-   */
+  /** Stops recording and forgets every event and the tracked call, with [alsoRemoving] in the same write. */
   fun clear(alsoRemoving: Collection<String> = emptyList()) {
     synchronized(lock) {
       store.write((listOf(RECORDING, PENDING, TRACKED) + alsoRemoving).associateWith { null })

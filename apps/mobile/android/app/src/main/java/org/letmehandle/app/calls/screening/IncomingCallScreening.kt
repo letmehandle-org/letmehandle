@@ -24,7 +24,7 @@ class IncomingCallScreening(
         onFailure = onFailure,
         respond = respond,
         record = { screening ->
-          // The country is only asked for by the evaluation, never by a recording that could stall with it.
+          // Only the evaluation asks telephony for the country; the recording uses it if already known.
           val reached = if (country.isInitialized()) country.value else null
           record((caller as? ScreenedCaller.Presented)?.number?.e164(reached), screening.decision, arrivedAt)
         },

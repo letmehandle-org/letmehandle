@@ -7,18 +7,9 @@ import org.letmehandle.app.calls.readingJson
 import org.letmehandle.app.calls.strings
 import org.letmehandle.app.calls.wireValueOf
 
-/**
- * The snapshot's wire form, shared with `src/calls/wire.ts`.
- *
- * Strict: a document with a value this does not recognise is refused whole rather than read in
- * part. A rule half-understood is a rule applied wrongly, and the screening service treats a
- * refused snapshot exactly as it treats none — the call rings.
- *
- * The example documents both sides are tested against live in `src/calls/wire-examples.json`.
- */
+/** The snapshot's wire form shared with `src/calls/wire.ts`, refusing any document it cannot read whole. */
 object CallRulesSnapshotCodec {
-  // 2 dropped quiet hours (D-030). A version 1 snapshot is refused like any other unknown format,
-  // so the call rings until the app, on its next open, writes the rules again.
+  // Version 2 drops quiet hours (D-030).
   const val VERSION = 2
 
   class InvalidSnapshot(message: String, cause: Throwable? = null) :

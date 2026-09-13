@@ -5,12 +5,7 @@ import android.telephony.TelephonyManager
 import com.facebook.react.bridge.ReactApplicationContext
 import org.letmehandle.app.specs.NativeDeviceCountrySpec
 
-/**
- * The network's country, and the SIM's when there is no network, for the number screen.
- *
- * Neither needs a permission. The network comes first because roaming is when they differ, and
- * the network is where the phone is.
- */
+/** The network's country, or the SIM's when there is no network, for the app's JavaScript. */
 class DeviceCountryModule(private val context: ReactApplicationContext) :
     NativeDeviceCountrySpec(context) {
 

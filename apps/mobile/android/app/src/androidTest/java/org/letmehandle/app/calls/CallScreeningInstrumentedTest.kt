@@ -35,14 +35,7 @@ import org.letmehandle.app.calls.rules.ScreeningRules
 import org.letmehandle.app.calls.screening.DeadlineScreener
 import org.letmehandle.app.calls.screening.RulesScreeningService
 
-/**
- * The screening path on a real Android runtime: the platform's own response objects, the
- * manifest the telecom service binds through, shared preferences, and the phone-state receiver.
- *
- * What this cannot do is place a SIM call. The platform binds a screening service only for a
- * call arriving through the telephony stack; that half is exercised on a handset and recorded in
- * the phase verification report.
- */
+/** The screening path on a real Android runtime, short of a SIM call. */
 @RunWith(AndroidJUnit4::class)
 class CallScreeningInstrumentedTest {
   private val context = InstrumentationRegistry.getInstrumentation().targetContext

@@ -4,16 +4,7 @@ import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * This app never tries to obtain the audio of a call.
- *
- * The native call transport declares no audio capability, and that declaration is only honest
- * while no code path attempts it. Android does not give an ordinary application the audio of a
- * SIM call; code that tried would either fail or be the kind of workaround that gets an app
- * removed, and either way it would contradict what the product tells the user. So the attempt
- * itself is refused at build time: no audio capture class, no call audio source, no permission
- * to record, anywhere in the app's own sources or manifest.
- */
+/** Checks the app's own sources name no audio capture API or permission (D-013). */
 class NoCallAudioCaptureTest {
   private val main = File("src/main")
 

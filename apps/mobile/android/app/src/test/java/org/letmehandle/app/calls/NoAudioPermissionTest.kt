@@ -8,15 +8,7 @@ import org.junit.Test
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 
-/**
- * The app as built never holds a permission to record audio.
- *
- * [NoCallAudioCaptureTest] reads this app's own sources for the names of capture APIs, which a
- * library bypasses entirely: a dependency's manifest is merged into the app's, and a permission it
- * declares is granted to the app like any other. The permission is what actually gates capture, so
- * this reads the manifest the build merged — every library's included — rather than the one in
- * `src/main`.
- */
+/** Checks the merged manifest, dependencies included, requests no audio recording permission. */
 class NoAudioPermissionTest {
   private val forbidden = setOf("android.permission.RECORD_AUDIO", "android.permission.CAPTURE_AUDIO_OUTPUT")
 
@@ -38,8 +30,7 @@ class NoAudioPermissionTest {
 
   @Test
   fun `the manifest read is the merged one`() {
-    // Only the merger writes uses-sdk; the source manifest has none. Guards against the check
-    // passing because it was pointed at a file that holds less than the app does.
+    // Only the merger writes uses-sdk, so this proves the merged manifest is the one read.
     assertEquals(1, merged().getElementsByTagName("uses-sdk").length)
     assertTrue(requestedPermissions(merged()).contains("android.permission.READ_PHONE_STATE"))
   }
