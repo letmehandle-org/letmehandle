@@ -18,7 +18,7 @@ from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.call import CallHandling, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
-from letmehandle.domain.models.caller import Caller
+from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation import (
     EscalationDecision,
     EscalationReason,
@@ -28,7 +28,12 @@ from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.models.preferences import CallRules, TimeWindow, UserPreferences
+from letmehandle.domain.models.preferences import (
+    CallRules,
+    ImportantContact,
+    TimeWindow,
+    UserPreferences,
+)
 from letmehandle.domain.models.summary import CallOutcome
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.domain.ports.call_transport import ParticipantOutcome
@@ -48,7 +53,8 @@ from tests.support.orchestration import (
 )
 
 CALL = "call"
-STRANGER = Caller(number=PhoneNumber("+12025550101"))
+STRANGER_NUMBER = PhoneNumber("+12025550101")
+STRANGER = Caller(number=STRANGER_NUMBER)
 MESSAGES_ALLOWED = UserPreferences(authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE))
 
 
@@ -137,6 +143,24 @@ class TestTheSummary:
             assert running.summariser.asked == []
             summary = running.stores.summaries.stored[CallId(CALL)]
             assert summary.headline != WritingSummariser.HEADLINE
+
+    async def test_an_important_contact_is_recorded_and_summarised_under_the_user_s_label(
+        self,
+    ) -> None:
+        line = streaming()
+        contact = ImportantContact(number=STRANGER_NUMBER, label="Aunt May")
+        async with orchestrating(
+            line, preferences=UserPreferences(important_contacts=(contact,))
+        ) as running:
+            line.arrives(CALL, STRANGER)
+            await running.settled(CALL, CallState.PASSTHROUGH)
+            line.hangs_up(CALL)
+            call = await running.ended(CALL)
+
+            assert call.caller.category is CallerCategory.KNOWN_CONTACT
+            assert call.caller.display_name == "Aunt May"
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert "Aunt May" in summary.headline
 
     async def test_a_summariser_that_never_answers_cannot_hold_the_call(self) -> None:
         line = streaming()

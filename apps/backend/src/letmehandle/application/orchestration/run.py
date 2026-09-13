@@ -52,7 +52,7 @@ from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
-from letmehandle.domain.models.caller import Caller
+from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation_context import (
     MAX_CALL_ID_LENGTH,
     MAX_DETAIL_LENGTH,
@@ -215,7 +215,7 @@ class CallRun:
                 CallSession(
                     id=self.call_id,
                     user_id=owner.user_id,
-                    caller=self._incoming.caller or Caller(),
+                    caller=_recognised(self._incoming.caller or Caller(), owner.preferences),
                     started_at=context.clock.now(),
                 ),
                 stores=context.stores,
@@ -688,6 +688,18 @@ async def _owner(stores: CallStores, user_id: UserId) -> Owner | None:
         return None
     preferences = await stores.preferences.get(user_id)
     return Owner(user_id, user.phone_number, preferences or UserPreferences())
+
+
+def _recognised(caller: Caller, preferences: UserPreferences) -> Caller:
+    """The caller as the user knows them: under their own label, when they named the number.
+
+    The same precedence routing gives an important contact over any category, so a call routed as
+    somebody the user named is recorded, listed and summarised as them, not as a stranger.
+    """
+    contact = None if caller.number is None else preferences.contact_for(caller.number)
+    if contact is None:
+        return caller
+    return replace(caller, display_name=contact.label, category=CallerCategory.KNOWN_CONTACT)
 
 
 def _settle(reply: asyncio.Future[None], error: DomainError | None) -> None:
