@@ -1,33 +1,26 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from '../../components/Button';
+import { HoursEditor } from '../../components/HoursEditor';
 import { Notice } from '../../components/Notice';
 import { Screen } from '../../components/Screen';
 import { usePreferences } from '../../preferences/PreferencesProvider';
-import {
-  AROUND_THE_CLOCK,
-  answersAroundTheClock,
-} from '../../preferences/rules';
 import { useImmediateSave } from '../../preferences/useImmediateSave';
-import { AroundTheClock } from '../SetupScreen';
 
 interface Props {
   readonly onBack: () => void;
 }
 
 /**
- * When the assistant works: around the clock, unless hours are set.
+ * When the assistant answers: around the clock, or one window of the day (D-027).
  *
- * Setting a single window of hours waits on the backend, which today stores working and quiet
- * hours instead. Somebody who already has those is told they still apply and can go back to
- * around the clock; nobody is offered a window the API cannot store.
+ * Every change is saved as it is made, like every other settings page, and a refused one is put
+ * back by the provider and explained here.
  */
 export function HoursScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();
-  const { problem, busy, save } = useImmediateSave();
-  const always = answersAroundTheClock(preferences.hours);
+  const { problem, save } = useImmediateSave();
 
   return (
     <Screen
@@ -36,23 +29,12 @@ export function HoursScreen({ onBack }: Props): React.JSX.Element {
       scrollable
       testID="settings-hours"
     >
-      {always ? (
-        <AroundTheClock />
-      ) : (
-        <>
-          <Notice message={t('hours.windows')} testID="hours-windows" />
-          <Button
-            label={t('hours.useAlways')}
-            variant="ghost"
-            icon="infinity"
-            busy={busy}
-            onPress={() => {
-              save({ hours: AROUND_THE_CLOCK });
-            }}
-            testID="hours-use-always"
-          />
-        </>
-      )}
+      <HoursEditor
+        value={preferences.hours.active ?? null}
+        onChange={active => {
+          save({ hours: { active } });
+        }}
+      />
       {problem !== null && (
         <Notice tone="problem" message={problem} testID="settings-problem" />
       )}

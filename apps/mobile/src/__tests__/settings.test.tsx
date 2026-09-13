@@ -104,6 +104,19 @@ describe('the settings list', () => {
 });
 
 describe('who gets through', () => {
+  it('explains a refused change', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('who');
+
+    backend.refuseNextSave({
+      status: 422,
+      body: { error: 'invalid_request', message: 'no' },
+    });
+    await fireEvent.press(view.getByTestId('who-apply'));
+
+    expect(await view.findByTestId('settings-problem')).toBeOnTheScreen();
+  });
+
   it('draws the two lanes and asks nothing when calls already follow them', async () => {
     runningBackend({ startAt: null, preferences: LANES });
     const view = await openPage('who');
@@ -175,31 +188,108 @@ describe('hours', () => {
     runningBackend({ startAt: null });
     const view = await openPage('hours');
     expect(view.getByTestId('hours-always')).toBeOnTheScreen();
-    expect(view.queryByTestId('hours-use-always')).toBeNull();
+    expect(view.getByTestId('hours-mode-always')).toBeChecked();
+    expect(view.queryByTestId('hours-from')).toBeNull();
   });
 
-  it('tells somebody with windows set that they still apply, and can clear them', async () => {
+  it('sets hours, saving each change as it is made', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('hours');
+
+    await fireEvent.press(view.getByTestId('hours-mode-set'));
+    await savedOnce(backend, 0);
+    expect(backend.preferences().hours.active).toMatchObject({
+      start: '09:00',
+      end: '17:00',
+    });
+    expect(await view.findByTestId('hours-window')).toBeOnTheScreen();
+    expect(view.getByText(en.hours.outside)).toBeOnTheScreen();
+
+    await fireEvent.press(view.getByTestId('hours-from'));
+    await fireEvent.press(view.getByTestId('hours-sheet-09:30'));
+    await savedOnce(backend, 1);
+    expect(backend.preferences().hours.active).toMatchObject({
+      start: '09:30',
+      end: '17:00',
+    });
+  });
+
+  it('does not offer the time the other end is already at', async () => {
     const backend = runningBackend({
       startAt: null,
       preferences: {
         ...DEFAULT_PREFERENCES,
         hours: {
-          working: null,
-          quiet: { start: '22:00', end: '07:00', zone: 'Europe/London' },
+          active: { start: '09:00', end: '10:00', zone: 'Europe/London' },
+        },
+      },
+    });
+    const view = await openPage('hours');
+    expect(view.getByTestId('hours-figure')).toHaveTextContent('1 hr');
+
+    await fireEvent.press(view.getByTestId('hours-to'));
+    expect(view.getByTestId('hours-sheet-09:00')).toBeDisabled();
+    await fireEvent.press(view.getByTestId('hours-sheet-close'));
+    expect(backend.patches).toEqual([]);
+  });
+
+  it('goes back to around the clock', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        hours: {
+          active: { start: '22:00', end: '07:00', zone: 'Europe/London' },
         },
       },
     });
     const view = await openPage('hours');
 
-    expect(view.getByTestId('hours-windows')).toBeOnTheScreen();
-    await fireEvent.press(view.getByTestId('hours-use-always'));
+    await fireEvent.press(view.getByTestId('hours-mode-always'));
     await savedOnce(backend, 0);
-    expect(backend.preferences().hours).toEqual({ working: null, quiet: null });
+    expect(backend.preferences().hours).toEqual({ active: null });
     expect(await view.findByTestId('hours-always')).toBeOnTheScreen();
+  });
+
+  it('puts a refused change back', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('hours');
+
+    backend.refuseNextSave({
+      status: 422,
+      body: { error: 'invalid_request', message: 'no' },
+    });
+    await fireEvent.press(view.getByTestId('hours-mode-set'));
+
+    expect(await view.findByTestId('settings-problem')).toBeOnTheScreen();
+    expect(view.getByTestId('hours-always')).toBeOnTheScreen();
   });
 });
 
 describe('what it may do', () => {
+  it('reads no capabilities as none granted, and explains a refused grant', async () => {
+    const backend = runningBackend({
+      startAt: null,
+      preferences: { ...DEFAULT_PREFERENCES, authority: {} },
+    });
+    const view = await openPage('authority');
+    expect(view.getByTestId('capability-take_a_message').props.value).toBe(
+      false,
+    );
+
+    backend.refuseNextSave({
+      status: 422,
+      body: { error: 'invalid_request', message: 'no' },
+    });
+    await fireEvent(
+      view.getByTestId('capability-take_a_message'),
+      'valueChange',
+      true,
+    );
+
+    expect(await view.findByTestId('settings-problem')).toBeOnTheScreen();
+  });
+
   it('grants and takes back one capability at a time', async () => {
     const backend = runningBackend({ startAt: null });
     const view = await openPage('authority');
@@ -310,6 +400,21 @@ describe('personalise', () => {
       verbosity: 'detailed',
     });
     expect(view.getByTestId('personality-verbosity-detailed')).toBeChecked();
+  });
+
+  it('refuses a topic that is a sentence before sending it', async () => {
+    const backend = runningBackend({ startAt: null });
+    const view = await openPage('personalise');
+    await fireEvent.press(view.getByTestId('personalise-open-topics'));
+    await view.findByTestId('settings-topics');
+
+    await fireEvent.changeText(view.getByTestId('topic-input'), 'x'.repeat(61));
+    await fireEvent.press(view.getByTestId('topic-add'));
+
+    expect(
+      view.getByText(en.preferences.personality.invalidTopic),
+    ).toBeOnTheScreen();
+    expect(backend.patches).toEqual([]);
   });
 
   it('opens topics, adds one normalised, and removes it', async () => {
