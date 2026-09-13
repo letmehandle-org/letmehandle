@@ -253,7 +253,7 @@ class CallTimelineMarkRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     call_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+        String(128), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
     )
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)

@@ -5,8 +5,8 @@ longer than the 64 characters every call column allowed: each one was refused on
 and the handset's calls never reached history. Widened wherever a call's identifier is kept.
 Widening a `varchar` rewrites no rows.
 
-Revision ID: 0011
-Revises: 0010
+Revision ID: 0012
+Revises: 0011
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0011"
-down_revision = "0010"
+revision = "0012"
+down_revision = "0011"
 branch_labels = None
 depends_on = None
 
@@ -25,6 +25,7 @@ _COLUMNS = (
     ("call_transcript_entries", "call_id"),
     ("call_summaries", "call_id"),
     ("escalation_contexts", "call_id"),
+    ("call_timeline_marks", "call_id"),
 )
 
 
