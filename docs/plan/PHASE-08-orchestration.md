@@ -136,3 +136,51 @@ Accepted for now, and recorded so they are not mistaken for behaviour anybody ch
 - **The notification is sent before the dial.** An escalation starts the notification and then
   dials, so a user can be told about a ring that the transport then refuses. D-016 makes the
   notification safe to arrive without a ring, but the user is still told of one that never came.
+
+## Verification report
+
+```
+PHASE 8 VERIFICATION
+
+Planned tasks:        complete, except real calls on a provisioned number
+Acceptance criteria:  all automated criteria passed; real-call confirmation held
+Unit tests:           passed   make verify: backend 3087 passed, 14 skipped
+Integration tests:    passed   orchestrated calls over the simulated provider and PostgreSQL
+E2E tests:            passed   make e2e, whose scenarios run the orchestrator end to end
+Concurrency:          passed   each named race repeated; orchestration suites run 10 times clean
+Property:             passed   seeded random event sequences per capability set, all terminal
+Coverage:             100.00%  backend, including 100% branches in application/orchestration
+Lint / Format:        passed   ruff, prettier, eslint
+Typecheck:            passed   mypy --strict, tsc
+Static analysis:      passed   import-linter; one-writer test for call state; transport-name test
+Application runs:     yes      the lifespan starts the orchestrator after the transport and stops
+                               it first; startup refuses a transport without storage and keys
+Docs updated:         D-029 amended, D-033, D-014 amended, this plan's diagram and known limits
+Known issues:         see known limits under Risks
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | Every transition implemented and tested | the assistant, edge and every-line orchestration tests; domain transition tables |
+| 2 | 100% branch coverage of the orchestrator | coverage report |
+| 3 | Every named race has a test that fails without its fix | `test_races_and_repeats.py`; the defects an adversarial review reproduced each have a test watched failing first |
+| 4 | Duplicate events idempotent | a whole call with every event doubled records the same states and requests |
+| 5 | Every wait bounded, every timeout a transition | ring, judgement, speech open, provider calls, storage, summary, shutdown |
+| 6 | Partial provider failures degrade as defined | speech fails, will not open or close; dial refused; model unavailable; storage refused |
+| 7 | Notification failure never delays escalation | notification storage down, held or raising, the ring proceeds |
+| 8 | Every terminal path releases every resource | leftover tasks, runs, sockets and legs counted after each test |
+| 9 | Restart leaves no call indeterminate | recovery ends unfinished calls at the provider and records them failed |
+| 10 | One orchestrator, no transport-specific logic | transport-name test; both capability sets run through the same suites |
+| 11 | No transport comparison outside bootstrap | transport-name test |
+| 12 | An impossible transition is unreachable | no escalation step exists on a plan that cannot bridge |
+
+## Reviews, and what they found
+
+An adversarial review reproduced six defects against a green suite, and whole-system scenarios
+found three more. Among them: a speech session failing to close stopped teardown halfway; a
+restart left the previous process's calls up at the provider; handing over while the user's
+phone rang silenced the caller and a busy user meant the caller was hung up on; a write was
+acknowledged before it committed; an important contact's call was recorded as from an unknown
+caller. Each is fixed with a test that failed first.

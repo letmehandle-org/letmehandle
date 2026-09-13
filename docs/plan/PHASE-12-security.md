@@ -94,3 +94,21 @@ insufficient.
   not complete around it.
 - **Self-hoster responsibility.** Much of the real risk sits with whoever deploys it. The
   documentation must be explicit about the split rather than implying the project handles it.
+
+## Verification report
+
+```
+PHASE 12 VERIFICATION
+
+Planned tasks:        review and backend fixes complete; mobile screenshot protection and the
+                      log and dependency audits in the build remain
+Findings:             docs/security/review.md, each reproduced by a failing test before its fix
+Data inventory:       docs/security/data-inventory.md
+Documents:            SECURITY.md, docs/architecture/security.md,
+                      docs/development/self-hosting-security.md
+Unit / integration:   passed   make verify, backend 3087 passed
+Coverage:             100.00%  backend
+Known issues:         1. no real sign-in code provider exists, so no deployment is safe to expose
+                      2. screenshot protection on mobile call screens is not built
+                      3. log and dependency audits are not yet part of make verify
+```
