@@ -21,8 +21,8 @@ What a deployment has to do for itself is not repeated here; the data it holds i
 | F5 | Personal data | Handset reports kept the caller's number in a plain column that nothing read | Medium | Fixed |
 | F6 | Personal data | Sign-in challenges, each holding a phone number, were never deleted | Medium | Fixed |
 | F7 | Personal data | Deleting a call left its escalation context behind | Medium | Fixed |
-| F8 | Transcripts | Escalation contexts store the caller's label and what the caller said they wanted in plain text | Medium | Open: needs wiring outside this change |
-| F9 | Personal data | There is no account deletion | High | Open |
+| F8 | Transcripts | Escalation contexts stored the caller's label and what the caller said they wanted in plain text | Medium | Fixed |
+| F9 | Personal data | There was no account deletion | High | Fixed |
 | F10 | Authentication | Outside `APP_ENV=production` every account accepts one published development code, and no production code provider exists yet | High (deployment) | Accepted by design, documented below |
 | F11 | Mobile | No screenshot or app-switcher exclusion on screens that show call content | Low | Open |
 
@@ -128,31 +128,41 @@ for how long, and how it goes. The full inventory is in [`data-inventory.md`](da
 - **F7 (fixed).** Deleting a call removed its transcript and summary but not its escalation
   context, which repeats who called and what they wanted. Evidence:
   `test_what_the_user_was_told_about_the_call_goes_with_it`.
-- **F9 (open).** No route deletes an account. Most tables cascade from `users`, so a deletion is
-  mostly one statement, but it also has to remove the number's sign-in challenges and end any call
-  in progress for that user, and a residue query has to prove it. Not built in this change.
+- **F9 (fixed).** No route deleted an account. `DELETE /v1/me` now ends any call of the user's in
+  progress through the orchestrator, waiting for each run to go within the shutdown bound, then
+  removes the sign-in challenges sent to their number and the user row, from which every other
+  table cascades. The residue test reads every table the schema declares, requires each to have
+  held something of the person first, and finds nothing of them afterwards while another account's
+  rows remain. Evidence: `tests/integration/test_account_deletion_api.py`,
+  `TestEndingOneUsersCalls` in `tests/unit/application/orchestration/test_edges.py`.
 - Retention gaps recorded, not yet enforced: expired and revoked refresh tokens, escalation
-  contexts, and handset reports are kept until the account goes. See the inventory.
+  contexts, and handset reports are kept until the account is deleted. See the inventory.
 
 ## Transcripts
 
 **Checked.** Encryption at rest by inspecting stored bytes, key handling, purge, and server-side
 retention bounds.
 
-**Result.** Transcript lines, summaries and the caller on the call record are AES-256-GCM under
-named keys, bound to user, call, sequence, speaker and moment as associated data. Existing tests
+**Result.** Transcript lines, summaries, escalation contexts and the caller on the call record are
+AES-256-GCM under named keys, bound to user, call, sequence, speaker and moment as associated data. Existing tests
 scan every column of every row as text and hex for the words and fragments of them, and prove
 that a row copied, reordered, moved to another call or another user no longer opens. The purge
 holds no key, deletes in bounded batches, and is concurrency-safe. Retention is bounded in the
 request schema and the domain. Sound.
 Evidence: `tests/integration/test_call_storage.py`, `tests/integration/test_transcript_purge.py`.
 
-- **F8 (open).** `escalation_contexts` stores `caller_label`, `established` and `needed` as plain
+- **F8 (fixed).** `escalation_contexts` stored `caller_label`, `established` and `needed` as plain
   text. The last two are sentences the model wrote from what the caller said, so a database dump
-  carries a readable account of each escalated call, which D-014 exists to prevent. Reproduced by
-  claiming a context and reading `SELECT t::text FROM escalation_contexts t`. Sealing these three
-  fields needs the transcript cipher handed to `SqlEscalationContextRepository`, which is built in
-  bootstrap as well as in the API dependencies.
+  carried a readable account of each escalated call, which D-014 exists to prevent. Reproduced by
+  claiming a context and reading `SELECT t::text FROM escalation_contexts t`. Migration 0009
+  replaces the three columns with one ciphertext and its key id, sealed under the transcript keys
+  and bound to the user, the call, the reason and the moment the escalation was raised; a context
+  with none of the three stores neither. The words already stored could not be sealed by a
+  migration, which holds no key, and are dropped. Without transcript keys a deployment cannot
+  escalate, as it cannot carry calls, and `GET /v1/escalations/{call_id}` answers
+  `503 escalations_unavailable`, as call history does.
+  Evidence: `tests/integration/test_escalation_context_storage.py`,
+  `test_without_transcript_keys_it_is_unavailable_as_call_history_is`.
 
 ## Logs
 

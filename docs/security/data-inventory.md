@@ -1,9 +1,10 @@
 # Personal data inventory
 
 Everything this project holds about a person: where, why, in what form, for how long, and what
-removes it. "Until the account goes" means the row cascades from `users`; there is not yet a route
-that deletes an account (finding F9 in [`review.md`](review.md)), so today that means until an
-operator deletes the user row.
+removes it. "Until the account goes" means until the user deletes their account with
+`DELETE /v1/me`, which removes the user row, every row that cascades from it, and the sign-in
+challenges sent to their number, after ending any call of theirs in progress (finding F9 in
+[`review.md`](review.md)).
 
 "Sealed" means AES-256-GCM under the transcript keys, bound to the user and the record
 (D-014). "Clear" means readable by anyone with a database dump.
@@ -12,8 +13,8 @@ operator deletes the user row.
 
 | Table | Personal fields | Form | Why | Kept | Removed by |
 | --- | --- | --- | --- | --- | --- |
-| `users` | phone number, display name, locale | Clear | The number is the identity (D-010); the name is what the assistant says it acts for | Until the account goes | Deleting the user row |
-| `otp_challenges` | phone number a code was sent to, scrypt hash of the code, attempt count | Clear number, hashed code | Verifying a sign-in and counting codes per number | Until it leaves the per-number counting window (one hour by default) | The scheduled purge |
+| `users` | phone number, display name, locale | Clear | The number is the identity (D-010); the name is what the assistant says it acts for | Until the account goes | `DELETE /v1/me` |
+| `otp_challenges` | phone number a code was sent to, scrypt hash of the code, attempt count | Clear number, hashed code | Verifying a sign-in and counting codes per number | Until it leaves the per-number counting window (one hour by default) | The scheduled purge; `DELETE /v1/me` for the account's number |
 | `refresh_tokens` | user, family, HMAC of the token, issue, rotation and revocation times | Hashed token | Rotation and reuse detection | Until the account goes; expired and revoked rows are not purged | Cascade from `users` |
 | `user_preferences` | important contacts (number, label), topics, facts the assistant may disclose, working and quiet hours with time zone, handling rules | Clear JSON document | How calls are handled | Until the account goes | Cascade from `users` |
 | `user_onboarding` | which setup steps were completed or skipped | Clear | Resuming setup | Until the account goes | Cascade from `users` |
@@ -22,7 +23,7 @@ operator deletes the user row.
 | `call_participants` | who joined when (caller, assistant, user) | Clear | Call history | With the call | Cascade from `calls` |
 | `call_transcript_entries` | what was said, by which speaker, when | Text sealed; speaker and time clear | Context for the agent, the user's own review, diagnosing failures (D-014) | The user's retention: 7 days by default, within the documented floor and ceiling | The scheduled purge; call deletion |
 | `call_summaries` | outcome, intent, importance, extracted details, who the caller was taken to be | Detail sealed; outcome, intent, importance, times clear | The lasting record of a call once its transcript is gone | Until the user deletes the call or the account goes | Call deletion, cascade |
-| `escalation_contexts` | caller label, what was established, what the caller needs, notification delivery | **Clear** (finding F8) | The words of an escalation, for the app when a push was not delivered (D-016) | Until the user deletes the call or the account goes | Call deletion, cascade from `users` |
+| `escalation_contexts` | caller label, what was established, what the caller needs, notification delivery | Label and both sentences sealed together; reason, status, delivery and times clear | The words of an escalation, for the app when a push was not delivered (D-016) | Until the user deletes the call or the account goes | Call deletion, cascade from `users` |
 | `call_reports` | handset event and call identifiers, kind, screening decision, how it ended, when | Clear; no number since migration 0008 | Idempotent handset reporting (D-028) | Until the account goes | Cascade from `users` |
 
 Audio is never stored (D-013).
@@ -53,7 +54,5 @@ paths are logged; no route takes personal data in its path or query.
 
 ## Gaps
 
-- No account deletion (F9).
-- Escalation contexts are not sealed (F8).
 - Expired and revoked refresh tokens, handset reports and escalation contexts have no retention
   bound of their own.
