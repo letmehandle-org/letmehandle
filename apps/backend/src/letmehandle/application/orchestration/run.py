@@ -500,12 +500,7 @@ class CallRun:
         if leg is Leg.ASSISTANT:
             await ledger.left(ParticipantRole.AGENT, at=at)
             await self._speaking.stop()
-            if ledger.state is CallState.AGENT_HANDLING:
-                # A caller hanging up ends the conference around the assistant, and the provider
-                # can report the assistant's leg leaving seconds before the caller's. The call
-                # fails only if the transport does not say it ended in the time the audio stopping
-                # is given.
-                self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
+            self._expect_hang_up()
             return
         await ledger.left(ParticipantRole.HUMAN, at=at)
         if ledger.state in {CallState.HUMAN_JOINED, CallState.PASSTHROUGH}:
@@ -518,6 +513,10 @@ class CallRun:
         self._context.metrics.increment(CALL_BOUNDED, {"kind": "duration"})
         await self._finish(live, CallState.FAILED)
 
+    def _expect_hang_up(self) -> None:
+        """The assistant's audio went: the transport has `speaker_gone` to say the call ended."""
+        self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
+
     async def _assistant_lost(self, live: _Live, at: datetime | None = None) -> None:
         """The assistant cannot go on. The call stands only while the user is coming or here."""
         await self._speaking.stop()
@@ -526,9 +525,7 @@ class CallRun:
 
     async def _on_conversation_stopped(self, live: _Live, end: ConversationEnd | None) -> None:
         if end is ConversationEnd.SPEAKER_GONE:
-            # Usually the caller hanging up, which the transport is about to say. If it does not
-            # say so in time, the call's audio went for another reason, and the assistant with it.
-            self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
+            self._expect_hang_up()
             return
         logger.warning("call.conversation_lost", failed=end is None)
         live.ledger.note(MarkKind.FAILURE, "conversation.lost")
