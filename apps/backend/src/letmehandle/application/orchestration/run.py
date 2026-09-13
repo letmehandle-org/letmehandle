@@ -418,9 +418,9 @@ class CallRun:
         self._findings = replace(self._findings, escalation_reason=decision.reason)
         step = self._plan.escalation
         reason = decision.reason
-        if step is None or reason is None:
-            # Nothing rings: the plan has no way to add the user. The reason is kept, and the user
-            # reads it in the call's history.
+        if step is None or reason is None or not decision.is_immediate:
+            # Nothing rings: the plan has no way to add the user, or the rules said not now. The
+            # reason is kept, and the user reads it in the call's history.
             return
         await ledger.move(CallState.ESCALATION_REQUESTED)
         # Started, never awaited: the ring is the escalation and the notification only context for

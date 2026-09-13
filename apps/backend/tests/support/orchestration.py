@@ -318,6 +318,8 @@ class Line(CallTransport):
         self._events: asyncio.Queue[CallEvent | None] = asyncio.Queue()
         self._numbers = 0
         self.requests: list[tuple[str, CallId]] = []
+        # Every event delivered twice, as providers do.
+        self.duplicating = False
         self.refusing: set[str] = set()
         self.holding: dict[str, asyncio.Event] = {}
 
@@ -342,6 +344,8 @@ class Line(CallTransport):
             **details,  # type: ignore[arg-type]
         )
         self._events.put_nowait(event)
+        if self.duplicating:
+            self._events.put_nowait(event)
         return event
 
     def repeat(self, event: CallEvent) -> None:
