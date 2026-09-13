@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
     from letmehandle.config.settings import Settings
     from letmehandle.domain.models.forwarding import CallForwarding
+    from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
 NUMBER = "+12025550143"
@@ -76,13 +77,16 @@ async def running(
     *,
     voices: VoiceProvider | None = None,
     forwarding: CallForwarding | None = None,
+    otp: OTPProvider | None = None,
+    resend_cooldowns: tuple[timedelta, ...] = (timedelta(0),),
 ) -> AsyncIterator[Api]:
     """The whole application, on its own engine, against one schema.
 
     Separate from the fixture so that a test needing a differently configured application — a
     voice provider with other capabilities, say — assembles it the same way rather than by
     building a second, subtly different one of its own. `forwarding` stands in for the number a
-    streaming deployment's bootstrap chooses, without building that transport's provider.
+    streaming deployment's bootstrap chooses, without building that transport's provider, and
+    `otp` for the code provider, the way a simulated provider stands in for a real one.
     """
     # With transcript keys, as a deployment that serves call history has.
     settings = make_settings(transcript_encryption_keys=TEST_TRANSCRIPT_KEYS)
@@ -103,7 +107,8 @@ async def running(
         forwarding=forwarding,
         # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
         # moved past the resend cooldown. The cooldown has its own tests, which restore it.
-        auth_limits=replace(container.auth_limits, resend_cooldowns=(timedelta(0),)),
+        auth_limits=replace(container.auth_limits, resend_cooldowns=resend_cooldowns),
+        otp=container.otp if otp is None else otp,
     )
 
     try:

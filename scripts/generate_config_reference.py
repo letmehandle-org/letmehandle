@@ -68,10 +68,10 @@ every paid provider unset.
 GROUPS: Final = (
     ("Application", ("APP_ENV", "LOG_")),
     ("Database", ("DATABASE_",)),
-    ("Authentication", ("AUTH_", "OTP_", "TRUSTED_PROXY_")),
+    ("Authentication", ("AUTH_", "OTP_", "SMS_", "TRUSTED_PROXY_")),
     ("Realtime speech and voices", ("SPEECH_",)),
     ("Privacy", ("TRANSCRIPT_",)),
-    ("Call transport", ("TELEPHONY_",)),
+    ("Call transport", ("TELEPHONY_", "CALL_")),
     ("Language model", ("LLM_",)),
     ("Push notifications", ("APNS_", "FCM_")),
 )

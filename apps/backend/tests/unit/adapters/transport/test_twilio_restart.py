@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from letmehandle.adapters.transport.twilio.rest import CallRecord
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.application.escalation.dispatch import EscalationDispatcher
@@ -26,6 +27,8 @@ from tests.support.recording_metrics import RecordingMetrics
 from tests.unit.adapters.transport.test_twilio_transport import RecordingApi
 
 LEFT_RUNNING = CallId("CAsim-left-running")
+OUR_NUMBER = PhoneNumber.parse("+12025550100")
+USERS_LINE = PhoneNumber.parse("+12025550143")
 STARTED = datetime(2026, 6, 1, 11, 0, tzinfo=UTC)
 
 
@@ -34,7 +37,7 @@ def a_new_process(api: RecordingApi) -> TwilioCallTransport:
         config=TwilioConfig(
             account_id="account-for-tests",
             app_id="app-for-tests",
-            numbers=(PhoneNumber.parse("+12025550100"),),
+            numbers=(OUR_NUMBER,),
         ),
         api=api,
         verifier=SignatureVerifier(
@@ -100,3 +103,53 @@ async def test_a_call_left_running_is_still_tried_in_full_when_the_provider_refu
 
     assert api.ended_conference_names == [f"call-{LEFT_RUNNING.value}"] * 2
     assert api.ended_calls == [(LEFT_RUNNING.value, "completed")]
+
+
+async def test_a_restart_ends_the_users_phone_still_ringing_into_the_old_conference() -> None:
+    # Dialled into the conference and not yet in it, so ending the conference does not end it: it
+    # would ring on, and answering would put the user into a conference nobody else is in.
+    api = RecordingApi()
+    api.found = CallRecord(to=OUR_NUMBER.value, forwarded_from="+1 (202) 555-0143")
+    transport = a_new_process(api)
+    try:
+        await transport.terminate(LEFT_RUNNING)
+    finally:
+        await transport.close()
+
+    assert api.looked_up == [LEFT_RUNNING.value]
+    # From the number the stopped process dialled from, to the line the call was forwarded from,
+    # which is the number of the user it was dialling.
+    assert api.ended_between == [(OUR_NUMBER.value, USERS_LINE.value)]
+
+
+async def test_a_call_that_reached_a_number_not_configured_is_ended_from_the_first() -> None:
+    api = RecordingApi()
+    api.found = CallRecord(to="+12025550199", forwarded_from=USERS_LINE.value)
+    transport = a_new_process(api)
+    try:
+        await transport.terminate(LEFT_RUNNING)
+    finally:
+        await transport.close()
+
+    assert api.ended_between == [(OUR_NUMBER.value, USERS_LINE.value)]
+
+
+@pytest.mark.parametrize(
+    "found",
+    [None, CallRecord(to=OUR_NUMBER.value, forwarded_from=None)],
+    ids=["unknown to the provider", "never forwarded"],
+)
+async def test_a_call_that_could_have_dialled_nobody_ends_no_other_leg(
+    found: CallRecord | None,
+) -> None:
+    # Not forwarded is nobody's call, and nobody's call never dials a user.
+    api = RecordingApi()
+    api.found = found
+    transport = a_new_process(api)
+    try:
+        await transport.terminate(LEFT_RUNNING)
+    finally:
+        await transport.close()
+
+    assert api.looked_up == [LEFT_RUNNING.value]
+    assert api.ended_between == []

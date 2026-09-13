@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from letmehandle.domain.errors import DomainError, InvariantError
+from letmehandle.domain.errors import DeliveryUncertainError, DomainError, InvariantError
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
     CODE_LENGTH,
@@ -72,6 +72,17 @@ class UnservedNumberError(DomainError):
     Not a sign-in failure: the number was never tried, and saying so tells nobody anything about
     an account, since it is true of every number with that calling code.
     """
+
+
+class CodeMayHaveBeenSentError(Exception):
+    """The provider never said whether the code went out, so it is counted as if it did.
+
+    Carries when another code may be asked for: the same wait a code that did go out imposes.
+    """
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__("the code may have been sent; try again shortly")
+        self.retry_after_seconds = retry_after_seconds
 
 
 class RateLimitedError(AuthenticationError):
@@ -242,7 +253,12 @@ class AuthenticationService:
 
         # Sent after the challenge is stored. The other order can deliver a code that nothing
         # will accept, which looks to the user exactly like the product being broken.
-        await self._otp.send(number, code)
+        try:
+            await self._otp.send(number, code)
+        except DeliveryUncertainError as error:
+            # Kept, and counted: a slow provider may have delivered it, and an uncounted delivery
+            # is a way past the cooldown and the budgets while the bill still arrives.
+            raise CodeMayHaveBeenSentError(self._wait_for_another([*issued, now], now)) from error
         if self._metrics is not None:
             self._metrics.increment("auth.challenge.sent")
 

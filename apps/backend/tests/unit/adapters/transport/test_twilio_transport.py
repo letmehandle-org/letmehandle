@@ -41,7 +41,11 @@ from tests.support.media_socket import MemoryMediaSocket
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
-    from letmehandle.adapters.transport.twilio.rest import EndStatus, ParticipantRequest
+    from letmehandle.adapters.transport.twilio.rest import (
+        CallRecord,
+        EndStatus,
+        ParticipantRequest,
+    )
 
 CALL = CallId("CAsim-1")
 OUR_NUMBER = PhoneNumber.parse("+12025550100")
@@ -60,6 +64,9 @@ class RecordingApi:
         self.ended_conferences: list[str] = []
         self.ended_calls: list[tuple[str, EndStatus]] = []
         self.ended_conference_names: list[str] = []
+        self.looked_up: list[str] = []
+        self.ended_between: list[tuple[str, str]] = []
+        self.found: CallRecord | None = None
         self.failure: ProviderError | None = None
         self.closed = 0
 
@@ -97,6 +104,16 @@ class RecordingApi:
     async def end_conferences_named(self, conference_name: str) -> int:
         self._maybe_fail()
         self.ended_conference_names.append(conference_name)
+        return 1
+
+    async def find_call(self, call_sid: str) -> CallRecord | None:
+        self._maybe_fail()
+        self.looked_up.append(call_sid)
+        return self.found
+
+    async def end_calls_between(self, from_: str, to: str) -> int:
+        self._maybe_fail()
+        self.ended_between.append((from_, to))
         return 1
 
     async def close(self) -> None:

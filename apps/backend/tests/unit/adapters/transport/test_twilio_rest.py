@@ -8,8 +8,12 @@ from urllib.parse import parse_qsl
 import httpx
 import pytest
 
-from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi, ParticipantRequest
-from letmehandle.domain.errors import ProviderError
+from letmehandle.adapters.transport.twilio.rest import (
+    CallRecord,
+    HttpTelephonyApi,
+    ParticipantRequest,
+)
+from letmehandle.domain.errors import DeliveryUncertainError, ProviderError
 
 ACCOUNT = "account-for-tests"
 TOKEN = "token-for-tests"
@@ -241,3 +245,106 @@ async def test_an_unreachable_api_is_worth_another_attempt() -> None:
     with pytest.raises(ProviderError, match="ConnectError") as failure:
         await client.remove_participant("c", "p")
     assert failure.value.retryable
+
+
+async def test_an_unanswered_request_may_have_been_acted_on() -> None:
+    client = api(Recorder(httpx.ReadTimeout("slow")))
+    with pytest.raises(DeliveryUncertainError):
+        await client.end_conference("c")
+
+
+async def test_a_connection_lost_after_sending_may_have_been_acted_on() -> None:
+    client = api(Recorder(httpx.ReadError("reset")))
+    with pytest.raises(DeliveryUncertainError, match="ReadError"):
+        await client.end_conference("c")
+
+
+async def test_a_refused_connection_sent_nothing() -> None:
+    client = api(Recorder(httpx.ConnectError("refused")))
+    with pytest.raises(ProviderError) as failure:
+        await client.end_conference("c")
+    assert not isinstance(failure.value, DeliveryUncertainError)
+
+
+async def test_a_call_is_looked_up_for_the_numbers_it_arrived_on() -> None:
+    recorder = Recorder(
+        httpx.Response(
+            200,
+            json={"sid": "CAsim-1", "to": "+12025550100", "forwarded_from": "+12025550143"},
+        )
+    )
+    client = api(recorder)
+    found = await client.find_call("CAsim 1")
+    assert found == CallRecord(to="+12025550100", forwarded_from="+12025550143")
+    request = recorder.requests[-1]
+    assert request.method == "GET"
+    assert request.url.raw_path.decode().endswith("/Calls/CAsim%201.json")
+    await client.close()
+
+
+async def test_a_call_with_no_forwarding_or_no_longer_known_says_so() -> None:
+    client = api(Recorder(httpx.Response(200, json={"sid": "CAsim-1", "forwarded_from": None})))
+    assert await client.find_call("CAsim-1") == CallRecord(to=None, forwarded_from=None)
+    assert await api(Recorder(httpx.Response(404, json={}))).find_call("CAsim-1") is None
+
+
+async def test_a_call_that_cannot_be_read_is_a_failure() -> None:
+    client = api(Recorder(httpx.Response(200, json=["x"])))
+    with pytest.raises(ProviderError, match="no call") as failure:
+        await client.find_call("CAsim-1")
+    assert not failure.value.retryable
+
+
+async def test_legs_between_two_numbers_are_ended_whether_ringing_or_answered() -> None:
+    listings = {
+        "queued": [],
+        "ringing": [{"sid": "CAsim-ringing"}, {"sid": "CAsim-gone"}],
+        "in-progress": [{"sid": "CAsim-answered"}, {"to": "no sid"}],
+    }
+    requests: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"calls": listings[request.url.params["Status"]]})
+        # One ended on its own between the listing and the request.
+        return httpx.Response(404 if "CAsim-gone" in request.url.path else 200, json={})
+
+    client = HttpTelephonyApi(
+        account_id=ACCOUNT, auth_token=TOKEN, transport=httpx.MockTransport(answer)
+    )
+    assert await client.end_calls_between("+12025550100", "+12025550143") == 2
+
+    lookups = [request for request in requests if request.method == "GET"]
+    assert [dict(lookup.url.params) for lookup in lookups] == [
+        {"From": "+12025550100", "To": "+12025550143", "Status": status}
+        for status in ("queued", "ringing", "in-progress")
+    ]
+    assert all(lookup.url.path.endswith("/Calls.json") for lookup in lookups)
+    ended = [
+        (request.url.path.rsplit("/", 1)[-1], parse_qsl(request.content.decode()))
+        for request in requests
+        if request.method == "POST"
+    ]
+    assert ended == [
+        ("CAsim-ringing.json", [("Status", "canceled")]),
+        ("CAsim-gone.json", [("Status", "canceled")]),
+        ("CAsim-answered.json", [("Status", "completed")]),
+    ]
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    ("response", "retryable"),
+    [
+        (httpx.Response(200, json={"calls": "none"}), False),
+        (httpx.Response(503, json={}), True),
+    ],
+)
+async def test_a_call_listing_that_cannot_be_read_is_a_failure(
+    response: httpx.Response, retryable: bool
+) -> None:
+    client = api(Recorder(response))
+    with pytest.raises(ProviderError) as failure:
+        await client.end_calls_between("+12025550100", "+12025550143")
+    assert failure.value.retryable is retryable

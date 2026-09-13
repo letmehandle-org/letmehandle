@@ -49,6 +49,7 @@ class OTPProviderName(StrEnum):
     """Which provider delivers sign-in codes."""
 
     MOCK = "mock"
+    TWILIO_SMS = "twilio_sms"
 
 
 class SpeechProviderName(StrEnum):
@@ -98,6 +99,15 @@ class TelephonyProviderName(StrEnum):
 
     TWILIO = "twilio"
     ANDROID_NATIVE = "android_native"
+
+
+@dataclass(frozen=True, slots=True)
+class SmsAccount:
+    """Everything the text-message code provider needs, present and checked."""
+
+    account_id: str
+    auth_token: str = field(repr=False)
+    sender: PhoneNumber
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +243,16 @@ def parse_number_list(text: str) -> tuple[PhoneNumber, ...]:
 
 def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
+
+
+def _sender_from_text(value: object) -> object:
+    # The message names the variable and never repeats the value, as every number error here does.
+    if not isinstance(value, str):
+        return value
+    try:
+        return PhoneNumber.parse(value)
+    except InvariantError:
+        raise ValueError("SMS_FROM_NUMBER is not an international number in E.164 form") from None
 
 
 def parse_calling_codes(text: str) -> frozenset[str] | None:
@@ -433,6 +453,35 @@ class Settings(BaseSettings):
             "their X-Forwarded-For is believed when counting what one client asks for.",
         ),
     ] = ()
+    # The account the text-message code provider sends from, required only when it is chosen.
+    # Its own variables rather than the telephony account's: a deployment whose calls arrive on a
+    # handset has no telephony account at all and still needs codes delivered, and a credential
+    # that can only send texts is revoked without touching the one that carries calls.
+    sms_account_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The account sign-in texts are sent from.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
+    sms_auth_token: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="That account's auth token; anyone holding it can send texts on it.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
+    sms_from_number: Annotated[
+        PhoneNumber | None,
+        BeforeValidator(_sender_from_text),
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The number sign-in texts come from, in E.164 form.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
 
     # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
     # is optional at startup: nothing opens a speech session in a request yet, and a process that
@@ -584,6 +633,18 @@ class Settings(BaseSettings):
             json_schema_extra={"required_when": _STREAMING_CALLS},
         ),
     ] = None
+
+    # How long a call may last before its run ends it as failed. Generous, because a long call is a
+    # real call; bounded, because a call whose ending is never reported is otherwise held for as
+    # long as the process runs. Between a minute and a day.
+    call_max_duration_seconds: int = Field(
+        default=14_400,
+        ge=60,
+        le=86_400,
+        description="How long a call may last before it is ended as failed: generous, because a "
+        "long call is a real call, and bounded, because an ending never reported is otherwise "
+        "held for as long as the process runs.",
+    )
 
     @field_validator("telephony_webhook_base_url")
     @classmethod
@@ -814,6 +875,25 @@ class Settings(BaseSettings):
                 f"Set it in .env as {TRANSCRIPT_KEYS_FORMAT!r}; see .env.example."
             )
         return parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
+
+    def require_sms_account(self) -> SmsAccount:
+        """What the text-message code provider needs, or a failure naming every variable missing."""
+        account_id, token, sender = self.sms_account_id, self.sms_auth_token, self.sms_from_number
+        if account_id is None or token is None or sender is None:
+            missing = [
+                name
+                for name, value in (
+                    ("SMS_ACCOUNT_ID", account_id),
+                    ("SMS_AUTH_TOKEN", token),
+                    ("SMS_FROM_NUMBER", sender),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to send sign-in codes with "
+                f"OTP_PROVIDER={self.otp_provider}. Set them in .env; see .env.example."
+            )
+        return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.

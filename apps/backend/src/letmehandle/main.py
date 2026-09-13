@@ -26,7 +26,7 @@ from letmehandle.bootstrap import (
     build_escalation_dispatcher,
     build_reported_calls,
     build_voice_provider,
-    close_notification_providers,
+    close_providers,
 )
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.escalations.aclose()
             app.state.escalations = None
         if app.state.container is not None:
-            await close_notification_providers(app.state.container)
+            await close_providers(app.state.container)
         binding: CallTransportBinding | None = app.state.telephony
         if binding is not None:
             await binding.close()

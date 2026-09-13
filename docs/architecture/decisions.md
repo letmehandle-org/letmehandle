@@ -474,6 +474,14 @@ built from the call's facts. The summariser is given that same bound, so the two
 The final state is stored with the summary, as described below, and a call whose final state could
 not be stored is given no summary.
 
+*Amended:* the call itself is a wait. A run arms a bound on the call's whole life when it is
+admitted, `Bounds.duration`, configured as `CALL_MAX_DURATION_SECONDS` (four hours by default), and
+its expiry ends the call as FAILED through the one teardown: a transport's report of a call ending
+can be lost, as a handset's is when its app is killed or offline, and nothing else can tell such a
+call from a long one. An account holds at most five live calls; a call arriving beyond that is
+recorded, moved straight to FAILED and let go at its transport, and is given no owner, so it takes
+none of the account's room. Both hold on every transport, because neither asks which one it is.
+
 *Amended:* an ending is the one move not stored the moment it is made. It is stored with the summary,
 as teardown's last write, once the call has been let go at its transport; a process that stops
 part-way through a teardown therefore leaves the call unfinished, for the next start to end and
@@ -705,3 +713,56 @@ Each layer answers a different attack and is counted where that attack cannot re
 3. **The SMS provider's own fraud guard**, once a production OTP provider exists.
 4. **A shared rate limiter.** The per-source limits are per process (the limiter says so); the
    per-number and deployment limits are already shared, because they are counted in the database.
+
+## D-037 — Sign-in codes are the application's, sent as a text message
+
+**Accepted.** Production needs a provider that delivers a sign-in code to a real handset; until one
+existed the mock was the only provider and a production deployment could not start (D-010). The
+first is `twilio_sms`: the application generates the code, stores only its salted hash, and the
+adapter sends it in one text message from the telephony provider's Messaging API.
+
+**Not a hosted verification service.** Such a service generates, sends and checks the code itself,
+so the application would never hold one — a real advantage, and the reason it was considered
+first. It was rejected because it does not fit what sign-in already guarantees, and fitting it
+would move those guarantees into the vendor:
+
+- The port's contract is that the code is the product's: its length, alphabet and lifetime (D-010,
+  `OTPProvider.send`). A verification service decides those and checks the code, so the port would
+  become "start a check" and "ask whether this code passes", and the challenge row would hold no
+  hash to verify against.
+- The attempt limit holds because a guess is counted under a row lock in the same unit of work
+  that verifies it (review F1). Verification by a remote call cannot be inside that lock, and two
+  limits — ours and the service's — that count differently are one limit nobody can state.
+- One verification path serves every provider, so the path the mock exercises in every test and
+  on every contributor's machine is the path production runs. A second path taken only in
+  production is the one that breaks unseen.
+- A code is short-lived and hashed with scrypt, and it is held in memory only while it is sent.
+  What a hosted service would add over that is the provider's fraud screening, which a deployment
+  can have on its account either way.
+
+**Its own account variables.** `SMS_ACCOUNT_ID`, `SMS_AUTH_TOKEN` and `SMS_FROM_NUMBER`, rather than
+the `TELEPHONY_` ones: a deployment whose calls arrive on a handset has no telephony account and
+still needs codes delivered, and a credential used only to send texts can be revoked without
+touching the one that carries calls. The same account's values may be given to both. All three are
+required when the provider is chosen, and the process refuses to start naming whichever are
+missing; the token is a secret and is never rendered.
+
+**Failures say who can fix them.** A number the provider will not deliver to — not a number, not a
+mobile, opted out, unroutable — is `UnreachableNumberError`, answered `422 number_unreachable`,
+and counts against the number like any code requested. Any other provider failure is a
+`ProviderError`, answered `503 provider_unavailable`; the request is rolled back, so a code that
+was never sent does not use up the number's hourly allowance. Neither response says whether the
+number has an account. The adapter logs that a code was sent or refused and the provider's error
+code, never the number or the code.
+
+The wording of the message is a per-locale template (D-017); a number signing in has no account and
+so no locale, and gets the default. Whether the provider delivers to a real handset is verified
+with a real account; the adapter's requests and error mapping are tested against a simulated
+message API.
+
+**Amended: a send that may have gone out counts.** A provider that refuses before sending — an
+error answer, or a connection that never opened — rolls the challenge back, because nothing was
+sent and an outage is nobody's attempt. A request the provider accepted but never answered — a
+timeout, or a connection lost after sending — may have been delivered, so the challenge is kept and
+counts against the cooldown and every budget. The client is told `provider_unavailable` with the
+wait before another code, so a slow provider cannot be used to send codes nobody counts.
