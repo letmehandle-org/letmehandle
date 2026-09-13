@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from letmehandle import __version__
+from letmehandle.application.resilience.circuit import CircuitPolicy, Dependency
+from letmehandle.bootstrap import build_observability
 from letmehandle.config.settings import Environment
 from letmehandle.domain.errors import InvariantError
 from letmehandle.main import create_app
+from tests.contracts.auth_fakes import NeverLimits
 from tests.support.config import UNREACHABLE_DATABASE, make_settings
 
 
@@ -26,7 +31,64 @@ async def test_health_does_not_need_a_database(client: AsyncClient) -> None:
 async def test_readiness_is_degraded_without_a_database(client: AsyncClient) -> None:
     response = await client.get("/health/ready")
     assert response.status_code == 503
-    assert response.json() == {"status": "degraded", "checks": {"database": False}}
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {"database": False},
+        "dependencies": {
+            "telephony": "closed",
+            "speech": "closed",
+            "model": "closed",
+            "push_ios": "closed",
+            "push_android": "closed",
+        },
+        "rate_limits": "per_process",
+    }
+
+
+async def test_readiness_says_a_dependency_is_failing_without_being_taken_out_of_rotation() -> None:
+    # Every process shares the providers, so an open circuit here is open everywhere: readiness
+    # reports it and stays what the database makes it.
+    settings = make_settings()
+    observability = build_observability(settings)
+    app = create_app(settings, observability=observability)
+    breaker = observability.circuits[Dependency.SPEECH]
+    for _ in range(CircuitPolicy().failures_to_open):
+        with pytest.raises(TimeoutError):
+            await breaker.call(_times_out)
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+            response = await http.get("/health/ready")
+
+    body = response.json()
+    assert body["dependencies"]["speech"] == "open"
+    assert body["checks"] == {"database": False}
+    assert set(body) == {"status", "checks", "dependencies", "rate_limits"}
+
+
+async def test_readiness_says_when_rate_limits_are_counted_across_processes() -> None:
+    app = create_app(make_settings())
+    async with app.router.lifespan_context(app):
+        app.state.container = replace(app.state.container, rate_limiter=NeverLimits())
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+            response = await http.get("/health/ready")
+
+    assert response.json()["rate_limits"] == "shared"
+
+
+async def test_readiness_before_startup_reports_no_shared_limiter() -> None:
+    app = create_app(make_settings())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+        response = await http.get("/health/ready")
+
+    assert response.json()["rate_limits"] == "per_process"
+
+
+async def _times_out() -> None:
+    raise TimeoutError
 
 
 async def test_readiness_is_degraded_when_the_database_is_unreachable() -> None:

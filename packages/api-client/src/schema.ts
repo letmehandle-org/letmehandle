@@ -988,12 +988,28 @@ export interface components {
          *     ``checks`` names each dependency and whether it answered. It carries no configuration —
          *     not a host, not a user, not a URL — because a readiness endpoint is usually the most
          *     exposed thing an application has.
+         *
+         *     ``dependencies`` is where each provider's circuit stands, by role — telephony, speech, the
+         *     model, each push platform — and never by vendor. An open circuit does not make the process
+         *     unready: every process shares the same providers, so taking this one out of rotation would
+         *     move its calls to another that fails them the same way, while this one still does what the
+         *     degraded path allows. ``rate_limits`` says whether limits are counted across processes or in
+         *     each one alone.
          */
         Readiness: {
             /** Checks */
             checks: {
                 [key: string]: boolean;
             };
+            /** Dependencies */
+            dependencies: {
+                [key: string]: "closed" | "open" | "half_open";
+            };
+            /**
+             * Rate Limits
+             * @enum {string}
+             */
+            rate_limits: "shared" | "per_process";
             /**
              * Status
              * @enum {string}

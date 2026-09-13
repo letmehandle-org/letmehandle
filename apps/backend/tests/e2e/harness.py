@@ -87,6 +87,9 @@ CALLER: Final = "+12025550123"
 DRIVER: Final = "+12025550124"
 IMPORTANT_CALLER: Final = "+12025550145"
 
+# What the scenarios' deployments guard diagnostics with. Made up here, and good for nothing else.
+DIAGNOSTICS_TOKEN: Final = "diagnostics-bearer-for-e2e-scenarios-only"
+
 # How long one judgement may take the scripted model. It answers at once, so this only bounds a
 # scenario that has gone wrong.
 JUDGEMENT: Final = timedelta(seconds=5)
@@ -355,9 +358,11 @@ def streaming_settings(database: str, *, speech_endpoint: str | None = None) -> 
     """A deployment on the simulated telephony account, storing in `database`.
 
     With `speech_endpoint`, it speaks to that realtime service and asks for the caller's words.
+    Its diagnostics are on, behind `DIAGNOSTICS_TOKEN`, as a deployment investigating a call has.
     """
     return make_settings(
         database_url=database,
+        diagnostics_token=DIAGNOSTICS_TOKEN,
         log_level="info",
         transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
         telephony_provider=TelephonyProviderName.TWILIO,

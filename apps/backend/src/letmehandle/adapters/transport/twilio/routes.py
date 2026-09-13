@@ -121,7 +121,11 @@ def build_router(
         with tracer.span("telephony.callback", stage=stage) as span:
             try:
                 params, query = await verified(request)
-                call = query.get(CALL_PARAMETER) or params.get("CallSid")
+                # The call a callback is about: ours, named in the query or the form, and otherwise
+                # the provider's call the callback arrived for, which on arrival is the same call.
+                call = (
+                    query.get(CALL_PARAMETER) or params.get(CALL_PARAMETER) or params.get("CallSid")
+                )
                 if call is not None:
                     span.set_attribute(CALL_ID, call)
                 repeat = transport.is_repeat_delivery(request.headers.get(IDEMPOTENCY_HEADER))

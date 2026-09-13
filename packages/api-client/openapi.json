@@ -1320,7 +1320,7 @@
         "type": "object"
       },
       "Readiness": {
-        "description": "Readiness: can this process do its job.\n\n``checks`` names each dependency and whether it answered. It carries no configuration \u2014\nnot a host, not a user, not a URL \u2014 because a readiness endpoint is usually the most\nexposed thing an application has.",
+        "description": "Readiness: can this process do its job.\n\n``checks`` names each dependency and whether it answered. It carries no configuration \u2014\nnot a host, not a user, not a URL \u2014 because a readiness endpoint is usually the most\nexposed thing an application has.\n\n``dependencies`` is where each provider's circuit stands, by role \u2014 telephony, speech, the\nmodel, each push platform \u2014 and never by vendor. An open circuit does not make the process\nunready: every process shares the same providers, so taking this one out of rotation would\nmove its calls to another that fails them the same way, while this one still does what the\ndegraded path allows. ``rate_limits`` says whether limits are counted across processes or in\neach one alone.",
         "properties": {
           "checks": {
             "additionalProperties": {
@@ -1328,6 +1328,26 @@
             },
             "title": "Checks",
             "type": "object"
+          },
+          "dependencies": {
+            "additionalProperties": {
+              "enum": [
+                "closed",
+                "open",
+                "half_open"
+              ],
+              "type": "string"
+            },
+            "title": "Dependencies",
+            "type": "object"
+          },
+          "rate_limits": {
+            "enum": [
+              "shared",
+              "per_process"
+            ],
+            "title": "Rate Limits",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -1340,7 +1360,9 @@
         },
         "required": [
           "status",
-          "checks"
+          "checks",
+          "dependencies",
+          "rate_limits"
         ],
         "title": "Readiness",
         "type": "object"

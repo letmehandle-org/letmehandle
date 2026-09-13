@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 
 from letmehandle.adapters.database.engine import check_connection
+from letmehandle.bootstrap import Container, Observability
 from letmehandle.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,10 +29,19 @@ class Readiness(BaseModel):
     ``checks`` names each dependency and whether it answered. It carries no configuration —
     not a host, not a user, not a URL — because a readiness endpoint is usually the most
     exposed thing an application has.
+
+    ``dependencies`` is where each provider's circuit stands, by role — telephony, speech, the
+    model, each push platform — and never by vendor. An open circuit does not make the process
+    unready: every process shares the same providers, so taking this one out of rotation would
+    move its calls to another that fails them the same way, while this one still does what the
+    degraded path allows. ``rate_limits`` says whether limits are counted across processes or in
+    each one alone.
     """
 
     status: Literal["ready", "degraded"]
     checks: dict[str, bool]
+    dependencies: dict[str, Literal["closed", "open", "half_open"]]
+    rate_limits: Literal["shared", "per_process"]
 
 
 @router.get("/health", response_model=Health, summary="Liveness")
@@ -63,4 +73,16 @@ async def readiness(request: Request, response: Response) -> Readiness:
     ready = all(checks.values())
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return Readiness(status="ready" if ready else "degraded", checks=checks)
+    observability: Observability = request.app.state.observability
+    container: Container | None = request.app.state.container
+    return Readiness(
+        status="ready" if ready else "degraded",
+        checks=checks,
+        dependencies={name: state.value for name, state in observability.circuits.states().items()},
+        # Before startup there is no limiter yet to ask, and nothing is being limited.
+        rate_limits=(
+            "shared"
+            if container is not None and container.rate_limiter.is_shared
+            else "per_process"
+        ),
+    )

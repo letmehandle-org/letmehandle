@@ -14,6 +14,7 @@ from letmehandle.adapters.database.session import create_session_factory
 from letmehandle.api.auth import router as auth_router
 from letmehandle.api.call_reports import router as call_reports_router
 from letmehandle.api.calls import router as calls_router
+from letmehandle.api.diagnostics import router as diagnostics_router
 from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.escalations import router as escalations_router
 from letmehandle.api.health import router as health_router
@@ -197,6 +198,7 @@ def create_app(
     app.include_router(calls_router)
     app.include_router(escalations_router)
     app.include_router(call_reports_router)
+    app.include_router(diagnostics_router)
     app.include_router(build_voice_router(chosen_voices))
     if chosen_telephony is not None:
         app.include_router(chosen_telephony.router)

@@ -63,4 +63,5 @@ async def test_readiness_is_ready_when_the_database_answers() -> None:
             app.state.engine = None
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "checks": {"database": True}}
+    body = response.json()
+    assert (body["status"], body["checks"]) == ("ready", {"database": True})
