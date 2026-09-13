@@ -69,7 +69,7 @@ async def test_a_restart_ends_the_call_left_running_at_the_provider() -> None:
     metrics = RecordingMetrics()
     try:
         ended = await Recovery(
-            transport=transport,
+            transports=(transport,),
             stores=stores.scope,
             dispatcher=EscalationDispatcher(
                 providers=[],

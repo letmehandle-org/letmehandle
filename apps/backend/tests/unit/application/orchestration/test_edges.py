@@ -13,7 +13,7 @@ from letmehandle.application.orchestration import orchestrator as orchestrator_m
 from letmehandle.application.orchestration.inputs import RingRanOut
 from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.plan import DialTheUser
-from letmehandle.application.orchestration.ports import Bounds
+from letmehandle.application.orchestration.ports import Bounds, CallLine
 from letmehandle.application.orchestration.run import CallIsOverError
 from letmehandle.application.resilience.circuit import Circuits
 from letmehandle.domain.errors import InvariantError
@@ -392,8 +392,7 @@ class TestStopping:
 def test_a_streaming_line_without_an_assistant_cannot_be_orchestrated() -> None:
     with pytest.raises(InvariantError, match="speech service"):
         CallOrchestrator(
-            transport=StreamingLine(),
-            ownership=EveryCallIsTheOwners(),
+            lines=(CallLine(StreamingLine(), EveryCallIsTheOwners()),),
             stores=MemoryCallStores().scope,
             dispatcher=EscalationDispatcher(
                 providers=[],

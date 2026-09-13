@@ -85,6 +85,7 @@ from letmehandle.application.orchestration.ports import (
     AssistantServices,
     Bounds,
     CallJudging,
+    CallLine,
     CallOwnership,
     CallStores,
 )
@@ -616,8 +617,7 @@ def build_call_orchestrator(
             settings, timeout=bounds.summary, metrics=observability.metrics
         )
     return CallOrchestrator(
-        transport=telephony.transport,
-        ownership=telephony.ownership(find_user),
+        lines=(CallLine(telephony.transport, telephony.ownership(find_user)),),
         stores=stores,
         dispatcher=dispatcher,
         clock=clock,

@@ -225,7 +225,7 @@ class TestStandings:
         line = StreamingLine()
         async with orchestrating(line) as running:
             arrival = CallEvent(CallEventKind.INCOMING, CallId(CALL), EventId("arrival"))
-            running.orchestrator.receive(arrival)
+            running.orchestrator.receive(arrival, line)
 
             # The run exists, and has not yet looked up whose call it is.
             assert running.orchestrator.live_calls == 1

@@ -1,15 +1,21 @@
 """The one component that owns every call's life (D-029).
 
-It reads the transport's events, gives each new call a run and each later event to that call's run,
+It reads every line's events, gives each new call a run and each later event to that call's run,
 and implements the agent's `CallActions` by handing each request to the run of the call it is for.
 There is one orchestrator whatever the transport: what differs between transports is the plan each
 call is given, derived from capabilities, never a branch on which transport it is.
+
+A deployment may carry calls on several lines — one per country it serves, say — and still has one
+orchestrator. A call belongs to the line it arrived on for its whole life: its plan is derived from
+that line's transport, its owner is found by that line's ownership, and it is dialled into, bridged
+and ended there, so a user is rung from a number in the region the call reached.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallActions
@@ -38,7 +44,7 @@ from letmehandle.domain.ports.call_transport import CallEventKind
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
     from datetime import datetime
 
     from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
@@ -47,7 +53,7 @@ if TYPE_CHECKING:
     from letmehandle.application.orchestration.inputs import Request
     from letmehandle.application.orchestration.ports import (
         AssistantServices,
-        CallOwnership,
+        CallLine,
         OpenCallStores,
     )
     from letmehandle.application.resilience.circuit import Circuits
@@ -74,7 +80,7 @@ LIVE_CALLS_PER_ACCOUNT: Final = 5
 
 
 class CallOrchestrator:
-    """Owns every live call on one transport, from arrival to teardown.
+    """Owns every live call on its lines, from arrival to teardown.
 
     `summariser` writes the summary of a call the assistant took; without one, every call is
     summarised from its facts.
@@ -83,8 +89,7 @@ class CallOrchestrator:
     def __init__(
         self,
         *,
-        transport: CallTransport,
-        ownership: CallOwnership,
+        lines: Sequence[CallLine],
         stores: OpenCallStores,
         dispatcher: EscalationDispatcher,
         clock: Clock,
@@ -95,18 +100,24 @@ class CallOrchestrator:
         summariser: CallSummariser | None,
         bounds: Bounds | None = None,
     ) -> None:
-        capabilities = transport.capabilities
-        if assistant is None and (
-            capabilities.supports_agent_conversation
-            and capabilities.can_answer_under_program_control
-        ):
-            raise InvariantError(
-                "a transport the assistant can take calls on needs a speech service and an agent"
-            )
-        self._transport = transport
+        if not lines:
+            raise InvariantError("an orchestrator needs a line for calls to arrive on")
+        for line in lines:
+            capabilities = line.transport.capabilities
+            if assistant is None and (
+                capabilities.supports_agent_conversation
+                and capabilities.can_answer_under_program_control
+            ):
+                raise InvariantError(
+                    "a transport the assistant can take calls on needs a speech service and an "
+                    "agent"
+                )
+        # What every run shares, built on the first line; each line's runs are given a copy of it
+        # with that line's transport and owners, and nothing reads a transport from this one.
+        first = lines[0]
         self._context = RunContext(
-            transport=transport,
-            ownership=ownership,
+            transport=first.transport,
+            ownership=first.ownership,
             stores=stores,
             dispatcher=dispatcher,
             clock=clock,
@@ -117,6 +128,13 @@ class CallOrchestrator:
             summariser=summariser,
             admits=self._admits,
         )
+        # What a run on each line is given: everything shared, and that line's transport and owners.
+        self._contexts = {
+            line.transport: replace(
+                self._context, transport=line.transport, ownership=line.ownership
+            )
+            for line in lines
+        }
         self._assistance = (
             None
             if assistant is None
@@ -129,7 +147,7 @@ class CallOrchestrator:
         self._runs: dict[CallId, CallRun] = {}
         self._tasks: dict[CallId, asyncio.Task[None]] = {}
         self._ended: OrderedDict[CallId, None] = OrderedDict()
-        self._consumer: asyncio.Task[None] | None = None
+        self._consumers: list[asyncio.Task[None]] = []
 
     @property
     def live_calls(self) -> int:
@@ -148,21 +166,22 @@ class CallOrchestrator:
         """End what a previous process left unfinished, then take calls."""
         context = self._context
         await Recovery(
-            transport=context.transport,
+            transports=tuple(self._contexts),
             stores=context.stores,
             dispatcher=context.dispatcher,
             clock=context.clock,
             metrics=context.metrics,
             bounds=context.bounds,
         ).end_unfinished()
-        self._consumer = asyncio.get_running_loop().create_task(self._consume())
+        loop = asyncio.get_running_loop()
+        self._consumers = [loop.create_task(self._consume(line)) for line in self._contexts]
 
     async def stop(self) -> None:
         """Stop taking calls, tear every live one down, and wait for every run to finish."""
-        consumer, self._consumer = self._consumer, None
-        if consumer is not None:
+        consumers, self._consumers = self._consumers, []
+        for consumer in consumers:
             consumer.cancel()
-            await asyncio.gather(consumer, return_exceptions=True)
+        await asyncio.gather(*consumers, return_exceptions=True)
         await self._end(list(self._runs))
 
     async def end_calls_of(self, user_id: UserId) -> None:
@@ -192,8 +211,12 @@ class CallOrchestrator:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    def receive(self, event: CallEvent) -> None:
-        """Give an event to its call's run, starting a run for a call that has just arrived."""
+    def receive(self, event: CallEvent, transport: CallTransport) -> None:
+        """Give an event to its call's run, starting a run for a call that has just arrived.
+
+        `transport` is the line the event arrived on, which a new call keeps for its whole life.
+        A provider's call identifiers are its own and never repeat, so no two lines share one.
+        """
         call_id = event.call_id
         run = self._runs.get(call_id)
         if run is not None:
@@ -209,7 +232,10 @@ class CallOrchestrator:
             (Dependency.SPEECH,) if assistance is None and self._assistance is not None else ()
         )
         run = CallRun(
-            event, plan_for(self._transport, event, assistance), self._context, degraded=degraded
+            event,
+            plan_for(transport, event, assistance),
+            self._contexts[transport],
+            degraded=degraded,
         )
         task = asyncio.get_running_loop().create_task(run.run())
         self._runs[call_id] = run
@@ -234,9 +260,9 @@ class CallOrchestrator:
         live = sum(1 for run in self._runs.values() if run.owner == user_id and not run.is_over)
         return live < LIVE_CALLS_PER_ACCOUNT
 
-    async def _consume(self) -> None:
-        async for event in self._transport.events():
-            self.receive(event)
+    async def _consume(self, transport: CallTransport) -> None:
+        async for event in transport.events():
+            self.receive(event, transport)
 
     def _run_done(self, call_id: CallId, task: asyncio.Task[None]) -> None:
         self._runs.pop(call_id, None)
