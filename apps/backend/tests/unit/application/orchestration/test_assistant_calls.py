@@ -16,6 +16,7 @@ import pytest
 from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
 from letmehandle.application.orchestration.run import CallIsOverError
 from letmehandle.application.orchestration.summary import MESSAGE_LABEL
+from letmehandle.application.speech.conversation import CONVERSATION_ENDED
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFrame
 from letmehandle.domain.models.authority import AgentAuthority, Capability
@@ -350,6 +351,27 @@ class TestTheAssistantHandlesACall:
 
             assert call.state is CallState.COMPLETED
             assert line.asked("terminate", CALL) == 1
+
+    async def test_the_agent_ending_a_call_whose_conversation_stopped_ends_it_at_once(
+        self,
+    ) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        bounds = replace(QUICK, speaker_gone=timedelta(seconds=30))
+        async with orchestrating(line, looks=looks, bounds=bounds) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Bye.")
+            await eventually(lambda: running.judgements == 1)
+            line.audio[CallId(CALL)].stop()
+            await eventually(
+                lambda: running.metrics.counted(CONVERSATION_ENDED, outcome="speaker_gone") == 1
+            )
+            judged.set()
+
+            call = await running.ended(CALL)
+
+            assert call.state is CallState.COMPLETED
 
     async def test_teardown_stops_the_assistant_before_storing_its_last_lines(
         self, monkeypatch: pytest.MonkeyPatch

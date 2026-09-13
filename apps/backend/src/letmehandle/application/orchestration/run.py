@@ -55,7 +55,6 @@ from letmehandle.application.orchestration.metrics import (
     DUPLICATE_IGNORED,
     ESCALATION_RESOLVED,
     ROUTED,
-    SPEECH_OPEN_SECONDS,
     SUMMARY_FAILED,
     SUMMARY_SECONDS,
 )
@@ -199,9 +198,7 @@ class CallRun:
         self._telephony = CallTelephony(incoming.call_id, line.transport, context, note=self._note)
         self._inbox: asyncio.Queue[Input] = asyncio.Queue()
         self._seen: set[EventId] = {incoming.event_id}
-        self._speaking = Speaking(
-            call_id=incoming.call_id, post=self.post, clock=context.clock, metrics=context.metrics
-        )
+        self._speaking = Speaking(incoming.call_id, context, post=self.post, note=self._note)
         self._judgements = Judgements(context, post=self.post, note=self._note)
         self._ring = Timer(self.post)
         self._silence = Timer(self.post)
@@ -344,29 +341,9 @@ class CallRun:
 
     async def _hand_to_assistant(self, live: _Live, step: Converse) -> None:
         await live.ledger.move(CallState.AGENT_HANDLING)
-        if not await self._telephony.answer(step.answering):
+        answered = await self._telephony.answer(step.answering)
+        if not answered or not await self._speaking.open(step, live.owner.preferences):
             await self._finish(live, CallState.FAILED)
-            return
-        context = self._context
-        stopwatch = Stopwatch()
-        try:
-            with context.tracer.span("speech.open", dependency=Dependency.SPEECH.value):
-                await context.circuits[Dependency.SPEECH].call(
-                    lambda: self._speaking.start(
-                        step, live.owner.preferences, context.bounds.speech_open
-                    )
-                )
-        # A speech service that will not open, or not in time, leaves nobody to talk to the caller:
-        # the call fails, and the user reads that in its history.
-        except Exception as error:  # noqa: BLE001
-            log_failure(logger, "call.speech_unavailable", error)
-            kind = classify(error).kind
-            context.metrics.increment(PROVIDER_FAILED, {"stage": "speech", "kind": kind})
-            live.ledger.note(MarkKind.FAILURE, f"speech.{kind}")
-            context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "failed"})
-            await self._finish(live, CallState.FAILED)
-        else:
-            context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "opened"})
 
     # ------------------------------------------------------------------------------ the inbox
 
@@ -590,8 +567,7 @@ class CallRun:
             return
         # The agent usually asks while the assistant is still saying goodbye. Hung up at once, the
         # caller hears it cut off mid-sentence and its last words never reach the transcript.
-        bounds = self._context.bounds
-        await self._speaking.finish_speaking(bounds.goodbye, bounds.goodbye_pause)
+        await self._speaking.finish_speaking()
         await self._finish(live, CallState.COMPLETED)
 
     def _notify(self, live: _Live, decision: EscalationDecision, reason: EscalationReason) -> None:
@@ -766,7 +742,7 @@ class CallRun:
             self._ledger.note(kind, name)
 
     async def _tell(self, situation: Situation) -> None:
-        await self._speaking.tell(situation, self._context.bounds.provider)
+        await self._speaking.tell(situation)
 
     def _ring_for(self, dial: DialTheUser) -> None:
         self._ring.arm(self._context.bounds.ring, lambda generation: RingRanOut(dial, generation))
