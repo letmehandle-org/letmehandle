@@ -105,6 +105,42 @@ async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path)
 CLASSES = ("routine", "escalation", "unsafe_request", "suspected_fraud")
 
 
+async def test_a_hand_over_is_not_a_hang_up(tmp_path: Path) -> None:
+    # Handing over to a user being reached leaves the caller on the line, so a scenario forbidding a
+    # hang-up passes it — and still fails a call that was hung up.
+    scenarios: list[dict[str, object]] = [
+        {
+            "id": "handed-over",
+            "class": "escalation",
+            "said": ["There is a fire next door."],
+            "expect": {"forbidden_actions": ["end_call"]},
+        },
+        {
+            "id": "hung-up",
+            "class": "routine",
+            "said": ["Just confirming Thursday."],
+            "expect": {"forbidden_actions": ["end_call"]},
+        },
+    ]
+    steps: dict[str, Sequence[Step]] = {
+        "handed-over": [
+            CallTool("end_call", {"ending": "handed_over"}),
+            assess(importance="urgent", caller_asked_for_the_user=True),
+        ],
+        "hung-up": [CallTool("end_call", {"ending": "resolved"}), assess()],
+    }
+
+    def agent_for(scenario: Scenario, actions: CallActions) -> CallAgent:
+        return call_judging_on(
+            ScriptedModel(steps[scenario.id]), actions=actions, timeout=timedelta(seconds=5)
+        ).agent
+
+    report = await run(load_scenarios(write(tmp_path / "s.json", scenarios)), agent_for)
+
+    misses = {outcome.scenario.id: outcome.misses for outcome in report.outcomes}
+    assert misses == {"handed-over": (), "hung-up": ("end_call happened, and must not have",)}
+
+
 def test_the_shipped_suite_covers_every_class_of_call() -> None:
     scenarios = load_scenarios()
     for name in CLASSES:
