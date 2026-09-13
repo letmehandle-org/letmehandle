@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 # What a handset can observe about its own call without being the phone app: that it arrived,
 # that somebody picked it up, and that it is over. Nobody joins or leaves a handset's call in a
 # way the handset can report, so the rest of the vocabulary is refused rather than accepted.
-REPORTABLE_KINDS: Final = frozenset(
+_REPORTABLE_KINDS: Final = frozenset(
     {CallEventKind.INCOMING, CallEventKind.ANSWERED, CallEventKind.ENDED}
 )
 
@@ -58,7 +58,7 @@ class CallReport:
     ending: CallEnding | None = None
 
     def __post_init__(self) -> None:
-        if self.kind not in REPORTABLE_KINDS:
+        if self.kind not in _REPORTABLE_KINDS:
             raise InvariantError(
                 f"a handset cannot observe {self.kind} on its own calls, so it cannot report it"
             )
