@@ -1,17 +1,4 @@
-"""One spoken conversation, carried between a speaker and a speech session.
-
-Two directions run at once: what the speaker says goes into the session, and what the session
-produces comes out to the speaker. Neither may outlive the other. A listener left running after
-the speaker has gone keeps a session busy with nobody on the other end; a player left running
-after the session has failed plays nothing, forever, and holds a task nobody will cancel.
-
-This module knows nothing of calls, transports, numbers or providers, and that is the property
-it exists to demonstrate. A phone call, a microphone and an in-memory test tone are the same
-source to it.
-
-It does not convert audio. The speech adapter converts at its own edge, in both directions, and
-a second conversion here would be a second place to disagree about a sample rate.
-"""
+"""One spoken conversation between a speaker and a speech session, knowing nothing of calls."""
 
 from __future__ import annotations
 
@@ -40,20 +27,12 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.speech import SpeechEvent, SpeechSession
 
-# How long the sink took to drop what it had buffered once the caller spoke. Its own name, not
-# the session's interruption-to-silence: that one runs from cancelling the model to the model
-# going quiet, and one name for two measurements averages them into a number that is neither.
+# How long the sink took to drop what it had buffered once the caller spoke.
 SINK_DISCARD: Final = catalogue.measure("speech.sink_discard_seconds")
 
 
 class ConversationFailedError(DomainError):
-    """The session said it could not continue, so neither can the conversation.
-
-    Its own type rather than `ProviderError`, because this layer does not know which provider
-    it is talking to and a provider name made up here would be a fact that is not true.
-    `retryable` is carried over unchanged: whether to open another session is the owner's
-    decision, and it needs the session's own answer to make it.
-    """
+    """The session said it could not continue; `retryable` is the session's own answer."""
 
     def __init__(self, reason: str, *, retryable: bool) -> None:
         super().__init__(f"the conversation could not continue: {reason}")
@@ -69,8 +48,7 @@ class ConversationEnd(StrEnum):
     SESSION_ENDED = "session_ended"
 
 
-# How every conversation ended: one of the two ways above, a failure the session reported, a
-# cancellation, or an error of anything else.
+# How every conversation ended: either side, a session failure, a cancellation, or an error.
 CONVERSATION_ENDED: Final = catalogue.count(
     "speech.conversation.ended",
     outcome={*ConversationEnd, "failed", "cancelled", "error"},
@@ -87,13 +65,7 @@ class TranscriptTurn:
 
 
 class Transcript:
-    """What was said, in order, in memory only.
-
-    Owned by whoever runs the conversation rather than returned by it, so that it survives the
-    conversation failing or being cancelled. Those are the conversations somebody most needs to
-    read afterwards. Nothing here writes it anywhere; keeping transcripts is a later decision
-    with its own retention rules.
-    """
+    """What was said, in order, in memory, owned by whoever runs the conversation."""
 
     def __init__(self) -> None:
         self._turns: list[TranscriptTurn] = []
@@ -107,17 +79,7 @@ class Transcript:
 
 
 class Conversation:
-    """Carries audio both ways until the speaker goes, the session ends, or either fails.
-
-    The session must already be open, and it is not closed here. Whoever opened it owns it: they
-    may run another conversation over it, or tell it something first, and a use case that closed
-    what it was lent would make both impossible and would close it twice in the common case.
-
-    Interruption is handled on this side of the session as well as inside it. When the caller
-    starts speaking, audio already handed to the sink is discarded, because a model that stops
-    producing while the speaker plays out its buffer still talks over the person who interrupted.
-    Emptying the session's own queue is the session's job and is left to it.
-    """
+    """Carries audio both ways over a lent session until either side ends or fails."""
 
     def __init__(
         self,
@@ -154,12 +116,7 @@ class Conversation:
                 return
 
     async def run(self) -> ConversationEnd:
-        """Carry the conversation to its end.
-
-        Returns which side ended it. Raises `ConversationFailedError` when the session fails,
-        and anything the source, sink or session raise on their own, unwrapped. On every exit,
-        cancellation included, both directions have stopped before this returns.
-        """
+        """Carry the conversation to its end, say which side ended it, and leave nothing running."""
         labels = {"outcome": "error"}
         try:
             end = await self._carry()
@@ -184,12 +141,9 @@ class Conversation:
                 listening.cancel()
                 speaking.cancel()
         except ExceptionGroup as failures:
-            # A task group reports failures as a group, which no caller catching the error it
-            # expects would recognise. The first is what ended the conversation; the group stays
-            # attached as the cause, so a second failure during teardown is not lost.
+            # The first failure is raised, with the group attached as its cause.
             raise failures.exceptions[0] from failures
-        # Cancelling a task that has already finished does nothing, so the one that was not
-        # cancelled is the one that ended the conversation.
+        # The task not cancelled is the one that ended the conversation.
         return (
             ConversationEnd.SESSION_ENDED if listening.cancelled() else ConversationEnd.SPEAKER_GONE
         )
@@ -207,9 +161,7 @@ class Conversation:
     async def _handle(self, event: SpeechEvent) -> None:
         match event:
             case AudioProduced(frame=frame):
-                # Awaited, one frame at a time. A sink playing slowly therefore slows this loop,
-                # which stops draining the session's bounded queue, which is how backpressure
-                # reaches the model instead of piling up in memory here.
+                # Awaited frame by frame, so a slow sink holds the session back.
                 self._idle.clear()
                 self._frame_started.set()
                 try:
@@ -227,21 +179,13 @@ class Conversation:
             case SessionFailed(reason=reason, retryable=retryable):
                 raise ConversationFailedError(reason, retryable=retryable)
             case _:
-                # The model starting or stopping, and partial recognition. Partials are left
-                # out on purpose: acting on one is how an assistant answers a question the
-                # caller had not finished asking.
+                # The model starting or stopping, and partial recognition, which is never acted on.
                 pass
 
 
 @asynccontextmanager
 async def _closing[T](iterator: AsyncIterator[T]) -> AsyncIterator[AsyncIterator[T]]:
-    """Close a generator left part-way through, before the conversation returns.
-
-    Leaving a loop early — on a failure, say — leaves the generator suspended, and the event
-    loop finalises a suspended generator by starting a task of its own, later. That is a task
-    alive after the conversation claimed to have stopped everything. An iterator that is not a
-    generator has nothing to finalise.
-    """
+    """Close a generator left part-way through before the conversation returns."""
     try:
         yield iterator
     finally:

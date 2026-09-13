@@ -1,15 +1,4 @@
-"""The one writer of a call's state.
-
-Everything that changes a call — a move, somebody joining or leaving, a line said, the summary —
-goes through here, and is stored as it happens, so a restart finds the call as it last stood. Only
-orchestration imports this module, and a test asserts it: the agent, an adapter or a route that
-could nudge a call's state would be a second owner of it, which is the failure D-029 exists to
-prevent.
-
-A write that fails is logged and counted, never raised. The caller is still on the line, and a
-database that did not answer is not a reason to hang up on them; the next write stores the whole
-call again, and teardown stores it last.
-"""
+"""The one writer of a call's state, storing every change and raising no failed write (D-029)."""
 
 from __future__ import annotations
 
@@ -43,29 +32,20 @@ STORAGE_FAILED: Final = catalogue.count(
     kind=FailureKind,
 )
 
-# How teardown's final save is tried again, each attempt within the storage bound. More than once,
-# because the one write a call cannot do without meeting a connection reset is worth another try,
-# and storing the whole call again is safe; few, because a database that is down stays down for
-# longer than a teardown should wait.
+# How teardown's final save is tried again, each attempt within the storage bound.
 FINAL_SAVE: Final = RetryPolicy(attempts=3)
 TRANSITION: Final = catalogue.count("call.transition", outcome=CallState)
 # How long a call spent in the state it has just left, labelled by that state.
 STATE_SECONDS: Final = catalogue.measure("call.state_seconds", outcome=CallState)
 
-# How far ahead of this host's clock a reported moment may be and still be believed: the allowance
-# a handset's rules snapshot is given for the same two clocks disagreeing (D-028). Further ahead,
-# the handset's clock is wrong, and now is the nearest moment that can be true.
+# How far ahead of this host's clock a reported moment is still believed (D-028).
 REPORTED_CLOCK_SKEW: Final = timedelta(minutes=5)
 
 
 def reported_instant(
     reported: datetime | None, *, now: datetime, not_before: datetime | None = None
 ) -> datetime:
-    """When something happened to a call: the moment its transport reported, or else now.
-
-    A moment beyond `REPORTED_CLOCK_SKEW` ahead of now is taken as now, and one earlier than
-    `not_before` as `not_before`, so a call's history never runs backwards (D-029).
-    """
+    """When something happened: as reported within the skew, else now, never before `not_before`."""
     instant = now if reported is None or reported > now + REPORTED_CLOCK_SKEW else reported
     if not_before is not None and instant < not_before:
         return not_before
@@ -90,8 +70,7 @@ class CallLedger:
         self._bounds = bounds
         self._metrics = metrics
         self._state_since = call.started_at
-        # Marks not yet stored. They go with the call's next save, in its unit of work, so a
-        # timeline never holds a mark for a move the stored call has not made.
+        # Marks not yet stored, written with the call's next save.
         self._marks: list[TimelineMark] = []
 
     @property
@@ -119,15 +98,7 @@ class CallLedger:
         self._marks.append(TimelineMark(self._clock.now(), kind, name))
 
     async def move(self, state: CallState, *, at: datetime | None = None) -> None:
-        """Move the call, stamped `at` or now. Raises for a move the state machine forbids.
-
-        `at` is when the event that moved it happened, where its transport said; it is never
-        recorded earlier than the move before it.
-
-        Stored at once, except an ending: that is stored with the summary, once teardown has let
-        everything go, so a process that stops part-way through a teardown leaves the call
-        unfinished for the next start to end rather than ended with no summary.
-        """
+        """Move the call at `at` or now, storing all but an ending; raises for a forbidden move."""
         left, now = self._call.state, self._instant(at)
         self._call.move_to(state, at_instant=now)
         self._metrics.increment(TRANSITION, {"outcome": state.value})
@@ -164,12 +135,7 @@ class CallLedger:
         await self._write("transcript", append)
 
     async def summarised(self, summary: CallSummary) -> None:
-        """Store the call as it ended, then its summary, which needs the stored call.
-
-        A call that could not be stored as it ended gets no summary. It stays unfinished in
-        storage, and the next start ends and summarises it as the failure it then is; a summary
-        written beside it would say the call went one way while its record says another.
-        """
+        """Store the call as it ended, then its summary, which is skipped when that save fails."""
         if not await self._save("final", retry=FINAL_SAVE):
             return
 
@@ -204,11 +170,7 @@ class CallLedger:
         *,
         retry: RetryPolicy | None = None,
     ) -> bool:
-        """Do `work` in one unit of work, within the storage bound, and say whether it was done.
-
-        With `retry`, which only work safe to repeat is given, a failure that may pass is tried
-        again. Every failed attempt is counted; giving up is logged once.
-        """
+        """Do `work` in one bounded unit of work, retried with `retry`; say whether it was done."""
 
         async def attempt() -> None:
             try:
@@ -225,8 +187,7 @@ class CallLedger:
                 await attempt()
             else:
                 await retry_idempotent(attempt, policy=retry)
-        # Broad on purpose, and not swallowed: logged and counted by kind. A storage driver fails in
-        # its own terms, a timeout in another, and a live call outlasts every one of them.
+        # Any failure of a write is logged, marked and counted by kind.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.storage_failed", error, stage=stage)
             self.note(MarkKind.FAILURE, f"storage.{stage}.{classify(error).kind}")

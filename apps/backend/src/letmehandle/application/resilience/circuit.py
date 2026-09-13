@@ -1,16 +1,4 @@
-"""Not asking a dependency that keeps failing, so its outage costs one feature and not every call.
-
-A speech service that has stopped answering still takes ten seconds to say so to each call that
-asks, and every one of those calls holds a caller in silence while it waits. A circuit counts those
-failures per dependency; past a threshold it opens, and for a cool-off every request to that
-dependency is refused at once, so the product takes its degraded path immediately. When the cool-off
-ends one request is let through as a trial. It succeeding closes the circuit; it failing opens it
-for another cool-off.
-
-What counts is decided by the failure taxonomy. A timeout or an unreachable dependency is the
-dependency failing. An answer of no — a call not found, a request refused — is the dependency
-working. A defect is neither, and says nothing about the dependency either way.
-"""
+"""Circuits that stop asking a failing dependency, letting one trial through after a cool-off."""
 
 from __future__ import annotations
 
@@ -36,13 +24,7 @@ logger = get_logger(__name__)
 
 
 class Dependency(StrEnum):
-    """What calls depend on, by the role it plays rather than who provides it.
-
-    By role, so that what readiness and metrics say about a dependency names no vendor and no
-    configuration: "speech is failing" is what somebody needs to know, and the vendor is theirs.
-    Push delivery has a circuit per device platform besides these, since each platform is its own
-    service and one of them failing says nothing about the other.
-    """
+    """What calls depend on, named by role rather than by vendor."""
 
     TELEPHONY = "telephony"
     SPEECH = "speech"
@@ -124,12 +106,7 @@ class CircuitBreaker:
         *,
         failed_when: Callable[[T], bool] | None = None,
     ) -> T:
-        """Run `operation` if the circuit admits it, and count how it went.
-
-        Raises `CircuitOpenError` without running it when the circuit is refusing, and otherwise
-        whatever `operation` raises. `failed_when` recognises a dependency that answers with a
-        failure rather than raising one; that answer is counted as a failure and still returned.
-        """
+        """Run `operation` if admitted and count how it went; `CircuitOpenError` when refused."""
         if not self._admit():
             raise CircuitOpenError(self._dependency)
         try:
@@ -193,8 +170,6 @@ class CircuitBreaker:
             CIRCUIT_TRANSITION, {"provider": self._dependency, "outcome": state.value}
         )
         if state is CircuitState.OPEN:
-            # Something somebody running the deployment has to look at: a dependency is down for
-            # every call, and the product is running without it.
             logger.error("circuit.opened", dependency=self._dependency)
         else:
             logger.info("circuit.moved", dependency=self._dependency, state=state.value)

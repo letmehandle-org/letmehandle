@@ -1,12 +1,4 @@
-"""The summary written as a call ends: what the run learned, laid over the summary it was given.
-
-The facts come first, because they are the one reading of the call that needs nobody — who joined
-and when, why the user was asked for, what the agent last judged the call to be. The summary under
-them is the summariser's for a call the assistant took, and the facts' own otherwise; the agent's
-account of the outcome, when it wrote one that holds and names the ending the facts establish,
-goes over either. A record the domain refuses, such as a headline too long to be one, is left out
-rather than leaving the call without a summary.
-"""
+"""The summary written as a call ends: its facts, a summary of them, and the agent's record."""
 
 from __future__ import annotations
 
@@ -116,11 +108,7 @@ def with_findings(summary: CallSummary, call: CallSession, findings: Findings) -
     messages = tuple(ExtractedDetail(MESSAGE_LABEL, message) for message in findings.messages)
     kept = replace(summary, details=(*summary.details, *messages))
     record = findings.outcome
-    # Only for a call that ran its course. A rejected or failed call is what its state says it was,
-    # whatever the agent wrote down before that happened. And only for the ending the call had: the
-    # agent writes its record mid-call, and one written as the user's phone rang can claim a
-    # handover the caller hung up before — the summariser is held to the facts' outcome, and so is
-    # this.
+    # The agent's record is laid over only a completed call whose outcome it matches.
     if (
         record is None
         or call.state is not CallState.COMPLETED

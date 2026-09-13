@@ -1,13 +1,4 @@
-"""What can happen to a call, decided from the transport before anything happens to it.
-
-A step the transport cannot perform is never built. There is no escalation step on a transport that
-cannot add the user to a call, and no assistant step on one that cannot answer and carry audio, so
-code that would escalate or converse there has nothing to call: the path does not exist, which is
-stronger than a check that refuses it (D-029).
-
-Each step holds the narrowed transport it acts through. Narrowing is the only way to reach an
-operation behind a capability, so a step's existence is the proof that its operation is there.
-"""
+"""What a call may do, built only from what its transport can do (D-029)."""
 
 from __future__ import annotations
 
@@ -55,13 +46,7 @@ class LetItRing:
 
 @dataclass(frozen=True, slots=True)
 class CallPlan:
-    """The steps one call may take.
-
-    `put_through` is how the call reaches the user without the assistant, if it can. `assistant`
-    and `escalation` exist only together with what they need: escalation is the assistant asking
-    for the user, so there is none without an assistant. `screened` is the decision a handset
-    already applied before it rang; a call carrying one is recorded, never routed again.
-    """
+    """The steps one call may take; `screened` is a decision its handset already applied."""
 
     put_through: DialTheUser | LetItRing | None
     assistant: Converse | None
@@ -72,11 +57,7 @@ class CallPlan:
 def plan_for(
     transport: CallTransport, incoming: CallEvent, assistance: Assistance | None
 ) -> CallPlan:
-    """The plan for the call `incoming` announces, from what `transport` declares it can do.
-
-    `assistance` is what an assistant would speak with; a deployment without it offers no assistant
-    step, and the orchestrator refuses to be built that way over a transport that could hold one.
-    """
+    """The plan for the call `incoming` announces, from `transport`'s capabilities."""
     capabilities = transport.capabilities
     assistant = (
         Converse(answering(transport), audio_streaming(transport), assistance)
@@ -91,8 +72,7 @@ def plan_for(
         put_through=dial or ring,
         assistant=assistant,
         escalation=dial if assistant is not None else None,
-        # A screening transport that reported no decision let the call ring: that is what every
-        # failure to decide does on a handset (D-028).
+        # A screening transport that reported no decision let the call ring (D-028).
         screened=(
             (incoming.screening or ScreeningDecision.ALLOW)
             if capabilities.can_screen_before_ringing

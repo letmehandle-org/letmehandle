@@ -1,10 +1,4 @@
-"""Everything a call's run can be told, as values in its inbox.
-
-Transport events, the agent's requests, a conversation stopping, a judgement finishing, a wait
-running out and the process stopping all arrive the same way, and are handled one at a time by the
-run alone (D-029). A request that someone is waiting on carries a future the run settles once it
-has acted.
-"""
+"""Everything a call's run can be told, as values in its inbox (D-029)."""
 
 from __future__ import annotations
 
@@ -52,11 +46,7 @@ class Judged:
 
 @dataclass(frozen=True, slots=True)
 class RingRanOut:
-    """The user's phone rang for as long as it may. `dial` is the step that is ringing it.
-
-    `generation` tells the ring still armed from one since cancelled whose expiry was already on its
-    way to the inbox.
-    """
+    """The user's phone rang as long as it may; `generation` names the ring that ran out."""
 
     dial: DialTheUser
     generation: int
