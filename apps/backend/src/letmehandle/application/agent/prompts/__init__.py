@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 # The version every judgement uses unless told otherwise. Changing it is a prompt change, and the
 # evaluation suite is how a prompt change earns its place.
-PROMPT_VERSION: Final = "v2"
+PROMPT_VERSION: Final = "v3"
 
 # Each template, and exactly the placeholders it may use. Checked when the templates are read, so
 # a stray `$` or a misspelt placeholder stops a process from loading them rather than failing on
@@ -51,6 +51,7 @@ _PLACEHOLDERS: Final = {
     "transcript.md": frozenset({"transcript"}),
     "assessment.md": frozenset({"assessment_tool"}),
     "conversation.md": frozenset({"preferences", "situation"}),
+    "greeting.md": frozenset(),
 }
 
 
@@ -64,6 +65,7 @@ class Prompts:
     transcript: Template
     assessment: Template
     conversation: Template
+    opening: Template | None
 
     def system_prompt(
         self, preferences: PreferenceContext, authority: AgentAuthority, *, assessment_tool: str
@@ -100,6 +102,12 @@ class Prompts:
             situation=as_data(dict(situation)),
         )
 
+    def greeting(self) -> str:
+        """What the assistant says first on a call, before the caller has said anything."""
+        if self.opening is None:
+            raise InvariantError(f"version {self.version!r} of the agent prompts has no greeting")
+        return self.opening.substitute().strip()
+
 
 @lru_cache(maxsize=16)
 def load_prompts(locale: str, version: str = PROMPT_VERSION) -> Prompts:
@@ -113,24 +121,46 @@ def load_prompts(locale: str, version: str = PROMPT_VERSION) -> Prompts:
 
 
 def read_prompts(templates: Traversable, locale: str, version: str) -> Prompts:
-    """`load_prompts`, from a directory of versions other than the one shipped with the code."""
+    """`load_prompts`, from a directory of versions other than the one shipped with the code.
+
+    Each template is read from the closest language that has it, so a language can be translated a
+    template at a time: a greeting of its own, say, before instructions of its own. `language` is
+    the language the instructions were read in.
+    """
     root = templates.joinpath(version)
     if not root.is_dir():
         raise InvariantError(f"there are no agent prompts of version {version!r}")
 
     normalised = normalise_locale(locale)
-    for language in (normalised, normalised.split("-", 1)[0], DEFAULT_LOCALE):
-        directory = root.joinpath(language)
-        if directory.is_dir():
-            return Prompts(
-                version=version,
-                language=language,
-                system=_template(directory, "system.md"),
-                transcript=_template(directory, "transcript.md"),
-                assessment=_template(directory, "assessment.md"),
-                conversation=_template(directory, "conversation.md"),
+    languages = (normalised, normalised.split("-", 1)[0], DEFAULT_LOCALE)
+
+    def closest(name: str) -> tuple[str, Template] | None:
+        for language in languages:
+            directory = root.joinpath(language)
+            if directory.joinpath(name).is_file():
+                return language, _template(directory, name)
+        return None
+
+    def required(name: str) -> tuple[str, Template]:
+        found = closest(name)
+        if found is None:
+            raise InvariantError(
+                f"version {version!r} of the agent prompts has no {DEFAULT_LOCALE} text"
             )
-    raise InvariantError(f"version {version!r} of the agent prompts has no {DEFAULT_LOCALE} text")
+        return found
+
+    language, system = required("system.md")
+    # Optional only because the versions before v3 were written without it.
+    opening = closest("greeting.md")
+    return Prompts(
+        version=version,
+        language=language,
+        system=system,
+        transcript=required("transcript.md")[1],
+        assessment=required("assessment.md")[1],
+        conversation=required("conversation.md")[1],
+        opening=None if opening is None else opening[1],
+    )
 
 
 def _template(directory: Traversable, name: str) -> Template:
