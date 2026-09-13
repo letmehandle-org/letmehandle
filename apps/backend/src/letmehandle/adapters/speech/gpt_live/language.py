@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.adapters.speech.session_support.offer import base_language
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -75,11 +77,6 @@ _SCRIPTS: Final = (
     ("kannada", ((0xC80, 0xCFF),), ("kn",)),
     ("malayalam", ((0xD00, 0xD7F),), ("ml",)),
 )
-
-
-def base_language(locale: str) -> str:
-    """`hi` for `hi-IN`: the language, whatever the region."""
-    return locale.split("-")[0]
 
 
 def opening(language: str, greeting: str) -> str:

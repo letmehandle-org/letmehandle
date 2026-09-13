@@ -48,6 +48,11 @@ def checked_capabilities(
     )
 
 
+def base_language(locale: str) -> str:
+    """`hi` for `hi-IN`: the language, whatever the region."""
+    return locale.split("-")[0]
+
+
 def check_session_request(
     provider: str,
     capabilities: SpeechCapabilities,
