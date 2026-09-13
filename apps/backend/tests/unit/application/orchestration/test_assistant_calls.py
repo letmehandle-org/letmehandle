@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import time
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -26,7 +27,7 @@ from letmehandle.domain.models.escalation import (
     EscalationUrgency,
 )
 from letmehandle.domain.models.escalation_context import EscalationStatus
-from letmehandle.domain.models.identifiers import CallId
+from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
@@ -57,6 +58,11 @@ from tests.support.orchestration import (
     eventually,
     orchestrating,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from letmehandle.domain.models.call import TranscriptEntry
 
 CALL = "call"
 STRANGER_NUMBER = PhoneNumber("+12025550101")
@@ -342,6 +348,41 @@ class TestTheAssistantHandlesACall:
 
             assert call.state is CallState.COMPLETED
             assert line.asked("terminate", CALL) == 1
+
+    async def test_teardown_stops_the_assistant_before_storing_its_last_lines(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        async with orchestrating(line, looks=looks) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Bye.")
+            await eventually(lambda: running.judgements == 1)
+            speaker = line.speakers[CallId(CALL)]
+            speaker.hold()
+            session = await running.session()
+            await session.emit(AudioProduced(AudioFrame(b"\x00\x10" * 320, SPEECH_WIDEBAND)))
+            await session.emit(
+                TranscriptProduced("Goodbye.", speaker_is_caller=False, is_final=True)
+            )
+            await eventually(lambda: speaker.playing)
+            transcripts = running.stores.transcripts
+            store = transcripts.append
+            closed_when_stored: list[bool] = []
+
+            async def append(
+                user_id: UserId, call_id: CallId, entries: Sequence[TranscriptEntry]
+            ) -> None:
+                closed_when_stored.append(session.is_closed)
+                await store(user_id, call_id, entries)
+
+            monkeypatch.setattr(transcripts, "append", append)
+            judged.set()
+            speaker.release()
+            await running.ended(CALL)
+
+            assert closed_when_stored == [True]
 
     async def test_the_agent_ending_the_call_keeps_what_it_assessed_the_call_to_be(self) -> None:
         looks = [Look(proposal=ROUTINE, ending=CallEnding.RESOLVED)]

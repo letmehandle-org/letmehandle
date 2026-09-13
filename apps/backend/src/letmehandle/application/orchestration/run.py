@@ -91,6 +91,7 @@ if TYPE_CHECKING:
         OpenCallStores,
     )
     from letmehandle.application.resilience.circuit import Circuits
+    from letmehandle.application.speech.conversation import TranscriptTurn
     from letmehandle.domain.models.escalation import EscalationDecision, EscalationReason
     from letmehandle.domain.models.identifiers import CallId, EventId, UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
@@ -141,8 +142,6 @@ TERMINATE_RETRY: Final = RetryPolicy(attempts=3)
 _JUDGED_IN: Final = frozenset(
     {CallState.AGENT_HANDLING, CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING}
 )
-
-_REQUESTS: Final = (EscalationRequested, EndingRequested, OutcomeRecorded, MessageTaken)
 
 # Where the user is being reached, and may yet not be.
 _USER_BEING_REACHED: Final = frozenset({CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING})
@@ -275,7 +274,7 @@ class CallRun:
                     await self._handle(live, await self._inbox.get())
         finally:
             await self._release_tasks()
-            self._refuse_waiting()
+            self._empty_inbox()
 
     # ------------------------------------------------------------------------ arrival and routing
 
@@ -401,7 +400,7 @@ class CallRun:
                     self._seen.add(event.event_id)
                     await self._on_event(live, event)
             case Heard(turn=turn):
-                await self._on_heard(live, turn.text, by_caller=turn.speaker_is_caller)
+                await self._on_heard(live, turn)
             case ConversationStopped(end=end):
                 await self._on_conversation_stopped(live, end)
             case Judged(judgement=judgement):
@@ -535,10 +534,10 @@ class CallRun:
         live.ledger.note(MarkKind.FAILURE, "conversation.lost")
         await self._assistant_lost(live)
 
-    async def _on_heard(self, live: _Live, text: str, *, by_caller: bool) -> None:
-        await live.ledger.said(Speaker.CALLER if by_caller else Speaker.AGENT, text)
+    async def _on_heard(self, live: _Live, turn: TranscriptTurn) -> None:
+        await live.ledger.said(_speaker(turn), turn.text)
         assistant = self._plan.assistant
-        if by_caller and live.ledger.state in _JUDGED_IN and assistant is not None:
+        if turn.speaker_is_caller and live.ledger.state in _JUDGED_IN and assistant is not None:
             self._judge(live, assistant)
 
     async def _on_ring_ran_out(self, live: _Live, dial: DialTheUser) -> None:
@@ -733,12 +732,13 @@ class CallRun:
         """
         self._finished = True
         ledger = live.ledger
-        await self._keep_what_was_heard(ledger)
         if ledger.state in _USER_BEING_REACHED:
             self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "call_ended"})
         with self._context.tracer.span("call.teardown", **{"call.state": state.value}):
-            await ledger.move(state, at=at)
             await self._release_tasks()
+            for turn in self._empty_inbox():
+                await ledger.said(_speaker(turn), turn.text)
+            await ledger.move(state, at=at)
             await self._terminate()
             if self._plan.assistant is not None:
                 self._plan.assistant.assistance.judging.forget(self.call_id)
@@ -749,22 +749,6 @@ class CallRun:
                 live.owner.user_id, self.call_id, summary.ended_at
             )
         self._context.metrics.increment(CALL_ENDED, {"outcome": state.value})
-
-    async def _keep_what_was_heard(self, ledger: CallLedger) -> None:
-        """Record the lines still waiting in the inbox, which the run stops reading once it ends.
-
-        While a goodbye plays out the run is waiting, and what was said meanwhile is queued behind
-        it. Everything else waiting is put back, in order, for the run's own way of refusing it.
-        """
-        waiting: list[Input] = []
-        while not self._inbox.empty():
-            waiting.append(self._inbox.get_nowait())
-        for item in waiting:
-            if isinstance(item, Heard):
-                speaker = Speaker.CALLER if item.turn.speaker_is_caller else Speaker.AGENT
-                await ledger.said(speaker, item.turn.text)
-            else:
-                self._inbox.put_nowait(item)
 
     async def _summary(self, live: _Live, facts: CallFacts) -> CallSummary:
         """The summariser's summary of a call the assistant took; the facts' own of any other.
@@ -811,11 +795,23 @@ class CallRun:
         await self._lifetime.release()
         await self._speaking.stop()
 
-    def _refuse_waiting(self) -> None:
+    def _empty_inbox(self) -> list[TranscriptTurn]:
+        """Empty the inbox, refusing waiting requests, and return the lines not yet recorded."""
+        heard: list[TranscriptTurn] = []
         while not self._inbox.empty():
-            item = self._inbox.get_nowait()
-            if isinstance(item, _REQUESTS):
-                _settle(item.reply, CallIsOverError())
+            match self._inbox.get_nowait():
+                case Heard(turn=turn):
+                    heard.append(turn)
+                case (
+                    EscalationRequested()
+                    | EndingRequested()
+                    | OutcomeRecorded()
+                    | MessageTaken() as request
+                ):
+                    _settle(request.reply, CallIsOverError())
+                case _:
+                    pass
+        return heard
 
     # ------------------------------------------------------------------------------- utilities
 
@@ -935,6 +931,10 @@ def _recognised(caller: Caller, preferences: UserPreferences) -> Caller:
     if contact is None:
         return caller
     return replace(caller, display_name=contact.label, category=CallerCategory.KNOWN_CONTACT)
+
+
+def _speaker(turn: TranscriptTurn) -> Speaker:
+    return Speaker.CALLER if turn.speaker_is_caller else Speaker.AGENT
 
 
 def _settle(reply: asyncio.Future[None], error: DomainError | None) -> None:
