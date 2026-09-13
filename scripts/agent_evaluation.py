@@ -48,7 +48,7 @@ def print_report(report: Report) -> None:
 async def evaluate(minimum: float | None) -> int:
     # Imported after the path is set.
     from letmehandle.application.agent.prompts import PROMPT_VERSION
-    from letmehandle.bootstrap import build_call_agent
+    from letmehandle.bootstrap import build_call_judging
     from letmehandle.config.settings import ConfigurationError, get_settings
     from letmehandle.observability.logging import configure_logging
     from tests.evaluation.suite import load_scenarios, run
@@ -64,7 +64,7 @@ async def evaluate(minimum: float | None) -> int:
     configure_logging(settings)
 
     def agent_for(_scenario: Scenario, actions: CallActions) -> CallAgent:
-        return build_call_agent(settings, actions=actions)
+        return build_call_judging(settings, actions=actions).agent
 
     print(f"model {endpoint.model}, prompts {PROMPT_VERSION}\n")
     report = await run(load_scenarios(), agent_for)

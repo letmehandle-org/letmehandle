@@ -25,7 +25,7 @@ from letmehandle.application.agent.conclusion import (
     NOT_ENDED_WITHOUT_AN_ASSESSMENT,
 )
 from letmehandle.application.agent.ports import CallEnding, ToolRefusal
-from letmehandle.bootstrap import call_agent_on
+from letmehandle.bootstrap import call_judging_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.escalation import EscalationReason, EscalationUrgency
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -66,7 +66,7 @@ def an_agent(
     model: ScriptedModel, actions: RecordingCallActions, *, bound: timedelta = TIMEOUT
 ) -> CallAgent:
     """The agent as the composition root wires it, on a scripted model."""
-    return call_agent_on(model, actions=actions, timeout=bound)
+    return call_judging_on(model, actions=actions, timeout=bound).agent
 
 
 async def judged(

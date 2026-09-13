@@ -16,12 +16,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.bootstrap import build_call_agent, call_agent_on
+from letmehandle.bootstrap import build_call_judging, call_judging_on
 from letmehandle.config.settings import ConfigurationError
 from letmehandle.observability.logging import configure_logging
 from tests.support.agent_calls import a_call
 from tests.support.config import make_settings
-from tests.support.recording_call_actions import RecordingCallActions
+from tests.support.recording_call_actions import Escalated, RecordingCallActions
 from tests.support.scripted_model import CallTool, ScriptedModel, assess
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ async def test_the_agent_talks_to_the_configured_endpoint(endpoint: RefusingEndp
         llm_model="an-example-model",
         llm_headers="X-Title=letmehandle",
     )
-    agent = build_call_agent(settings, actions=RecordingCallActions())
+    agent = build_call_judging(settings, actions=RecordingCallActions()).agent
 
     judgement = await agent.judge(a_call("Is she in today?"))
 
@@ -116,13 +116,13 @@ async def test_at_debug_neither_the_callers_words_nor_the_key_reach_the_log(
     configure_logging(settings)
 
     # On the wire, where the model client and the HTTP client log requests at debug.
-    await build_call_agent(settings, actions=RecordingCallActions()).judge(a_call(said))
+    await build_call_judging(settings, actions=RecordingCallActions()).agent.judge(a_call(said))
     # And a model that sends a tool unreadable arguments holding the caller's words, which the SDK
     # quotes when it warns that it could not parse them.
     model = ScriptedModel([CallTool("take_a_message", raw='{"message": "' + said), assess()])
-    await call_agent_on(model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)).judge(
-        a_call(said)
-    )
+    await call_judging_on(
+        model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)
+    ).agent.judge(a_call(said))
 
     logged = capfd.readouterr()
     everything = logged.out + logged.err
@@ -143,9 +143,9 @@ async def test_at_debug_a_tool_name_the_model_invented_never_reaches_the_log(
     configure_logging(make_settings(log_level="debug"))
     model = ScriptedModel([CallTool(invented, {}), assess()])
 
-    await call_agent_on(model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)).judge(
-        a_call("Hello.")
-    )
+    await call_judging_on(
+        model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)
+    ).agent.judge(a_call("Hello."))
 
     logged = capfd.readouterr()
     assert invented not in logged.out + logged.err
@@ -154,4 +154,23 @@ async def test_at_debug_a_tool_name_the_model_invented_never_reaches_the_log(
 
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
-        build_call_agent(make_settings(), actions=RecordingCallActions())
+        build_call_judging(make_settings(), actions=RecordingCallActions())
+
+
+async def test_forgetting_a_call_lets_the_same_service_reach_the_user_for_it_again() -> None:
+    # The forget handed out beside the agent is the memory the agent itself consults: without it,
+    # every call a process ever escalated would stay remembered for as long as it runs.
+    urgent = assess(importance="urgent", caller_asked_for_the_user=True)
+    actions = RecordingCallActions()
+    judging = call_judging_on(
+        ScriptedModel([urgent, urgent, urgent]), actions=actions, timeout=timedelta(seconds=5)
+    )
+    call = a_call("Put her on, please.")
+
+    await judging.agent.judge(call)
+    await judging.agent.judge(call)
+    assert len(actions.of_kind(Escalated)) == 1
+
+    judging.forget(call.call_id)
+    await judging.agent.judge(call)
+    assert len(actions.of_kind(Escalated)) == 2

@@ -61,6 +61,7 @@ from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
+from letmehandle.application.orchestration.ports import CallJudging
 from letmehandle.config.settings import (
     APNsEnvironmentName,
     ConfigurationError,
@@ -79,7 +80,7 @@ if TYPE_CHECKING:
     from strands.models.model import Model
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
-    from letmehandle.application.agent.ports import CallActions, CallAgent
+    from letmehandle.application.agent.ports import CallActions
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -403,31 +404,37 @@ async def _nothing_to_close() -> None:
     return None
 
 
-def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:
+def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:
     """The agent that judges calls, on the model this deployment is configured with.
 
     The call's actions are handed in rather than built here, because only orchestration holds a
     call. What is chosen here is the framework and the model.
     """
     endpoint = settings.require_llm()
-    return call_agent_on(
+    return call_judging_on(
         openai_compatible_model(endpoint),
         actions=actions,
         timeout=timedelta(seconds=endpoint.timeout_seconds),
     )
 
 
-def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallAgent:
+def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallJudging:
     """The agent on `model`, with its tools and the conclusion that acts on what they asked for.
 
     Built once, here, so every judgement on a call goes through one escalation service and one
-    memory of whether the user was reached. Tests reach the same wiring with a scripted model.
+    memory of whether the user was reached — and so the one thing that may release that memory,
+    the service's `forget`, is handed to orchestration beside the agent rather than dug out of it.
+    Tests reach the same wiring with a scripted model.
     """
-    return StrandsCallAgent(
-        model,
-        tools=tools_for_judgements(actions),
-        conclusion=JudgementConclusion(actions, EscalationService(actions)),
-        timeout=timeout,
+    escalation = EscalationService(actions)
+    return CallJudging(
+        agent=StrandsCallAgent(
+            model,
+            tools=tools_for_judgements(actions),
+            conclusion=JudgementConclusion(actions, escalation),
+            timeout=timeout,
+        ),
+        forget=escalation.forget,
     )
 
 
