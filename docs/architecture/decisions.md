@@ -474,6 +474,14 @@ built from the call's facts. The summariser is given that same bound, so the two
 The final state is stored with the summary, as described below, and a call whose final state could
 not be stored is given no summary.
 
+*Amended:* the call itself is a wait. A run arms a bound on the call's whole life when it is
+admitted, `Bounds.duration`, configured as `CALL_MAX_DURATION_SECONDS` (four hours by default), and
+its expiry ends the call as FAILED through the one teardown: a transport's report of a call ending
+can be lost, as a handset's is when its app is killed or offline, and nothing else can tell such a
+call from a long one. An account holds at most five live calls; a call arriving beyond that is
+recorded, moved straight to FAILED and let go at its transport, and is given no owner, so it takes
+none of the account's room. Both hold on every transport, because neither asks which one it is.
+
 *Amended:* an ending is the one move not stored the moment it is made. It is stored with the summary,
 as teardown's last write, once the call has been let go at its transport; a process that stops
 part-way through a teardown therefore leaves the call unfinished, for the next start to end and

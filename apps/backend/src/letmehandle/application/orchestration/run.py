@@ -17,7 +17,9 @@ The state machine, as a run drives it:
                      ring running out — with that outcome in the assistant's context
     HUMAN_JOINED   → COMPLETED when the user or the caller leaves
     any            → COMPLETED when the caller hangs up or the agent ends the call,
-                   → FAILED when the transport or the assistant fails, or the process stops
+                   → FAILED when the transport or the assistant fails, the call outlasts the
+                     longest a call may last, or the process stops
+    RECEIVED       → FAILED when the account already has as many live calls as it may
 
 Every ending goes through `_finish`, the one teardown.
 """
@@ -32,6 +34,7 @@ from letmehandle.application.agent.ports import CallEnding, CallSoFar
 from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.orchestration.inputs import (
     Abandoned,
+    CallRanTooLong,
     ConversationStopped,
     EndingRequested,
     EscalationRequested,
@@ -94,6 +97,8 @@ PROVIDER_FAILED: Final = "call.provider_failed"
 JUDGEMENT_FAILED: Final = "call.judgement_failed"
 SUMMARY_FAILED: Final = "call.summary_failed"
 CALL_ENDED: Final = "call.ended"
+# A call ended by a bound on calls themselves rather than by anything that happened on it.
+CALL_BOUNDED: Final = "call.bounded"
 
 # While the assistant is on the call and the user is not, something the caller says is worth
 # another look. Once the user has joined, the call is theirs to handle.
@@ -133,6 +138,8 @@ class RunContext:
     metrics: MetricsRecorder
     bounds: Bounds
     summariser: CallSummariser | None
+    # Whether an account has room for another live call.
+    admits: Callable[[UserId], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +167,7 @@ class CallRun:
         self._judge_again = False
         self._ring = _Timer(self.post)
         self._silence = _Timer(self.post)
+        self._lifetime = _Timer(self.post)
         self._findings = Findings()
         # The assistant handed the call over to a user not yet on it: its part ends when they join.
         self._handed_over = False
@@ -207,8 +215,12 @@ class CallRun:
             await self._provider("terminate", self._context.transport.terminate(self.call_id))
             self._finished = True
             return None
-        self._owner = owner.user_id
         context = self._context
+        # Asked and answered before anything is awaited, so two calls arriving together cannot both
+        # take the last room. A call refused is given no owner: it holds none of the account's room.
+        admitted = context.admits(owner.user_id)
+        if admitted:
+            self._owner = owner.user_id
         live = _Live(
             owner=owner,
             ledger=CallLedger(
@@ -225,6 +237,12 @@ class CallRun:
             ),
         )
         await live.ledger.opened()
+        if not admitted:
+            logger.warning("call.too_many_live_calls")
+            context.metrics.increment(CALL_BOUNDED, {"kind": "live_calls"})
+            await self._finish(live, CallState.FAILED)
+            return live
+        self._lifetime.arm(context.bounds.duration, CallRanTooLong)
         await live.ledger.move(CallState.ROUTING)
         posture = route(live.ledger.call.caller, owner.preferences, context.clock.now())
         match route_on(posture, self._plan):
@@ -301,6 +319,8 @@ class CallRun:
                 await self._on_ring_ran_out(live, dial)
             case SilenceRanOut(generation=generation) if self._silence.is_current(generation):
                 await self._assistant_lost(live)
+            case CallRanTooLong(generation=generation) if self._lifetime.is_current(generation):
+                await self._ran_too_long(live)
             case Abandoned():
                 await self._finish(live, CallState.FAILED)
             case EscalationRequested() | EndingRequested() | OutcomeRecorded() | MessageTaken():
@@ -379,6 +399,13 @@ class CallRun:
         await ledger.left(ParticipantRole.HUMAN)
         if ledger.state in {CallState.HUMAN_JOINED, CallState.PASSTHROUGH}:
             await self._finish(live, CallState.COMPLETED)
+
+    async def _ran_too_long(self, live: _Live) -> None:
+        """Nothing reported the call ending in all the time a call may last, so it is ended here."""
+        limit = int(self._context.bounds.duration.total_seconds())
+        logger.warning("call.ran_too_long", limit_seconds=limit)
+        self._context.metrics.increment(CALL_BOUNDED, {"kind": "duration"})
+        await self._finish(live, CallState.FAILED)
 
     async def _assistant_lost(self, live: _Live) -> None:
         """The assistant cannot go on. The call stands only while the user is coming or here."""
@@ -606,6 +633,7 @@ class CallRun:
             await asyncio.gather(judgement, return_exceptions=True)
         await self._ring.release()
         await self._silence.release()
+        await self._lifetime.release()
         await self._speaking.stop()
 
     def _refuse_waiting(self) -> None:

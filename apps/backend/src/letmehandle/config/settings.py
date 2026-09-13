@@ -424,6 +424,11 @@ class Settings(BaseSettings):
         None
     )
 
+    # How long a call may last before its run ends it as failed. Generous, because a long call is a
+    # real call; bounded, because a call whose ending is never reported is otherwise held for as
+    # long as the process runs. Between a minute and a day.
+    call_max_duration_seconds: int = Field(default=14_400, ge=60, le=86_400)
+
     @field_validator("telephony_webhook_base_url")
     @classmethod
     def _a_base_url_is_only_a_base(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:

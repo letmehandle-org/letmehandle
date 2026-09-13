@@ -70,6 +70,13 @@ class SilenceRanOut:
 
 
 @dataclass(frozen=True, slots=True)
+class CallRanTooLong:
+    """The call has lasted as long as any call may, and nothing reported it ending."""
+
+    generation: int
+
+
+@dataclass(frozen=True, slots=True)
 class Abandoned:
     """The call ends now, whatever it was doing: the process stops, or its account is deleted."""
 
@@ -107,6 +114,7 @@ type Input = (
     | Judged
     | RingRanOut
     | SilenceRanOut
+    | CallRanTooLong
     | Abandoned
     | Request
 )

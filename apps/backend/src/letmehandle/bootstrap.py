@@ -524,7 +524,7 @@ def build_call_orchestrator(
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
     # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
-    bounds = Bounds()
+    bounds = call_bounds(settings)
     if summariser is None and settings.llm_configured:
         summariser = build_call_summariser(settings, timeout=bounds.summary)
     return CallOrchestrator(
@@ -538,6 +538,11 @@ def build_call_orchestrator(
         summariser=summariser,
         bounds=bounds,
     )
+
+
+def call_bounds(settings: Settings) -> Bounds:
+    """How long anything on a call may take, with how long a call may last as configured."""
+    return Bounds(duration=timedelta(seconds=settings.call_max_duration_seconds))
 
 
 def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:

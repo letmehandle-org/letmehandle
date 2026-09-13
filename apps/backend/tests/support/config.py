@@ -81,6 +81,7 @@ def make_settings(
     telephony_numbers: tuple[PhoneNumber, ...] | None = None,
     telephony_app_id: str | None = None,
     telephony_webhook_base_url: str | None = None,
+    call_max_duration_seconds: int = 14_400,
     llm_base_url: str | None = None,
     llm_api_key: str | None = None,
     llm_model: str | None = None,
@@ -136,6 +137,7 @@ def make_settings(
             if telephony_webhook_base_url is not None
             else None
         ),
+        call_max_duration_seconds=call_max_duration_seconds,
         llm_base_url=AnyHttpUrl(llm_base_url) if llm_base_url is not None else None,
         llm_api_key=SecretStr(llm_api_key) if llm_api_key is not None else None,
         llm_model=llm_model,
