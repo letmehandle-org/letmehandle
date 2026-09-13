@@ -1,10 +1,13 @@
-"""The transcript purge, as a command a scheduler runs.
+"""The scheduled purge of expired transcripts and spent sign-in challenges, as a command.
 
     uv run letmehandle-purge
 
 Run it at least daily — retention is set in whole days, so a daily run keeps every transcript
 within a day of its owner's setting. It is safe to run more often, to run again after a failure,
 and to have two schedulers run it at once: see `application/retention/purge.py` for why.
+
+It also deletes the sign-in challenges nothing can use or count any more, which hold the numbers
+codes were sent to.
 
 It needs DATABASE_URL and nothing else. In particular it needs no transcript key: it deletes
 without reading, so the job that runs on a timer is not a job that can decrypt anything.
@@ -23,8 +26,12 @@ from typing import TYPE_CHECKING
 from letmehandle.adapters.clock import SystemClock
 from letmehandle.adapters.database.call_repositories import SqlTranscriptRetentionRepository
 from letmehandle.adapters.database.engine import create_engine
-from letmehandle.adapters.database.repositories import SqlPreferencesRepository
+from letmehandle.adapters.database.repositories import (
+    SqlOTPChallengeRepository,
+    SqlPreferencesRepository,
+)
 from letmehandle.adapters.database.session import create_session_factory, unit_of_work
+from letmehandle.application.auth.service import forget_spent_challenges
 from letmehandle.application.retention.purge import (
     DEFAULT_BATCH_SIZE,
     PurgeResult,
@@ -56,6 +63,19 @@ class _Scope:
     preferences: PreferencesRepository
 
 
+@asynccontextmanager
+async def _engine_for(settings: Settings, engine: AsyncEngine | None) -> AsyncIterator[AsyncEngine]:
+    """The caller's engine as it is, or one made for this run and disposed of when it ends."""
+    if engine is not None:
+        yield engine
+        return
+    made = create_engine(settings)
+    try:
+        yield made
+    finally:
+        await made.dispose()
+
+
 async def purge_transcripts(
     settings: Settings,
     *,
@@ -69,20 +89,18 @@ async def purge_transcripts(
     `engine` is for a caller that already owns one — a test pointed at its own schema. One made
     here is disposed of here.
     """
-    owned = engine is None
-    active = create_engine(settings) if engine is None else engine
     chosen_clock = clock or SystemClock()
-    factory = create_session_factory(active)
+    async with _engine_for(settings, engine) as active:
+        factory = create_session_factory(active)
 
-    @asynccontextmanager
-    async def open_scope() -> AsyncIterator[_Scope]:
-        async with unit_of_work(factory) as session:
-            yield _Scope(
-                retention=SqlTranscriptRetentionRepository(session),
-                preferences=SqlPreferencesRepository(session, chosen_clock),
-            )
+        @asynccontextmanager
+        async def open_scope() -> AsyncIterator[_Scope]:
+            async with unit_of_work(factory) as session:
+                yield _Scope(
+                    retention=SqlTranscriptRetentionRepository(session),
+                    preferences=SqlPreferencesRepository(session, chosen_clock),
+                )
 
-    try:
         purge = TranscriptPurge(
             open_scope=open_scope,
             clock=chosen_clock,
@@ -90,9 +108,19 @@ async def purge_transcripts(
             batch_size=batch_size,
         )
         return await purge.run()
-    finally:
-        if owned:
-            await active.dispose()
+
+
+async def purge_expired_challenges(
+    settings: Settings, *, engine: AsyncEngine | None = None, clock: Clock | None = None
+) -> int:
+    """Delete the sign-in challenges nothing can use or count, returning how many went."""
+    async with (
+        _engine_for(settings, engine) as active,
+        unit_of_work(create_session_factory(active)) as session,
+    ):
+        return await forget_spent_challenges(
+            SqlOTPChallengeRepository(session), clock or SystemClock()
+        )
 
 
 def main() -> None:
@@ -106,6 +134,7 @@ def main() -> None:
     configure_logging(settings)
     try:
         result = asyncio.run(purge_transcripts(settings))
+        challenges_deleted = asyncio.run(purge_expired_challenges(settings))
     except Exception as error:
         # The type only. A database error's message can carry a statement's parameters.
         logger.error("transcript_purge.failed", error_type=type(error).__name__)  # noqa: TRY400
@@ -117,6 +146,7 @@ def main() -> None:
         users_skipped=result.users_skipped,
         entries_deleted=result.entries_deleted,
         batches=result.batches,
+        challenges_deleted=challenges_deleted,
     )
     if not result.is_complete:
         raise SystemExit(1)

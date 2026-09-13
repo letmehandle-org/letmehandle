@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from fastapi import APIRouter, Request, Response, status
 
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import AuthService, CurrentUser, Devices, Users
 from letmehandle.api.errors import ApiError
 from letmehandle.api.schemas import (
@@ -24,7 +25,11 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.notification import DeviceToken
 
-router = APIRouter(prefix="/v1", tags=["authentication"])
+router = APIRouter(
+    prefix="/v1",
+    tags=["authentication"],
+    route_class=limited_body_route(JSON_BODY_LIMIT_BYTES),
+)
 
 
 def _source_of(request: Request) -> str | None:

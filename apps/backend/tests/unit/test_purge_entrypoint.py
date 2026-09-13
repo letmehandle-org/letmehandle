@@ -23,9 +23,14 @@ def test_it_needs_no_transcript_key(monkeypatch: pytest.MonkeyPatch) -> None:
         ran.append(True)
         return PurgeResult(users_examined=2, users_skipped=0, entries_deleted=5, batches=2)
 
+    async def forget(settings: object) -> int:
+        ran.append(True)
+        return 3
+
     monkeypatch.setattr(command, "purge_transcripts", succeed)
+    monkeypatch.setattr(command, "purge_expired_challenges", forget)
     command.main()
-    assert ran == [True]
+    assert ran == [True, True]
 
 
 def test_a_run_that_skipped_somebody_exits_non_zero(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -34,7 +39,11 @@ def test_a_run_that_skipped_somebody_exits_non_zero(monkeypatch: pytest.MonkeyPa
     async def incomplete(settings: object) -> PurgeResult:
         return PurgeResult(users_examined=2, users_skipped=1, entries_deleted=5, batches=2)
 
+    async def forget(settings: object) -> int:
+        return 0
+
     monkeypatch.setattr(command, "purge_transcripts", incomplete)
+    monkeypatch.setattr(command, "purge_expired_challenges", forget)
     with pytest.raises(SystemExit) as exit_info:
         command.main()
     assert exit_info.value.code == 1

@@ -23,6 +23,7 @@ from letmehandle.adapters.database.call_repositories import (
     SqlSummaryRepository,
     SqlTranscriptRepository,
 )
+from letmehandle.adapters.database.repositories import SqlEscalationContextRepository
 from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.domain.models.call import (
@@ -36,6 +37,7 @@ from letmehandle.domain.models.call import (
 from letmehandle.domain.models.call_state import CallState, is_terminal
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.escalation_context import EscalationContext
 from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -732,6 +734,31 @@ class TestDeletion:
             "call_transcript_entries": 1,
             "call_summaries": 1,
         }
+
+    async def test_what_the_user_was_told_about_the_call_goes_with_it(self, api: Api) -> None:
+        # The escalation context repeats who called and what they wanted in words of its own. A
+        # call deleted with that left behind is a call the user was told is gone and is not.
+        me = await person(api)
+        call = escalated_call(me)
+        await Seed(api).call(call)
+        async with unit_of_work(api.app.state.session_factory) as session:
+            assert await SqlEscalationContextRepository(session).claim(
+                me.user_id,
+                EscalationContext(
+                    call_id=call.id,
+                    reason=REASON,
+                    raised_at=at(30),
+                    caller_label="a courier",
+                    established="They are at the gate.",
+                    needed="Where to leave the parcel.",
+                ),
+            )
+        shown = f"/v1/escalations/{call.id.value}"
+        assert (await api.client.get(shown, headers=me.headers)).status_code == 200
+
+        await api.client.delete(f"/v1/calls/{call.id.value}", headers=me.headers)
+
+        assert (await api.client.get(shown, headers=me.headers)).status_code == 404
 
     @pytest.mark.parametrize("call_id", ["escalated", "no-such-call", "%20padded"])
     async def test_deleting_again_or_deleting_nothing_succeeds(

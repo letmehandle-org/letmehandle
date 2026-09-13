@@ -7,10 +7,14 @@ that would send a text message.
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.adapters.database.repositories import SqlRefreshTokenRepository
+from letmehandle.api.dependencies import SIGNED_IN_REQUESTS_PER_WINDOW
 from tests.integration.conftest import ANOTHER_NUMBER, NUMBER, bearer, code_for, sign_in
 
 if TYPE_CHECKING:
@@ -115,6 +119,28 @@ class TestLimits:
 
         other = await api.client.post("/v1/auth/challenge", json={"phone_number": ANOTHER_NUMBER})
         assert other.status_code == 202
+
+    async def test_a_signed_in_user_sending_more_than_any_app_does_is_refused(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        for _ in range(SIGNED_IN_REQUESTS_PER_WINDOW):
+            allowed = await api.client.get("/v1/me", headers=bearer(tokens))
+            assert allowed.status_code == 200
+
+        refused = await api.client.get("/v1/me", headers=bearer(tokens))
+
+        assert refused.status_code == 429
+        assert refused.json()["error"] == "rate_limited"
+        assert int(refused.headers["Retry-After"]) > 0
+
+    async def test_one_user_at_the_limit_does_not_block_another(self, api: Api) -> None:
+        busy = await sign_in(api)
+        quiet = await sign_in(api, ANOTHER_NUMBER)
+        for _ in range(SIGNED_IN_REQUESTS_PER_WINDOW):
+            await api.client.get("/v1/me", headers=bearer(busy))
+
+        assert (await api.client.get("/v1/me", headers=bearer(quiet))).status_code == 200
 
 
 class TestSessions:
@@ -303,3 +329,68 @@ class TestIsolation:
 
         their_profile = await api.client.get("/v1/me", headers=bearer(theirs))
         assert their_profile.json()["display_name"] is None
+
+
+class TestConcurrentAttempts:
+    """Limits that hold when the requests arrive together, not only one after another."""
+
+    async def test_guesses_sent_at_once_still_exhaust_the_challenge(self, api: Api) -> None:
+        # An attempt counter read by every request before any of them writes it back counts
+        # a burst of guesses as one, and the five-guess limit becomes unlimited.
+        challenge_id, code = await code_for(api)
+        wrong = [f"{guess:06d}" for guess in range(20) if f"{guess:06d}" != code][:10]
+
+        guesses = await asyncio.gather(
+            *(
+                api.client.post(
+                    "/v1/auth/verify", json={"challenge_id": challenge_id, "code": guess}
+                )
+                for guess in wrong
+            )
+        )
+        assert all(guess.status_code == 401 for guess in guesses)
+
+        correct = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": challenge_id, "code": code}
+        )
+        assert correct.status_code == 401
+
+    async def test_a_code_presented_twice_at_once_signs_in_once(self, api: Api) -> None:
+        challenge_id, code = await code_for(api)
+
+        both = await asyncio.gather(
+            *(
+                api.client.post(
+                    "/v1/auth/verify", json={"challenge_id": challenge_id, "code": code}
+                )
+                for _ in range(2)
+            )
+        )
+
+        assert sorted(response.status_code for response in both) == [200, 401]
+
+    async def test_a_refresh_token_being_exchanged_is_not_read_as_unused_elsewhere(
+        self, api: Api
+    ) -> None:
+        # Two exchanges of one token that both read it before either rotates it both succeed,
+        # so a stolen token replayed at the same moment as the real one would never be noticed.
+        tokens = await sign_in(api)
+        token_hash = api.app.state.container.token_hasher.hash(tokens["refresh_token"])
+        factory = api.app.state.session_factory
+
+        async with factory() as exchanging, factory() as replaying:
+            held = await SqlRefreshTokenRepository(exchanging).find_by_hash(token_hash)
+            assert held is not None
+            async with asyncio.TaskGroup() as group:
+                replay = group.create_task(
+                    SqlRefreshTokenRepository(replaying).find_by_hash(token_hash)
+                )
+                # Long enough for the replay's query to reach the database before the exchange
+                # finishes, which is the interleaving that loses the check.
+                await asyncio.sleep(0.2)
+                await SqlRefreshTokenRepository(exchanging).update(held.rotated(datetime.now(UTC)))
+                await exchanging.commit()
+
+        seen = replay.result()
+        assert seen is not None
+        assert seen.was_already_used

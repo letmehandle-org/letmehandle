@@ -147,7 +147,10 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         await self._session.flush()
 
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        row = await self._session.get(OTPChallengeRow, challenge_id)
+        # Locked, because the attempt count is read, checked and written back. Two guesses that
+        # both read it before either writes it back are counted as one, and a burst of them
+        # makes the attempt limit no limit at all.
+        row = await self._session.get(OTPChallengeRow, challenge_id, with_for_update=True)
         if row is None:
             return None
         return OTPChallenge(
@@ -206,8 +209,13 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         await self._session.flush()
 
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
+        # Locked, because whether the token was already used is read and then acted on. Two
+        # exchanges that both read it before either rotates it would both succeed, and reuse
+        # detection would miss a replay that arrives at the same moment as the real use.
         result = await self._session.execute(
-            select(RefreshTokenRow).where(RefreshTokenRow.token_hash == token_hash)
+            select(RefreshTokenRow)
+            .where(RefreshTokenRow.token_hash == token_hash)
+            .with_for_update()
         )
         row = result.scalar_one_or_none()
         if row is None:
@@ -473,7 +481,6 @@ class SqlCallReportRepository(CallReportRepository):
                 kind=report.kind.value,
                 screening=None if report.screening is None else report.screening.value,
                 ending=None if report.ending is None else report.ending.value,
-                caller_number=None if report.caller_number is None else report.caller_number.value,
                 occurred_at=report.occurred_at,
                 received_at=self._clock.now(),
             )

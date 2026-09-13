@@ -12,6 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, Response, status
 
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import CurrentUser, Devices, EscalationContexts
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.escalation_schemas import EscalationContextResponse, RegisterDeviceRequest
@@ -22,7 +23,9 @@ from letmehandle.domain.models.escalation_context import MAX_CALL_ID_LENGTH, Esc
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.ports.notification import DeviceToken
 
-router = APIRouter(prefix="/v1", tags=["escalation"])
+router = APIRouter(
+    prefix="/v1", tags=["escalation"], route_class=limited_body_route(JSON_BODY_LIMIT_BYTES)
+)
 
 
 @router.put(

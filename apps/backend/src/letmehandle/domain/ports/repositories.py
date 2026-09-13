@@ -63,7 +63,11 @@ class OTPChallengeRepository(ABC):
 
     @abstractmethod
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        """The challenge, or nothing. Nothing is what an invented identifier gets."""
+        """The challenge, or nothing. Nothing is what an invented identifier gets.
+
+        Held for the rest of the unit of work, so that two attempts at one challenge are counted
+        one after the other rather than both from the same starting count.
+        """
 
     @abstractmethod
     async def update(self, challenge: OTPChallenge) -> None:
@@ -95,7 +99,11 @@ class RefreshTokenRepository(ABC):
 
     @abstractmethod
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
-        """Look a token up by its hash. The raw token is never stored to look up by."""
+        """Look a token up by its hash. The raw token is never stored to look up by.
+
+        Held for the rest of the unit of work, so that a second exchange of the same token sees
+        the first one's rotation rather than the token as it was before it.
+        """
 
     @abstractmethod
     async def update(self, token: RefreshToken) -> None:
@@ -296,8 +304,9 @@ class CallRepository(ABC):
     async def delete(self, user_id: UserId, call_id: CallId) -> None:
         """Delete this user's call and everything recorded about it, at once and together.
 
-        Its participants, every line of its transcript and its summary go with it, in the same
-        transaction: a summary left behind is a record of a call the user deleted. Deleting a
+        Its participants, every line of its transcript, its summary and what the user was told
+        about its escalation go with it, in the same transaction: a summary left behind is a
+        record of a call the user deleted. Deleting a
         call that is not there — never was, already deleted, or somebody else's — does nothing,
         and says nothing about which.
         """

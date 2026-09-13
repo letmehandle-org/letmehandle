@@ -50,7 +50,13 @@ from letmehandle.domain.ports.repositories import (
 )
 from letmehandle.domain.ports.security import SealedBytes
 
-from .models import CallParticipantRow, CallRow, CallSummaryRow, TranscriptEntryRow
+from .models import (
+    CallParticipantRow,
+    CallRow,
+    CallSummaryRow,
+    EscalationContextRow,
+    TranscriptEntryRow,
+)
 from .repositories import _affected
 
 if TYPE_CHECKING:
@@ -219,6 +225,15 @@ class SqlCallRepository(CallRepository):
         # holds the call's row, so this waits for those lines and takes them too.
         await self._session.execute(
             delete(CallRow).where(CallRow.id == call_id.value, CallRow.user_id == user_id.value)
+        )
+        # Not a cascade: the escalation service stores the context on its own, naming the call by
+        # identifier and holding no key to its row. It repeats who called and what they wanted,
+        # so it goes in the same transaction as the call it describes.
+        await self._session.execute(
+            delete(EscalationContextRow).where(
+                EscalationContextRow.user_id == user_id.value,
+                EscalationContextRow.call_id == call_id.value,
+            )
         )
         await self._session.flush()
 

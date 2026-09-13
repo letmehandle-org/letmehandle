@@ -12,6 +12,7 @@ from datetime import time
 
 from fastapi import APIRouter, status
 
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import CurrentUser, Preferences
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.preference_schemas import (
@@ -46,7 +47,9 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
 )
 
-router = APIRouter(prefix="/v1", tags=["preferences"])
+router = APIRouter(
+    prefix="/v1", tags=["preferences"], route_class=limited_body_route(JSON_BODY_LIMIT_BYTES)
+)
 
 
 @router.get("/preferences", response_model=PreferencesResponse, summary="Read preferences")
