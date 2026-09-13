@@ -233,6 +233,20 @@ def scan_line(line, tier1, tier2, path=None):
     return one, two
 
 
+def added_lines(diff):
+    """Yield (path, text) for each added line of a unified diff, skipping the gate's own files."""
+    path, in_header = "?", False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            path, in_header = "?", True
+        elif in_header and line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else "?"
+        elif line.startswith("@@"):
+            in_header = False
+        elif not in_header and line.startswith("+") and path not in SELF:
+            yield path, line[1:]
+
+
 def tracked_files():
     out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True)
     return [p for p in out.stdout.splitlines() if p and p not in SELF]
@@ -361,20 +375,14 @@ def audit_range(args):
                 findings.append((f"{sha[:8]} message", why, line))
 
         diff = subprocess.run(
-            ["git", "show", "--format=", "--unified=0", sha], capture_output=True, text=True
+            ["git", "show", "--format=", "--unified=0", "--no-color", sha],
+            capture_output=True,
+            text=True,
         ).stdout
-        path = "?"
-        for line in diff.splitlines():
-            if line.startswith("+++ b/"):
-                path = line[6:]
-                continue
-            if not line.startswith("+") or line.startswith("+++"):
-                continue
-            if path in SELF:
-                continue
-            one, two = scan_line(line[1:], tier1, tier2, path)
+        for path, line in added_lines(diff):
+            one, two = scan_line(line, tier1, tier2, path)
             for why in one + two:
-                findings.append((f"{sha[:8]} {path}", why, line[1:]))
+                findings.append((f"{sha[:8]} {path}", why, line))
 
     return (
         1
@@ -389,18 +397,11 @@ def audit_staged():
     diff = subprocess.run(
         ["git", "diff", "--cached", "--unified=0", "--no-color"], capture_output=True, text=True
     ).stdout
-    findings, path = [], "?"
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-            continue
-        if not line.startswith("+") or line.startswith("+++"):
-            continue
-        if path in SELF:
-            continue
-        one, two = scan_line(line[1:], tier1, tier2, path)
+    findings = []
+    for path, line in added_lines(diff):
+        one, two = scan_line(line, tier1, tier2, path)
         for why in one + two:
-            findings.append((path, why, line[1:]))
+            findings.append((path, why, line))
     return 1 if report(findings, "staged changes carry text that must not be published") else 0
 
 
