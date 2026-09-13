@@ -18,7 +18,7 @@ from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal, decide_escalation
-from tests.unit.application.agent.calls import NOON, THREE_AM, a_call
+from tests.unit.application.agent.calls import a_call, deferring
 from tests.unit.application.agent.kit import Kit, answered, refused
 
 if TYPE_CHECKING:
@@ -90,10 +90,13 @@ async def test_each_flag_is_read_as_the_model_sent_it(field: str, reason: Escala
     assert REASON_IN_WORDS[reason] in said
 
 
-async def test_inside_quiet_hours_the_model_is_told_the_user_hears_later() -> None:
+async def test_a_decision_that_waits_is_told_the_user_hears_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     kit = Kit()
 
-    said = await answered(tool(kit), a_call(now=THREE_AM), NOTABLE_ENQUIRY)
+    said = await answered(tool(kit), a_call(), NOTABLE_ENQUIRY)
 
     assert said == (
         "The user's rules call for telling the user about this call when it is convenient, not "
@@ -122,15 +125,16 @@ async def test_null_optional_fields_are_read_as_absent() -> None:
     assert proposal.caller_summary is None
 
 
-async def test_nothing_the_model_is_told_asks_it_to_speak_to_anybody() -> None:
+@pytest.mark.parametrize("waits", [False, True])
+async def test_nothing_the_model_is_told_asks_it_to_speak_to_anybody(
+    waits: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # The agent judges; the speech model speaks. An instruction to tell the caller something is
     # an instruction to a model that is talking to nobody.
-    for arguments, now in [
-        (NOTABLE_ENQUIRY, NOON),
-        (NOTABLE_ENQUIRY, THREE_AM),
-        ({"importance": "routine", "intent": "sales"}, NOON),
-    ]:
-        said = await answered(tool(Kit()), a_call(now=now), arguments)
+    if waits:
+        deferring(monkeypatch)
+    for arguments in [NOTABLE_ENQUIRY, {"importance": "routine", "intent": "sales"}]:
+        said = await answered(tool(Kit()), a_call(), arguments)
         assert "caller" not in said.lower()
 
 

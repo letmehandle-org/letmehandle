@@ -8,7 +8,7 @@ import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
 import { usePreferences } from '../preferences/PreferencesProvider';
 import { CAPABILITIES } from '../preferences/options';
-import { answersAroundTheClock, followsTwoLanes } from '../preferences/rules';
+import { followsTwoLanes } from '../preferences/rules';
 import { theme } from '../theme';
 
 export type SettingsPage =
@@ -76,11 +76,11 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
         <Row
           icon="clock"
           title={t('settings.hours')}
-          value={t(
-            answersAroundTheClock(preferences.hours)
-              ? 'hours.always'
-              : 'settings.hoursSet',
-          )}
+          value={
+            preferences.hours.active == null
+              ? t('hours.always')
+              : `${preferences.hours.active.start}–${preferences.hours.active.end}`
+          }
           onPress={() => {
             onOpen('hours');
           }}

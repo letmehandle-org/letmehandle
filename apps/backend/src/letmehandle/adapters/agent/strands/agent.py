@@ -68,11 +68,11 @@ def fallback_proposal() -> EscalationProposal:
 
     The importance is the choice that matters, and the alternatives are worse in both directions. A
     high one means a model that is down, or a caller who has found words that break it, rings the
-    user's phone on every call — through quiet hours, and past the rule that never puts a suspected
-    fraudster through, because a broken model has suspected nobody. The user's own threshold is the
-    same mistake, since a call at the threshold always clears it. The lowest level grants
-    nothing: the policy still records that the caller could not be understood, and a user whose
-    threshold is the lowest level has asked to be reached for everything and is.
+    user's phone on every call — outside their active hours, and past the rule that never puts a
+    suspected fraudster through, because a broken model has suspected nobody. The user's own
+    threshold is the same mistake, since a call at the threshold always clears it. The lowest level
+    grants nothing: the policy still records that the caller could not be understood, and a user
+    whose threshold is the lowest level has asked to be reached for everything and is.
 
     A contact the user marked as important still reaches them on the fallback, because who they are
     comes from the number the user trusts and not from the model, and not understanding them is a

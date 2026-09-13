@@ -45,8 +45,7 @@ USER = UserId("user-1")
 SOMEBODY_ELSE = UserId("user-2")
 NUMBER = PhoneNumber.parse("+12025550143")
 
-QUIET_HOURS = TimeWindow(time(22, 0), time(7, 0), "Europe/London")
-WORKING_HOURS = TimeWindow(time(9, 0), time(17, 30), "Europe/London")
+ACTIVE_HOURS = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
 # Every field different from its default, so a test asserting the half that was not sent
 # survived is asserting something.
@@ -182,10 +181,10 @@ class TestCallHandlingAndHours:
     ) -> None:
         await service.apply(USER, PreferenceChanges(call_handling=REJECT_UNKNOWN))
 
-        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+        await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
 
         after = await service.get(USER)
-        assert after.rules.quiet_hours == QUIET_HOURS
+        assert after.rules.active_hours == ACTIVE_HOURS
         # Every field of the half that was not sent, because resetting any one of them is the
         # same defect wearing a different name.
         assert after.rules.default_posture is HandlingPosture.REJECT
@@ -196,26 +195,23 @@ class TestCallHandlingAndHours:
     async def test_setting_call_handling_leaves_hours_alone(
         self, service: PreferencesService
     ) -> None:
-        # The direction that matters most: quiet hours that silently disappear mean a phone
-        # ringing at three in the morning with nothing anywhere to say why.
-        await service.apply(
-            USER, PreferenceChanges(hours=Hours(working=WORKING_HOURS, quiet=QUIET_HOURS))
-        )
+        # The direction that matters most: hours that silently disappear mean a phone ringing at
+        # three in the morning with nothing anywhere to say why.
+        await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
 
         await service.apply(USER, PreferenceChanges(call_handling=REJECT_UNKNOWN))
 
         after = await service.get(USER)
-        assert after.rules.quiet_hours == QUIET_HOURS
-        assert after.rules.working_hours == WORKING_HOURS
+        assert after.rules.active_hours == ACTIVE_HOURS
 
     async def test_hours_can_still_be_cleared(self, service: PreferencesService) -> None:
-        # Absent leaves alone; present-and-empty clears. Without both, quiet hours once set
-        # could never be removed.
-        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+        # Absent leaves alone; present-and-empty clears. Without both, hours once set could never
+        # go back to around the clock.
+        await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
 
         await service.apply(USER, PreferenceChanges(hours=Hours()))
 
-        assert (await service.get(USER)).rules.quiet_hours is None
+        assert (await service.get(USER)).rules.active_hours is None
 
 
 class TestVersion:
@@ -253,11 +249,11 @@ class TestVoice:
 class TestReplacing:
     async def test_it_stores_everything_it_was_given(self, service: PreferencesService) -> None:
         await service.replace_all(
-            USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS), call_handling=REJECT_UNKNOWN)
+            USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS), call_handling=REJECT_UNKNOWN)
         )
 
         after = await service.get(USER)
-        assert after.rules.quiet_hours == QUIET_HOURS
+        assert after.rules.active_hours == ACTIVE_HOURS
         assert after.rules.blocked_categories == frozenset({CallerCategory.SPAM})
 
     async def test_it_replaces_rather_than_merges(self, service: PreferencesService) -> None:
@@ -288,9 +284,9 @@ class TestReplacing:
     async def test_it_resets_a_section_it_does_not_mention(
         self, service: PreferencesService
     ) -> None:
-        await service.apply(USER, PreferenceChanges(hours=Hours(quiet=QUIET_HOURS)))
+        await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
         await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
-        assert (await service.get(USER)).rules.quiet_hours is None
+        assert (await service.get(USER)).rules.active_hours is None
 
 
 class TestOnboarding:
@@ -302,19 +298,18 @@ class TestOnboarding:
         assert not progress.is_complete
 
     async def test_answering_a_step_moves_to_the_next(self, service: PreferencesService) -> None:
-        progress = await service.record_step(USER, OnboardingStep.INTRODUCTION)
-        assert progress.next_step is OnboardingStep.CALL_HANDLING
+        progress = await service.record_step(USER, OnboardingStep.CALL_HANDLING)
+        assert progress.next_step is OnboardingStep.HOURS
 
     async def test_progress_is_remembered(self, service: PreferencesService) -> None:
         # Held on the server so that reinstalling resumes rather than starting again.
-        await service.record_step(USER, OnboardingStep.INTRODUCTION)
-        assert (await service.progress(USER)).next_step is OnboardingStep.CALL_HANDLING
+        await service.record_step(USER, OnboardingStep.CALL_HANDLING)
+        assert (await service.progress(USER)).next_step is OnboardingStep.HOURS
 
     async def test_a_skipped_step_is_not_asked_again(self, service: PreferencesService) -> None:
-        await service.record_step(USER, OnboardingStep.INTRODUCTION)
         await service.record_step(USER, OnboardingStep.CALL_HANDLING)
-        progress = await service.record_step(USER, OnboardingStep.IMPORTANT_CONTACTS, skipped=True)
-        assert progress.next_step is OnboardingStep.HOURS
+        progress = await service.record_step(USER, OnboardingStep.HOURS, skipped=True)
+        assert progress.next_step is OnboardingStep.AUTHORITY
 
     async def test_answering_a_step_that_was_skipped_records_it_as_answered(
         self, service: PreferencesService
@@ -338,5 +333,5 @@ class TestOnboarding:
         assert progress.next_step is None
 
     async def test_progress_is_per_user(self, service: PreferencesService) -> None:
-        await service.record_step(USER, OnboardingStep.INTRODUCTION)
+        await service.record_step(USER, OnboardingStep.CALL_HANDLING)
         assert (await service.progress(SOMEBODY_ELSE)).next_step is ORDER[0]

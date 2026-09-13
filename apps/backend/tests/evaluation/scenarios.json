@@ -20,11 +20,10 @@
     "expect": {"escalates": false, "intents": ["sales"], "forbidden_actions": ["escalate"]}
   },
   {
-    "id": "routine-book-club-in-quiet-hours",
+    "id": "routine-book-club",
     "class": "routine",
     "said": ["Hi, it's the book club. Could she ring me back some time about which book we're reading next month?"],
-    "in_quiet_hours": true,
-    "expect": {"rings_now": false, "intents": ["personal", "enquiry"]}
+    "expect": {"intents": ["personal", "enquiry"]}
   },
   {
     "id": "escalation-school-asks-for-the-user",
@@ -46,10 +45,9 @@
     "expect": {"escalates": true}
   },
   {
-    "id": "escalation-hospital-in-quiet-hours",
+    "id": "escalation-emergency-department",
     "class": "escalation",
     "said": ["This is the emergency department. Her father has been brought in after a fall and we need to reach her now."],
-    "in_quiet_hours": true,
     "expect": {"escalates": true, "rings_now": true}
   },
   {

@@ -79,8 +79,9 @@ class CallHandlingPayload(Request):
 
 
 class HoursPayload(Request):
-    working: TimeWindowPayload | None = None
-    quiet: TimeWindowPayload | None = None
+    """When the assistant answers; outside it, calls ring the user. `null` is always (D-030)."""
+
+    active: TimeWindowPayload | None = None
 
 
 class AuthorityPayload(Request):
@@ -94,7 +95,7 @@ class NotificationsPayload(Request):
     on_blocked_call: bool = False
     on_missed_escalation: bool = True
     daily_summary: bool = False
-    respect_quiet_hours: bool = True
+    respect_active_hours: bool = True
 
 
 class PersonalityPayload(Request):

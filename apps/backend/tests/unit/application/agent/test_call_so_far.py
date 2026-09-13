@@ -13,12 +13,12 @@ from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import CallRules, ImportantContact, UserPreferences
-from tests.unit.application.agent.calls import NOON, QUIET
+from tests.unit.application.agent.calls import ACTIVE, NOON
 
 PARTNER = ImportantContact(PhoneNumber("+12025550143"), "Partner")
 SCHOOL = ImportantContact(PhoneNumber("+12025550187"), "School office")
 PREFERENCES = UserPreferences(
-    rules=CallRules(quiet_hours=QUIET, escalate_at_or_above=CallImportance.URGENT),
+    rules=CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.URGENT),
     authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE),
     important_contacts=(PARTNER, SCHOOL),
 )

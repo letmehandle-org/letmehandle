@@ -20,7 +20,6 @@ class HandlePresentationTest {
           anonymousPosture = HandlingPosture.REJECT,
           postureByCategory = emptyMap(),
           blockedCategories = emptySet(),
-          quietHours = null,
           importantContacts = emptyList(),
       )
 

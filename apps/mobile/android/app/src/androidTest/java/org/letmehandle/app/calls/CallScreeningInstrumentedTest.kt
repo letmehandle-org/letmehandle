@@ -51,8 +51,8 @@ class CallScreeningInstrumentedTest {
 
   private val rejectEverybody =
       """
-      {"version":1,"synced_at":"%s","default_posture":"reject","anonymous_posture":"reject",
-       "posture_by_category":{},"blocked_categories":[],"quiet_hours":null,"important_contacts":[]}
+      {"version":2,"synced_at":"%s","default_posture":"reject","anonymous_posture":"reject",
+       "posture_by_category":{},"blocked_categories":[],"important_contacts":[]}
       """
 
   @Before
@@ -118,7 +118,7 @@ class CallScreeningInstrumentedTest {
   @Test
   fun a_snapshot_the_handset_cannot_read_leaves_calls_ringing_rather_than_older_rules() {
     graph.writeSnapshot(rejectEverybody.format(Instant.now()))
-    val newerFormat = rejectEverybody.format(Instant.now()).replace("\"version\":1", "\"version\":2")
+    val newerFormat = rejectEverybody.format(Instant.now()).replace("\"version\":2", "\"version\":3")
 
     try {
       graph.writeSnapshot(newerFormat)

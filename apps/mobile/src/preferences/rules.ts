@@ -7,7 +7,6 @@
  */
 import type {
   CallHandling,
-  Hours,
   Notifications,
   Preferences,
 } from '@letmehandle/api-client';
@@ -59,13 +58,6 @@ export function withEveryCall(
 ): Notifications {
   return { ...notifications, on_handled_call: on, on_blocked_call: on };
 }
-
-/** Whether the assistant is set to answer at any hour: no window of either kind. */
-export function answersAroundTheClock(hours: Hours): boolean {
-  return (hours.working ?? null) === null && (hours.quiet ?? null) === null;
-}
-
-export const AROUND_THE_CLOCK: Hours = { working: null, quiet: null };
 
 /** How many of the assistant's capabilities are granted, out of how many exist. */
 export function grantedCount(

@@ -17,7 +17,8 @@ import type {
   ScreeningDecision,
 } from '@letmehandle/api-client';
 
-export const RULES_SNAPSHOT_VERSION = 1;
+/** 2 dropped quiet hours: the user's hours decide when the assistant answers, not a handset (D-030). */
+export const RULES_SNAPSHOT_VERSION = 2;
 
 export interface RulesSnapshot {
   readonly version: typeof RULES_SNAPSHOT_VERSION;
@@ -26,11 +27,6 @@ export interface RulesSnapshot {
   readonly anonymous_posture: HandlingPosture;
   readonly posture_by_category: Readonly<Record<string, HandlingPosture>>;
   readonly blocked_categories: readonly string[];
-  readonly quiet_hours: {
-    readonly start: string;
-    readonly end: string;
-    readonly zone: string;
-  } | null;
   readonly important_contacts: readonly {
     readonly phone_number: string;
     readonly posture: HandlingPosture;
@@ -41,7 +37,8 @@ export interface RulesSnapshot {
  * The rules a handset applies before a call rings, from the preferences as they stand.
  *
  * Only the deterministic part. Contact labels stay behind: the handset needs a number and what to
- * do with it, and a copy of what the user calls somebody is a copy nothing reads.
+ * do with it, and a copy of what the user calls somebody is a copy nothing reads. So do the user's
+ * hours, which no decision on the handset reads.
  */
 export function buildRulesSnapshot(
   preferences: Preferences,
@@ -55,14 +52,6 @@ export function buildRulesSnapshot(
     anonymous_posture: handling.anonymous_posture,
     posture_by_category: { ...(handling.posture_by_category ?? {}) },
     blocked_categories: [...(handling.blocked_categories ?? [])],
-    quiet_hours:
-      preferences.hours.quiet === null || preferences.hours.quiet === undefined
-        ? null
-        : {
-            start: preferences.hours.quiet.start,
-            end: preferences.hours.quiet.end,
-            zone: preferences.hours.quiet.zone,
-          },
     important_contacts: preferences.important_contacts.map(contact => ({
       phone_number: contact.phone_number,
       posture: contact.posture,

@@ -27,8 +27,7 @@ describe('the rules snapshot', () => {
         blocked_categories: ['spam'],
       },
       hours: {
-        working: { start: '09:00', end: '17:30', zone: 'Europe/London' },
-        quiet: { start: '22:00', end: '07:00', zone: 'Europe/London' },
+        active: { start: '09:00', end: '17:30', zone: 'Europe/London' },
       },
       important_contacts: [
         {
@@ -44,7 +43,7 @@ describe('the rules snapshot', () => {
     );
   });
 
-  it('carries no contact labels and no working hours', () => {
+  it('carries no contact labels and no hours', () => {
     // The handset needs a number and what to do with it. Anything else is a copy nothing reads.
     const snapshot = JSON.stringify(
       buildRulesSnapshot(
@@ -62,10 +61,10 @@ describe('the rules snapshot', () => {
       ),
     );
     expect(snapshot).not.toContain('The school');
-    expect(snapshot).not.toContain('working');
+    expect(snapshot).not.toContain('hours');
   });
 
-  it('says there are no quiet hours when there are none', () => {
+  it('is built from call handling alone', () => {
     expect(
       buildRulesSnapshot(
         { ...DEFAULT_PREFERENCES, call_handling: examplesHandling() },

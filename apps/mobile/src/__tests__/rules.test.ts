@@ -3,10 +3,17 @@
  */
 import { arcsFor } from '../components/dialGeometry';
 import {
-  AROUND_THE_CLOCK,
+  coveredMinutes,
+  deviceZone,
+  firstWindow,
+  hoursFigure,
+  onTheRing,
+  TIMES,
+  withEnd,
+} from '../preferences/hours';
+import {
   MAX_FACTS,
   MAX_FACT_LENGTH,
-  answersAroundTheClock,
   factProblem,
   followsTwoLanes,
   grantedCount,
@@ -77,14 +84,65 @@ describe('every call', () => {
 });
 
 describe('hours', () => {
-  it('answers around the clock with no window, including missing ones', () => {
-    expect(answersAroundTheClock(AROUND_THE_CLOCK)).toBe(true);
-    expect(answersAroundTheClock({})).toBe(true);
-    expect(
-      answersAroundTheClock({
-        working: { start: '09:00', end: '17:00', zone: 'Europe/London' },
-      }),
-    ).toBe(false);
+  const window = (start: string, end: string) => ({
+    start,
+    end,
+    zone: 'Europe/London',
+  });
+
+  it('offers every half hour of the day, in order', () => {
+    expect(TIMES).toHaveLength(48);
+    expect(TIMES[0]).toBe('00:00');
+    expect(TIMES[19]).toBe('09:30');
+    expect(TIMES[47]).toBe('23:30');
+  });
+
+  it('measures a window inside the day and one that runs past midnight', () => {
+    expect(coveredMinutes(window('09:30', '18:30'))).toBe(540);
+    expect(coveredMinutes(window('22:00', '07:00'))).toBe(540);
+    expect(hoursFigure(window('09:30', '18:30'))).toEqual({
+      count: 9,
+      hours: '9',
+    });
+    expect(hoursFigure(window('09:00', '17:30'))).toEqual({
+      count: 8.5,
+      hours: '8.5',
+    });
+  });
+
+  it('places the window on the ring where it falls in the day', () => {
+    expect(onTheRing(window('06:00', '18:00'))).toEqual({
+      start: 0.25,
+      fraction: 0.5,
+    });
+  });
+
+  it('never makes a window that starts where it ends', () => {
+    expect(withEnd(window('09:00', '17:00'), 'end', '09:00')).toBeNull();
+    expect(withEnd(window('09:00', '17:00'), 'start', '08:00')).toEqual(
+      window('08:00', '17:00'),
+    );
+  });
+
+  it('starts somebody who sets hours on a working day, in the phone’s zone', () => {
+    expect(firstWindow('Asia/Kolkata')).toEqual({
+      start: '09:00',
+      end: '17:00',
+      zone: 'Asia/Kolkata',
+    });
+    expect(deviceZone()).toEqual(expect.any(String));
+  });
+
+  it('falls back to UTC on a phone that names no zone', () => {
+    const real = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = (() => ({
+      resolvedOptions: () => ({ timeZone: '' }),
+    })) as unknown as typeof Intl.DateTimeFormat;
+    try {
+      expect(deviceZone()).toBe('UTC');
+    } finally {
+      Intl.DateTimeFormat = real;
+    }
   });
 });
 

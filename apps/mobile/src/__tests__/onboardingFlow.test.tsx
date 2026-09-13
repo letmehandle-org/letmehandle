@@ -12,11 +12,7 @@ import React from 'react';
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
 import { twoLanes } from '../preferences/rules';
-import {
-  DEFAULT_PREFERENCES,
-  runningBackend,
-  type RunningBackend,
-} from './support/backend';
+import { DEFAULT_PREFERENCES, runningBackend } from './support/backend';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -42,15 +38,16 @@ async function next(view: View, from: string, to: string): Promise<void> {
 }
 
 describe('where somebody lands', () => {
-  it('passes the introduction by and opens on how calls work', async () => {
-    // The welcome page before sign-in is the introduction; asking it again is a wasted step.
-    const backend = runningBackend({ startAt: 'introduction' });
+  it('opens on how calls work for somebody who has just signed in', async () => {
+    runningBackend({ startAt: 'call_handling' });
     const view = await render(<App />);
 
     expect(
       await view.findByTestId('onboarding-call_handling'),
     ).toBeOnTheScreen();
-    expect(backend.onboarding().completed).toContain('introduction');
+    expect(view.getByTestId('steps')).toHaveAccessibleName(
+      en.setup.progress.replace('{{done}}', '1').replace('{{total}}', '4'),
+    );
     expect(view.getByTestId('lane-contacts')).toBeOnTheScreen();
     expect(view.getByTestId('lane-unknown')).toBeOnTheScreen();
   });
@@ -77,7 +74,7 @@ describe('where somebody lands', () => {
 });
 
 describe('the four steps', () => {
-  it('saves each answer, never asks the steps the design leaves out, and ends on "all set"', async () => {
+  it('saves each answer and ends on "all set"', async () => {
     const backend = runningBackend({ startAt: 'call_handling' });
     const view = await render(<App />);
 
@@ -85,19 +82,19 @@ describe('the four steps', () => {
     expect(backend.preferences().call_handling).toEqual(
       twoLanes(DEFAULT_PREFERENCES.call_handling),
     );
-    // Important contacts sits between the two on the server, and was passed over.
-    expect(backend.onboarding().completed).toContain('important_contacts');
-    expect(view.queryByTestId('onboarding-important_contacts')).toBeNull();
 
     expect(view.getByTestId('hours-always')).toBeOnTheScreen();
     await next(view, 'onboarding-hours', 'onboarding-authority');
-    expect(backend.preferences().hours).toEqual({ working: null, quiet: null });
+    expect(backend.preferences().hours).toEqual({ active: null });
 
-    await fireEvent(
-      view.getByTestId('capability-take_a_message'),
-      'valueChange',
-      true,
-    );
+    // Changing a mind before answering: only what is on when Next is pressed is saved.
+    for (const on of [true, false, true]) {
+      await fireEvent(
+        view.getByTestId('capability-take_a_message'),
+        'valueChange',
+        on,
+      );
+    }
     await next(view, 'onboarding-authority', 'onboarding-notifications');
     expect(backend.preferences().authority.capabilities).toEqual([
       'take_a_message',
@@ -106,7 +103,6 @@ describe('the four steps', () => {
     expect(view.getByTestId('call-graph')).toBeOnTheScreen();
     await fireEvent.press(view.getByTestId('onboarding-continue'));
 
-    // Personality is the last step on the server and is passed over too.
     expect(await view.findByTestId('setup-done')).toBeOnTheScreen();
     expect(backend.onboarding().is_complete).toBe(true);
     expect(await view.findByTestId('setup-done-voice')).toHaveTextContent(
@@ -135,43 +131,30 @@ describe('the four steps', () => {
     expect(backend.onboarding().next_step).toBe('call_handling');
   });
 
+  it('saves the hours chosen during setup', async () => {
+    const backend = runningBackend({ startAt: 'hours' });
+    const view = await render(<App />);
+    await view.findByTestId('onboarding-hours');
+
+    await fireEvent.press(view.getByTestId('hours-mode-set'));
+    expect(view.getByTestId('hours-figure')).toHaveTextContent('8 hrs');
+    await fireEvent.press(view.getByTestId('hours-to'));
+    await fireEvent.press(view.getByTestId('hours-sheet-18:30'));
+    expect(view.getByTestId('hours-figure')).toHaveTextContent('9.5 hrs');
+    // Nothing is saved until the step is answered.
+    expect(backend.patches).toEqual([]);
+
+    await next(view, 'onboarding-hours', 'onboarding-authority');
+    expect(backend.preferences().hours).toEqual({
+      active: { start: '09:00', end: '18:30', zone: expect.any(String) },
+    });
+  });
+
   it('offers no skip on any step the design shows', async () => {
     runningBackend({ startAt: 'call_handling' });
     const view = await render(<App />);
     await view.findByTestId('onboarding-call_handling');
 
     expect(view.queryByText(en.setup.skip)).toBeNull();
-  });
-});
-
-describe('a step that cannot be passed over', () => {
-  it('offers another try when recording it fails', async () => {
-    const backend: RunningBackend = runningBackend({ startAt: 'introduction' });
-    const original = globalThis.fetch;
-    let failed = false;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      if (
-        !failed &&
-        url.endsWith('/v1/onboarding') &&
-        init?.method === 'POST'
-      ) {
-        failed = true;
-        return {
-          ok: false,
-          status: 503,
-          json: async () => ({ error: 'unavailable', message: 'x' }),
-        } as Response;
-      }
-      return original(url, init);
-    }) as typeof fetch;
-
-    const view = await render(<App />);
-    expect(await view.findByTestId('onboarding-retry')).toBeOnTheScreen();
-
-    await fireEvent.press(view.getByTestId('onboarding-retry'));
-    expect(
-      await view.findByTestId('onboarding-call_handling'),
-    ).toBeOnTheScreen();
-    expect(backend.onboarding().completed).toContain('introduction');
   });
 });
