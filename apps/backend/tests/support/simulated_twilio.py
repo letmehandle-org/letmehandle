@@ -529,6 +529,9 @@ class SimulatedTwilio:
 
     async def _assistant_leg(self, leg: SimulatedLeg) -> None:
         query = dict(parse_qsl(urlsplit(leg.to.removeprefix("app:")).query))
+        # Dialling an application makes a second call on the provider's side: the application's
+        # webhook and its media stream carry that call's identifier, not the participant's.
+        application_call = f"{leg.call_sid}-application"
         await self._progress(leg, "initiated")
         leg.answered = True
         await self._progress(leg, "in-progress")
@@ -536,7 +539,7 @@ class SimulatedTwilio:
             "/telephony/voice/assistant",
             [
                 ("AccountSid", SIMULATED_ACCOUNT),
-                ("CallSid", leg.call_sid),
+                ("CallSid", application_call),
                 ("From", OUR_NUMBER.value),
                 ("To", leg.to),
                 *query.items(),
@@ -579,7 +582,7 @@ class SimulatedTwilio:
                     "start": {
                         "accountSid": SIMULATED_ACCOUNT,
                         "streamSid": leg.stream_sid,
-                        "callSid": leg.call_sid,
+                        "callSid": application_call,
                         "tracks": ["inbound"],
                         "mediaFormat": {
                             "encoding": "audio/x-mulaw",

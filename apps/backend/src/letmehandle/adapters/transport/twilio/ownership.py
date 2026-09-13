@@ -27,10 +27,17 @@ class ForwardedCallOwnership(CallOwnership):
         self,
         transport: TwilioCallTransport,
         find_user: Callable[[PhoneNumber], Awaitable[UserId | None]],
+        *,
+        unforwarded_line: PhoneNumber | None = None,
     ) -> None:
         self._transport = transport
         self._find_user = find_user
+        # Whose line a call dialled straight at the account's number counts as, where a development
+        # deployment says so; otherwise such a call is nobody's.
+        self._unforwarded_line = unforwarded_line
 
     async def owner_of(self, incoming: CallEvent) -> UserId | None:
-        line = self._transport.forwarded_from(incoming.call_id)
+        if not self._transport.holds(incoming.call_id):
+            return None
+        line = self._transport.forwarded_from(incoming.call_id) or self._unforwarded_line
         return None if line is None else await self._find_user(line)
