@@ -129,10 +129,14 @@ database-or-explain:
 		exit 1; \
 	}
 
+.PHONY: sample-env
+sample-env: ## Write a .env that runs with mock providers and fresh keys, no paid account
+	@python3 scripts/create_sample_env.py
+
 .PHONY: up
-up: ## Start the local dependencies and the backend
+up: ## Start the database, migrate it, and start the backend
 	@docker compose up -d --wait
-	@echo "backend: http://localhost:8000/health"
+	@echo "backend: http://localhost:$(BACKEND_PORT)/health"
 
 .PHONY: down
 down: ## Stop them
