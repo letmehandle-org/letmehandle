@@ -1,12 +1,11 @@
 name: CodeQL
 
+# Run when a release is published, as part of building it, and on demand. Pull requests and
+# pushes to main are covered by the checks in ci.yml.
 on:
-  pull_request:
-  push:
-    branches: [main]
-  schedule:
-    # Weekly, because a dependency can become a vulnerability without this repository changing.
-    - cron: '0 4 * * 1'
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
