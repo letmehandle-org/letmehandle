@@ -71,8 +71,8 @@ async def test_an_unhandled_error_is_logged_by_where_it_happened_never_by_what_i
         configure_logging(make_settings())
 
     [event] = [each for each in events if each["event"] == "unhandled_exception"]
-    assert event["exc_type"] == "RuntimeError"
-    assert any("boom" in frame for frame in event["frames"])
+    assert event["exception"]["type"] == "RuntimeError"
+    assert any("boom" in frame for frame in event["exception"]["frames"])
     assert "secret detail" not in repr(event)
     assert "exc_info" not in event
 

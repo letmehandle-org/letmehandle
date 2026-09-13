@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, status
@@ -10,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from letmehandle.observability.logging import correlation_id, get_logger
+from letmehandle.observability.scrubbing import exception_outline
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -122,15 +122,7 @@ async def handle_unexpected_error(request: Request, exception: Exception) -> JSO
     # Where it happened and what kind of failure it was, never its message. A database error's
     # detail repeats the values it refused, and a domain error's message can repeat a caller's
     # number; a log line is kept longer and shared more widely than the request that caused it.
-    logger.error(
-        "unhandled_exception",
-        exc_type=type(exception).__name__,
-        causes=[type(cause).__name__ for cause in _causes(exception)],
-        frames=[
-            f"{frame.filename.rsplit('/', 1)[-1]}:{frame.lineno} {frame.name}"
-            for frame in traceback.extract_tb(exception.__traceback__)
-        ],
-    )
+    logger.error("unhandled_exception", exception=exception_outline(exception))
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_body(
@@ -139,16 +131,6 @@ async def handle_unexpected_error(request: Request, exception: Exception) -> JSO
             request,
         ),
     )
-
-
-def _causes(exception: BaseException) -> list[BaseException]:
-    """The chain behind an exception, oldest last, without repeating one."""
-    chain: list[BaseException] = []
-    current = exception.__cause__ or exception.__context__
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return chain
 
 
 def register_error_handlers(app: FastAPI) -> None:

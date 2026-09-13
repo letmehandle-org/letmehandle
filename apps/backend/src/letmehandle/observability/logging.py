@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from structlog.typing import EventDict, Processor, WrappedLogger
 
 from letmehandle.config.settings import LogFormat, Settings
+from letmehandle.observability.scrubbing import outline_exception, scrub_event
 
 # The identifier that ties every line produced while handling one request together. A context
 # variable rather than an argument, because threading it through every call signature is how
@@ -66,30 +67,38 @@ def configure_logging(settings: Settings) -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
     ]
+    # Last before rendering, on both paths, so nothing added along the way escapes them.
+    finishing: list[Processor] = [outline_exception, scrub_event]
 
     renderer: Processor = (
         structlog.processors.JSONRenderer()
         if settings.log_format is LogFormat.JSON
         else structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
     )
+    level = logging.getLevelNamesMapping()[settings.log_level.upper()]
 
     structlog.configure(
-        processors=[*shared, structlog.processors.format_exc_info, renderer],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            logging.getLevelNamesMapping()[settings.log_level.upper()]
-        ),
+        processors=[*shared, *finishing, renderer],
+        wrapper_class=structlog.make_filtering_bound_logger(level),
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=True,
     )
 
-    # Anything logging through the standard library — uvicorn, sqlalchemy, a dependency —
-    # goes through the same pipeline, so one call cannot arrive in two formats.
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stderr,
-        level=logging.getLevelNamesMapping()[settings.log_level.upper()],
-        force=True,
+    # Anything logging through the standard library — uvicorn, sqlalchemy, a dependency — goes
+    # through the same processors, so one call cannot arrive in two formats, and no library's line
+    # passes the scrubber by not being structlog's.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                *finishing,
+                renderer,
+            ],
+        )
     )
+    logging.basicConfig(handlers=[handler], level=level, force=True)
 
     # Held at their floors, or above them when the process is set higher.
     for name, floor in _CONTENT_LOGGERS.items():
