@@ -9,6 +9,7 @@ import pytest
 from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
+from tests.contracts.fakes import CheckingOTPProvider
 from tests.contracts.other_ports import OTPProviderContract
 from tests.support.simulated_sms import SMS_ACCOUNT, SMS_SENDER, SMS_TOKEN, SimulatedSms
 
@@ -53,3 +54,14 @@ class TestOTPProviderByCallingCode(OTPProviderContract):
         )
         yield provider
         await provider.aclose()
+
+
+class TestOTPProviderByCallingCodeWithCodesItsProviderMakes(OTPProviderContract):
+    """The provider that chooses, where the number's provider makes and checks its own codes."""
+
+    @pytest.fixture
+    def otp(self) -> OTPProviderByCallingCode:
+        return OTPProviderByCallingCode(
+            default=MockOTPProvider(is_production=False),
+            by_calling_code={"1": CheckingOTPProvider()},
+        )
