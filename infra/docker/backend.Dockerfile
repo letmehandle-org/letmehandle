@@ -34,6 +34,10 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+# The migrations travel with the code they belong to, so a deployment of this image can bring its
+# own database up to date: `alembic upgrade head`.
+COPY --chown=app:app apps/backend/alembic.ini /app/alembic.ini
+COPY --chown=app:app apps/backend/alembic /app/alembic
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
