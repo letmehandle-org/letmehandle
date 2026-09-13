@@ -58,6 +58,7 @@ class OTPProviderName(StrEnum):
 
     MOCK = "mock"
     TWILIO_SMS = "twilio_sms"
+    TWILIO_VERIFY = "twilio_verify"
 
 
 class SpeechProviderName(StrEnum):
@@ -117,6 +118,15 @@ class SmsAccount:
     account_id: str
     auth_token: str = field(repr=False)
     sender: PhoneNumber
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyAccount:
+    """Everything the verification-service code provider needs, present and checked."""
+
+    account_id: str
+    auth_token: str = field(repr=False)
+    service_id: str
 
 
 class ConfigurationError(RuntimeError):
@@ -306,7 +316,7 @@ def _calling_codes_from_text(value: object) -> object:
 
 
 # How OTP_PROVIDER_BY_CALLING_CODE is written, quoted in every error about it.
-OTP_PROVIDERS_FORMAT: Final = "91:twilio_sms,1:mock"
+OTP_PROVIDERS_FORMAT: Final = "91:twilio_verify,1:mock"
 
 
 def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
@@ -498,7 +508,9 @@ class Settings(BaseSettings):
     otp_provider: OTPProviderName = Field(
         default=OTPProviderName.MOCK,
         description="Who delivers sign-in codes. `mock` delivers nowhere, accepts the development "
-        "code, and refuses to start in production.",
+        "code, and refuses to start in production. `twilio_sms` texts a code the application "
+        "makes; `twilio_verify` has the verification service make, text and check its own "
+        "(D-042).",
     )
     # Who delivers codes to particular countries, where the default provider should not: a country
     # whose operators accept messages only from a sender registered with a provider licensed there.
@@ -508,7 +520,7 @@ class Settings(BaseSettings):
         BeforeValidator(_otp_providers_from_text),
         Field(
             description="Who delivers sign-in codes to numbers with particular calling codes, as "
-            "`code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is "
+            "`code:provider`, comma-separated, such as `91:twilio_verify`. Every other number is "
             "sent its code by `OTP_PROVIDER` (D-041).",
         ),
     ] = ()
@@ -551,7 +563,7 @@ class Settings(BaseSettings):
         BeforeValidator(_blank_is_absent),
         Field(
             description="The account sign-in texts are sent from.",
-            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms or twilio_verify"},
         ),
     ] = None
     sms_auth_token: Annotated[
@@ -559,7 +571,7 @@ class Settings(BaseSettings):
         BeforeValidator(_blank_is_absent),
         Field(
             description="That account's auth token; anyone holding it can send texts on it.",
-            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms or twilio_verify"},
         ),
     ] = None
     sms_from_number: Annotated[
@@ -569,6 +581,17 @@ class Settings(BaseSettings):
         Field(
             description="The number sign-in texts come from, in E.164 form.",
             json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
+        ),
+    ] = None
+    # The verification service on that same account, for the provider whose service makes, texts
+    # and checks the code. An identifier rather than a secret: the account's token is the secret.
+    sms_verify_service_id: Annotated[
+        str | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="The verification service, on the `SMS_` account, that makes, texts and "
+            "checks sign-in codes.",
+            json_schema_extra={"required_when": "OTP_PROVIDER is twilio_verify"},
         ),
     ] = None
 
@@ -1087,6 +1110,28 @@ class Settings(BaseSettings):
                 f"{OTPProviderName.TWILIO_SMS}. Set them in .env; see .env.example."
             )
         return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
+
+    def require_verify_account(self) -> VerifyAccount:
+        """What the verification-service provider needs, or a failure naming whatever is missing."""
+        account_id, token = self.sms_account_id, self.sms_auth_token
+        service_id = self.sms_verify_service_id
+        if account_id is None or token is None or service_id is None:
+            missing = [
+                name
+                for name, value in (
+                    ("SMS_ACCOUNT_ID", account_id),
+                    ("SMS_AUTH_TOKEN", token),
+                    ("SMS_VERIFY_SERVICE_ID", service_id),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to send sign-in codes with "
+                f"{OTPProviderName.TWILIO_VERIFY}. Set them in .env; see .env.example."
+            )
+        return VerifyAccount(
+            account_id=account_id, auth_token=token.get_secret_value(), service_id=service_id
+        )
 
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.
