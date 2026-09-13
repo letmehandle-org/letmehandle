@@ -115,26 +115,58 @@ instead, a call to be put through is handled instead, and rejecting is always po
 
 ## Selection
 
-Once, in `build_call_transport` in
+Once, in `build_call_transports` in
 [`apps/backend/src/letmehandle/bootstrap.py`](../../apps/backend/src/letmehandle/bootstrap.py), from
-`TELEPHONY_PROVIDER`:
+`TELEPHONY_PROVIDER` or `TELEPHONY_LINES` — never both:
 
-| `TELEPHONY_PROVIDER` | Transport | Routes it mounts |
+| Configured | Transports | Routes they mount |
 | --- | --- | --- |
-| empty | none: the deployment carries no calls | none |
-| `android_native` | the application's one `AndroidNativeCallTransport` | none of its own; handset reports use `POST /v1/calls/reports`, which exists in every deployment |
-| `twilio` | `TwilioCallTransport`, from the `TELEPHONY_*` account variables | `/telephony/...` callbacks and the media websocket |
+| neither | none: the deployment carries no calls | none |
+| `TELEPHONY_PROVIDER=android_native` | the application's one `AndroidNativeCallTransport` | none of its own; handset reports use `POST /v1/calls/reports`, which exists in every deployment |
+| `TELEPHONY_PROVIDER=twilio` | one `TwilioCallTransport`, from the `TELEPHONY_*` account variables, serving every region | `/telephony/...` callbacks and the media websocket |
+| `TELEPHONY_LINES` | a `TwilioCallTransport` for each line, from that line's entry and token | each line's under `/lines/<name>/telephony/...` |
 
-Bootstrap hands the application a `CallTransportBinding`: the transport, its routes, how to close
-it, and the `CallOwnership` that says whose call each call is. Nothing downstream learns which
+Bootstrap hands the application a `CallTransportBinding` per line: the transport, its routes, how to
+close it, and the `CallOwnership` that says whose call each call is. Nothing downstream learns which
 transport it has. A test asserts that no module outside bootstrap and the adapters names one.
 
-**Overriding the default.** In a deployment, set `TELEPHONY_PROVIDER`. In code, `create_app`
-accepts a `telephony` binding, which is how the end-to-end suite runs the whole application over a
-simulated provider; production passes nothing and gets what configuration chose.
+**Overriding the default.** In a deployment, set `TELEPHONY_PROVIDER` or `TELEPHONY_LINES`. In code,
+`create_app` accepts `telephony` bindings, which is how the end-to-end suite runs the whole
+application over a simulated provider — or two; production passes nothing and gets what
+configuration chose.
 
-Either transport also needs `DATABASE_URL` and `TRANSCRIPT_ENCRYPTION_KEYS`, and the process refuses
+Every transport also needs `DATABASE_URL` and `TRANSCRIPT_ENCRYPTION_KEYS`, and the process refuses
 to start without them: calls are recorded as they happen, sealed.
+
+## Lines by region
+
+One deployment can serve users in several countries, each region's calls on a line of its own
+(D-040). A user's **region** is read from the country calling code of the number they signed in with
+(`domain/models/region.py`: `1` is `US`, `91` is `IN`). A **line** is one provider account, its
+numbers, and the regions it serves; `regions=*` serves every region no other line does.
+
+```
+ US user's carrier ──forwards──► line "us" (+1 number) ──┐
+                                                          ├──► one CallOrchestrator ──► storage
+ IN user's carrier ──forwards──► line "in" (+91 number) ──┘         │
+                                                                    └─ each call acts on its own line:
+                                                                       answer, dial the user, end
+```
+
+- **Where each user forwards.** `ForwardingNumbers` gives each region the first number of the line
+  serving it, and everybody else the `*` line's. `GET /v1/me` and the setup flow ask it for the
+  signed-in user. A user no line serves gets `call_forwarding: null` and is not asked the
+  forwarding step; none of their calls can reach the deployment.
+- **One orchestrator.** It reads every line's events. A call keeps the line it arrived on: its plan
+  comes from that transport, its owner from that line's ownership, and the user is dialled from that
+  line — a number in their own country — and the call ended there.
+- **Routes.** A line's callbacks are under `/lines/<name>`, and every URL its transport gives the
+  provider carries the prefix, so two lines of one provider receive only their own callbacks. The
+  line `TELEPHONY_PROVIDER` configures stays at the root.
+- **After a restart** every line is asked to end each call left unfinished; the lines that never
+  carried it find nothing.
+- **Sign-in codes** follow the same region by calling code, through `OTP_PROVIDER_BY_CALLING_CODE`.
+- **Shared.** The telephony circuit (D-038) is one for all lines.
 
 ## Adding a transport
 
@@ -144,8 +176,10 @@ to start without them: calls are recorded as they happen, sealed.
    a `test_<name>_call_transport_contract.py` that provides a `transport` fixture.
 3. Provide a `CallOwnership` (`application/orchestration/ports.py`) that says whose call each call
    is, from what the transport knows.
-4. Add a member to `TelephonyProviderName` in `config/settings.py` and a case to
-   `build_call_transport`. The match is exhaustive, so a member without a case fails type checking.
+4. For a transport that is a provider account taking forwarded calls, add a member to
+   `LineProviderName` in `config/telephony_lines.py` and a case to `_line_binding` in bootstrap;
+   for another kind, a member of `TelephonyProviderName` and a case in `build_call_transports`.
+   Either match is exhaustive, so a member without a case fails type checking.
 5. Add its column to the matrix above, and its settings with descriptions; `make verify` fails
    until both are done.
 

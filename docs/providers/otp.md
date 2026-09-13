@@ -38,6 +38,14 @@ prevents is silent and total — everybody could sign in as anybody.
 | --- | --- |
 | `OTP_PROVIDER` | Which provider delivers codes. `mock` is the only value today |
 
+## A provider per country
+
+`OTP_PROVIDER_BY_CALLING_CODE=91:twilio_sms` sends codes for numbers with that calling code through
+that provider, and every other number's through `OTP_PROVIDER` (D-040). Bootstrap builds each named
+provider once and puts `OTPProviderByCallingCode` (`adapters/otp/by_calling_code.py`) in front of
+them; it is safe for production only if every provider is, and fixes a testing code only when every
+provider fixes the same one. A calling code not in `OTP_ALLOWED_CALLING_CODES` is refused at startup.
+
 ## Adding one
 
 A worked example: an SMS provider that sends through an HTTP API.
@@ -94,7 +102,7 @@ A worked example: an SMS provider that sends through an HTTP API.
    backend's environment in `docker-compose.yml`, then run `make config-reference`.
    `make verify` fails until all four agree.
 
-4. **The choice.** Add a case to `_build_otp_provider` in `bootstrap.py`. The match is exhaustive,
+4. **The choice.** Add a case to `_otp_provider_named` in `bootstrap.py`. The match is exhaustive,
    so a member without a case fails type checking rather than falling through to the mock.
 
 5. **The docs.** Update the implementations line and the configuration table on this page.
