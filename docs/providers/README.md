@@ -51,8 +51,9 @@ application port (D-026), relative to `apps/backend/src/letmehandle/` — and su
 
 Transports differ in kind, not only in supplier, which is why the core asks what a transport can
 do rather than which one it is. The flags are `TransportCapabilities` in
-`ports/call_transport.py`, and a transport declares only what it genuinely provides — the full
-matrix is written up in phase 15.
+`ports/call_transport.py`, and a transport declares only what it genuinely provides. The full
+matrix, checked against the declarations by a test, is in
+[`docs/architecture/call-transport.md`](../architecture/call-transport.md#capability-matrix).
 
 An operation that depends on a capability is not on `CallTransport` itself. It is reached by
 narrowing — `answering(transport)`, `screening(transport)`, `audio_streaming(transport)`,
