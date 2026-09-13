@@ -46,7 +46,7 @@ from letmehandle.application.orchestration.inputs import (
     RingRanOut,
     SilenceRanOut,
 )
-from letmehandle.application.orchestration.ledger import CallLedger
+from letmehandle.application.orchestration.ledger import CallLedger, reported_instant
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
 from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
@@ -288,6 +288,8 @@ class CallRun:
             self._context.metrics.increment(ROUTED, {"outcome": "nobody"})
             return None
         context = self._context
+        # When the call arrived, where its transport said: a handset reports its calls afterwards.
+        arrived = self._incoming.occurred_at
         # Asked and answered before anything is awaited, so two calls arriving together cannot both
         # take the last room. A call refused is given no owner: it holds none of the account's room.
         admitted = context.admits(owner.user_id)
@@ -300,7 +302,7 @@ class CallRun:
                     id=self.call_id,
                     user_id=owner.user_id,
                     caller=_recognised(self._incoming.caller or Caller(), owner.preferences),
-                    started_at=context.clock.now(),
+                    started_at=reported_instant(arrived, now=context.clock.now()),
                 ),
                 stores=context.stores,
                 clock=context.clock,
@@ -318,7 +320,7 @@ class CallRun:
             await self._finish(live, CallState.FAILED)
             return live
         self._lifetime.arm(context.bounds.duration, CallRanTooLong)
-        await live.ledger.move(CallState.ROUTING)
+        await live.ledger.move(CallState.ROUTING, at=arrived)
         with context.tracer.span("call.routing") as span:
             posture = route(live.ledger.call.caller, owner.preferences, context.clock.now())
             decided = route_on(posture, self._plan)
@@ -328,9 +330,9 @@ class CallRun:
             case Route.ASSISTANT if self._plan.assistant is not None:
                 await self._hand_to_assistant(live, self._plan.assistant)
             case Route.PASS_THROUGH:
-                await self._put_through(live)
+                await self._put_through(live, arrived)
             case _:
-                await self._finish(live, CallState.REJECTED)
+                await self._finish(live, CallState.REJECTED, at=arrived)
         return live
 
     async def _find_owner(self) -> Owner | None:
@@ -351,8 +353,8 @@ class CallRun:
             )
             return None
 
-    async def _put_through(self, live: _Live) -> None:
-        await live.ledger.move(CallState.PASSTHROUGH)
+    async def _put_through(self, live: _Live, arrived: datetime | None) -> None:
+        await live.ledger.move(CallState.PASSTHROUGH, at=arrived)
         step = self._plan.put_through
         if not isinstance(step, DialTheUser):
             # It rings where it is, and whoever holds that phone answers it.
@@ -419,31 +421,33 @@ class CallRun:
                 pass
 
     async def _on_event(self, live: _Live, event: CallEvent) -> None:
+        # What the event changes is recorded at the moment it happened, where its transport said.
+        at = event.occurred_at
         match event.kind:
             case CallEventKind.ENDED:
                 self._findings = replace(self._findings, caller_hung_up=True)
-                await self._finish(live, CallState.COMPLETED)
+                await self._finish(live, CallState.COMPLETED, at=at)
             case CallEventKind.FAILED:
-                await self._finish(live, CallState.FAILED)
+                await self._finish(live, CallState.FAILED, at=at)
             case CallEventKind.ANSWERED if isinstance(self._plan.put_through, LetItRing):
                 # On a call that rings where it is, answering is the user picking it up. Elsewhere
                 # it is the caller being answered into the call, which changes nothing here.
-                await live.ledger.joined(ParticipantRole.HUMAN)
+                await live.ledger.joined(ParticipantRole.HUMAN, at=at)
             case CallEventKind.PARTICIPANT_JOINED:
-                await self._on_joined(live, event.participant)
+                await self._on_joined(live, event.participant, at)
             case CallEventKind.PARTICIPANT_UNREACHABLE:
-                await self._on_unreachable(live, event.participant, event.outcome)
+                await self._on_unreachable(live, event.participant, event.outcome, at)
             case CallEventKind.PARTICIPANT_LEFT:
-                await self._on_left(live, event.participant)
+                await self._on_left(live, event.participant, at)
             case _:
                 # The caller answered into the call, or the call announced again under another
                 # identifier: nothing that was not already known.
                 pass
 
-    async def _on_joined(self, live: _Live, leg: Leg | None) -> None:
+    async def _on_joined(self, live: _Live, leg: Leg | None, at: datetime | None) -> None:
         ledger = live.ledger
         if leg is Leg.ASSISTANT:
-            await ledger.joined(ParticipantRole.AGENT)
+            await ledger.joined(ParticipantRole.AGENT, at=at)
             return
         match ledger.state:
             case CallState.HUMAN_RINGING:
@@ -451,50 +455,56 @@ class CallRun:
                 self._context.metrics.increment(
                     ESCALATION_RESOLVED, {"outcome": ParticipantOutcome.ANSWERED.value}
                 )
-                await ledger.move(CallState.HUMAN_JOINED)
+                await ledger.move(CallState.HUMAN_JOINED, at=at)
                 # The assistant was on the call before the user was rung, even when the callback
                 # saying so is still on its way: record it first, so the order is the true one.
                 if not any(each.role is ParticipantRole.AGENT for each in ledger.call.participants):
-                    await ledger.joined(ParticipantRole.AGENT)
-                await ledger.joined(ParticipantRole.HUMAN)
+                    await ledger.joined(ParticipantRole.AGENT, at=at)
+                await ledger.joined(ParticipantRole.HUMAN, at=at)
                 if self._handed_over:
                     await self._speaking.stop()
                 else:
                     await self._tell(Situation(UserReach.ON_THE_CALL))
             case CallState.PASSTHROUGH:
                 self._ring.cancel()
-                await ledger.joined(ParticipantRole.HUMAN)
+                await ledger.joined(ParticipantRole.HUMAN, at=at)
             case _:
                 # The user answering a ring already given up on, whose cancelling did not reach the
                 # provider in time: they are on the call all the same. The assistant keeps it, and
                 # is told they are there; the record says who was on it.
-                await ledger.joined(ParticipantRole.HUMAN)
+                await ledger.joined(ParticipantRole.HUMAN, at=at)
                 await self._tell(Situation(UserReach.ON_THE_CALL))
 
     async def _on_unreachable(
-        self, live: _Live, leg: Leg | None, outcome: ParticipantOutcome | None
+        self,
+        live: _Live,
+        leg: Leg | None,
+        outcome: ParticipantOutcome | None,
+        at: datetime | None,
     ) -> None:
         ledger = live.ledger
         if leg is Leg.ASSISTANT:
-            await self._assistant_lost(live)
+            await self._assistant_lost(live, at)
             return
         match ledger.state:
             case CallState.HUMAN_RINGING:
-                await self._not_reached(live, outcome or ParticipantOutcome.FAILED, cancel=None)
+                await self._not_reached(
+                    live, outcome or ParticipantOutcome.FAILED, cancel=None, at=at
+                )
             case CallState.PASSTHROUGH if not ledger.call.has_participant(ParticipantRole.HUMAN):
-                await self._finish(live, CallState.COMPLETED)
+                await self._finish(live, CallState.COMPLETED, at=at)
             case _:
                 pass
 
-    async def _on_left(self, live: _Live, leg: Leg | None) -> None:
+    async def _on_left(self, live: _Live, leg: Leg | None, at: datetime | None) -> None:
         ledger = live.ledger
         if leg is Leg.ASSISTANT:
-            await ledger.left(ParticipantRole.AGENT)
-            await self._assistant_lost(live)
+            await ledger.left(ParticipantRole.AGENT, at=at)
+            await self._assistant_lost(live, at)
             return
-        await ledger.left(ParticipantRole.HUMAN)
+        await ledger.left(ParticipantRole.HUMAN, at=at)
         if ledger.state in {CallState.HUMAN_JOINED, CallState.PASSTHROUGH}:
-            await self._finish(live, CallState.COMPLETED)
+            await self._finish(live, CallState.COMPLETED, at=at)
 
     async def _ran_too_long(self, live: _Live) -> None:
         """Nothing reported the call ending in all the time a call may last, so it is ended here."""
@@ -503,11 +513,11 @@ class CallRun:
         self._context.metrics.increment(CALL_BOUNDED, {"kind": "duration"})
         await self._finish(live, CallState.FAILED)
 
-    async def _assistant_lost(self, live: _Live) -> None:
+    async def _assistant_lost(self, live: _Live, at: datetime | None = None) -> None:
         """The assistant cannot go on. The call stands only while the user is coming or here."""
         await self._speaking.stop()
         if live.ledger.state is CallState.AGENT_HANDLING:
-            await self._finish(live, CallState.FAILED)
+            await self._finish(live, CallState.FAILED, at=at)
 
     async def _on_conversation_stopped(self, live: _Live, end: ConversationEnd | None) -> None:
         if end is ConversationEnd.SPEAKER_GONE:
@@ -618,11 +628,17 @@ class CallRun:
         )
 
     async def _not_reached(
-        self, live: _Live, outcome: ParticipantOutcome, *, cancel: DialTheUser | None
+        self,
+        live: _Live,
+        outcome: ParticipantOutcome,
+        *,
+        cancel: DialTheUser | None,
+        at: datetime | None = None,
     ) -> None:
         """The user did not come: the assistant takes the call back, and is told why.
 
-        `cancel` is the dial still ringing them, when it is this side that gave up on it.
+        `cancel` is the dial still ringing them, when it is this side that gave up on it; `at` is
+        when the transport said they did not come.
         """
         self._ring.cancel()
         self._handed_over = False
@@ -631,9 +647,9 @@ class CallRun:
             await self._cancel_dial(live, cancel)
         if not self._speaking.is_speaking:
             # Nobody is left to take it back.
-            await self._finish(live, CallState.COMPLETED)
+            await self._finish(live, CallState.COMPLETED, at=at)
             return
-        await live.ledger.move(CallState.AGENT_HANDLING)
+        await live.ledger.move(CallState.AGENT_HANDLING, at=at)
         await self._tell(Situation(UserReach.NOT_REACHED, outcome))
 
     async def _cancel_dial(self, live: _Live, dial: DialTheUser) -> None:
@@ -689,8 +705,10 @@ class CallRun:
 
     # -------------------------------------------------------------------------------- teardown
 
-    async def _finish(self, live: _Live, state: CallState) -> None:
+    async def _finish(self, live: _Live, state: CallState, *, at: datetime | None = None) -> None:
         """The one teardown. Every ending of a call reaches it, and it runs once.
+
+        `at` is when the event that ended the call happened, where its transport said.
 
         The conversation, the speech session, the judgement and the timers stop; the transport lets
         the call go; the agent forgets it; the call is stored as it ended with its summary; and the
@@ -704,7 +722,7 @@ class CallRun:
         if ledger.state in _USER_BEING_REACHED:
             self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "call_ended"})
         with self._context.tracer.span("call.teardown", **{"call.state": state.value}):
-            await ledger.move(state)
+            await ledger.move(state, at=at)
             await self._release_tasks()
             await self._terminate()
             if self._plan.assistant is not None:
