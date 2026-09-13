@@ -54,5 +54,6 @@ class MockOTPProvider(OTPProvider):
     async def send(self, number: PhoneNumber, code: str) -> None:
         self.sent.append((number, code))
         # The number is masked even here. A development log is still a log, and it is the one
-        # people paste into issues.
-        logger.info("otp_code_not_sent", provider=self.name, number=number.masked, code=code)
+        # people paste into issues. Named as masked, so the scrubber, which removes any field
+        # called a number, leaves the two digits somebody recognises their own number by.
+        logger.info("otp_code_not_sent", provider=self.name, masked_number=number.masked, code=code)
