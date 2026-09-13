@@ -35,7 +35,7 @@ from letmehandle.application.agent.conclusion import (
 )
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import CallAgent
-from letmehandle.application.agent.prompts import PROMPT_VERSION, load_prompts
+from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.observability.logging import get_logger
@@ -96,7 +96,6 @@ class StrandsCallAgent(CallAgent):
         tools: ToolsForAJudgement,
         conclusion: JudgementConclusion,
         timeout: timedelta,
-        prompt_version: str = PROMPT_VERSION,
     ) -> None:
         if timeout.total_seconds() <= 0:
             raise ValueError("a judgement needs time to happen in")
@@ -104,7 +103,6 @@ class StrandsCallAgent(CallAgent):
         self._tools = tools
         self._conclusion = conclusion
         self._timeout = timeout
-        self._prompt_version = prompt_version
         self._logger = get_logger(__name__)
 
     async def judge(self, call: CallSoFar) -> AgentJudgement:
@@ -114,7 +112,7 @@ class StrandsCallAgent(CallAgent):
         and for a failure to reach the user. Either is a defect or orchestration failing to act,
         and somebody else's to handle — the model misbehaving is this method's to absorb.
         """
-        prompts = load_prompts(call.preferences.locale, self._prompt_version)
+        prompts = load_prompts(call.preferences.locale)
         ledger = ToolLedger(JudgementNotes())
         agent = Agent(
             model=self._model,

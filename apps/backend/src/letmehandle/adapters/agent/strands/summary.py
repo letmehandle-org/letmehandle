@@ -22,7 +22,7 @@ from strands.agent.conversation_manager import NullConversationManager
 from letmehandle.adapters.agent.strands.assessment import one_of
 from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
-from letmehandle.application.calls.prompts import SUMMARY_PROMPT_VERSION, load_summary_prompts
+from letmehandle.application.calls.prompts import load_summary_prompts
 from letmehandle.application.calls.summariser import SummaryDrafter, SummaryNotWrittenError
 from letmehandle.application.calls.summary_draft import DetailKind, DraftDetail, SummaryDraft
 from letmehandle.domain.models.intent import CallIntent
@@ -92,9 +92,8 @@ ANSWER_TOOL: Final = CallSummaryAnswer.__name__
 class StrandsSummaryDrafter(SummaryDrafter):
     """Asks a model for a summary through the SDK's structured output."""
 
-    def __init__(self, model: Model, *, prompt_version: str = SUMMARY_PROMPT_VERSION) -> None:
+    def __init__(self, model: Model) -> None:
         self._model = model
-        self._prompt_version = prompt_version
 
     async def draft(
         self, request: SummaryRequest, correction: DraftCorrection | None = None
@@ -104,7 +103,7 @@ class StrandsSummaryDrafter(SummaryDrafter):
         A correction is a fresh agent too, told about the call and then, in the same message, about
         the draft it is correcting: nothing of the first attempt's conversation is kept to resume.
         """
-        prompts = load_summary_prompts(request.locale, self._prompt_version)
+        prompts = load_summary_prompts(request.locale)
         call: list[ContentBlock] = [{"text": prompts.call_message(request)}]
         if correction is not None:
             call.append({"text": prompts.correction_message(correction, answer_tool=ANSWER_TOOL)})
