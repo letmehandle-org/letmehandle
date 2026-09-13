@@ -28,7 +28,7 @@ def tracked_markdown() -> list[Path]:
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.split()
+    ).stdout.splitlines()
     return [ROOT / name for name in listed if (ROOT / name).is_file()]
 
 
