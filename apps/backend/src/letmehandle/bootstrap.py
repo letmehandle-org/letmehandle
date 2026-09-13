@@ -261,11 +261,7 @@ def build_escalation_dispatcher(
     transcript keys are required, as they are to carry calls at all.
     """
     clock = container.clock
-    cipher = container.transcript_cipher
-    if cipher is None:
-        raise ConfigurationError(
-            "TRANSCRIPT_ENCRYPTION_KEYS is required to escalate: what the user is told is sealed."
-        )
+    cipher = _sealing(container, "escalate: what the user is told about a call is sealed")
 
     @asynccontextmanager
     async def stores() -> AsyncIterator[EscalationStores]:
@@ -276,6 +272,14 @@ def build_escalation_dispatcher(
             )
 
     return EscalationDispatcher(providers=container.notifications, stores=stores, metrics=metrics)
+
+
+def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
+    """The transcript cipher, or a failure naming the keys and what they are needed for."""
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ConfigurationError(f"TRANSCRIPT_ENCRYPTION_KEYS is required to {needed_to}.")
+    return cipher
 
 
 @runtime_checkable
@@ -471,11 +475,7 @@ def build_call_orchestrator(
     stands in for it the same way; with neither, every call is summarised from its facts.
     """
     clock = container.clock
-    cipher = container.transcript_cipher
-    if cipher is None:
-        raise ConfigurationError(
-            "TRANSCRIPT_ENCRYPTION_KEYS is required to carry calls: every call is recorded, sealed."
-        )
+    cipher = _sealing(container, "carry calls: every call is recorded, sealed")
 
     @asynccontextmanager
     async def stores() -> AsyncIterator[CallStores]:
