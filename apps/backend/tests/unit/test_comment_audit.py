@@ -2,32 +2,18 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.support.scripts import load_script
+
 if TYPE_CHECKING:
-    from types import ModuleType
+    from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[4] / "scripts" / "comment_audit.py"
-
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("comment_audit", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-audit = _load()
+audit = load_script("comment_audit")
 
 MULTI_LINE_PYTHON = '''"""Module.
 
