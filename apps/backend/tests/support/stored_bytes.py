@@ -14,11 +14,7 @@ FRAGMENT = 8
 
 
 async def assert_nowhere_in(session: AsyncSession, table: str, rows: int, words: str) -> None:
-    """Scan every column of every row, as text and as raw bytes, for the words.
-
-    Casting the whole row to text covers every column there is now and any added later, so a
-    new column that stores the words in clear fails this without anybody updating the test.
-    """
+    """Scan every column of every row, as text and as hex bytes, for the words and their pieces."""
     result = await session.execute(text(f"SELECT t::text FROM {table} t"))  # noqa: S608
     rendered = list(result.scalars())
     assert len(rendered) == rows

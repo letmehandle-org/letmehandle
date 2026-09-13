@@ -1,9 +1,4 @@
-"""Fixtures for tests that need a running application.
-
-The `api` fixture here is the one every integration suite uses. It was written inside the
-sign-in tests first and moved when a second suite needed it — a second copy would have drifted,
-and two suites disagreeing about how the application is assembled is worse than either.
-"""
+"""Fixtures for tests that need a running application, shared by every integration suite."""
 
 from __future__ import annotations
 
@@ -39,11 +34,7 @@ ANOTHER_NUMBER = "+12025550144"
 
 @pytest.fixture
 async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    """A client speaking to the application in-process, with its lifespan run.
-
-    Running the lifespan matters: a test that skips it exercises an application production
-    never builds, and startup is exactly where resource handling goes wrong.
-    """
+    """A client speaking to the application in-process, with its lifespan run."""
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
@@ -53,12 +44,7 @@ async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
 
 @dataclass(frozen=True, slots=True)
 class Api:
-    """The running application, and the pieces a test needs to reach around it.
-
-    `otp` is the mock provider, read the way a person reads the text message they were sent. It
-    is the only substitute in these tests, and having it here rather than reaching into private
-    attributes keeps that honest and visible.
-    """
+    """The running application, and the mock code provider a test reads codes from."""
 
     client: AsyncClient
     app: FastAPI
@@ -80,19 +66,10 @@ async def running(
     otp: OTPProvider | None = None,
     resend_cooldowns: tuple[timedelta, ...] = (timedelta(0),),
 ) -> AsyncIterator[Api]:
-    """The whole application, on its own engine, against one schema.
-
-    Separate from the fixture so that a test needing a differently configured application — a
-    voice provider with other capabilities, say — assembles it the same way rather than by
-    building a second, subtly different one of its own. `forwarding` stands in for the numbers a
-    streaming deployment's bootstrap chooses, without building that transport's provider, and
-    `otp` for the code provider, the way a simulated provider stands in for a real one.
-    """
-    # With transcript keys, as a deployment that serves call history has.
+    """The whole application on its own engine against one schema, with optional stand-ins."""
     settings = make_settings(transcript_encryption_keys=TEST_TRANSCRIPT_KEYS)
     app: FastAPI = create_app(settings, voices=voices)
-    # Pointed at the same schema the `session` fixture created, so the application under test
-    # and the fixtures that set it up are looking at the same tables.
+    # The schema the `session` fixture created.
     engine: AsyncEngine = create_async_engine(
         database_url, connect_args={"server_settings": {"search_path": schema}}
     )
@@ -105,8 +82,7 @@ async def running(
     app.state.container = replace(
         container,
         forwarding=container.forwarding if forwarding is None else forwarding,
-        # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
-        # moved past the resend cooldown. The cooldown has its own tests, which restore it.
+        # No resend cooldown by default, so a suite can sign the same number in twice.
         auth_limits=replace(container.auth_limits, resend_cooldowns=resend_cooldowns),
         otp=container.otp if otp is None else otp,
     )
@@ -121,22 +97,13 @@ async def running(
 
 @pytest.fixture
 async def api(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
-    """The application every integration suite talks to.
-
-    Depends on `session` for the schema and for its skip when no database is reachable, then
-    runs the application on its own engine so that requests commit for real — which is the
-    point: a sign-in that is rolled back proves nothing about a sign-in.
-    """
+    """The application every integration suite talks to, committing on its own engine."""
     async with running(database_url, schema) as ready:
         yield ready
 
 
 async def code_for(api: Api, number: str = NUMBER) -> tuple[str, str]:
-    """Request a challenge and read the code the mock recorded.
-
-    Reading it is the equivalent of reading the text message, and it is the only substitute
-    anywhere in these tests.
-    """
+    """Request a challenge and read the code the mock provider recorded."""
     response = await api.client.post("/v1/auth/challenge", json={"phone_number": number})
     assert response.status_code == 202, response.text
     return response.json()["challenge_id"], api.otp.sent[-1][1]

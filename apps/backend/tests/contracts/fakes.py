@@ -1,10 +1,4 @@
-"""In-memory implementations, used to exercise the contracts in phase 1.
-
-These are not mocks. They implement the behaviour the contract describes — a queue that really
-is bounded, an interruption that really discards what was queued — so that a test passing
-against them means the contract is satisfiable, and a later real adapter passing the same suite
-means the same thing.
-"""
+"""In-memory implementations of the ports that honour their contracts, not mocks."""
 
 from __future__ import annotations
 
@@ -81,7 +75,7 @@ class CountingIdGenerator(IdGenerator):
 
 
 class RecordingOTPProvider(OTPProvider):
-    """Delivers nowhere and remembers everything, which is what development needs."""
+    """Delivers nowhere and remembers every code it was asked to send."""
 
     def __init__(self) -> None:
         self.sent: list[tuple[PhoneNumber, str]] = []
@@ -99,11 +93,7 @@ class RecordingOTPProvider(OTPProvider):
 
 
 class CheckingOTPProvider(RecordingOTPProvider):
-    """Makes and checks its own codes, as a provider that composes its own message does (D-042).
-
-    Its code is the one given, so a test can type it, and each is accepted once. `failure` is raised
-    by the next send or check instead, so a provider's outage can be exercised on either.
-    """
+    """Issues `code` and accepts it once; `failure` is raised by the next send or check (D-042)."""
 
     def __init__(self, code: str = "987654") -> None:
         super().__init__()
@@ -227,11 +217,7 @@ class StaticVoiceProvider(VoiceProvider):
 
 
 class EchoSpeechSession(SpeechSession):
-    """Turns every frame it is given into one frame of output.
-
-    Bounded, interruptible, and closeable more than once, because those are the three things
-    the contract insists on and a fake that skipped them would let a broken adapter pass.
-    """
+    """Turns every frame into one frame of output; bounded, interruptible and closeable twice."""
 
     def __init__(self) -> None:
         self._queue: asyncio.Queue[SpeechEvent | None] = asyncio.Queue(maxsize=8)
@@ -253,11 +239,7 @@ class EchoSpeechSession(SpeechSession):
             yield event
 
     async def emit(self, event: SpeechEvent) -> None:
-        """Say something as the service would, so a consumer's handling of it can be exercised.
-
-        Echoing only ever reports the model speaking. A caller interrupting, a settled
-        transcript and a failure are what a consumer has to get right, and they need a way in.
-        """
+        """Emit any event as the service would, such as a transcript or a failure."""
         await self._queue.put(event)
 
     async def update_context(self, context: str) -> None:
@@ -265,8 +247,7 @@ class EchoSpeechSession(SpeechSession):
 
     async def interrupt(self) -> None:
         self.interruptions += 1
-        # Discarding what was queued is the part real implementations forget, and the reason
-        # interruption feels broken when they do.
+        # Interrupting discards everything queued.
         while not self._queue.empty():
             self._queue.get_nowait()
 
@@ -275,8 +256,7 @@ class EchoSpeechSession(SpeechSession):
             return
         self._closed = True
         if self._queue.full():
-            # Closing must not wait on a consumer, which may be the thing that stopped. What is
-            # queued is dropped only when there is no room left to say the stream has ended.
+            # Drops one queued event to make room for the end of stream without waiting.
             self._queue.get_nowait()
         self._queue.put_nowait(None)
 
@@ -336,13 +316,7 @@ class EchoSpeechProvider(SpeechProvider):
 
 
 class ScreeningOnlyTransport(CallTransport):
-    """A transport shaped like a platform's own call screening.
-
-    It decides a call before the handset rings — allow, reject or silence — and reports the
-    decision on the incoming event. It cannot answer, cannot hand the application the call's
-    audio, and cannot add anybody: declaring otherwise is exactly the lie the capability model
-    exists to prevent.
-    """
+    """A platform's call screening: decides before ringing, and cannot answer, stream or bridge."""
 
     def __init__(self) -> None:
         self.terminated: list[CallId] = []
@@ -378,11 +352,7 @@ class ScreeningOnlyTransport(CallTransport):
 
 
 class StreamingTransport(CallTransport):
-    """A transport shaped like programmable telephony.
-
-    It carries audio both ways and can add a third party to a call already in progress. It
-    never sees a call before it connects, so it declares no screening.
-    """
+    """Programmable telephony: carries audio both ways and bridges, but cannot screen."""
 
     def __init__(self) -> None:
         self.answered: list[CallId] = []
@@ -480,12 +450,7 @@ class _ListSink(AudioSink):
 
 
 class LyingTransport(CallTransport):
-    """Declares a capability it has not implemented.
-
-    Exists so that the narrowing functions can be shown to catch the one failure the type
-    system cannot: a declaration and an implementation that disagree. Without this, that check
-    would be untested code claiming to be a safety net.
-    """
+    """Declares capabilities it does not implement, for the narrowing functions' tests."""
 
     @property
     def name(self) -> str:

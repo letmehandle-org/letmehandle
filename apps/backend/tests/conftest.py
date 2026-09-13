@@ -12,8 +12,7 @@ from tests.support.config import REQUIRED_ENVIRONMENT, make_settings
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-# Anything the settings object reads. Cleared for every test so that a variable set on the
-# machine running the suite cannot change what the suite proves.
+# Every variable the settings read, cleared for each test so the machine's environment is ignored.
 SETTINGS_VARIABLES = (
     "APP_ENV",
     "LOG_LEVEL",
@@ -52,9 +51,7 @@ SETTINGS_VARIABLES = (
 def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for name in SETTINGS_VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    # The same reason, for the file: a developer's own `.env` would otherwise be read by every
-    # test that builds settings from the environment, and a test proving the process refuses
-    # to start without a catalogue would pass or fail depending on whose machine it ran on.
+    # A developer's own `.env` is ignored too.
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     yield
@@ -67,7 +64,5 @@ def settings() -> Settings:
     return make_settings()
 
 
-# The database fixtures live in their own module, registered here because pytest only honours
-# `pytest_plugins` in the root conftest. Importing it costs nothing: the engine is created
-# inside the fixture, so a developer working on the domain never needs PostgreSQL running.
+# The database fixtures, registered here because pytest honours `pytest_plugins` only at the root.
 pytest_plugins = ["tests.integration.conftest_db"]
