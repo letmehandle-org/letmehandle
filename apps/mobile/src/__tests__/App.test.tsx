@@ -45,6 +45,11 @@ describe('App', () => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
     expect(view.getByText(en.welcome.start)).toBeOnTheScreen();
+    // The promise reads as one sentence to a screen reader, however it is drawn.
+    expect(view.getByRole('header')).toHaveAccessibleName('Let me handle it.');
+    for (const promise of Object.values(en.welcome.promises)) {
+      expect(view.getByText(promise)).toBeOnTheScreen();
+    }
   });
 
   it('surfaces a translation failure rather than staying blank', async () => {

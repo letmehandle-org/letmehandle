@@ -24,20 +24,17 @@ export const en = {
     saveFailed: "Couldn't save. It's been put back the way it was.",
   },
   welcome: {
-    title: 'Your phone,',
-    titleAccent: 'handled.',
+    /** "Let me handle it.", with "handle" set apart; read together as one sentence. */
+    title: 'Let me',
+    titleAccent: 'handle',
+    titleEnd: ' it.',
+    lead: "Your assistant picks up the calls you don't want to.",
     start: 'Get started',
-    features: {
-      answers: 'Answers your calls',
-      rings: 'Rings you if needed',
-      private: 'Never records',
-    },
-    illustration: {
-      delivery: 'Delivery',
-      needsYou: 'Needs you',
-      spam: 'Spam',
-      described:
-        'A phone with its calls being looked after: a delivery settled, spam turned away, and one call that needs you.',
+    note: 'Signing in only needs your number.',
+    promises: {
+      answers: 'Answers unknown numbers',
+      rings: 'Rings you when it matters',
+      private: 'Never records a call',
     },
   },
   phone: {
