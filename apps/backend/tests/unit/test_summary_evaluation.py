@@ -21,6 +21,7 @@ from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.calls.summary_checks import problems_with
 from letmehandle.application.calls.summary_draft import DetailKind, SummaryRequest
 from letmehandle.bootstrap import call_summariser_on
+from tests.evaluation.estimates import across_runs, below
 from tests.evaluation.summary_suite import LOCALE, load_summary_scenarios, run_summaries
 from tests.support.ended_calls import Ending
 from tests.support.recording_metrics import RecordingMetrics
@@ -35,6 +36,9 @@ if TYPE_CHECKING:
     from tests.support.scripted_model import Step
 
 CLASSES = ("extraction", "absent_detail", "ending", "no_details")
+# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
+# runs cannot tell the two apart.
+SMALLEST_CLASS = 12
 
 
 def scripted(steps: Callable[[SummaryScenario], Sequence[Step]]) -> SummariserFor:
@@ -75,7 +79,7 @@ async def test_the_reference_summaries_pass_every_class() -> None:
     report = await run_summaries(load_summary_scenarios(), scripted(the_reference))
 
     assert [o.misses for o in report.outcomes if not o.passed] == []
-    assert report.below(1.0) == []
+    assert below(across_runs([report.pass_rates()]), 1.0) == []
 
 
 def test_every_reference_summary_passes_the_checks() -> None:
@@ -93,7 +97,7 @@ def test_every_reference_summary_passes_the_checks() -> None:
 def test_the_set_covers_every_class_and_every_kind_of_detail() -> None:
     scenarios = load_summary_scenarios()
     for name in CLASSES:
-        assert len([s for s in scenarios if s.summary_class == name]) >= 3, name
+        assert len([s for s in scenarios if s.summary_class == name]) >= SMALLEST_CLASS, name
     extracted = {detail.kind for s in scenarios for detail in s.reference.details}
     assert extracted == set(DetailKind)
     # Every ending a model is asked to name, not only the calls the assistant resolved.
@@ -140,7 +144,7 @@ async def test_a_degenerate_model_fails_every_class(
     # A set a degenerate answer can pass in any class measures nothing in that class.
     report = await run_summaries(load_summary_scenarios(), scripted(strategy))
 
-    assert sorted(report.below(1.0)) == sorted(CLASSES)
+    assert sorted(below(across_runs([report.pass_rates()]), 1.0)) == sorted(CLASSES)
 
 
 SCENARIO: dict[str, object] = {
@@ -211,3 +215,9 @@ def test_an_expectation_nothing_checks_is_refused(tmp_path: Path) -> None:
     malformed: dict[str, object] = {**SCENARIO, "absnet": ["amount"]}
     with pytest.raises(ValidationError, match="absnet"):
         load_summary_scenarios(write(tmp_path / "s.json", [malformed]))
+
+
+def test_a_reason_that_says_nothing_is_refused(tmp_path: Path) -> None:
+    blank: dict[str, object] = {**SCENARIO, "why": ""}
+    with pytest.raises(ValidationError, match="why"):
+        load_summary_scenarios(write(tmp_path / "s.json", [blank]))

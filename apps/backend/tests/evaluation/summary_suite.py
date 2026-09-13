@@ -76,6 +76,8 @@ class SummaryScenario(BaseModel):
     intents: tuple[CallIntent, ...] = Field(min_length=1)
     reference: Reference
     absent: tuple[DetailKind, ...] = Field(min_length=1)
+    # Why the reference and the absent kinds are right for this call, printed beside a miss.
+    why: str | None = Field(default=None, min_length=1)
 
     def facts(self) -> CallFacts:
         """The call as orchestration hands it over at teardown."""
@@ -144,12 +146,6 @@ class SummaryReport:
             passed, total = rates.get(outcome.scenario.summary_class, (0, 0))
             rates[outcome.scenario.summary_class] = (passed + int(outcome.passed), total + 1)
         return rates
-
-    def below(self, minimum: float) -> list[SummaryClass]:
-        """The classes whose pass rate is under `minimum`, a fraction."""
-        return [
-            name for name, (passed, total) in self.pass_rates().items() if passed < minimum * total
-        ]
 
 
 type SummariserFor = Callable[[SummaryScenario], CallSummariser]
