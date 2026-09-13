@@ -173,6 +173,21 @@ class TestEveryEnding:
         )
         assert summary.outcome is CallOutcome.UNANSWERED_ESCALATION
 
+    def test_a_caller_who_hangs_up_before_the_assistant_joins_was_not_put_through(self) -> None:
+        # Given to the assistant, and gone before its leg joined: nobody put the call through.
+        call = a_call()
+        call.move_to(CallState.AGENT_HANDLING)
+        call.move_to(CallState.COMPLETED, at_instant=at(3))
+        summary = fallback_summary(CallFacts(call, caller_hung_up=True), locale="en")
+        assert summary.outcome is CallOutcome.CALLER_HUNG_UP
+
+    def test_a_call_the_user_joined_alone_is_passed_through_whatever_joined_it(self) -> None:
+        call = a_call()
+        call.move_to(CallState.PASSTHROUGH)
+        call.move_to(CallState.COMPLETED, at_instant=at(3))
+        summary = fallback_summary(CallFacts(call, caller_hung_up=True), locale="en")
+        assert summary.outcome is CallOutcome.PASSED_THROUGH
+
     def test_a_call_still_in_progress_is_refused(self) -> None:
         with pytest.raises(InvariantError, match="ended"):
             fallback_summary(CallFacts(a_call()), locale="en")

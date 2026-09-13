@@ -15,10 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.calls.participation import first_joined, human_joined_at
+from letmehandle.application.calls.participation import human_joined_at
 from letmehandle.application.preferences.context import DEFAULT_LOCALE, closest_phrasebook
 from letmehandle.domain.errors import InvariantError
-from letmehandle.domain.models.call import ParticipantRole
+from letmehandle.domain.models.call import CallHandling
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -162,7 +162,9 @@ def _outcome(facts: CallFacts, *, human_joined: bool) -> CallOutcome:
         return CallOutcome.FAILED
     if human_joined:
         return CallOutcome.HANDED_TO_USER
-    if first_joined(call, ParticipantRole.AGENT) is None:
+    # Read from whom routing gave the call to, not from who joined: a caller who hangs up before
+    # the assistant's leg joins was never put through to anybody.
+    if call.handling is not CallHandling.ASSISTANT:
         return CallOutcome.PASSED_THROUGH
     # Before a hang-up: the caller giving up while the user's phone rang is still a call the
     # user was wanted on and missed, and that is the part they can act on.
