@@ -164,11 +164,7 @@ jobs:
         with:
           enable-cache: true
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
+      - uses: ./.github/actions/pnpm-install
 
       - name: The backend's lock and the workspace's, against their advisory databases
         run: make audit-deps
@@ -179,15 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/pnpm-install
 
       - name: Lint
         run: pnpm --filter mobile lint

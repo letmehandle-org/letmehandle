@@ -6,8 +6,7 @@ updates:
     open-pull-requests-limit: 3
     commit-message: {prefix: "build(backend)"}
     groups:
-      # One pull request for the routine updates. Twenty separate ones is not twenty times the
-      # safety, it is twenty times the review, and the reviewer stops reading.
+      # One pull request for all routine backend updates.
       backend-minor:
         update-types: [minor, patch]
 
@@ -17,10 +16,7 @@ updates:
     open-pull-requests-limit: 3
     commit-message: {prefix: "build(mobile)"}
     ignore:
-      # Babel and React itself are pinned by the React Native toolchain rather than chosen
-      # independently here. A major bump ahead of React Native's own is a build failure by
-      # construction — three such pull requests were opened and closed in one day. They arrive
-      # with the React Native upgrade, which is where they belong.
+      # Majors of Babel and React arrive with the React Native upgrade that pins them.
       - dependency-name: "@babel/*"
         update-types: [version-update:semver-major]
       - dependency-name: react
@@ -35,7 +31,7 @@ updates:
         exclude-patterns: ["react-native*", "@react-native*", "react"]
 
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/*"]
     schedule: {interval: weekly}
     open-pull-requests-limit: 3
     commit-message: {prefix: "ci"}
@@ -48,9 +44,6 @@ updates:
     schedule: {interval: weekly}
     commit-message: {prefix: "build(docker)"}
     ignore:
-      # The base image's Python version is decided by the project, not by what is newest: it is
-      # pinned in .python-version and in pyproject.toml's requires-python, and a bump here
-      # without those is a build failure by construction. Patch updates to the same minor are
-      # still wanted, because those are the security fixes.
+      # Python's minor follows .python-version and requires-python; patch updates still apply.
       - dependency-name: python
         update-types: [version-update:semver-major, version-update:semver-minor]
