@@ -93,6 +93,8 @@ class SimulatedLeg:
     to: str
     status_callback: str | None
     conference: SimulatedConference | None
+    from_: str = ""
+    forwarded_from: str | None = None
     # Where the caller's dial reports its end: the provider asks it what next once they leave.
     dial_action: str | None = None
     in_conference: bool = False
@@ -226,6 +228,8 @@ class SimulatedTwilio:
             to=OUR_NUMBER.value,
             status_callback=None,
             conference=conference,
+            from_=caller,
+            forwarded_from=None if forwarded_from is None else forwarded_from.value,
             dial_action=dial.attrib.get("action"),
         )
         self.legs[call_sid] = leg
@@ -387,6 +391,12 @@ class SimulatedTwilio:
                 return await self._end_conference(sid, "conference-ended-via-api")
             case ("POST", ["Calls", call_sid]):
                 return await self._update_call(call_sid, fields["Status"])
+            case ("GET", ["Calls", call_sid]):
+                return self._call(call_sid)
+            case ("GET", ["Calls"]):
+                return self._calls(dict(request.url.params))
+            case ("GET", ["Conferences"]):
+                return self._conferences(dict(request.url.params))
         return _error(404, 20404)
 
     def _create_participant(self, name: str, params: list[tuple[str, str]]) -> httpx.Response:
@@ -408,6 +418,7 @@ class SimulatedTwilio:
             to=fields["To"],
             status_callback=fields["StatusCallback"],
             conference=conference,
+            from_=fields["From"],
         )
         self.legs[call_sid] = leg
         if leg.to.startswith("app:"):
@@ -415,6 +426,28 @@ class SimulatedTwilio:
         else:
             self._later(self._user_leg(leg, detect=fields.get("MachineDetection") == "Enable"))
         return httpx.Response(201, json={"call_sid": call_sid, "label": leg.label})
+
+    def _call(self, call_sid: str) -> httpx.Response:
+        leg = self.legs.get(call_sid)
+        if leg is None:
+            return _error(404, 20404)
+        return httpx.Response(200, json=_described(leg))
+
+    def _calls(self, query: dict[str, str]) -> httpx.Response:
+        matching = [
+            _described(leg)
+            for leg in self.legs.values()
+            if leg.from_ == query["From"]
+            and leg.to == query["To"]
+            and _status(leg) == query["Status"]
+        ]
+        return httpx.Response(200, json={"calls": matching})
+
+    def _conferences(self, query: dict[str, str]) -> httpx.Response:
+        conference = self.conferences.get(query["FriendlyName"])
+        live = conference is not None and not conference.ended and query["Status"] == "in-progress"
+        listed = [{"sid": conference.sid}] if live and conference is not None else []
+        return httpx.Response(200, json={"conferences": listed})
 
     def _update_participant(
         self, sid: str, call_sid: str, fields: dict[str, str]
@@ -711,6 +744,22 @@ async def eventually(condition: Callable[[], bool], *, seconds: float = 5.0) -> 
     async with asyncio.timeout(seconds):
         while not condition():  # noqa: ASYNC110 - a plain attribute, not an event
             await asyncio.sleep(0.01)
+
+
+def _status(leg: SimulatedLeg) -> str:
+    if leg.finished:
+        return "completed"
+    return "in-progress" if leg.answered else "ringing"
+
+
+def _described(leg: SimulatedLeg) -> dict[str, str | None]:
+    return {
+        "sid": leg.call_sid,
+        "from": leg.from_,
+        "to": leg.to,
+        "forwarded_from": leg.forwarded_from,
+        "status": _status(leg),
+    }
 
 
 def _fields(params: list[tuple[str, str]]) -> dict[str, list[str]]:

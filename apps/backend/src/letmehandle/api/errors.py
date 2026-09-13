@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from letmehandle.domain.errors import ProviderError
 from letmehandle.observability.logging import correlation_id, get_logger
 
 if TYPE_CHECKING:
@@ -113,6 +114,31 @@ async def handle_api_error(request: Request, exception: Exception) -> JSONRespon
     )
 
 
+async def handle_provider_error(request: Request, exception: Exception) -> JSONResponse:
+    """A provider the request depended on failed, and the application did not handle it.
+
+    Unavailable rather than an internal error: the process is well, and asking again later is what
+    somebody can do about it. Logged by provider and kind; the reason names a status and the
+    provider's error code, never anything the request carried.
+    """
+    if not isinstance(exception, ProviderError):  # pragma: no cover - registered by type
+        raise exception
+    logger.warning(
+        "provider_failed",
+        provider=exception.provider,
+        reason=exception.reason,
+        retryable=exception.retryable,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=error_body(
+            "provider_unavailable",
+            "A service this depends on is unavailable. Try again shortly.",
+            request,
+        ),
+    )
+
+
 async def handle_unexpected_error(request: Request, exception: Exception) -> JSONResponse:
     """Anything not otherwise mapped.
 
@@ -158,6 +184,7 @@ def register_error_handlers(app: FastAPI) -> None:
     ] = {
         ApiError: handle_api_error,
         RequestValidationError: handle_validation_error,
+        ProviderError: handle_provider_error,
         Exception: handle_unexpected_error,
     }
     for exception_type, handler in handlers.items():

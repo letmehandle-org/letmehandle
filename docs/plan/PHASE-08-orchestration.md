@@ -58,7 +58,12 @@ Each is a named, individually tested requirement:
   answers as the caller hangs up; escalation requested twice; agent ends the call while
   escalation is in flight; provider callback arrives after teardown.
 - **Timeouts.** Every wait is bounded — human ring time, agent decision time, speech
-  response, provider calls. A timeout is a transition, not an exception that escapes.
+  response, provider calls, and the call itself. A timeout is a transition, not an exception that
+  escapes. A call still held when `CALL_MAX_DURATION_SECONDS` (four hours by default) has passed
+  is ended as failed, because a report of it ending that never arrives — a handset's app killed or
+  offline — cannot be told from a long call; and an account holds at most five live calls, a
+  sixth being recorded as failed on arrival, so a handset reporting new calls in a loop holds a
+  handful of runs rather than thousands.
 - **Partial provider failure.** Speech fails mid-call; the transport rejects a bridge;
   notification fails (D-016: never blocks escalation); LLM is unavailable. Each has a defined
   degraded behaviour, and each is tested.
@@ -126,10 +131,6 @@ Each is a named, individually tested requirement:
 
 Accepted for now, and recorded so they are not mistaken for behaviour anybody chose:
 
-- **A handset call has no duration bound when its ending is never reported.** A handset reports
-  its calls, and a report of the call ending that never arrives — the app killed, the handset
-  offline — leaves the call's run holding it until the process stops. Nothing times it out, because
-  nothing on the server can tell a long call from a lost report.
 - **Recovery assumes one instance.** Starting ends every call storage holds as unfinished, which
   is right only when the starting process is the only one. During a rolling deploy a new instance
   would fail the calls an old one is still carrying, and end them at their transport.

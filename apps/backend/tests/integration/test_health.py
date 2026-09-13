@@ -63,20 +63,19 @@ async def test_documentation_is_available_outside_production(
 
 
 def test_documentation_is_not_served_in_production() -> None:
-    # Asserted on the application rather than by making a request, because a production
-    # application cannot currently start: the only one-time-password provider is the mock, and
-    # it refuses. See test_a_production_configuration_refuses_the_mock_provider.
+    # Asserted on the application rather than by making a request: a production application
+    # with the default code provider does not start. See
+    # test_a_production_configuration_refuses_the_mock_provider.
     app = create_app(make_settings(app_env=Environment.PRODUCTION))
     assert app.docs_url is None
     assert app.openapi_url is None
 
 
 async def test_a_production_configuration_refuses_the_mock_provider() -> None:
-    """The application will not start in production today, and that is the intended state.
+    """The application will not start in production with the mock provider.
 
-    No provider that actually delivers a code exists yet — the first one arrives with the
-    telephony work. Until then a production deployment is refused loudly at startup rather than
-    running with a provider that would let anybody sign in as anybody.
+    A production deployment left on the default is refused loudly at startup rather than running
+    with a provider that would let anybody sign in as anybody.
     """
     app = create_app(make_settings(app_env=Environment.PRODUCTION))
     with pytest.raises(InvariantError, match="cannot run in production"):

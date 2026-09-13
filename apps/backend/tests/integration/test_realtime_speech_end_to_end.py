@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from letmehandle.adapters.clock import SystemClock
-from letmehandle.adapters.speech.session_support.telemetry import TIME_TO_FIRST_AUDIO
+from letmehandle.adapters.speech.session_support.telemetry import RECONNECTIONS, TIME_TO_FIRST_AUDIO
 from letmehandle.application.speech.conversation import (
     Conversation,
     ConversationEnd,
@@ -185,7 +185,13 @@ async def test_a_dropped_connection_recovers_without_ending_the_conversation(
         await session.update_context(LATEST_CONTEXT)
 
         service.drop_connections()
-        await asyncio.wait_for(_until(lambda: len(service.handshakes) == 2), PATIENCE_SECONDS)
+        # The replacement is only listening once the session has finished restoring it: speech in
+        # between belongs to no connection, and waiting on the handshake alone raced that.
+        await asyncio.wait_for(
+            _until(lambda: metrics.counted(RECONNECTIONS, outcome="succeeded") == 1),
+            PATIENCE_SECONDS,
+        )
+        assert len(service.handshakes) == 2
 
         call.speaker.say_something()
         await call.until_heard(heard_before + 1)

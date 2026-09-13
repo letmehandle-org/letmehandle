@@ -17,7 +17,7 @@ from letmehandle.bootstrap import (
     build_notification_providers,
     build_reported_calls,
     build_voice_provider,
-    close_notification_providers,
+    close_providers,
 )
 from letmehandle.config.settings import (
     APNsEnvironmentName,
@@ -169,7 +169,7 @@ class TestProviders:
         )
         recording = RecordingNotificationProvider()
         container = replace(container, notifications=(*container.notifications, recording))
-        await close_notification_providers(container)
+        await close_providers(container)
         assert all(
             each._client.is_closed  # type: ignore[attr-defined]
             for each in container.notifications

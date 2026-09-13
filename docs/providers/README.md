@@ -44,7 +44,7 @@ provider reads is in the [configuration reference](../development/configuration.
 | `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, [documented](agent.md) |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
 | `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10, [documented](notifications.md) |
-| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2, [documented](otp.md) |
+| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2, [documented](otp.md); text messages since D-037 |
 | `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2, [documented](clock.md) |
 
 Interface paths are relative to `apps/backend/src/letmehandle/domain/` — except `CallAgent`, an

@@ -66,7 +66,10 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    finishes first, so its leg can be cancelled too. When the provider refuses one step the rest
    are still tried and the call is released, and then the first refusal is raised. Shutting the
    service down terminates every call in progress the same way, for at most five seconds, and
-   then releases whatever is left.
+   then releases whatever is left. A call this process never held — one a stopped process left
+   up, ended as the next one starts — is ended by what the provider still knows: the caller's leg,
+   the conference by its name, and any leg dialled for the call that is still ringing or answered,
+   found by its numbers, from the number the call reached to the line it was forwarded from.
 
 ### Whose call it is
 

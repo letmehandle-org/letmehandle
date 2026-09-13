@@ -31,9 +31,11 @@ from letmehandle.api.schemas import (
 )
 from letmehandle.application.auth.service import (
     AuthenticationError,
+    CodeMayHaveBeenSentError,
     RateLimitedError,
     UnservedNumberError,
 )
+from letmehandle.domain.errors import UnreachableNumberError
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -116,6 +118,25 @@ async def request_challenge(
             UNPROCESSABLE,
             "unserved_country",
             "Sign-in codes are not sent to numbers in this country.",
+        ) from error
+    except CodeMayHaveBeenSentError as error:
+        # Committed rather than rolled back, so the code counts; the client is told when to ask
+        # again instead of asking straight away.
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+            "A service this depends on is unavailable. Try again shortly.",
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
+    except UnreachableNumberError as error:
+        # The one delivery failure the person signing in can fix. It says nothing about whether
+        # the number has an account, only that no text reaches it. Every other provider failure
+        # is left to the application's handler, which rolls the challenge back: a code that was
+        # never sent must not use up the number's allowance.
+        raise ApiError(
+            UNPROCESSABLE,
+            "number_unreachable",
+            "That number cannot receive a sign-in code. Check it and try again.",
         ) from error
 
     return ChallengeResponse(
