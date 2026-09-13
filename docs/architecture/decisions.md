@@ -624,3 +624,25 @@ including those who had finished: finished meant finished for calls that no long
 **Recording it where it is not asked is a 422, `step_not_asked`,** and nothing is stored. Not a
 409: nothing about the user's state would make it succeed on another try. It is the same answer a
 removed or invented step gets — the request names something that does not exist here.
+
+## D-035 — What callers said is kept out of screenshots, as far as each platform allows
+
+**Accepted.** Call history, a call's summary, what was said and an escalation are other people's
+words and the user's circumstances. They are kept out of screenshots, screen recordings and the
+app switcher's snapshot, by what each platform actually offers rather than by one mechanism
+pretended to be both:
+
+| Platform | What it does | Where |
+| --- | --- | --- |
+| Android | `FLAG_SECURE` on the window: screenshots and recordings are refused and the recents card is blank | only while one of those screens is mounted, counted so a transcript opened over a summary keeps both protected |
+| iOS | a cover drawn over the whole app as it resigns active, so the switcher's snapshot shows nothing | the whole app, always |
+
+iOS gives an app no supported way to refuse a screenshot, and no per-screen hook before the
+switcher's snapshot is taken, so the app does not claim either: it covers everything, which is
+cheap because every screen in it is about the user's calls. The Android flag is not applied app-wide
+because it also blanks the setup screens, where a user sending a screenshot to someone helping them
+is the ordinary case.
+
+The native side is a module on Android and nothing on iOS; the JavaScript asks the module if it is
+there and does nothing if it is not (D-005). The guard is a counter rather than a toggle, so
+closing the top screen never unprotects the ones beneath it.

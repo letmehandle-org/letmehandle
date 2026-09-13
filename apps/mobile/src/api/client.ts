@@ -27,11 +27,23 @@ import type {
   Profile,
   TokenPair,
   UpdateProfileRequest,
+  CallDetail,
+  CallOutcome,
+  CallPage,
+  Escalation,
+  Transcript,
 } from '@letmehandle/api-client';
 
 import { environment } from '../config/environment';
 import { ApiError, NetworkError } from './errors';
 import type { VoiceCatalogue, VoiceSelection } from './voice';
+
+/** Which calls to list. Each filter is the API's own. */
+export interface CallQuery {
+  readonly outcome?: CallOutcome;
+  readonly humanJoined?: boolean;
+  readonly cursor?: string | null;
+}
 
 export interface SessionHandle {
   /** The access token to send, or nothing when signed out. */
@@ -43,7 +55,7 @@ export interface SessionHandle {
 }
 
 interface RequestOptions {
-  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly body?: unknown;
   readonly authenticated?: boolean;
@@ -225,6 +237,77 @@ export class ApiClient {
       method: 'POST',
       path: '/v1/onboarding',
       body: { step, skipped },
+      authenticated: true,
+    });
+  }
+
+  // ---------------------------------------------------------------- calls
+
+  /**
+   * One page of call history, newest first.
+   *
+   * `outcome` and `humanJoined` narrow it to calls that have a summary; the cursor carries on
+   * from where the previous page ended, and is null when there is nothing older.
+   */
+  calls(query: CallQuery = {}): Promise<CallPage> {
+    const params = new URLSearchParams();
+    if (query.outcome !== undefined) {
+      params.set('outcome', query.outcome);
+    }
+    if (query.humanJoined !== undefined) {
+      params.set('human_joined', String(query.humanJoined));
+    }
+    if (query.cursor != null) {
+      params.set('cursor', query.cursor);
+    }
+    const search = params.toString();
+    return this.send<CallPage>({
+      method: 'GET',
+      path: search === '' ? '/v1/calls' : `/v1/calls?${search}`,
+      authenticated: true,
+    });
+  }
+
+  call(callId: string): Promise<CallDetail> {
+    return this.send<CallDetail>({
+      method: 'GET',
+      path: `/v1/calls/${encodeURIComponent(callId)}`,
+      authenticated: true,
+    });
+  }
+
+  /** What was said. `404 transcript_not_recorded` and `410 transcript_purged` are answers, not faults. */
+  transcript(callId: string): Promise<Transcript> {
+    return this.send<Transcript>({
+      method: 'GET',
+      path: `/v1/calls/${encodeURIComponent(callId)}/transcript`,
+      authenticated: true,
+    });
+  }
+
+  /** Gone for good: the summary and the words. Succeeds whether or not there was anything to delete. */
+  deleteCall(callId: string): Promise<void> {
+    return this.send<void>({
+      method: 'DELETE',
+      path: `/v1/calls/${encodeURIComponent(callId)}`,
+      authenticated: true,
+    });
+  }
+
+  /** Why the assistant wanted the user on a call, in the words the notification carried. */
+  escalation(callId: string): Promise<Escalation> {
+    return this.send<Escalation>({
+      method: 'GET',
+      path: `/v1/escalations/${encodeURIComponent(callId)}`,
+      authenticated: true,
+    });
+  }
+
+  /** The account and everything held because of it, now. Live calls are ended first. */
+  deleteAccount(): Promise<void> {
+    return this.send<void>({
+      method: 'DELETE',
+      path: '/v1/me',
       authenticated: true,
     });
   }
