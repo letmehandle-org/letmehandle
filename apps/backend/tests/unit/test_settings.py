@@ -174,6 +174,15 @@ def test_elevenlabs_is_chosen_from_the_environment(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.usefixtures("required_environment")
+def test_gpt_live_is_chosen_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_PROVIDER", "gpt_live")
+    monkeypatch.setenv("SPEECH_MODEL", "a-live-model")
+    settings = get_settings()
+    assert settings.speech_provider is SpeechProviderName.GPT_LIVE
+    assert settings.speech_model == "a-live-model"
+
+
+@pytest.mark.usefixtures("required_environment")
 def test_an_unknown_speech_protocol_is_refused_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECH_PROVIDER", "carrier-pigeon")
     with pytest.raises(ConfigurationError, match="SPEECH_PROVIDER"):
@@ -210,6 +219,27 @@ def test_an_agent_that_is_configured_is_returned_with_its_endpoint() -> None:
         "wss://speech.example.com/v1/convai/conversation",
         "agent-example",
     )
+
+
+def test_a_live_model_that_is_configured_is_returned_with_its_endpoint() -> None:
+    settings = make_settings(
+        speech_provider=SpeechProviderName.GPT_LIVE,
+        speech_endpoint_url="wss://speech.example.com/v1/live/sessions",
+        speech_model="a-live-model",
+    )
+    assert settings.require_speech_live_model() == (
+        "wss://speech.example.com/v1/live/sessions",
+        "a-live-model",
+    )
+
+
+def test_a_live_session_without_a_model_names_what_is_missing() -> None:
+    settings = make_settings(
+        speech_provider=SpeechProviderName.GPT_LIVE,
+        speech_endpoint_url="wss://speech.example.com/v1/live/sessions",
+    )
+    with pytest.raises(ConfigurationError, match="SPEECH_MODEL must be set"):
+        settings.require_speech_live_model()
 
 
 @pytest.mark.usefixtures("required_environment")

@@ -78,7 +78,7 @@ callers ask what a provider can do rather than assuming.
 | Port | Responsibility | Implemented by |
 | --- | --- | --- |
 | `CallTransport` | how a call exists: observe, screen, answer, stream, inject, add a participant, terminate | `adapters/transport/twilio`, `adapters/transport/android_native` |
-| `SpeechProvider` | realtime spoken conversation: audio in, audio out, interruption, context | `adapters/speech/realtime`, `adapters/speech/elevenlabs` |
+| `SpeechProvider` | realtime spoken conversation: audio in, audio out, interruption, context | `adapters/speech/realtime`, `adapters/speech/elevenlabs`, `adapters/speech/gpt_live` |
 | `CallAgent` | judgement: intent, importance, structured decisions, through tools (an application port, D-026) | `adapters/agent/strands` |
 | `VoiceProvider` | how the assistant sounds: catalogue, preview, custom voices | `adapters/voice/builtin.py` |
 | `NotificationProvider` | reaching the user's device | `adapters/notification/apns`, `adapters/notification/fcm` |

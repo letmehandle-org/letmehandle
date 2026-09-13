@@ -69,7 +69,7 @@ A floor, not a goal. A test that exists only to move the number is a defect.
 | Real thing | Stands in for it in tests |
 | --- | --- |
 | Programmable telephony | `tests/support/simulated_twilio.py`: answers the REST API, signs callbacks as the provider does, opens real media websockets, and can duplicate, reorder and drop callbacks |
-| Realtime speech service | `tests/support/simulated_realtime_service.py`, `simulated_elevenlabs_service.py`: in-process websocket servers speaking each protocol |
+| Realtime speech service | `tests/support/simulated_realtime_service.py`, `simulated_elevenlabs_service.py`: in-process websocket servers speaking each protocol; `scripted_gpt_live_connection.py`: the GPT-Live protocol in memory |
 | The model | `tests/support/scripted_model.py`: a script of what the model says, run through the real agent loop and tools |
 | Push services | `tests/support/push_services.py`, and the recording providers in `tests/contracts/fakes.py` |
 | Time | `FixedClock`, which moves only when told to |
