@@ -121,3 +121,18 @@ Each is a named, individually tested requirement:
 - **Concurrency tests that pass by luck.** Repetition and deterministic scheduling where
   possible; any test that has ever flaked is treated as a defect in the code until proven
   otherwise.
+
+### Known limits
+
+Accepted for now, and recorded so they are not mistaken for behaviour anybody chose:
+
+- **A handset call has no duration bound when its ending is never reported.** A handset reports
+  its calls, and a report of the call ending that never arrives — the app killed, the handset
+  offline — leaves the call's run holding it until the process stops. Nothing times it out, because
+  nothing on the server can tell a long call from a lost report.
+- **Recovery assumes one instance.** Starting ends every call storage holds as unfinished, which
+  is right only when the starting process is the only one. During a rolling deploy a new instance
+  would fail the calls an old one is still carrying, and end them at their transport.
+- **The notification is sent before the dial.** An escalation starts the notification and then
+  dials, so a user can be told about a ring that the transport then refuses. D-016 makes the
+  notification safe to arrive without a ring, but the user is still told of one that never came.

@@ -188,6 +188,13 @@ the call would leave a dump saying who called whom all the same, and a phone num
 personal as anything said on the line. The category stays readable, being a classification
 rather than an identity, and history decrypts the caller per row.
 
+*Amended:* escalation contexts are sealed the same way. The caller's label, what was established
+and what the caller needs are one ciphertext under the transcript keys, bound to the user, the call,
+the reason and the moment the escalation was raised; the reason, status, delivery and times stay
+readable. Together those words are an account of the call as personal as its transcript, and they
+are kept for as long as the call is, so they are held to the same rule. The sealed record in full is
+therefore transcripts, summaries, the caller on the call record, and escalation contexts.
+
 ## D-015 — Notifications: direct APNs and direct FCM, one adapter each
 
 **Accepted.** Two adapters behind one `NotificationProvider` port. The iOS path does not
@@ -459,6 +466,13 @@ the final state, and mark the escalation context ended.
 **State is durable; a live call is not resumable.** The call is stored on every transition. After a
 restart the audio stream and the speech session are gone, so a call found unfinished is ended at its
 transport where that is possible and recorded as failed, never left in an indeterminate state.
+
+*Amended:* the summary teardown writes is the model summariser's for a call the assistant handled,
+with the agent's recorded outcome, when it recorded one that holds, laid over it; any other call, and
+one whose summariser does not answer within teardown's summary bound, is summarised by the fallback
+built from the call's facts. The summariser is given that same bound, so the two cannot disagree.
+The final state is stored with the summary, as described below, and a call whose final state could
+not be stored is given no summary.
 
 *Amended:* an ending is the one move not stored the moment it is made. It is stored with the summary,
 as teardown's last write, once the call has been let go at its transport; a process that stops
