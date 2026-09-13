@@ -66,7 +66,12 @@ class CallScreeningGraph private constructor(context: Context) {
     store.write(SNAPSHOT, text)
   }
 
-  /** Forget the account's rules and its unreported calls, for a sign-out. */
+  /** Start recording calls, for the account that has signed in. */
+  fun rememberAccount() {
+    ledger.startRecording()
+  }
+
+  /** Forget the account's rules and its unreported calls, and stop recording, for a sign-out. */
   fun forgetAccount() {
     store.write(SNAPSHOT, null)
     ledger.clear()

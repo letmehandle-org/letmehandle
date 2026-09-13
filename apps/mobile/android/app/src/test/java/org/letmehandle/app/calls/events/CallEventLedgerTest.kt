@@ -29,15 +29,17 @@ class CallEventLedgerTest {
   private val unreadable = mutableListOf<Throwable>()
   private val now = Instant.parse("2026-09-13T11:00:00Z")
 
-  private fun ledger(capacity: Int = CallEventLedger.DEFAULT_CAPACITY) =
+  /** A ledger over the one store, recording for a signed-in account unless [signedIn] is false. */
+  private fun ledger(capacity: Int = CallEventLedger.DEFAULT_CAPACITY, signedIn: Boolean = true) =
       CallEventLedger(
-          store = store,
-          tracker = CallStateTracker { "id-${++counter}" },
-          onChanged = { changes++ },
-          onOverflow = { overflows += it },
-          onUnreadable = { unreadable += it },
-          capacity = capacity,
-      )
+              store = store,
+              tracker = CallStateTracker { "id-${++counter}" },
+              onChanged = { changes++ },
+              onOverflow = { overflows += it },
+              onUnreadable = { unreadable += it },
+              capacity = capacity,
+          )
+          .also { if (signedIn) it.startRecording() }
 
   @Test
   fun `events wait until the backend has them, across a restart`() {
@@ -89,6 +91,45 @@ class CallEventLedgerTest {
     ledger.clear()
     assertTrue(ledger.pending().isEmpty())
     assertTrue(store.values.isEmpty())
+  }
+
+  @Test
+  fun `nothing is recorded before any account has signed in`() {
+    val ledger = ledger(signedIn = false)
+    ledger.screened("+12025550145", ScreeningDecision.REJECT, now)
+    ledger.phoneState(PhoneState.RINGING, now.plusSeconds(1))
+    ledger.phoneState(PhoneState.IDLE, now.plusSeconds(20))
+
+    assertTrue(ledger.pending().isEmpty())
+    assertTrue(store.values.isEmpty())
+    assertEquals(0, changes)
+  }
+
+  @Test
+  fun `calls while nobody is signed in are never reported to whoever signs in next`() {
+    // A shared phone: one account signs out, somebody's calls arrive, another account signs in.
+    val ledger = ledger()
+    ledger.clear()
+    ledger.screened("+12025550145", ScreeningDecision.SILENCE, now)
+    ledger.phoneState(PhoneState.RINGING, now.plusSeconds(1))
+    // A process started for the next broadcast, while still nobody is signed in.
+    ledger(signedIn = false).phoneState(PhoneState.IDLE, now.plusSeconds(20))
+
+    ledger.startRecording()
+
+    assertTrue(ledger.pending().isEmpty())
+    ledger.screened(null, ScreeningDecision.REJECT, now.plusSeconds(60))
+    assertEquals(listOf(now.plusSeconds(60), now.plusSeconds(60)), ledger.pending().map { it.occurredAt })
+  }
+
+  @Test
+  fun `a call already ringing when an account signs in is not half reported`() {
+    val ledger = ledger(signedIn = false)
+    ledger.phoneState(PhoneState.RINGING, now)
+    ledger.startRecording()
+    ledger.phoneState(PhoneState.IDLE, now.plusSeconds(5))
+
+    assertTrue(ledger.pending().isEmpty())
   }
 
   /** Three stored events, `event-1` to `event-3`, with [corrupt] stored at [position] among them. */

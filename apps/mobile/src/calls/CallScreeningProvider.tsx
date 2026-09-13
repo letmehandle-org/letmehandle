@@ -1,7 +1,10 @@
 /**
  * Keeping the handset's screening in step with the signed-in user.
  *
- * Two jobs, both running for as long as somebody is signed in:
+ * Two jobs, both running for as long as somebody is signed in, and a switch:
+ *
+ *   The handset records calls only once this has told it somebody is signed in. Sign-out stops
+ *   it, so a call that arrives with nobody signed in is never reported to the next account.
  *
  *   The rules snapshot is rewritten whenever the preferences change, and when the app starts.
  *   The screening service reads only that copy, so a rule changed on this screen reaches the
@@ -54,6 +57,12 @@ export function CallScreeningProvider({
   const { api } = useSession();
   const { preferences } = usePreferences();
   const [rulesNotSaved, setRulesNotSaved] = useState(false);
+
+  useEffect(() => {
+    // A failure leaves the handset not recording, which loses calls rather than misattributing
+    // them; the next start of the app asks again.
+    screening?.startRecordingCalls().catch(() => undefined);
+  }, [screening]);
 
   useEffect(() => {
     if (screening === null) {

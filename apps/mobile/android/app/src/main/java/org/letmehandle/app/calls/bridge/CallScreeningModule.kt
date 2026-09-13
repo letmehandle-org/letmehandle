@@ -88,6 +88,11 @@ class CallScreeningModule(private val context: ReactApplicationContext) :
     }
   }
 
+  override fun startRecordingCalls(promise: Promise) {
+    graph.rememberAccount()
+    promise.resolve(null)
+  }
+
   override fun forgetAccount(promise: Promise) {
     graph.forgetAccount()
     promise.resolve(null)

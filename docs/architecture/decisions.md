@@ -431,6 +431,16 @@ contacts and callers withholding their number are never shown to it and always r
 handset does not classify callers, so only important contacts and the `unknown` category apply
 there.
 
+*Amended:* the handset records calls only while an account is signed in. The app switches recording
+on when a signed-in session starts and sign-out switches it off in the same step that forgets the
+account's rules and unreported calls, under the lock every recording takes. A call with nobody
+signed in is let ring, as it is with no rules, and nothing about it is kept: it is nobody's to
+report, and on a shared phone it is somebody else's, which kept events would have reported to
+whoever signed in next. Stamping each stored event with the account it was recorded under and
+dropping the rest at sending was not chosen: it would still keep callers' numbers on the handset
+for an account that does not exist, and needs an identity for "nobody" that not recording does not.
+An install that was signed in before this starts recording the next time the app is opened.
+
 ## D-029 — One orchestrator, one sequential run per call, and a plan derived from capabilities
 
 **Accepted.** A single `CallOrchestrator` owns every call's life. Each live call is a *run*: an

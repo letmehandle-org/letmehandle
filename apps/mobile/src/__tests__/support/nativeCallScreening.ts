@@ -20,6 +20,8 @@ export class FakeNativeCallScreening implements Spec {
   refuseNextSnapshot = false;
   /** The events waiting to be reported. */
   pending: Record<string, unknown>[] = [];
+  /** Whether calls are being recorded: from starting for an account until it is forgotten. */
+  recording = false;
   forgotten = 0;
   requests = 0;
   private readonly listeners = new Set<() => void>();
@@ -44,8 +46,13 @@ export class FakeNativeCallScreening implements Spec {
     this.snapshots.push(snapshot);
   }
 
+  async startRecordingCalls(): Promise<void> {
+    this.recording = true;
+  }
+
   async forgetAccount(): Promise<void> {
     this.forgotten += 1;
+    this.recording = false;
     this.snapshots.length = 0;
     this.pending = [];
   }
@@ -74,8 +81,11 @@ export class FakeNativeCallScreening implements Spec {
     };
   };
 
-  /** The native side recording a call and saying so. */
+  /** A call on the handset: recorded and announced, unless no account is signed in. */
   record(...events: Record<string, unknown>[]): void {
+    if (!this.recording) {
+      return;
+    }
     this.pending.push(...events);
     this.listeners.forEach(listener => listener());
   }

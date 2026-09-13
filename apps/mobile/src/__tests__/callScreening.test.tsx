@@ -326,4 +326,26 @@ describe('keeping the handset in step', () => {
     });
     expect(native.snapshots).toEqual([]);
   });
+
+  it('records calls only while somebody is signed in', async () => {
+    // A shared phone: calls that arrive between one account leaving and the next arriving are
+    // nobody's, and must never be reported as the calls of whoever signs in next.
+    const native = new FakeNativeCallScreening();
+    const backend = runningBackend();
+    const view = await signedIn(callScreeningFrom(native));
+    await waitFor(() => {
+      expect(native.recording).toBe(true);
+    });
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
+
+    await fireEvent.press(await view.findByTestId('profile-sign-out'));
+    await waitFor(() => {
+      expect(native.recording).toBe(false);
+    });
+    native.record(SCREENED);
+
+    expect(native.pending).toEqual([]);
+    expect(backend.reports).toEqual([]);
+  });
 });
