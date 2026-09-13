@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.application.orchestration.inputs import ConversationStopped, Heard
@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.speech import SpeechSession
 
 logger = get_logger(__name__)
+
+SPEECH_CLOSE_FAILED: Final = "call.speech_close_failed"
 
 
 class UserReach(StrEnum):
@@ -134,14 +136,22 @@ class Speaking:
             logger.warning("call.context_update_failed", error=type(error).__name__)
 
     async def stop(self) -> None:
-        """End the conversation and close the session. Safe to call again."""
+        """End the conversation and close the session. Safe to call again, and never raises."""
         task, self._task = self._task, None
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         opened, self._session = self._session, None
-        if opened is not None:
+        if opened is None:
+            return
+        try:
             await opened[0].close()
+        # A session that fails as it closes is closed as far as the call is concerned: nothing
+        # more will be sent on it, and whatever stops it — a teardown, the assistant gone — must
+        # go on past it rather than leave the call half ended. Logged by kind and counted.
+        except Exception as error:  # noqa: BLE001
+            logger.warning("call.speech_close_failed", error=type(error).__name__)
+            self._metrics.increment(SPEECH_CLOSE_FAILED, {"kind": _kind(error)})
 
     async def _converse(self, conversation: Conversation) -> None:
         try:
@@ -160,3 +170,7 @@ class Speaking:
             preferences.authority,
             situation=situation.as_data(),
         )
+
+
+def _kind(error: Exception) -> str:
+    return "timeout" if isinstance(error, TimeoutError) else "error"

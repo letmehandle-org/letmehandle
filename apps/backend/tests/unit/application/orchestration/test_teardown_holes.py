@@ -19,6 +19,7 @@ from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.summary import CallOutcome
+from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from tests.support.orchestration import (
     OWNER,
     WANTS_THE_USER,
@@ -50,10 +51,6 @@ async def with_the_assistant(running: Running) -> StreamingLine:
     return line
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a speech session whose close raises aborts _finish: no terminate, no summary",
-)
 async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> None:
     line = StreamingLine()
     async with orchestrating(line) as running:
@@ -71,6 +68,29 @@ async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> Non
         assert line.asked("terminate", CALL) == 1
         assert CallId(CALL) in running.stores.summaries.stored
         assert running.stores.call(CALL).state is CallState.COMPLETED
+        assert running.metrics.counted("call.speech_close_failed", kind="error") == 1
+
+
+async def test_a_speech_session_that_fails_to_close_as_the_assistant_goes_still_ends_the_call() -> (
+    None
+):
+    line = StreamingLine()
+    async with orchestrating(line) as running:
+        await with_the_assistant(running)
+        session = await running.session()
+
+        async def close() -> None:
+            raise ProviderError("speech", "the reader failed", retryable=False)
+
+        session.close = close  # type: ignore[method-assign]  # a session that fails as it closes
+        # The assistant's leg drops mid-call with nobody else coming: the caller must not be left
+        # on a line nothing holds.
+        line.leaves(CALL, Leg.ASSISTANT)
+        await eventually(lambda: CallId(CALL) not in running.orchestrator._runs)
+
+        assert line.asked("terminate", CALL) == 1
+        assert CallId(CALL) in running.stores.summaries.stored
+        assert running.stores.call(CALL).state is CallState.FAILED
 
 
 @pytest.mark.xfail(
