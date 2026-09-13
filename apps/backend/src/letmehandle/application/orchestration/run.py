@@ -46,6 +46,7 @@ from letmehandle.application.orchestration.inputs import (
     RingRanOut,
     SilenceRanOut,
 )
+from letmehandle.application.orchestration.judging import Judgements
 from letmehandle.application.orchestration.ledger import CallLedger, reported_instant
 from letmehandle.application.orchestration.metrics import (
     CALL_BOUNDED,
@@ -53,8 +54,6 @@ from letmehandle.application.orchestration.metrics import (
     DEGRADED,
     DUPLICATE_IGNORED,
     ESCALATION_RESOLVED,
-    JUDGEMENT_FAILED,
-    JUDGEMENT_SECONDS,
     ROUTED,
     SPEECH_OPEN_SECONDS,
     SUMMARY_FAILED,
@@ -203,8 +202,7 @@ class CallRun:
         self._speaking = Speaking(
             call_id=incoming.call_id, post=self.post, clock=context.clock, metrics=context.metrics
         )
-        self._judgement: asyncio.Task[None] | None = None
-        self._judge_again = False
+        self._judgements = Judgements(context, post=self.post, note=self._note)
         self._ring = Timer(self.post)
         self._silence = Timer(self.post)
         self._lifetime = Timer(self.post)
@@ -514,9 +512,8 @@ class CallRun:
 
     async def _on_heard(self, live: _Live, turn: TranscriptTurn) -> None:
         await live.ledger.said(_speaker(turn), turn.text)
-        assistant = self._plan.assistant
-        if turn.speaker_is_caller and live.ledger.state in _JUDGED_IN and assistant is not None:
-            self._judge(live, assistant)
+        if turn.speaker_is_caller:
+            self._judge(live)
 
     async def _on_ring_ran_out(self, live: _Live, dial: DialTheUser) -> None:
         if live.ledger.state is CallState.HUMAN_RINGING:
@@ -645,49 +642,27 @@ class CallRun:
 
     # ------------------------------------------------------------------------------- judgement
 
-    def _judge(self, live: _Live, assistant: Converse) -> None:
-        if self._judgement is not None and not self._judgement.done():
-            self._judge_again = True
+    def _judge(self, live: _Live) -> None:
+        assistant = self._plan.assistant
+        if assistant is None or live.ledger.state not in _JUDGED_IN:
             return
+        self._judgements.look(assistant.assistance.judging.agent, lambda: self._so_far(live))
+
+    def _so_far(self, live: _Live) -> CallSoFar:
         call = live.ledger.call
-        so_far = CallSoFar.for_user(
+        return CallSoFar.for_user(
             call_id=call.id,
             preferences=live.owner.preferences,
             caller=call.caller,
             transcript=call.transcript,
             now=self._context.clock.now(),
         )
-        self._judgement = asyncio.get_running_loop().create_task(self._look(assistant, so_far))
-
-    async def _look(self, assistant: Converse, so_far: CallSoFar) -> None:
-        context = self._context
-        agent = assistant.assistance.judging.agent
-        stopwatch = Stopwatch()
-        try:
-            with context.tracer.span("agent.judgement", dependency=Dependency.MODEL.value):
-                judgement = await context.circuits[Dependency.MODEL].call(
-                    lambda: within(context.bounds.judgement, lambda: agent.judge(so_far))
-                )
-        # A judgement that fails or runs out of time changes nothing about the call: the assistant
-        # carries on, and the next thing the caller says is looked at afresh.
-        except Exception as error:  # noqa: BLE001
-            log_failure(logger, "call.judgement_failed", error)
-            kind = classify(error).kind
-            context.metrics.increment(JUDGEMENT_FAILED, {"kind": kind})
-            self._note(MarkKind.FAILURE, f"judgement.{kind}")
-            context.metrics.observe(JUDGEMENT_SECONDS, stopwatch.seconds, {"outcome": "failed"})
-            self.post(Judged(None))
-        else:
-            context.metrics.observe(JUDGEMENT_SECONDS, stopwatch.seconds, {"outcome": "judged"})
-            self.post(Judged(judgement))
 
     def _on_judged(self, live: _Live, judgement: AgentJudgement | None) -> None:
         if judgement is not None:
             self._findings = replace(self._findings, proposal=judgement.proposal)
-        assistant = self._plan.assistant
-        if self._judge_again and live.ledger.state in _JUDGED_IN and assistant is not None:
-            self._judge_again = False
-            self._judge(live, assistant)
+        if self._judgements.settle_owed():
+            self._judge(live)
 
     # -------------------------------------------------------------------------------- teardown
 
@@ -759,10 +734,7 @@ class CallRun:
 
     async def _release_tasks(self) -> None:
         """Stop the judgement, the timers and the conversation, and wait for each to go."""
-        judgement, self._judgement = self._judgement, None
-        if judgement is not None:
-            judgement.cancel()
-            await asyncio.gather(judgement, return_exceptions=True)
+        await self._judgements.release()
         await self._ring.release()
         await self._silence.release()
         await self._lifetime.release()

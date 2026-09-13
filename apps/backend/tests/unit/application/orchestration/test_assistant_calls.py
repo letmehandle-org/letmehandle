@@ -707,6 +707,21 @@ class TestEscalation:
             await eventually(lambda: session.is_closed)
             assert running.stores.call(CALL).state is CallState.HUMAN_JOINED
 
+    async def test_what_the_caller_says_once_the_user_has_joined_is_not_judged(self) -> None:
+        line = streaming()
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await ringing(running)
+            await eventually(lambda: running.judgements == 1)
+            line.user_answers(CALL)
+            await running.settled(CALL, CallState.HUMAN_JOINED)
+            await running.caller_says("Hello, it's me.")
+            said = running.stores.transcripts.lines[CallId(CALL)]
+            await eventually(lambda: said[-1].text == "Hello, it's me.")
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+            assert running.judgements == 1
+
     async def test_with_the_assistant_gone_a_user_not_reached_ends_the_call(self) -> None:
         line = streaming()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
