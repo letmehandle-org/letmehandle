@@ -18,8 +18,9 @@ curl -s localhost:8000/health
 curl -s localhost:8000/health/ready
 ```
 
-`make sample-env` writes a `.env` with fresh keys, the mock sign-in provider and example voices, and
-nothing that costs money. `make up` builds the backend image, starts PostgreSQL, migrates it and
+If you followed the quick start in the README, this is already done, and running it again changes
+nothing: `make sample-env` leaves an existing `.env` alone. It writes one with fresh keys, the mock
+sign-in provider and example voices, and nothing that costs money. `make up` builds the backend image, starts PostgreSQL, migrates it and
 starts the backend. Liveness answers `{"status":"ok",...}`; readiness answers `ready` once the
 database is reachable.
 

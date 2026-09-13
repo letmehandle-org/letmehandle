@@ -11,7 +11,7 @@
 # history. What it does not: a phone call. Every provider a call needs is left unset, and each
 # one's page under docs/providers/ says what to set.
 #
-#   python3 scripts/create_sample_env.py            write .env, refusing to replace one
+#   python3 scripts/create_sample_env.py            write .env, leaving an existing one alone
 #   python3 scripts/create_sample_env.py --force    replace it
 
 from __future__ import annotations
@@ -60,8 +60,10 @@ def main() -> int:
     arguments = parser.parse_args()
 
     if TARGET.exists() and not arguments.force:
+        # Not a failure: there is a configuration, which is what was asked for. Refusing to replace
+        # it is what keeps somebody's own keys and providers from being overwritten by a rerun.
         print(f"{TARGET.name} already exists; left as it is. Pass --force to replace it.")
-        return 1
+        return 0
     TARGET.write_text(fill(EXAMPLE.read_text(), generated_values()))
     # Owner-only: the file now holds two keys.
     TARGET.chmod(0o600)
