@@ -1,8 +1,8 @@
 """The HTTP and websocket routes the provider calls, owned by the adapter that understands them.
 
 Here rather than under `api/`, so that no provider's name or callback shape enters the HTTP
-layer the product's own clients use. Bootstrap mounts this router only when this transport is
-the one configured; otherwise these paths do not exist.
+layer the product's own clients use. Bootstrap mounts this router once for each line this
+transport carries, and not at all when none is configured; otherwise these paths do not exist.
 
 Every route does the same four things in the same order: prove the request came from the
 provider, refuse it if it did not, recognise a redelivery, and hand what it says to the
@@ -87,8 +87,11 @@ def build_router(
 
     Each callback is a span of its own: the first of a call's life, and the way a provider's delay
     in calling back is told apart from this service's in answering.
+
+    The routes sit under the transport's path prefix. A request is proved over the whole path it
+    arrived on, prefix included, because that is the URL the provider was told and signed.
     """
-    router = APIRouter(include_in_schema=False)
+    router = APIRouter(prefix=transport.path_prefix, include_in_schema=False)
 
     async def verified(request: Request) -> tuple[Parameters, dict[str, str]]:
         """The form parameters and our own query parameters, once the request is proved."""

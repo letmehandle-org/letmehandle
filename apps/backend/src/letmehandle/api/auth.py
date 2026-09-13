@@ -192,7 +192,7 @@ async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices)
 
 @router.get("/me", response_model=ProfileResponse, summary="The signed-in user")
 async def read_me(user: CurrentUser, forwarding: Forwarding) -> ProfileResponse:
-    return _profile(user, forwarding)
+    return _profile(user, forwarding.for_user(user.phone_number))
 
 
 @router.patch("/me", response_model=ProfileResponse, summary="Update the profile")
@@ -214,7 +214,7 @@ async def update_me(
     if updated != user:
         await users.update(updated)
 
-    return _profile(updated, forwarding)
+    return _profile(updated, forwarding.for_user(updated.phone_number))
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")

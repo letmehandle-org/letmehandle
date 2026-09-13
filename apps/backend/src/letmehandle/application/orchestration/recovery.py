@@ -3,6 +3,10 @@
 A live call is not resumable: its audio stream and its speech session went with the process that
 held them. So a call found unfinished at startup is ended at its transport where that is possible,
 moved to FAILED and summarised, and never left in a state nothing will move it out of (D-029).
+
+A stored call does not say which line it arrived on, so every line is asked to end it. A line that
+never carried the call finds nothing of it at its provider; asking is what a line is for when it
+holds nothing, and it costs a restart a few requests per call left behind.
 """
 
 from __future__ import annotations
@@ -37,14 +41,14 @@ class Recovery:
     def __init__(
         self,
         *,
-        transport: CallTransport,
+        transports: tuple[CallTransport, ...],
         stores: OpenCallStores,
         dispatcher: EscalationDispatcher,
         clock: Clock,
         metrics: MetricsRecorder,
         bounds: Bounds,
     ) -> None:
-        self._transport = transport
+        self._transports = transports
         self._stores = stores
         self._dispatcher = dispatcher
         self._clock = clock
@@ -82,13 +86,14 @@ class Recovery:
             return ()
 
     async def _end(self, call: CallSession) -> None:
-        try:
-            async with asyncio.timeout(self._bounds.provider.total_seconds()):
-                await self._transport.terminate(call.id)
-        # Ended here whether or not the transport could let it go: the call is over either way,
-        # because nothing holds it any more.
-        except Exception as error:  # noqa: BLE001
-            log_failure(logger, "call.recovery_terminate_failed", error)
+        for transport in self._transports:
+            try:
+                async with asyncio.timeout(self._bounds.provider.total_seconds()):
+                    await transport.terminate(call.id)
+            # Ended here whether or not a transport could let it go: the call is over either way,
+            # because nothing holds it any more.
+            except Exception as error:  # noqa: BLE001
+                log_failure(logger, "call.recovery_terminate_failed", error)
         ledger = CallLedger(
             call, stores=self._stores, clock=self._clock, bounds=self._bounds, metrics=self._metrics
         )

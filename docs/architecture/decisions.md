@@ -925,3 +925,76 @@ reports:
 **Accepted trade: the caller's start of speech arrives late.** Nothing in the protocol reports it
 sooner than the words, and the model has already stopped by then; what is late is only the signal to
 the consumer, not the barge-in.
+
+## D-041 — One deployment serves several countries, a telephony line for each
+
+**Accepted.** Amends D-029, D-033, D-034 and D-037. A deployment can carry calls for users in the US
+and in India at once. Each user's country — their **telephony region** — decides three things: the
+line their calls are carried on, the number they forward to, and who texts them a sign-in code.
+
+**A region is read from the number the user signed in with.** `TelephonyRegion` in the domain is a
+name and a country calling code: `1` is `US`, `91` is `IN`. It is the one thing the product always
+knows about somebody, and a number states it. A region is one entry in `REGIONS`; a country no entry
+covers has no region. Code 1 is a numbering plan shared with other countries, and it is named for the
+one this product serves in it.
+
+**A line is an account with a streaming provider, its numbers, and the regions it serves.**
+Configured as `TELEPHONY_LINES` — `name:provider=twilio;regions=US;numbers=+E164;account=id;app=id;
+webhook=https://host`, comma-separated — with the auth tokens apart in `TELEPHONY_LINE_AUTH_TOKENS`
+(`name:token`), so the variable holding secrets is never the one read out to find which line is
+wrong. Compact text rather than JSON, for the reason the voice catalogue gives. `regions=*` is a line
+for every region no other line serves. Two lines for one region, two `*` lines, a line without a
+token, a token for no line, and these variables beside `TELEPHONY_PROVIDER` or its single-account
+variables are all refused at startup, naming the variables and never a value. The single-account
+variables are unchanged and mean what they always did: one line, serving every region, its routes
+at the root.
+
+**Bootstrap builds a transport per line, and mounts each line's routes under `/lines/<name>`.** The
+provider signs the URL it was told, so a line's every callback URL carries its prefix, and two
+lines of one provider each receive only their own callbacks. The single line of `TELEPHONY_PROVIDER`
+keeps its routes at the root, so a provider console set up before lines existed needs no change.
+Each line resolves whose call a call is as before (D-033), from what its own transport knows.
+
+**Still one orchestrator (D-029), reading every line.** A call belongs to the line it arrived on for
+its whole life: its plan is derived from that line's transport, its owner is found by that line's
+ownership, and the user is dialled into it, bridged and the call ended there. So an escalation rings
+the user from the number the call reached — a number in their own country, which is what they
+expect to see and what the call costs least to place. A provider's call identifiers never repeat, so
+calls on two lines never share one. The run itself did not change: each line's runs are given the
+shared context with that line's transport and owners.
+
+**A restart asks every line to end a call left unfinished.** A stored call does not say which line
+carried it; the line that did not finds nothing of it at its provider. Recording the line with the
+call would save a few requests per call at a restart, and cost a migration and a column nothing else
+reads, so it is not done.
+
+**The forwarding number is the user's region's (amends D-034).** `ForwardingNumbers` holds each
+region's number — the first number of the line serving it — and the `*` line's for everybody else.
+`GET /v1/me` and the setup flow ask it for the signed-in user. **A user no line serves** — an
+Indian number on a deployment with only a US line, or a country with no region — gets
+`call_forwarding: null`, and setup does not ask the forwarding step: there is no number to forward
+to, and one abroad would cost them for every call while delaying the caller. Setup finishes, and no
+call of theirs reaches the assistant. That is why a deployment lists the countries it
+serves in `OTP_ALLOWED_CALLING_CODES` (D-036): somebody from a country it does not serve is refused
+at sign-in rather than set up for a product that cannot take their calls.
+
+**Sign-in codes go through the provider for the number's calling code (amends D-037).**
+`OTP_PROVIDER_BY_CALLING_CODE` (`91:twilio_sms`) names a provider per calling code; every other number
+uses `OTP_PROVIDER`. Operators in some countries accept application texts only from a sender
+registered with a provider licensed there, and a deployment serving such a country needs that
+provider for it and no other. The choice is an `OTPProvider` of its own in the adapters, so the
+authentication service, its allowlist and its budgets are untouched: they decide whether a code is
+sent before any provider is asked. A calling code named there that `OTP_ALLOWED_CALLING_CODES` does
+not allow is refused at startup. The chooser is safe for production only if every provider is, and
+offers a fixed testing code only when every provider fixes the same one — the code is chosen before
+the provider is, so a mock serving one country must not fix the code a real provider texts to another.
+
+**Accepted trade: the telephony circuit is shared by every line.** One circuit per dependency
+(D-038) means a provider failing on one line refuses requests on the others until it cools off.
+Both lines are the same provider today, whose outages are rarely one account's. A circuit per line
+is the change to make when a second provider is.
+
+**An Indian provider** is added without touching orchestration or sign-in: a `CallTransport` adapter
+and a `LineProviderName` member with a case in bootstrap for calls, and an `OTPProvider` adapter with
+an `OTPProviderName` member and a case in bootstrap for texts. The checklist is in
+[`docs/providers/call-transport.md`](../providers/call-transport.md#serving-another-country).

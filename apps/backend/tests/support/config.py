@@ -15,9 +15,12 @@ from letmehandle.config.settings import (
     Settings,
     SpeechProviderName,
     TelephonyProviderName,
+    parse_calling_codes,
     parse_llm_headers,
+    parse_otp_providers,
     parse_voice_catalogue,
 )
+from letmehandle.config.telephony_lines import parse_telephony_lines
 
 if TYPE_CHECKING:
     from letmehandle.domain.models.phone_number import PhoneNumber
@@ -62,6 +65,8 @@ def make_settings(
     log_format: LogFormat = LogFormat.CONSOLE,
     database_url: str | None = None,
     otp_provider: OTPProviderName = OTPProviderName.MOCK,
+    otp_provider_by_calling_code: str = "",
+    otp_allowed_calling_codes: str = "",
     sms_account_id: str | None = None,
     sms_auth_token: str | None = None,
     sms_from_number: PhoneNumber | None = None,
@@ -82,6 +87,8 @@ def make_settings(
     telephony_numbers: tuple[PhoneNumber, ...] | None = None,
     telephony_app_id: str | None = None,
     telephony_webhook_base_url: str | None = None,
+    telephony_lines: str | None = None,
+    telephony_line_auth_tokens: str | None = None,
     call_max_duration_seconds: int = 14_400,
     llm_base_url: str | None = None,
     llm_api_key: str | None = None,
@@ -109,6 +116,8 @@ def make_settings(
         log_format=log_format,
         database_url=PostgresDsn(database_url) if database_url is not None else None,
         otp_provider=otp_provider,
+        otp_provider_by_calling_code=parse_otp_providers(otp_provider_by_calling_code),
+        otp_allowed_calling_codes=parse_calling_codes(otp_allowed_calling_codes),
         sms_account_id=sms_account_id,
         sms_auth_token=SecretStr(sms_auth_token) if sms_auth_token is not None else None,
         sms_from_number=sms_from_number,
@@ -139,6 +148,12 @@ def make_settings(
         telephony_webhook_base_url=(
             AnyHttpUrl(telephony_webhook_base_url)
             if telephony_webhook_base_url is not None
+            else None
+        ),
+        telephony_lines=None if telephony_lines is None else parse_telephony_lines(telephony_lines),
+        telephony_line_auth_tokens=(
+            SecretStr(telephony_line_auth_tokens)
+            if telephony_line_auth_tokens is not None
             else None
         ),
         call_max_duration_seconds=call_max_duration_seconds,

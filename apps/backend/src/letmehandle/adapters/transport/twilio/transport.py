@@ -125,15 +125,25 @@ _OUTCOMES: Final = {
 
 @dataclass(frozen=True, slots=True)
 class TwilioConfig:
-    """The account this transport is, and where the provider reaches it."""
+    """The account this transport is, and where the provider reaches it.
+
+    `path_prefix` is put in front of every path the provider calls, so that two transports on one
+    service — a line for each country, say — each have routes of their own. Empty mounts them at
+    the root, where a deployment with one line has always had them.
+    """
 
     account_id: str
     app_id: str
     numbers: tuple[PhoneNumber, ...]
+    path_prefix: str = ""
 
     def __post_init__(self) -> None:
         if not self.numbers:
             raise InvariantError("a streaming transport needs a number to place calls from")
+        if self.path_prefix and (
+            not self.path_prefix.startswith("/") or self.path_prefix.endswith("/")
+        ):
+            raise InvariantError("a path prefix starts with a slash and does not end with one")
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +289,11 @@ class TwilioCallTransport(CallTransport):
     @property
     def account_id(self) -> str:
         return self._config.account_id
+
+    @property
+    def path_prefix(self) -> str:
+        """What every path this transport's provider calls begins with."""
+        return self._config.path_prefix
 
     # ---------------------------------------------------------- what is held open
 
@@ -503,7 +518,7 @@ class TwilioCallTransport(CallTransport):
         leg.call_sid = leg.call_sid or call_sid
         leg.stream_call_sid = call_sid
         return twiml.assistant_stream(
-            stream_url=self._verifier.websocket_url(MEDIA_PATH),
+            stream_url=self._verifier.websocket_url(self._config.path_prefix + MEDIA_PATH),
             parameters={
                 CALL_PARAMETER: call.call_id.value,
                 LEG_PARAMETER: leg.label,
@@ -964,7 +979,7 @@ class TwilioCallTransport(CallTransport):
         query = {CALL_PARAMETER: call.call_id.value}
         if leg is not None:
             query[LEG_PARAMETER] = leg.label
-        return self._verifier.url_for(path, urlencode(query))
+        return self._verifier.url_for(self._config.path_prefix + path, urlencode(query))
 
 
 def _number_or_none(raw: str | None) -> PhoneNumber | None:

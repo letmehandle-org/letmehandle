@@ -79,14 +79,6 @@ to the user who signed in with that number (`ForwardedCallOwnership`, D-033). A 
 account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
 it and records nothing.
 
-### Whose call it is
-
-A caller dials the user's own number and the user's carrier forwards it to the account's number,
-which every user shares. The carrier's `ForwardedFrom` names the user's line, and the call belongs
-to the user who signed in with that number (`ForwardedCallOwnership`, D-033). A call dialled at the
-account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
-it and records nothing.
-
 ### What the orchestrator hears
 
 | Event | Participant | Outcome | When |
@@ -200,6 +192,18 @@ and checked against `apps/mobile/src/calls/wire-examples.json`.
 The other variables are the streaming transport's account. When `TELEPHONY_PROVIDER=twilio`, the
 process refuses to start naming every one missing; the on-device transport needs none of them.
 
+For a deployment serving several countries, lines by region replace all of the above (D-041):
+
+| Variable | Meaning |
+| --- | --- |
+| `TELEPHONY_LINES` | The lines, comma-separated, each `name:provider=twilio;regions=US;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`. `regions` is `US`, `IN`, several as `US\|IN`, or `*` for every region no other line serves. A region's users forward to its line's first number |
+| `TELEPHONY_LINE_AUTH_TOKENS` | Each line's auth token, `name:token`, comma-separated. Secrets, never logged |
+| `OTP_PROVIDER_BY_CALLING_CODE` | Who texts sign-in codes to a calling code, `91:twilio_sms`; everybody else gets `OTP_PROVIDER` |
+
+A line's name is 1-16 lower-case letters, digits or `-`, and its callbacks are under
+`/lines/<name>`. Setting `TELEPHONY_LINES` with `TELEPHONY_PROVIDER` or any `TELEPHONY_` account
+variable is refused, as are two lines for one region, two `*` lines, and a line without a token.
+
 ## Setting up a streaming account
 
 In the provider's console, with `BASE` standing for `TELEPHONY_WEBHOOK_BASE_URL`:
@@ -208,6 +212,50 @@ In the provider's console, with `BASE` standing for `TELEPHONY_WEBHOOK_BASE_URL`
 2. **The application.** Create a TwiML application. Voice URL: `BASE/telephony/voice/assistant`,
    method `POST`. Its identifier is `TELEPHONY_APP_ID`.
 3. Status callbacks and the media websocket URL are set by the transport itself on every call.
+
+On a deployment with lines by region, `BASE` for each line is its `webhook` followed by
+`/lines/<name>`: the number's voice webhook is `BASE/lines/<name>/telephony/voice/incoming`, and the
+application's voice URL `BASE/lines/<name>/telephony/voice/assistant`. A number pointed at another
+line's path, or at the root, is refused with `403` or `404` rather than taken on the wrong line.
+
+## Serving another country
+
+India is the example; any region is the same steps. A region must exist in
+`apps/backend/src/letmehandle/domain/models/region.py` first — adding one is one entry in `REGIONS`,
+with a test.
+
+1. **A number in the country.** Buy a voice number there on the provider account the line will use,
+   and meet the country's own requirements for it (address and identity documents, local
+   registration). Calls forwarded to a number abroad cost the user and delay the caller, which is the
+   reason for a line per country.
+2. **The line.** Create the provider-side application for it, and point the number and the
+   application at `BASE/lines/in/...` as above.
+3. **Configuration.** Move the existing single account into `TELEPHONY_LINES` as its own line
+   (`us:...;regions=US` or `regions=*`) — the two forms cannot be combined — add
+   `in:provider=twilio;regions=IN;numbers=+91...;account=...;app=...;webhook=https://...`, and both
+   tokens to `TELEPHONY_LINE_AUTH_TOKENS`. A single line that moves under `/lines/<name>` needs its
+   number and application repointed in the console at the same time.
+4. **Sign-in.** Add `91` to `OTP_ALLOWED_CALLING_CODES`. If the default text-message provider cannot
+   deliver to Indian numbers from a registered sender, set `OTP_PROVIDER_BY_CALLING_CODE=91:<provider>`
+   with that provider's variables.
+5. **Languages.** Calls can open in Hindi (D-039): list `hi` in `SPEECH_LANGUAGES`, with a voice for
+   it in `SPEECH_VOICES`.
+6. **Check it.** Sign in with an Indian number: `GET /v1/me` names the Indian line's number and setup
+   asks the forwarding step. Forward to it, call, and ask the assistant for the user: the user's
+   phone rings from the Indian number. A US user is still told, and rung from, the US number.
+
+**What an Indian provider adapter needs**, when the provider is not one this project has:
+
+- *For calls*: a `CallTransport` in `adapters/transport/<provider>/` declaring honestly what it can
+  do, passing `tests/contracts/call_transport.py`, with routes that sit under a path prefix it is
+  given and a `CallOwnership` that reads the forwarded-from line; a `LineProviderName` member; a
+  case in `_line_binding` in bootstrap. If its account is not an account id, an application id and a
+  token, `TelephonyLine` gains the fields it needs and `parse_telephony_lines` the keys, per provider.
+  A circuit per line should come with it (D-041).
+- *For sign-in codes*: an `OTPProvider` in `adapters/otp/`, passing `OTPProviderContract`, raising
+  `UnreachableNumberError` for a number it will not deliver to and `ProviderError` otherwise; an
+  `OTPProviderName` member; its own settings; a case in `_otp_provider_named` in bootstrap. Nothing
+  under `application/auth` changes.
 
 ### Developing against real callbacks
 

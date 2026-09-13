@@ -19,6 +19,7 @@ from letmehandle.adapters.transport.twilio.routes import (
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier, compute_signature
 from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
+from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from tests.support.recording_metrics import RecordingMetrics
@@ -366,3 +367,48 @@ async def test_each_callback_is_a_span_naming_its_route_and_call_and_a_repeat_is
     ]
     assert metrics.counted(CALLBACK_REPEATED, stage="incoming") == 1
     assert metrics.counted(CALLBACK_REPEATED, stage="conference") == 1
+
+
+# ----------------------------------------------------- a line's routes under its own prefix
+
+
+async def test_a_prefixed_transport_is_called_back_under_its_prefix_and_nowhere_else() -> None:
+    # Two lines on one service each need routes of their own, and every URL the provider is told
+    # must lead back to the line that told it, or a callback would reach the other account.
+    lined = TwilioCallTransport(
+        config=TwilioConfig(
+            account_id=ACCOUNT,
+            app_id="app",
+            numbers=(PhoneNumber.parse("+12025550100"),),
+            path_prefix="/lines/in",
+        ),
+        api=RecordingApi(),
+        verifier=SignatureVerifier(auth_token=TOKEN, public_base_url=BASE),
+    )
+    app = FastAPI()
+    app.include_router(build_router(lined, tracer=RecordingTracer(), metrics=RecordingMetrics()))
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            unprefixed = await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
+            arrived = await signed_post(client, "/lines/in/telephony/voice/incoming", ARRIVAL)
+        await lined.answer(CallId("CAsim-1"))
+        joining = lined.assistant_joining({"call": "CAsim-1", "leg": "assistant-1"}, "CAsim-a")
+    finally:
+        await lined.close()
+    assert unprefixed.status_code == 404
+    assert arrived.status_code == 200
+    assert f'statusCallback="{BASE}/lines/in/telephony/conference/status?call=CAsim-1"' in (
+        arrived.text
+    )
+    assert '<Stream url="wss://calls.example.com/lines/in/telephony/media">' in joining
+
+
+@pytest.mark.parametrize("prefix", ["lines/in", "/lines/in/"])
+def test_a_prefix_that_would_not_join_a_path_cleanly_is_refused(prefix: str) -> None:
+    with pytest.raises(InvariantError, match="path prefix"):
+        TwilioConfig(
+            account_id=ACCOUNT,
+            app_id="app",
+            numbers=(PhoneNumber.parse("+12025550100"),),
+            path_prefix=prefix,
+        )

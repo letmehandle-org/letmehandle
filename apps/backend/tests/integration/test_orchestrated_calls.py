@@ -34,7 +34,7 @@ from letmehandle.adapters.transport.twilio import transport as transport_module
 from letmehandle.application.orchestration.ports import AssistantServices
 from letmehandle.bootstrap import (
     build_call_orchestrator,
-    build_call_transport,
+    build_call_transports,
     build_container,
     build_escalation_dispatcher,
     build_reported_calls,
@@ -242,7 +242,7 @@ async def orchestrating(
                 settings,
                 container=container,
                 session_factory=factory,
-                telephony=deployment.binding,
+                telephony=[deployment.binding],
                 dispatcher=dispatcher,
                 observability=observability,
                 assistant=AssistantServices(
@@ -484,13 +484,12 @@ async def test_a_restart_ends_the_users_phone_still_ringing_for_a_call_left_runn
         # The process that dialled her stops hearing anything, as a stopped process does, and the
         # one started after it, which holds nothing about the call, ends it.
         running.provider.hold()
-        successor = build_call_transport(
+        (successor,) = build_call_transports(
             telephony_settings(),
             reported_calls=build_reported_calls(),
             observability=recorded_observability(),
             http_transport=running.provider.rest,
         )
-        assert successor is not None
         try:
             await successor.transport.terminate(CallId(CALL))
         finally:

@@ -25,6 +25,13 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from letmehandle.config.telephony_lines import (
+    LineDescription,
+    LineProviderName,
+    TelephonyLine,
+    parse_line_tokens,
+    parse_telephony_lines,
+)
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
@@ -110,21 +117,6 @@ class SmsAccount:
     account_id: str
     auth_token: str = field(repr=False)
     sender: PhoneNumber
-
-
-@dataclass(frozen=True, slots=True)
-class StreamingTelephony:
-    """Everything a streaming call transport needs, present and checked.
-
-    `webhook_base_url` has no trailing slash, so a path can be appended to it without producing
-    a URL that differs by one character from the one the provider signed.
-    """
-
-    account_id: str
-    auth_token: str
-    numbers: tuple[PhoneNumber, ...]
-    app_id: str
-    webhook_base_url: str
 
 
 class ConfigurationError(RuntimeError):
@@ -270,6 +262,10 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+def _lines_from_text(value: object) -> object:
+    return parse_telephony_lines(value) if isinstance(value, str) else value
+
+
 def _unforwarded_owner_from_text(value: object) -> object:
     if not isinstance(value, str):
         return value
@@ -307,6 +303,38 @@ def parse_calling_codes(text: str) -> frozenset[str] | None:
 
 def _calling_codes_from_text(value: object) -> object:
     return parse_calling_codes(value) if isinstance(value, str) else value
+
+
+# How OTP_PROVIDER_BY_CALLING_CODE is written, quoted in every error about it.
+OTP_PROVIDERS_FORMAT: Final = "91:twilio_sms,1:mock"
+
+
+def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
+    """Which provider sends codes to each calling code, as `code:provider`, comma-separated."""
+    routes: dict[str, OTPProviderName] = {}
+    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+        code, separator, name = (part.strip() for part in entry.partition(":"))
+        code = code.lstrip("+")
+        known = {provider.value for provider in OTPProviderName}
+        if (
+            not separator
+            or not code.isdigit()
+            or not 1 <= len(code) <= 3
+            or code.startswith("0")
+            or name not in known
+        ):
+            raise ValueError(
+                f"OTP_PROVIDER_BY_CALLING_CODE entry {position} is not a calling code and one of "
+                f"{', '.join(sorted(known))}, as in {OTP_PROVIDERS_FORMAT!r}"
+            )
+        if code in routes:
+            raise ValueError(f"OTP_PROVIDER_BY_CALLING_CODE names calling code {code} twice")
+        routes[code] = OTPProviderName(name)
+    return tuple(routes.items())
+
+
+def _otp_providers_from_text(value: object) -> object:
+    return parse_otp_providers(value) if isinstance(value, str) else value
 
 
 def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
@@ -395,6 +423,7 @@ def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
 
 # When a group of variables is required, named once so the generated reference says it one way.
 _STREAMING_CALLS: Final = "`TELEPHONY_PROVIDER=twilio`"
+_LINES: Final = "`TELEPHONY_LINES` is set"
 _MODEL: Final = "the agent judges calls or a model writes summaries; all three together"
 _APNS: Final = "any `APNS_` variable is set"
 _FCM: Final = "any `FCM_` variable is set"
@@ -471,6 +500,18 @@ class Settings(BaseSettings):
         description="Who delivers sign-in codes. `mock` delivers nowhere, accepts the development "
         "code, and refuses to start in production.",
     )
+    # Who delivers codes to particular countries, where the default provider should not: a country
+    # whose operators accept messages only from a sender registered with a provider licensed there.
+    otp_provider_by_calling_code: Annotated[
+        tuple[tuple[str, OTPProviderName], ...],
+        NoDecode,
+        BeforeValidator(_otp_providers_from_text),
+        Field(
+            description="Who delivers sign-in codes to numbers with particular calling codes, as "
+            "`code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is "
+            "sent its code by `OTP_PROVIDER` (D-041).",
+        ),
+    ] = ()
     otp_allowed_calling_codes: Annotated[
         frozenset[str] | None,
         NoDecode,
@@ -697,6 +738,31 @@ class Settings(BaseSettings):
         ),
     ] = None
 
+    # Lines by region: the alternative to the single account above, for a deployment whose users are
+    # in more than one country and should each forward to, and be rung from, a local number. The
+    # structure and the tokens are two variables, so the one holding secrets is never the one
+    # somebody reads out to find which line is misconfigured.
+    telephony_lines: Annotated[
+        tuple[LineDescription, ...] | None,
+        NoDecode,
+        BeforeValidator(_lines_from_text),
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
+            "account: `name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
+            "webhook=https://host`, comma-separated. `regions=*` serves every region no other "
+            "line does. A line's callbacks are under `/lines/<name>` (D-041).",
+        ),
+    ] = None
+    telephony_line_auth_tokens: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="Each line's auth token, as `name:token`, comma-separated.",
+            json_schema_extra={"required_when": _LINES},
+        ),
+    ] = None
+
     # Whose a call dialled straight at the account's number is, for trying a deployment from a
     # phone without setting up forwarding. Development only: in production such a call belongs to
     # nobody, because anybody can dial the number and must not reach a user's assistant by it.
@@ -881,6 +947,24 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _codes_are_routed_only_where_they_may_be_sent(self) -> Settings:
+        """Refuse a provider for a calling code sign-in codes are never sent to.
+
+        It could never be used, and a deployment that lists one most likely meant to allow the
+        country too and will find its users there refused at sign-in.
+        """
+        allowed = self.otp_allowed_calling_codes
+        unsent = sorted(
+            code for code, _ in self.otp_provider_by_calling_code if allowed and code not in allowed
+        )
+        if unsent:
+            raise ValueError(
+                f"OTP_PROVIDER_BY_CALLING_CODE names {', '.join(unsent)}, which "
+                "OTP_ALLOWED_CALLING_CODES does not allow codes to be sent to"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _default_voice_is_in_the_catalogue(self) -> Settings:
         """A default outside the catalogue leaves a call nobody configured with no voice at all.
 
@@ -899,6 +983,14 @@ class Settings(BaseSettings):
                 "listed in SPEECH_VOICES"
             )
         return self
+
+    @field_validator("telephony_line_auth_tokens", mode="after")
+    @classmethod
+    def _line_tokens_are_well_formed(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the tokens' shape once they are a `SecretStr`, as the transcript keys are."""
+        if value is not None:
+            parse_line_tokens(value.get_secret_value())
+        return value
 
     @field_validator("transcript_encryption_keys", mode="after")
     @classmethod
@@ -992,28 +1084,26 @@ class Settings(BaseSettings):
             ]
             raise ConfigurationError(
                 f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"OTP_PROVIDER={self.otp_provider}. Set them in .env; see .env.example."
+                f"{OTPProviderName.TWILIO_SMS}. Set them in .env; see .env.example."
             )
         return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.
 
-        Only the streaming transport needs an account. A handset transport is configured on the
-        handset, and no transport at all needs nothing. Either transport needs storage and the
-        transcript keys: calls are owned, recorded and sealed by an orchestrator that is built
-        only with them, and a transport with no orchestrator answers callers into a call that
-        nothing will ever act on.
+        Only streaming lines need an account. A handset transport is configured on the handset,
+        and no transport at all needs nothing. Either needs storage and the transcript keys: calls
+        are owned, recorded and sealed by an orchestrator that is built only with them, and a
+        transport with no orchestrator answers callers into a call that nothing will ever act on.
         """
         if self.is_production and self.telephony_unforwarded_calls_owner is not None:
             raise ConfigurationError(
                 "TELEPHONY_UNFORWARDED_CALLS_OWNER is for trying a deployment and is refused in "
                 "production, where anybody could dial the number and reach that user's assistant."
             )
-        if self.telephony_provider is None:
+        if self.telephony_provider is None and self.telephony_lines is None:
             return
-        if self.telephony_provider is TelephonyProviderName.TWILIO:
-            self.require_streaming_telephony()
+        self.require_telephony_lines()
         missing = [
             name
             for name, value in (
@@ -1028,8 +1118,57 @@ class Settings(BaseSettings):
                 "Set them in .env; see .env.example."
             )
 
-    def require_streaming_telephony(self) -> StreamingTelephony:
-        """What a streaming call transport needs, or a failure naming every variable missing."""
+    def require_telephony_lines(self) -> tuple[TelephonyLine, ...]:
+        """The streaming lines calls arrive on, or a failure naming what is missing or at odds.
+
+        None where calls arrive on a handset or not at all. `TELEPHONY_PROVIDER=twilio` is one line
+        serving every region, from the `TELEPHONY_` account variables; `TELEPHONY_LINES` is lines by
+        region, and the two are refused together, because which of them a deployment meant is a
+        guess that decides where every user forwards their calls.
+        """
+        if self.telephony_lines is not None:
+            return self._lines_by_region(self.telephony_lines)
+        if self.telephony_provider is TelephonyProviderName.TWILIO:
+            return (self._the_one_line(),)
+        return ()
+
+    def _lines_by_region(self, lines: tuple[LineDescription, ...]) -> tuple[TelephonyLine, ...]:
+        single = [
+            name
+            for name, value in (
+                ("TELEPHONY_PROVIDER", self.telephony_provider),
+                ("TELEPHONY_ACCOUNT_ID", self.telephony_account_id),
+                ("TELEPHONY_AUTH_TOKEN", self.telephony_auth_token),
+                ("TELEPHONY_NUMBERS", self.telephony_numbers),
+                ("TELEPHONY_APP_ID", self.telephony_app_id),
+                ("TELEPHONY_WEBHOOK_BASE_URL", self.telephony_webhook_base_url),
+            )
+            if value is not None
+        ]
+        if single:
+            raise ConfigurationError(
+                f"{', '.join(single)} configure a single line and cannot be set with "
+                "TELEPHONY_LINES. Describe every line in TELEPHONY_LINES and unset them; see "
+                ".env.example."
+            )
+        if self.telephony_line_auth_tokens is None:
+            raise ConfigurationError(
+                "TELEPHONY_LINE_AUTH_TOKENS must be set to carry calls on TELEPHONY_LINES. "
+                "Set it in .env; see .env.example."
+            )
+        tokens = parse_line_tokens(self.telephony_line_auth_tokens.get_secret_value())
+        names = {line.name for line in lines}
+        untokened = sorted(names - set(tokens))
+        unknown = sorted(set(tokens) - names)
+        if untokened or unknown:
+            raise ConfigurationError(
+                "TELEPHONY_LINE_AUTH_TOKENS must give a token for every line in TELEPHONY_LINES "
+                f"and no other: missing {untokened or 'none'}, unknown {unknown or 'none'}."
+            )
+        return tuple(line.with_token(tokens[line.name]) for line in lines)
+
+    def _the_one_line(self) -> TelephonyLine:
+        """The line `TELEPHONY_PROVIDER=twilio` configures, or a failure naming what is missing."""
         account_id = self.telephony_account_id
         token = self.telephony_auth_token
         numbers = self.telephony_numbers
@@ -1057,7 +1196,10 @@ class Settings(BaseSettings):
                 f"{', '.join(missing)} must be set to carry streaming calls. "
                 "Set them in .env; see .env.example."
             )
-        return StreamingTelephony(
+        return TelephonyLine(
+            name=None,
+            provider=LineProviderName.TWILIO,
+            regions=None,
             account_id=account_id,
             auth_token=token.get_secret_value(),
             numbers=numbers,

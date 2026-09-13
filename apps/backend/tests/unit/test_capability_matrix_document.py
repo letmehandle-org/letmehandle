@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.bootstrap import build_call_transport, build_reported_calls
+from letmehandle.bootstrap import build_call_transports, build_reported_calls
 from letmehandle.config.settings import TelephonyProviderName
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import TransportCapabilities
@@ -67,10 +67,9 @@ async def declared(provider: TelephonyProviderName) -> AsyncIterator[TransportCa
         telephony_app_id="app-for-tests",
         telephony_webhook_base_url="https://calls.example.com",
     )
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         settings, reported_calls=build_reported_calls(), observability=recorded_observability()
     )
-    assert binding is not None
     try:
         yield binding.transport.capabilities
     finally:

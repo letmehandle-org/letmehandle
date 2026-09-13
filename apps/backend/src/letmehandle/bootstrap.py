@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
+from typing import TYPE_CHECKING, Final, assert_never
 
 from fastapi import APIRouter
 
@@ -22,6 +22,7 @@ from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.closing import close_each
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
     SqlEscalationContextRepository,
@@ -43,6 +44,7 @@ from letmehandle.adapters.notification.apns.token import APNsProviderToken
 from letmehandle.adapters.notification.fcm import provider as fcm
 from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
 from letmehandle.adapters.notification.shared import CredentialError
+from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
@@ -85,6 +87,7 @@ from letmehandle.application.orchestration.ports import (
     AssistantServices,
     Bounds,
     CallJudging,
+    CallLine,
     CallOwnership,
     CallStores,
 )
@@ -97,14 +100,15 @@ from letmehandle.config.settings import (
     SpeechProviderName,
     TelephonyProviderName,
 )
+from letmehandle.config.telephony_lines import LineProviderName
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
-from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.observability.in_process import InProcessMetrics, MetricsFanOut
 from letmehandle.observability.metrics import LoggingMetricsRecorder
 from letmehandle.observability.tracing import NoTracer
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from ipaddress import IPv4Network, IPv6Network
 
     import httpx
@@ -114,8 +118,10 @@ if TYPE_CHECKING:
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions
     from letmehandle.application.calls.summariser import CallSummariser
+    from letmehandle.config.telephony_lines import TelephonyLine
     from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
+    from letmehandle.domain.models.region import TelephonyRegion
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -161,9 +167,9 @@ class Container:
     # represents handsets is that sink, so the one instance is both what the reporting route
     # feeds and what anything consuming that transport's events reads.
     reported_calls: CallEventSink
-    # The number users forward their unanswered and busy calls to, or None where nothing needs
-    # forwarding. Decided here once, so the profile and the setup flow cannot disagree about it.
-    forwarding: CallForwarding | None
+    # The numbers users forward their unanswered and busy calls to, by region, and none where
+    # nothing needs forwarding. Decided here once, so the profile and setup cannot disagree.
+    forwarding: ForwardingNumbers
     # One per configured platform, possibly none. A platform without one is an outcome at
     # dispatch, not a startup failure: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
@@ -184,7 +190,7 @@ def build_container(
     is settled before anything starts. Handing the same instance on is what stops a second
     one being built that could answer differently.
 
-    Where handsets' reports go is passed in for the same reason: the call transport is chosen
+    Where handsets' reports go is passed in for the same reason: the call transports are chosen
     before routing too, and when it is the handset transport it must be this very instance, or
     the reports would feed one feed while the product read another.
     """
@@ -225,16 +231,22 @@ def build_container(
     )
 
 
-def build_call_forwarding(settings: Settings) -> CallForwarding | None:
-    """Which number, if any, users must forward their calls to for any to arrive.
+def build_call_forwarding(settings: Settings) -> ForwardingNumbers:
+    """Which number, if any, each user must forward their calls to for any to arrive.
 
-    A streaming call reaches the product only when the user's carrier forwards it to one of the
-    account's numbers, and every user is told the first. A handset screens its own calls and
-    needs nothing forwarded, and a deployment with no transport takes no calls at all.
+    A streaming call reaches the product only when the user's carrier forwards it to one of a
+    line's numbers, and the users a line serves are told its first. A line for every region is
+    the number for anybody no line of their own region serves. A handset screens its own calls
+    and needs nothing forwarded, and a deployment with no transport takes no calls at all.
     """
-    if settings.telephony_provider is TelephonyProviderName.TWILIO:
-        return CallForwarding(settings.require_streaming_telephony().numbers[0])
-    return None
+    by_region: dict[TelephonyRegion, PhoneNumber] = {}
+    elsewhere: PhoneNumber | None = None
+    for line in settings.require_telephony_lines():
+        if line.regions is None:
+            elsewhere = line.numbers[0]
+        else:
+            by_region.update(dict.fromkeys(line.regions, line.numbers[0]))
+    return ForwardingNumbers(by_region=by_region, elsewhere=elsewhere)
 
 
 def build_notification_providers(
@@ -371,17 +383,9 @@ def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
     return cipher
 
 
-@runtime_checkable
-class _Closable(Protocol):
-    async def aclose(self) -> None:
-        """Release what it holds."""
-
-
 async def close_providers(container: Container) -> None:
     """Close each provider's connection. Called once, as the application stops."""
-    for provider in (container.otp, *container.notifications):
-        if isinstance(provider, _Closable):
-            await provider.aclose()
+    await close_each((container.otp, *container.notifications))
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
@@ -410,7 +414,7 @@ def build_speech_provider(
     it to drop a connection on command and watch the session recover — without that caller
     constructing the adapter itself.
 
-    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives: a protocol
+    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives: a protocol
     added to the settings without an adapter chosen here fails to type-check.
     """
     wrap = wrap_connection or _unwrapped
@@ -464,8 +468,9 @@ type FindUser = Callable[[PhoneNumber], Awaitable[UserId | None]]
 class CallTransportBinding:
     """A call transport, its provider's routes, how to release it, and whose calls are whose.
 
-    Handed to the application as one value so that what mounts the routes, what closes the
-    transport and what orchestrates its calls never have to know which transport it is.
+    One per line calls arrive on. Handed to the application as one value so that what mounts the
+    routes, what closes the transport and what orchestrates its calls never have to know which
+    transport it is.
     `ownership` is given how to find a user by number, which needs storage the binding is chosen
     before.
     """
@@ -480,57 +485,96 @@ def build_reported_calls() -> AndroidNativeCallTransport:
     """Where handsets' reports about their own calls become call events.
 
     Built once per application and handed both to the container, whose reporting route feeds
-    it, and to `build_call_transport`, which offers it as the transport when handsets are the
+    it, and to `build_call_transports`, which offers it as the transport when handsets are the
     configured one. A deployment carrying streaming calls still accepts handsets' reports: they
     are stored either way, and only which feed the product reads changes.
     """
     return AndroidNativeCallTransport()
 
 
-def build_call_transport(
+def build_call_transports(
     settings: Settings,
     *,
     reported_calls: AndroidNativeCallTransport,
     observability: Observability,
     http_transport: httpx.AsyncBaseTransport | None = None,
-) -> CallTransportBinding | None:
-    """The call transport this deployment is configured for, if any.
+) -> tuple[CallTransportBinding, ...]:
+    """The call transports this deployment is configured for: one for each line, if any.
 
-    `None` is a supported answer: a deployment configured with no transport carries no calls,
+    None is a supported answer: a deployment configured with no transport carries no calls,
     and no provider's routes exist in it. `reported_calls` is the application's one handset
     transport, offered rather than built here so that there is never a second. `http_transport`
     lets a test put a simulated provider where the provider's API would be, without
     constructing the adapter.
     """
-    if settings.telephony_provider is None:
-        return None
     match settings.telephony_provider:
         case TelephonyProviderName.ANDROID_NATIVE:
             # The handset reports over the application's own authenticated route, which exists
             # whichever transport is chosen, so this transport brings no routes of its own and
             # holds nothing that needs releasing.
-            return CallTransportBinding(
-                transport=reported_calls,
-                router=APIRouter(),
-                close=_nothing_to_close,
-                ownership=_reported_ownership,
+            return (
+                CallTransportBinding(
+                    transport=reported_calls,
+                    router=APIRouter(),
+                    close=_nothing_to_close,
+                    ownership=_reported_ownership,
+                ),
             )
-        case TelephonyProviderName.TWILIO:
-            telephony = settings.require_streaming_telephony()
+        case TelephonyProviderName.TWILIO | None:
+            return tuple(
+                _line_binding(
+                    line,
+                    unforwarded_line=settings.telephony_unforwarded_calls_owner,
+                    observability=observability,
+                    http_transport=http_transport,
+                )
+                for line in settings.require_telephony_lines()
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+# Where a named line's callbacks are, under the service's own path: `/lines/<name>/telephony/...`.
+_LINES_PATH: Final = "/lines"
+
+
+def _path_prefix(line: TelephonyLine) -> str:
+    """What every path a line's provider calls begins with.
+
+    Nothing for the one line `TELEPHONY_PROVIDER` configures, whose provider was set up with paths
+    at the root before there could be a second line; its own name for any other, so two lines of
+    one provider each receive only their own callbacks.
+    """
+    return "" if line.name is None else f"{_LINES_PATH}/{line.name}"
+
+
+def _line_binding(
+    line: TelephonyLine,
+    *,
+    unforwarded_line: PhoneNumber | None,
+    observability: Observability,
+    http_transport: httpx.AsyncBaseTransport | None,
+) -> CallTransportBinding:
+    """A streaming line's transport, routes and ownership, by the provider it is an account with.
+
+    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives.
+    """
+    match line.provider:
+        case LineProviderName.TWILIO:
             transport = TwilioCallTransport(
                 config=TwilioConfig(
-                    account_id=telephony.account_id,
-                    app_id=telephony.app_id,
-                    numbers=telephony.numbers,
+                    account_id=line.account_id,
+                    app_id=line.app_id,
+                    numbers=line.numbers,
+                    path_prefix=_path_prefix(line),
                 ),
                 api=HttpTelephonyApi(
-                    account_id=telephony.account_id,
-                    auth_token=telephony.auth_token,
+                    account_id=line.account_id,
+                    auth_token=line.auth_token,
                     transport=http_transport,
                 ),
                 verifier=SignatureVerifier(
-                    auth_token=telephony.auth_token,
-                    public_base_url=telephony.webhook_base_url,
+                    auth_token=line.auth_token, public_base_url=line.webhook_base_url
                 ),
             )
             return CallTransportBinding(
@@ -540,9 +584,7 @@ def build_call_transport(
                 ),
                 close=transport.close,
                 ownership=partial(
-                    ForwardedCallOwnership,
-                    transport,
-                    unforwarded_line=settings.telephony_unforwarded_calls_owner,
+                    ForwardedCallOwnership, transport, unforwarded_line=unforwarded_line
                 ),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
@@ -563,18 +605,18 @@ def build_call_orchestrator(
     *,
     container: Container,
     session_factory: async_sessionmaker[AsyncSession],
-    telephony: CallTransportBinding,
+    telephony: Sequence[CallTransportBinding],
     dispatcher: EscalationDispatcher,
     observability: Observability,
     assistant: AssistantServices | None = None,
     summariser: CallSummariser | None = None,
 ) -> CallOrchestrator:
-    """The orchestrator for this deployment's transport, storing through short units of work.
+    """The orchestrator for this deployment's lines, storing through short units of work.
 
     Every write is its own unit of work, so a call holds no transaction open while it rings. Calls
     are recorded with who called sealed, so the transcript keys are required. The speech service
-    and the agent are built only for a transport the assistant can take calls on; `assistant` lets
-    a caller supply them instead, the way `build_call_transport` takes a simulated provider.
+    and the agent are built only where the assistant can take calls on some line; `assistant` lets
+    a caller supply them instead, the way `build_call_transports` takes a simulated provider.
 
     Calls the assistant took are summarised by a model when one is configured, and `summariser`
     stands in for it the same way; with neither, every call is summarised from its facts.
@@ -599,9 +641,10 @@ def build_call_orchestrator(
             user = await SqlUserRepository(session, clock).find_by_number(number)
         return None if user is None else user.id
 
-    capabilities = telephony.transport.capabilities
-    takes_calls = (
-        capabilities.supports_agent_conversation and capabilities.can_answer_under_program_control
+    takes_calls = any(
+        binding.transport.capabilities.supports_agent_conversation
+        and binding.transport.capabilities.can_answer_under_program_control
+        for binding in telephony
     )
     if assistant is None and takes_calls:
         assistant = AssistantServices(
@@ -616,8 +659,7 @@ def build_call_orchestrator(
             settings, timeout=bounds.summary, metrics=observability.metrics
         )
     return CallOrchestrator(
-        transport=telephony.transport,
-        ownership=telephony.ownership(find_user),
+        lines=[CallLine(binding.transport, binding.ownership(find_user)) for binding in telephony],
         stores=stores,
         dispatcher=dispatcher,
         clock=clock,
@@ -695,13 +737,32 @@ def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:
-    """Which provider delivers sign-in codes.
+    """Which provider delivers sign-in codes: the default, and any a country has of its own.
+
+    Each provider named is built once, however many calling codes it serves, so one account's
+    connections are shared rather than opened per country.
+    """
+    routes = settings.otp_provider_by_calling_code
+    built = {
+        name: _otp_provider_named(name, settings)
+        for name in {settings.otp_provider, *(name for _, name in routes)}
+    }
+    default = built[settings.otp_provider]
+    if not routes:
+        return default
+    return OTPProviderByCallingCode(
+        default=default, by_calling_code={code: built[name] for code, name in routes}
+    )
+
+
+def _otp_provider_named(name: OTPProviderName, settings: Settings) -> OTPProvider:
+    """The provider called `name`, built from its own settings.
 
     A match with an exhaustiveness check rather than a dictionary with a default: adding a
     provider without deciding what it is called here fails to type-check, instead of quietly
     falling through to the mock — which is the one failure that must never happen silently.
     """
-    match settings.otp_provider:
+    match name:
         case OTPProviderName.MOCK:
             return MockOTPProvider(is_production=settings.is_production)
         case OTPProviderName.TWILIO_SMS:

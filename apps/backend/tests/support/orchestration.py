@@ -32,6 +32,7 @@ from letmehandle.application.orchestration.ports import (
     AssistantServices,
     Bounds,
     CallJudging,
+    CallLine,
     CallOwnership,
     CallStores,
 )
@@ -789,8 +790,12 @@ async def orchestrating(
     stores: MemoryCallStores | None = None,
     start: bool = True,
     circuit_policy: CircuitPolicy | None = None,
+    other_lines: Sequence[Line] = (),
 ) -> AsyncIterator[Running]:
     """An orchestrator on `line`, started, and stopped afterwards with nothing of it left running.
+
+    `other_lines` are further lines the same orchestrator takes calls from, every call on each the
+    one owner's as on `line`.
 
     Counts the tasks alive before and after: a run, a conversation, a judgement or a timer outliving
     the orchestrator fails the test that left it.
@@ -816,8 +821,7 @@ async def orchestrating(
     agent = Agent(list(looks))
     summariser = WritingSummariser()
     orchestrator = CallOrchestrator(
-        transport=line,
-        ownership=EveryCallIsTheOwners(),
+        lines=[CallLine(each, EveryCallIsTheOwners()) for each in (line, *other_lines)],
         stores=storage.scope,
         dispatcher=dispatcher,
         clock=FixedClock(),
@@ -850,7 +854,8 @@ async def orchestrating(
         yield running
     finally:
         await orchestrator.stop()
-        line.close()
+        for each in (line, *other_lines):
+            each.close()
         await dispatcher.aclose()
     assert orchestrator.live_calls == 0
     await eventually(lambda: not running_tasks() - before)

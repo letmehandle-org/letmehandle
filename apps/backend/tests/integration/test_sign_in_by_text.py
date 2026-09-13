@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 import pytest
 import structlog
 
+from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
+from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from tests.integration.conftest import NUMBER, bearer, running
 from tests.support.simulated_sms import (
@@ -160,3 +162,38 @@ async def test_a_service_that_could_not_be_reached_sent_nothing_and_counts_for_n
     service.behaviour = Behaviour.DELIVERS
     sent = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
     assert sent.status_code == 202
+
+
+async def test_each_country_signs_in_with_a_code_from_its_own_provider(
+    session: object, database_url: str, schema: str, service: SimulatedSms
+) -> None:
+    # India's numbers are texted by a provider of their own; everybody else's go to the default.
+    # The Indian number is shorter than any in India's plan, so it can reach nobody.
+    indian_number = "+91555001"
+    default = MockOTPProvider(is_production=False)
+    texting = SmsOTPProvider(
+        account_id=SMS_ACCOUNT, auth_token=SMS_TOKEN, sender=SMS_SENDER, transport=service.transport
+    )
+    provider = OTPProviderByCallingCode(default=default, by_calling_code={"91": texting})
+    try:
+        async with running(database_url, schema, otp=provider) as api:
+            indian = await api.client.post(
+                "/v1/auth/challenge", json={"phone_number": indian_number}
+            )
+            american = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+            signed_in = [
+                await api.client.post(
+                    "/v1/auth/verify",
+                    json={"challenge_id": challenge.json()["challenge_id"], "code": code},
+                )
+                for challenge, code in (
+                    (indian, service.last_code()),
+                    (american, default.sent[-1][1]),
+                )
+            ]
+    finally:
+        await provider.aclose()
+
+    assert [message.to for message in service.sent] == [indian_number]
+    assert [number.value for number, _ in default.sent] == [NUMBER]
+    assert [response.status_code for response in signed_in] == [200, 200]

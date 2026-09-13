@@ -368,7 +368,8 @@ def test_streaming_telephony_is_optional_at_startup() -> None:
     settings = make_settings()
     assert settings.telephony_provider is None
     with pytest.raises(ConfigurationError) as failure:
-        settings.require_streaming_telephony()
+        make_settings(telephony_provider=TelephonyProviderName.TWILIO).require_telephony_lines()
+    assert settings.require_telephony_lines() == ()
     for name in (
         "TELEPHONY_ACCOUNT_ID",
         "TELEPHONY_AUTH_TOKEN",
@@ -386,7 +387,9 @@ def test_streaming_telephony_is_read_from_the_environment(
         monkeypatch.setenv(name, value)
     settings = Settings()
     assert settings.telephony_provider is TelephonyProviderName.TWILIO
-    telephony = settings.require_streaming_telephony()
+    (telephony,) = settings.require_telephony_lines()
+    # One line, at the root, serving everybody: what the variables have always meant.
+    assert (telephony.name, telephony.regions) == (None, None)
     assert [number.value for number in telephony.numbers] == ["+12025550143", "+12025550144"]
     # Without the trailing slash, so appending a path cannot produce a URL nobody signed.
     assert telephony.webhook_base_url == "https://calls.example.com"
@@ -400,7 +403,7 @@ def test_only_what_is_missing_is_named(
         if name != "TELEPHONY_APP_ID":
             monkeypatch.setenv(name, value)
     with pytest.raises(ConfigurationError) as failure:
-        Settings().require_streaming_telephony()
+        Settings().require_telephony_lines()
     assert "TELEPHONY_APP_ID" in str(failure.value)
     assert "TELEPHONY_ACCOUNT_ID" not in str(failure.value)
 

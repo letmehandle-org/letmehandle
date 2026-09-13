@@ -38,7 +38,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
 from letmehandle.adapters.transport.twilio.signature import SIGNATURE_HEADER, compute_signature
-from letmehandle.bootstrap import build_call_transport, build_reported_calls
+from letmehandle.bootstrap import build_call_transports, build_reported_calls
 from letmehandle.config.settings import TelephonyProviderName
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.main import create_app
@@ -62,7 +62,7 @@ OUR_NUMBER: Final = PhoneNumber.parse("+12025550100")
 CALLER_NUMBER: Final = "+12025550123"
 IDEMPOTENCY_HEADER: Final = "I-Twilio-Idempotency-Token"
 
-_API_PREFIX: Final = f"/2010-04-01/Accounts/{SIMULATED_ACCOUNT}"
+_API_ROOT: Final = "/2010-04-01/Accounts/"
 
 
 class Answering(StrEnum):
@@ -121,10 +121,27 @@ class SimulatedConference:
 
 
 class SimulatedTwilio:
-    """The provider, answering the application's requests and calling it back."""
+    """The provider, answering the application's requests and calling it back.
 
-    def __init__(self, *, public_base_url: str = PUBLIC_BASE_URL) -> None:
+    One account with one number. `path_prefix` is where the application serves this account's
+    line, for a deployment with a line per region; two of these, on different accounts and
+    prefixes, are two lines of one provider calling one application back.
+    """
+
+    def __init__(
+        self,
+        *,
+        public_base_url: str = PUBLIC_BASE_URL,
+        account: str = SIMULATED_ACCOUNT,
+        token: str = SIMULATED_TOKEN,
+        number: PhoneNumber = OUR_NUMBER,
+        path_prefix: str = "",
+    ) -> None:
         self.public_base_url = public_base_url
+        self.account = account
+        self.token = token
+        self.number = number
+        self.path_prefix = path_prefix
         self.rest = httpx.MockTransport(self._handle_rest)
         self.answering: dict[str, Answering] = {}
         self.delivered: list[Delivery] = []
@@ -197,16 +214,16 @@ class SimulatedTwilio:
         Returns the instructions the application gave.
         """
         params = [
-            ("AccountSid", SIMULATED_ACCOUNT),
+            ("AccountSid", self.account),
             ("CallSid", call_sid),
             ("From", caller),
-            ("To", OUR_NUMBER.value),
+            ("To", self.number.value),
             ("CallStatus", "ringing"),
             ("Direction", "inbound"),
         ]
         if forwarded_from is not None:
             params.append(("ForwardedFrom", forwarded_from.value))
-        response = await self.post_signed("/telephony/voice/incoming", params)
+        response = await self.post_signed(f"{self.path_prefix}/telephony/voice/incoming", params)
         document = response.text
         root = fromstring(document)  # noqa: S314 - the application under test wrote it
         dial = root.find("./Dial")
@@ -225,7 +242,7 @@ class SimulatedTwilio:
         leg = SimulatedLeg(
             call_sid=call_sid,
             label=conference_element.attrib["participantLabel"],
-            to=OUR_NUMBER.value,
+            to=self.number.value,
             status_callback=None,
             conference=conference,
             from_=caller,
@@ -313,7 +330,7 @@ class SimulatedTwilio:
             delivery.path_and_query,
             data=_fields(delivery.params),
             headers={
-                SIGNATURE_HEADER: compute_signature(url, delivery.params, SIMULATED_TOKEN),
+                SIGNATURE_HEADER: compute_signature(url, delivery.params, self.token),
                 IDEMPOTENCY_HEADER: delivery.token,
             },
         )
@@ -322,15 +339,15 @@ class SimulatedTwilio:
         return response
 
     async def post_signed(
-        self, path_and_query: str, params: list[tuple[str, str]], *, token: str = SIMULATED_TOKEN
+        self, path_and_query: str, params: list[tuple[str, str]], *, token: str | None = None
     ) -> httpx.Response:
-        """A request signed as the provider signs it, with whatever token it is given."""
+        """A request signed as the provider signs it, with its own token or whatever it is given."""
         assert self._client is not None
         url = self.public_base_url + path_and_query
         return await self._client.post(
             path_and_query,
             data=_fields(params),
-            headers={SIGNATURE_HEADER: compute_signature(url, params, token)},
+            headers={SIGNATURE_HEADER: compute_signature(url, params, token or self.token)},
         )
 
     async def assistant_of(self, call_sid: str) -> SimulatedLeg:
@@ -369,16 +386,15 @@ class SimulatedTwilio:
         params = parse_qsl(request.content.decode(), keep_blank_values=True)
         path = request.url.path
         self.requests.append((request.method, path, params))
-        expected = (
-            "Basic " + base64.b64encode(f"{SIMULATED_ACCOUNT}:{SIMULATED_TOKEN}".encode()).decode()
-        )
+        expected = "Basic " + base64.b64encode(f"{self.account}:{self.token}".encode()).decode()
         if request.headers.get("Authorization") != expected:
             return _error(401, 20003)
         if self.fail_next_rest is not None:
             status, self.fail_next_rest = self.fail_next_rest, None
             return _error(status, 20500)
-        assert path.startswith(_API_PREFIX), path
-        parts = path.removeprefix(_API_PREFIX).removesuffix(".json").strip("/").split("/")
+        api_prefix = f"{_API_ROOT}{self.account}"
+        assert path.startswith(api_prefix), path
+        parts = path.removeprefix(api_prefix).removesuffix(".json").strip("/").split("/")
         fields = dict(params)
         match (request.method, parts):
             case ("POST", ["Conferences", name, "Participants"]):
@@ -536,11 +552,11 @@ class SimulatedTwilio:
         leg.answered = True
         await self._progress(leg, "in-progress")
         response = await self.post_signed(
-            "/telephony/voice/assistant",
+            f"{self.path_prefix}/telephony/voice/assistant",
             [
-                ("AccountSid", SIMULATED_ACCOUNT),
+                ("AccountSid", self.account),
                 ("CallSid", application_call),
-                ("From", OUR_NUMBER.value),
+                ("From", self.number.value),
                 ("To", leg.to),
                 *query.items(),
             ],
@@ -560,7 +576,7 @@ class SimulatedTwilio:
             leg.socket = await connect(
                 loopback,
                 additional_headers={
-                    SIGNATURE_HEADER: compute_signature(signed_url, [], SIMULATED_TOKEN)
+                    SIGNATURE_HEADER: compute_signature(signed_url, [], self.token)
                 },
             )
         except Exception as refused:  # noqa: BLE001 - the refusal is what a test inspects
@@ -580,7 +596,7 @@ class SimulatedTwilio:
                     "sequenceNumber": "1",
                     "streamSid": leg.stream_sid,
                     "start": {
-                        "accountSid": SIMULATED_ACCOUNT,
+                        "accountSid": self.account,
                         "streamSid": leg.stream_sid,
                         "callSid": application_call,
                         "tracks": ["inbound"],
@@ -649,7 +665,7 @@ class SimulatedTwilio:
             await self._send(
                 leg.dial_action,
                 [
-                    ("AccountSid", SIMULATED_ACCOUNT),
+                    ("AccountSid", self.account),
                     ("CallSid", leg.call_sid),
                     ("CallStatus", "completed"),
                     ("DialCallStatus", "completed"),
@@ -689,7 +705,7 @@ class SimulatedTwilio:
         reason: str | None = None,
     ) -> None:
         params = [
-            ("AccountSid", SIMULATED_ACCOUNT),
+            ("AccountSid", self.account),
             ("ConferenceSid", conference.sid),
             ("FriendlyName", conference.name),
             ("SequenceNumber", str(next(conference.sequence))),
@@ -714,7 +730,7 @@ class SimulatedTwilio:
         if leg.status_callback is None:
             return
         params = [
-            ("AccountSid", SIMULATED_ACCOUNT),
+            ("AccountSid", self.account),
             ("CallSid", leg.call_sid),
             ("CallStatus", status),
             ("SequenceNumber", str(next(leg.progress))),
@@ -740,6 +756,21 @@ class SimulatedTwilio:
         task = asyncio.get_running_loop().create_task(work)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+
+def one_api_for(*providers: SimulatedTwilio) -> httpx.MockTransport:
+    """Several simulated accounts' REST APIs behind one transport, each request sent to its own.
+
+    What a deployment with a line per region talks to: one provider, reached at one API, which
+    tells its accounts apart by the account each request names.
+    """
+    by_account = {provider.account: provider for provider in providers}
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        account = request.url.path.removeprefix(_API_ROOT).split("/", 1)[0]
+        return await by_account[account]._handle_rest(request)
+
+    return httpx.MockTransport(handle)
 
 
 async def eventually(condition: Callable[[], bool], *, seconds: float = 5.0) -> None:
@@ -803,8 +834,22 @@ class Deployment:
         ]
 
 
-def telephony_settings(public_base_url: str = PUBLIC_BASE_URL) -> Settings:
-    """Settings for a deployment whose telephony account is the simulated one."""
+def telephony_settings(
+    public_base_url: str = PUBLIC_BASE_URL, *, line_name: str | None = None
+) -> Settings:
+    """Settings for a deployment whose telephony account is the simulated one.
+
+    With `line_name`, the account is that one line by region, serving every region, rather than
+    the single line `TELEPHONY_PROVIDER` configures.
+    """
+    if line_name is not None:
+        return make_settings(
+            telephony_lines=(
+                f"{line_name}:provider=twilio;regions=*;numbers={OUR_NUMBER.value};"
+                f"account={SIMULATED_ACCOUNT};app={SIMULATED_APP};webhook={public_base_url}"
+            ),
+            telephony_line_auth_tokens=f"{line_name}:{SIMULATED_TOKEN}",
+        )
     return make_settings(
         telephony_provider=TelephonyProviderName.TWILIO,
         telephony_account_id=SIMULATED_ACCOUNT,
@@ -817,30 +862,36 @@ def telephony_settings(public_base_url: str = PUBLIC_BASE_URL) -> Settings:
 
 @asynccontextmanager
 async def simulated_deployment(
-    *, public_base_url: str = PUBLIC_BASE_URL, collect_events: bool = True
+    *,
+    public_base_url: str = PUBLIC_BASE_URL,
+    collect_events: bool = True,
+    line_name: str | None = None,
 ) -> AsyncIterator[Deployment]:
     """The whole application on loopback, wired to a simulated provider, and torn down after.
 
     Events are collected into the deployment unless the test reads them itself: the transport's
-    event stream has one reader, as the orchestrator is its one reader in the product.
+    event stream has one reader, as the orchestrator is its one reader in the product. With
+    `line_name`, the account is a line by region of that name, called back under its own prefix.
     """
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
     from tests.support.observability import recorded_observability
 
-    provider = SimulatedTwilio(public_base_url=public_base_url)
-    settings = telephony_settings(public_base_url)
-    binding = build_call_transport(
+    provider = SimulatedTwilio(
+        public_base_url=public_base_url,
+        path_prefix="" if line_name is None else f"/lines/{line_name}",
+    )
+    settings = telephony_settings(public_base_url, line_name=line_name)
+    (binding,) = build_call_transports(
         settings,
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
         http_transport=provider.rest,
     )
-    assert binding is not None
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)
     # The transport is handed to the application rather than configured on it: this deployment has
     # no storage, and whoever needs calls orchestrated builds the orchestrator on the transport.
-    app = create_app(make_settings(), telephony=binding)
+    app = create_app(make_settings(), telephony=[binding])
     events: list[CallEvent] = []
 
     async def collect() -> None:

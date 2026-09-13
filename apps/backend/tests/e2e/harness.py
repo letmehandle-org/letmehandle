@@ -31,7 +31,7 @@ from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
 from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.ports import AssistantServices
 from letmehandle.bootstrap import (
-    build_call_transport,
+    build_call_transports,
     build_observability,
     build_reported_calls,
     build_voice_provider,
@@ -263,7 +263,8 @@ class StreamingSystem(System):
 
     @property
     def transport(self) -> TwilioCallTransport:
-        transport = self.app.state.telephony.transport
+        (binding,) = self.app.state.telephony
+        transport = binding.transport
         if isinstance(transport, WithoutBridging):
             transport = transport.inner
         assert isinstance(transport, TwilioCallTransport)
@@ -397,13 +398,12 @@ async def streaming_system(
     simulated = provider or SimulatedTwilio()
     # The deployment's own observability, with its spans kept for the scenario to read.
     observability = replace(build_observability(chosen), tracer=RecordingTracer())
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         chosen,
         reported_calls=build_reported_calls(),
         observability=observability,
         http_transport=simulated.rest,
     )
-    assert binding is not None
     inner = binding.transport
     assert isinstance(inner, TwilioCallTransport)
     if without_bridging:
@@ -418,7 +418,7 @@ async def streaming_system(
     app = create_app(
         chosen,
         voices=voices,
-        telephony=binding,
+        telephony=[binding],
         assistant=AssistantServices(speech=talking, voices=voices, judging=judging),
         observability=observability,
     )

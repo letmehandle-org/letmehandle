@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from letmehandle.application.agent.ports import CallActions, CallAgent
     from letmehandle.domain.models.identifiers import CallId, UserId
-    from letmehandle.domain.ports.call_transport import CallEvent
+    from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.repositories import (
         CallRepository,
         CallTimelineRepository,
@@ -40,6 +40,18 @@ class CallOwnership(ABC):
     @abstractmethod
     async def owner_of(self, incoming: CallEvent) -> UserId | None:
         """The user the call is for, or None when it is nobody's this deployment serves."""
+
+
+@dataclass(frozen=True, slots=True)
+class CallLine:
+    """A transport calls arrive on, and whose each arriving call is.
+
+    Together because they are chosen together: a line's ownership reads what that line's transport
+    knows about its calls, and nothing about any other line's.
+    """
+
+    transport: CallTransport
+    ownership: CallOwnership
 
 
 @dataclass(frozen=True, slots=True)

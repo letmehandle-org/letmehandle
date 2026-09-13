@@ -8,15 +8,16 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from letmehandle.bootstrap import (
-    build_call_transport,
+    build_call_transports,
     build_container,
     build_reported_calls,
     build_voice_provider,
 )
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
-from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.region import IN, US
 from letmehandle.domain.ports.call_transport import (
     CallEvent,
     CallEventKind,
@@ -76,21 +77,20 @@ async def statuses(app: FastAPI) -> set[int]:
 async def test_a_deployment_with_no_telephony_account_has_no_transport_and_no_routes() -> None:
     settings = make_settings()
     assert (
-        build_call_transport(
+        build_call_transports(
             settings, reported_calls=build_reported_calls(), observability=recorded_observability()
         )
-        is None
+        == ()
     )
     assert await statuses(create_app(settings)) == {404}
 
 
 async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares() -> None:
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         telephony_settings(),
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
     )
-    assert binding is not None
     transport = binding.transport
     # Narrowing raises when a declaration and an implementation disagree; here none do.
     answering(transport)
@@ -103,26 +103,27 @@ async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares
 def test_a_configured_transport_missing_its_account_names_what_is_missing() -> None:
     settings = make_settings(telephony_provider=TelephonyProviderName.TWILIO)
     with pytest.raises(ConfigurationError, match="TELEPHONY_AUTH_TOKEN"):
-        build_call_transport(
+        build_call_transports(
             settings, reported_calls=build_reported_calls(), observability=recorded_observability()
         )
 
 
 async def test_the_application_mounts_the_providers_routes_and_closes_the_transport() -> None:
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         telephony_settings(),
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
     )
     # Handed over rather than configured, so the lifespan runs without the storage a configured
     # transport refuses to start without.
-    app = create_app(make_settings(), telephony=binding)
+    app = create_app(make_settings(), telephony=[binding])
     # Present, and refusing what is not signed.
     assert await statuses(app) == {403}
     # Not in the documented schema: the provider is not one of the API's clients.
     assert not any(path.startswith("/telephony") for path in app.openapi()["paths"])
     async with app.router.lifespan_context(app):
-        transport = app.state.telephony.transport
+        (mounted,) = app.state.telephony
+        transport = mounted.transport
     events = [event async for event in transport.events()]
     assert events == []
 
@@ -137,7 +138,8 @@ async def test_the_handset_transport_is_the_one_its_reports_feed() -> None:
             transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
         )
     )
-    transport = app.state.telephony.transport
+    (binding,) = app.state.telephony
+    transport = binding.transport
     screening(transport)
     assert await statuses(app) == {404}
     reported = CallEvent(CallEventKind.INCOMING, CallId("handset-call"), EventId("handset-event"))
@@ -188,7 +190,7 @@ def test_main_refuses_to_carry_calls_with_nowhere_to_record_them(
     assert recorded_uvicorn == {}
 
 
-def forwarding_for(settings: Settings) -> CallForwarding | None:
+def forwarding_for(settings: Settings) -> ForwardingNumbers:
     container = build_container(
         settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
     )
@@ -198,14 +200,77 @@ def forwarding_for(settings: Settings) -> CallForwarding | None:
 def test_a_streaming_deployment_asks_users_to_forward_to_its_first_number() -> None:
     # A streaming call reaches the product only by the user's carrier forwarding it, and the
     # first configured number is the one every user is told, so two screens never disagree.
-    assert forwarding_for(telephony_settings()) == CallForwarding(PhoneNumber.parse("+12025550100"))
+    assert forwarding_for(telephony_settings()) == ForwardingNumbers(
+        elsewhere=PhoneNumber.parse("+12025550100")
+    )
 
 
 def test_a_handset_deployment_needs_nothing_forwarded() -> None:
     # The handset screens its own calls; there is nowhere to forward them to.
     settings = make_settings(telephony_provider=TelephonyProviderName.ANDROID_NATIVE)
-    assert forwarding_for(settings) is None
+    assert forwarding_for(settings) == ForwardingNumbers()
 
 
 def test_a_deployment_carrying_no_calls_needs_nothing_forwarded() -> None:
-    assert forwarding_for(make_settings()) is None
+    assert forwarding_for(make_settings()) == ForwardingNumbers()
+
+
+# ------------------------------------------------------------------------ lines by region
+
+# The India line's number is shorter than any in India's plan, so it reaches nobody.
+LINES_BY_REGION = (
+    "us:provider=twilio;regions=US;numbers=+12025550100;account=account-us;app=app-us;"
+    "webhook=https://calls.example.com,"
+    "in:provider=twilio;regions=IN;numbers=+91555010;account=account-in;app=app-in;"
+    "webhook=https://calls.example.com"
+)
+
+
+def lines_settings(lines: str = LINES_BY_REGION) -> Settings:
+    return make_settings(telephony_lines=lines, telephony_line_auth_tokens="us:t-us,in:t-in")
+
+
+async def test_each_line_gets_a_transport_whose_routes_are_under_its_own_name() -> None:
+    bindings = build_call_transports(
+        lines_settings(),
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+    )
+    app = create_app(make_settings(), telephony=bindings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        statuses_by_path = {
+            path: (await client.post(path)).status_code
+            for path in (
+                "/lines/us/telephony/voice/incoming",
+                "/lines/in/telephony/voice/incoming",
+                "/telephony/voice/incoming",
+            )
+        }
+    for binding in bindings:
+        bridging(binding.transport)
+        await binding.close()
+
+    assert len({id(binding.transport) for binding in bindings}) == 2
+    # Present and refusing what is not signed under each line's name; nothing at the root.
+    assert statuses_by_path == {
+        "/lines/us/telephony/voice/incoming": 403,
+        "/lines/in/telephony/voice/incoming": 403,
+        "/telephony/voice/incoming": 404,
+    }
+
+
+def test_each_region_is_told_its_own_lines_number() -> None:
+    assert forwarding_for(lines_settings()) == ForwardingNumbers(
+        by_region={
+            US: PhoneNumber.parse("+12025550100"),
+            IN: PhoneNumber.parse("+91555010"),
+        }
+    )
+
+
+def test_a_line_for_every_region_is_the_number_for_everyone_without_one() -> None:
+    lines = LINES_BY_REGION.replace("regions=US", "regions=*")
+    assert forwarding_for(lines_settings(lines)) == ForwardingNumbers(
+        by_region={IN: PhoneNumber.parse("+91555010")},
+        elsewhere=PhoneNumber.parse("+12025550100"),
+    )
