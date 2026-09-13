@@ -64,7 +64,7 @@ from tests.support.simulated_twilio import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Sequence
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
     from fastapi import FastAPI
 
@@ -97,6 +97,9 @@ JUDGEMENT: Final = timedelta(seconds=5)
 # How long a scenario waits for something the system is about to do. Everything here happens over
 # loopback in milliseconds; a wait that runs this long is a defect, not a slow machine.
 PATIENCE_SECONDS: Final = 10.0
+
+# How often a scenario reads again what offers nothing to await.
+POLL_SECONDS: Final = 0.02
 
 _PRODUCT: Final = Path(letmehandle.__file__).parent
 
@@ -168,6 +171,16 @@ class WithoutBridging(CallTransport):
         return self.inner.audio_sink(call_id)
 
 
+async def _until[T](read: Callable[[], Awaitable[T]], condition: Callable[[T], bool]) -> T:
+    """The first value `read` returns that satisfies `condition`, within `PATIENCE_SECONDS`."""
+    async with asyncio.timeout(PATIENCE_SECONDS):
+        while True:
+            value = await read()
+            if condition(value):
+                return value
+            await asyncio.sleep(POLL_SECONDS)
+
+
 class System:
     """What every running system offers a scenario: the app's view, storage, and the counts."""
 
@@ -193,12 +206,11 @@ class System:
         self, account: Account, call_id: str, condition: Callable[[CallSession], bool]
     ) -> CallSession:
         """The stored call, once it satisfies `condition`. Storage offers nothing to await."""
-        async with asyncio.timeout(PATIENCE_SECONDS):
-            while True:
-                call = await self.stored(account, call_id)
-                if call is not None and condition(call):
-                    return call
-                await asyncio.sleep(0.02)
+        call = await _until(
+            lambda: self.stored(account, call_id), lambda call: call is not None and condition(call)
+        )
+        assert call is not None
+        return call
 
     async def reaches(self, account: Account, call_id: str, state: CallState) -> CallSession:
         return await self.stored_when(account, call_id, lambda call: call.state is state)
@@ -220,21 +232,20 @@ class System:
         self, account: Account, call_id: str, condition: Callable[[Json], bool]
     ) -> Json:
         """The escalation as the app reads it, once it satisfies `condition`."""
-        async with asyncio.timeout(PATIENCE_SECONDS):
-            while True:
-                escalation = await self.api.escalation(account, call_id)
-                if escalation is not None and condition(escalation):
-                    return escalation
-                await asyncio.sleep(0.02)
+        escalation = await _until(
+            lambda: self.api.escalation(account, call_id),
+            lambda escalation: escalation is not None and condition(escalation),
+        )
+        assert escalation is not None
+        return escalation
 
     async def ended(self, account: Account, call_id: str) -> Json:
         """The call's detail once it has ended and its summary is written, and its run is gone."""
-        async with asyncio.timeout(PATIENCE_SECONDS):
-            while True:
-                detail = await self.api.call(account, call_id)
-                if detail is not None and detail["outcome"] is not None:
-                    break
-                await asyncio.sleep(0.02)
+        detail = await _until(
+            lambda: self.api.call(account, call_id),
+            lambda detail: detail is not None and detail["outcome"] is not None,
+        )
+        assert detail is not None
         await eventually(lambda: self.orchestrator.live_calls == 0, seconds=PATIENCE_SECONDS)
         return detail
 
