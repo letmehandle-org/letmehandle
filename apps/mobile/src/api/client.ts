@@ -335,13 +335,17 @@ export class ApiClient {
   // ---------------------------------------------------------------- sending
 
   private async send<T>(options: RequestOptions): Promise<T> {
-    const first = await this.attempt(options, this.session.accessToken());
+    const sent = this.session.accessToken();
+    const first = await this.attempt(options, sent);
 
     if (first.status !== 401 || options.authenticated !== true) {
       return this.unwrap<T>(first);
     }
 
-    const renewed = await this.renewOnce();
+    // A token renewed while this request was out is used as it is; renewing again rotates for nothing.
+    const current = this.session.accessToken();
+    const renewed =
+      current !== null && current !== sent ? current : await this.renewOnce();
     if (renewed === null) {
       this.session.onSignedOut();
       return this.unwrap<T>(first);

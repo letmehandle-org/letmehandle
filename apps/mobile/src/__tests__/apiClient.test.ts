@@ -149,6 +149,29 @@ describe('authenticated requests', () => {
     expect(handle.signedOut).toBe(true);
   });
 
+  it('retries with a token renewed meanwhile rather than renewing again', async () => {
+    const session = { token: 'stale', renewTo: 'renewed' };
+    const handle = handleFor(session);
+    const fake = new FakeFetch([
+      { status: 401, body: { error: 'not_authenticated', message: 'no' } },
+      { status: 200, body: { id: 'u' } },
+    ]);
+    const send = fake.fn;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      const response = await send(url, init);
+      session.token = 'fresh';
+      return response;
+    }) as unknown as typeof fetch;
+
+    await new ApiClient(handle, BASE).me();
+
+    expect(handle.renewals).toBe(0);
+    expect(fake.authorisationHeaders()).toEqual([
+      'Bearer stale',
+      'Bearer fresh',
+    ]);
+  });
+
   it('renews once for several requests that fail together', async () => {
     // The behaviour a cold start depends on. Renewing rotates the refresh token, so a second
     // renewal would look to the backend exactly like a stolen token being replayed — and
