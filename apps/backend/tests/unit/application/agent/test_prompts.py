@@ -256,3 +256,17 @@ class TestWhatTheSpeakingAssistantIsTold:
         )
         for value in ("not_asked", "being_reached", "on_the_call", "not_reached"):
             assert value in instructions
+
+    def test_asked_for_the_user_it_offers_to_check_and_never_says_it_cannot_reach_them(
+        self,
+    ) -> None:
+        # On a call, a caller who said it was urgent was told the assistant could not call the
+        # user while the user's phone was already being dialled.
+        instructions = " ".join(
+            load_prompts("en")
+            .conversation_context(a_call().preferences, AgentAuthority.none(), situation={})
+            .split()
+        )
+        assert "Never say or suggest that you cannot reach the user" in instructions
+        assert "you will check whether the user can take the call" in instructions
+        assert "from your next reply" in instructions
