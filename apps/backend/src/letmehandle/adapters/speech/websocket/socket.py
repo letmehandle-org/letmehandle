@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 
     from websockets.asyncio.client import ClientConnection
 
+    from letmehandle.adapters.speech.websocket.connection import ConnectionOpener, EventConnection
+
 
 # How long closing waits for the service before the socket is simply dropped. A service that has
 # stopped reading otherwise turns closing into half a minute during which a cancelled call, or a
@@ -57,6 +59,21 @@ _RETRYABLE_STATUSES: Final = frozenset({408, 425, 429})
 # does not accept, a policy it enforces (which is where a key refused after the handshake lands),
 # or a message too large to take. An abrupt drop, a server error or a restart is none of these.
 _PERMANENT_CLOSE_CODES: Final = frozenset({1002, 1003, 1007, 1008, 1009, 1010})
+
+
+def opener_for(uri: str, *, headers: Mapping[str, str], open_timeout: float) -> ConnectionOpener:
+    """An opener that connects to the same URI with the same headers every time it is called."""
+    fixed_headers = dict(headers)
+
+    async def open_connection() -> EventConnection:
+        return await WebsocketConnection.open(uri, headers=fixed_headers, open_timeout=open_timeout)
+
+    return open_connection
+
+
+def bearer_headers(api_key: str | None) -> dict[str, str]:
+    """An `Authorization: Bearer` header, or none at all for a service that needs no key."""
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
 class WebsocketConnection:
