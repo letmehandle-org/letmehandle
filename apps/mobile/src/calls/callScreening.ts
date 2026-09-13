@@ -48,13 +48,30 @@ export function callScreeningFrom(
   if (native === null || native === undefined) {
     return null;
   }
+  // Account changes and rule writes reach the handset one at a time, in the order they were asked.
+  let settled: Promise<void> = Promise.resolve();
+  const inOrder = (step: () => Promise<void>): Promise<void> => {
+    const done = settled.then(step);
+    settled = done.catch(() => undefined);
+    return done;
+  };
+  // Rules are written only between an account starting to record and being forgotten (D-028).
+  let signedIn = false;
   return {
     roleStatus: async () => known(await native.roleStatus(), ROLE_STATUSES),
     requestRole: async () => known(await native.requestRole(), ROLE_OUTCOMES),
     writeRulesSnapshot: snapshot =>
-      native.writeRulesSnapshot(JSON.stringify(snapshot)),
-    startRecordingCalls: () => native.startRecordingCalls(),
-    forgetAccount: () => native.forgetAccount(),
+      signedIn
+        ? inOrder(() => native.writeRulesSnapshot(JSON.stringify(snapshot)))
+        : Promise.resolve(),
+    startRecordingCalls: () => {
+      signedIn = true;
+      return inOrder(() => native.startRecordingCalls());
+    },
+    forgetAccount: () => {
+      signedIn = false;
+      return inOrder(() => native.forgetAccount());
+    },
     pendingCallEvents: () => native.pendingCallEvents(),
     acknowledgeCallEvents: eventIds =>
       native.acknowledgeCallEvents([...eventIds]),

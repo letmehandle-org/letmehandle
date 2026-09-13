@@ -24,6 +24,10 @@ export class FakeNativeCallScreening implements Spec {
   recording = false;
   forgotten = 0;
   requests = 0;
+  /** Every account-changing call as it completed, in order: `start`, `write` or `forget`. */
+  readonly completed: string[] = [];
+  private held: Promise<void> | null = null;
+  private releaseHeld: (() => void) | null = null;
   private readonly listeners = new Set<() => void>();
 
   async roleStatus(): Promise<string> {
@@ -38,16 +42,31 @@ export class FakeNativeCallScreening implements Spec {
     return this.requestOutcome;
   }
 
+  /** Keeps every snapshot write unfinished until `releaseSnapshots` is called. */
+  holdSnapshots(): void {
+    this.held = new Promise(resolve => {
+      this.releaseHeld = resolve;
+    });
+  }
+
+  releaseSnapshots(): void {
+    this.releaseHeld?.();
+    this.held = null;
+  }
+
   async writeRulesSnapshot(snapshot: string): Promise<void> {
+    await this.held;
     if (this.refuseNextSnapshot) {
       this.refuseNextSnapshot = false;
       throw new Error('invalid_snapshot');
     }
     this.snapshots.push(snapshot);
+    this.completed.push('write');
   }
 
   async startRecordingCalls(): Promise<void> {
     this.recording = true;
+    this.completed.push('start');
   }
 
   async forgetAccount(): Promise<void> {
@@ -55,6 +74,7 @@ export class FakeNativeCallScreening implements Spec {
     this.recording = false;
     this.snapshots.length = 0;
     this.pending = [];
+    this.completed.push('forget');
   }
 
   async pendingCallEvents(): Promise<string> {
