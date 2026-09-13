@@ -85,9 +85,10 @@ async def test_a_deployment_may_name_whose_unforwarded_calls_are(
     assert await ownership.owner_of(arrived("CAsim-1")) == OWNER
 
 
+@pytest.mark.parametrize("forwarded_from", ["+12025550199", "not a number"])
 async def test_a_forwarded_call_is_still_the_forwarding_line_s(
-    transport: TwilioCallTransport,
+    transport: TwilioCallTransport, forwarded_from: str
 ) -> None:
-    call_arriving(transport, "CAsim-1", "+12025550199")
+    call_arriving(transport, "CAsim-1", forwarded_from)
     ownership = ForwardedCallOwnership(transport, find, unforwarded_line=USERS_OWN)
     assert await ownership.owner_of(arrived("CAsim-1")) is None

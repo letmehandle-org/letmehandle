@@ -147,6 +147,14 @@ class TwilioConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class Forwarding:
+    """Whether the carrier said a call was forwarded, and the line it named if that is a number."""
+
+    forwarded: bool
+    line: PhoneNumber | None
+
+
+@dataclass(frozen=True, slots=True)
 class _Applied:
     muted: bool = False
     coach_call_sid: str | None = None
@@ -206,7 +214,7 @@ class _Call:
     call_id: CallId
     caller: Caller
     from_number: PhoneNumber
-    forwarded_from: PhoneNumber | None = None
+    forwarding: Forwarding
     conference_sid: str | None = None
     legs: dict[str, _Leg] = field(default_factory=dict)
     presence: AssistantPresence = AssistantPresence.STAY
@@ -328,14 +336,10 @@ class TwilioCallTransport(CallTransport):
     def pending_tasks(self) -> int:
         return len(self._tasks)
 
-    def holds(self, call_id: CallId) -> bool:
-        """Whether a call is in progress on this transport."""
-        return call_id in self._calls
-
-    def forwarded_from(self, call_id: CallId) -> PhoneNumber | None:
-        """The line a call in progress was forwarded from, if the carrier said and it is one."""
+    def forwarding(self, call_id: CallId) -> Forwarding | None:
+        """How a call in progress reached the account; None when no such call is in progress."""
         call = self._calls.get(call_id)
-        return None if call is None else call.forwarded_from
+        return None if call is None else call.forwarding
 
     async def settled(self) -> None:
         """Wait until every task this transport started has finished."""
@@ -497,7 +501,10 @@ class TwilioCallTransport(CallTransport):
                 call_id=call_id,
                 caller=Caller(number=_number_or_none(incoming.caller)),
                 from_number=self._number_to_call_from(incoming.called),
-                forwarded_from=_number_or_none(incoming.forwarded_from),
+                forwarding=Forwarding(
+                    forwarded=incoming.forwarded_from is not None,
+                    line=_number_or_none(incoming.forwarded_from),
+                ),
             )
             self._calls[call_id] = call
             self._emit(CallEventKind.INCOMING, call, "incoming", caller=call.caller)
