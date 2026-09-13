@@ -33,8 +33,7 @@ describe('RootNavigator', () => {
   });
 
   it('names every route in the typed maps', () => {
-    // The maps and the parameter lists are kept in step by `satisfies`, so this asserts the
-    // names themselves rather than the types, which the compiler has already checked.
+    // Asserts the route names; `satisfies` already checks them against the parameter lists.
     expect(Object.values(AUTH_ROUTES)).toEqual([
       'Welcome',
       'PhoneNumber',
@@ -60,8 +59,7 @@ describe('RootNavigator', () => {
   });
 
   it('keeps the two stacks separate', () => {
-    // A signed-out person has no route into the application, and a signed-in one has no route
-    // back to the sign-in screens. That is a property of the maps, not of a guard on a screen.
+    // The stacks' route maps share no screens.
     const shared = Object.values(AUTH_ROUTES).filter(name =>
       (Object.values(APP_ROUTES) as string[]).includes(name),
     );

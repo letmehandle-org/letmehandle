@@ -1,6 +1,4 @@
-/**
- * The translation between the design's rules and the API's preferences.
- */
+/** The translation between the design's rules and the API's preferences. */
 import { arcsFor } from '../components/dialGeometry';
 import {
   coveredMinutes,

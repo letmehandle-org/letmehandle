@@ -1,10 +1,4 @@
-/**
- * The native call screening module, standing in for the Kotlin one.
- *
- * It keeps what it is told and answers the way `CallScreeningModule.kt` does — including
- * refusing a snapshot it could not read — so a test about the app's behaviour is not a test of a
- * stub that agrees with everything.
- */
+/** A fake native call screening module that answers as `CallScreeningModule.kt` does. */
 import type { EventSubscription } from 'react-native';
 
 import type { Spec } from '../../calls/native/NativeCallScreening';

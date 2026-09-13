@@ -1,9 +1,4 @@
-/**
- * Call history: the list, one call's summary, what was said, and deleting.
- *
- * The whole tree against a backend that remembers, because what matters here happens across
- * requests — a filter asking the server rather than hiding rows, a deleted call leaving the list.
- */
+/** Call history against a backend that remembers: the list, a summary, what was said, and deleting. */
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 

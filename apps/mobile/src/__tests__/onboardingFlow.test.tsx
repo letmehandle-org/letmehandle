@@ -1,11 +1,4 @@
-/**
- * Setting up, from the application's point of view.
- *
- * The whole tree against a backend that remembers, because the properties worth proving are all
- * about what happens between requests: where somebody is put when they open the application,
- * which of the server's steps they are never shown, and what they are told when a save is
- * refused.
- */
+/** Setting up against a backend that remembers: where the user lands, which steps show, refusals. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -83,7 +76,6 @@ describe('where somebody lands', () => {
   });
 
   it('resumes at the step the server says is next, not at the beginning', async () => {
-    // Somebody who reinstalled, or signed in on a second phone.
     runningBackend({ startAt: 'authority' });
     const view = await render(<App />);
 
@@ -98,7 +90,6 @@ describe('where somebody lands', () => {
     const view = await render(<App />);
 
     expect(await view.findByTestId('home-screen')).toBeOnTheScreen();
-    // Setup was finished elsewhere, so the "all set" page is not for this person.
     expect(view.queryByTestId('setup-done')).toBeNull();
   });
 });
@@ -117,7 +108,7 @@ describe('the four steps', () => {
     await next(view, 'onboarding-hours', 'onboarding-authority');
     expect(backend.preferences().hours).toEqual({ active: null });
 
-    // Changing a mind before answering: only what is on when Next is pressed is saved.
+    // Only what is on when Next is pressed is saved.
     for (const on of [true, false, true]) {
       await fireEvent(
         view.getByTestId('capability-take_a_message'),

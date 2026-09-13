@@ -1,14 +1,4 @@
-/**
- * A backend to test against.
- *
- * Every test that renders the signed-in application needs preferences and onboarding answered,
- * because the tree will not render without them. Written once here so that a test about signing
- * out does not carry a preferences fixture it never looks at.
- *
- * Routed by method and path rather than queued in order: four endpoints answered by position is
- * a queue that has to be recounted every time a screen gains a request, and a test that fails
- * because it miscounted says nothing about the behaviour it was written for.
- */
+/** A stateful fake backend, routed by method and path, answering as the real one does. */
 import type {
   CallDetail,
   CallReport,
@@ -138,12 +128,7 @@ export interface RunningBackend {
   refuseNextSave(reply: Reply): void;
   /** The voice this user has chosen, or null when they have left it to the provider. */
   chosenVoice(): string | null;
-  /**
-   * Stop offering a voice, without telling the app.
-   *
-   * What happens when a provider withdraws one: a client holding the old catalogue still offers
-   * it, and the server refuses it with a 422 when somebody picks it.
-   */
+  /** Stops offering a voice without telling the app, so picking it is refused with a 422. */
   withdrawVoice(voiceId: string): void;
   /** Every call report stored, once each, in the order they arrived. */
   readonly reports: CallReport[];
@@ -241,13 +226,7 @@ function summaryOf(call: CallDetail): CallSummary {
   };
 }
 
-/**
- * Stand in for the real thing, keeping what it is told.
- *
- * Stateful rather than a list of canned replies, because the behaviours worth testing here are
- * about what happens across requests: a step recorded changing which question comes next, a
- * refused save leaving what was stored alone.
- */
+/** Replaces `fetch` with the fake backend and returns its handle. */
 export function runningBackend(options?: {
   readonly startAt?: OnboardingStep | null;
   readonly preferences?: Preferences;
@@ -298,9 +277,7 @@ export function runningBackend(options?: {
   const offers = (voiceId: string): boolean =>
     offered.some(voice => voice.id === voiceId);
 
-  // The fallback chain from D-009: the cloned voice, then the chosen one, then the default.
-  // Each step falls through when the voice is not on offer, which is what the screen is meant
-  // to be able to show.
+  // The D-009 fallback: the cloned voice, then the chosen one, then the default, each if on offer.
   const resolved = (): string => {
     if (cloned !== null && offers(cloned)) {
       return cloned;
@@ -468,16 +445,14 @@ export function runningBackend(options?: {
     if (path === '/v1/onboarding' && method === 'POST') {
       const update = body as { step: OnboardingStep; skipped: boolean };
       if (update.step === 'call_handling' && update.skipped) {
-        // What the real backend does. There is no safe default for an unknown caller, so the
-        // step cannot be passed over, and a client that offered the button would get this.
+        // The real backend refuses to skip call handling, which has no safe default.
         return answer(422, { error: 'invalid_request', message: 'no' });
       }
       settled.add(update.step);
       return answer(200, progress());
     }
 
-    // Loudly, because a request nobody wrote a handler for is either a screen doing something
-    // unexpected or a test that has drifted from it, and both are worth failing over.
+    // An unhandled request fails the test.
     throw new Error(`no handler for ${method} ${path}`);
   }) as unknown as typeof fetch;
 

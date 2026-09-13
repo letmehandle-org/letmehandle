@@ -1,8 +1,4 @@
-// Native modules that have no JavaScript implementation in a test environment.
-//
-// react-native-config reads values injected by the native build. Under Jest there is no native
-// build, so the module returns an empty object and every configuration test would fail for a
-// reason that has nothing to do with what it is testing.
+// Native modules with no JavaScript implementation under Jest; react-native-config gets fixed values.
 jest.mock('react-native-config', () => ({
   __esModule: true,
   default: {
@@ -17,17 +13,13 @@ jest.mock('react-native-screens', () => {
   return { ...actual, enableScreens: jest.fn() };
 });
 
-// SafeAreaProvider withholds its children until the native side reports the insets, which
-// never happens in a test environment — so without this the whole application tree renders as
-// an empty provider. The library ships this mock for exactly that reason.
+// SafeAreaProvider renders its children only once insets arrive, so its shipped mock supplies them.
 jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
 );
 
-// The keychain is native. Under Jest there is nothing behind it, so the token store would
-// throw on every read — which its own tests cover deliberately, but which would make every
-// other test fail for a reason unrelated to what it is testing.
+// The keychain is native, so its functions are mocked for every suite.
 jest.mock('react-native-keychain', () => ({
   __esModule: true,
   STORAGE_TYPE: { AES_GCM: 'KeystoreAESGCM' },

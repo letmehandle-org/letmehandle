@@ -1,6 +1,4 @@
-/**
- * What is kept, for how long, and deleting the account.
- */
+/** What is kept, for how long, and deleting the account. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 

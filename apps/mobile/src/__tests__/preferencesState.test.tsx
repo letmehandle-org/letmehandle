@@ -1,10 +1,4 @@
-/**
- * Holding preferences, and what happens when saving one fails.
- *
- * The optimistic update is the part worth testing hardest. Showing the change immediately is
- * easy; putting it back when the server refuses, and saying so rather than letting it vanish,
- * is the part that gets left out.
- */
+/** Holding preferences: optimistic saves, refusals and loading. */
 import {
   act,
   fireEvent,
@@ -117,9 +111,6 @@ beforeAll(async () => {
 
 describe('loading', () => {
   it('holds the application back until there is something to render', async () => {
-    // Every screen below takes the preferences as given. Rendering them before the load has
-    // settled would mean each of them checking for an absence that lasts a few hundred
-    // milliseconds once.
     let letGo: (() => void) | null = null;
     globalThis.fetch = (async (url: string) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
@@ -192,7 +183,6 @@ describe('saving a change', () => {
       });
     });
 
-    // Still in flight, and the control the user moved has already moved.
     expect(view.result.current.preferences.personality.formality).toBe('warm');
 
     await act(async () => {
@@ -204,8 +194,6 @@ describe('saving a change', () => {
   });
 
   it('puts the previous value back when the server refuses, and says it refused', async () => {
-    // The rejection is the point. A revert with no explanation reads as the application losing
-    // work, which is worse than an error.
     const held = backendHoldingPatch(() => ({
       status: 422,
       body: { error: 'invalid_request', message: 'no' },
@@ -345,9 +333,6 @@ describe('saving a change', () => {
       });
     });
 
-    // Only the section that changed. The server leaves every other one exactly as it was, so
-    // sending the rest would overwrite them with whatever this client last read — the same
-    // lost update, from the other direction.
     const sent = JSON.parse(calls[0]);
     expect(sent.call_handling).toBeUndefined();
     expect(sent.hours.active).toEqual({

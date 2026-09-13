@@ -1,8 +1,4 @@
-/**
- * Which sections a change touches, and which it must not.
- *
- * Both functions exist to stop the same defect: saving one section quietly changing another.
- */
+/** Which sections a change touches, and which it leaves alone. */
 import { applyChanges } from '../preferences/changes';
 import { DEFAULT_PREFERENCES } from './support/backend';
 
@@ -40,7 +36,6 @@ describe('showing a change before it is saved', () => {
   });
 
   it('replaces the contact list rather than adding to it', () => {
-    // The backend stores what it is sent, so a half-list here would be a half-list there.
     const shown = applyChanges(DEFAULT_PREFERENCES, {
       important_contacts: [
         { label: 'School', phone_number: '+12025550143', posture: 'reject' },

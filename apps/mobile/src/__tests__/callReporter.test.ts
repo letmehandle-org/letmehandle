@@ -1,8 +1,4 @@
-/**
- * Reporting the handset's calls: nothing forgotten before the backend has answered for it, nothing
- * sent twice at once, nothing lost when the backend is away, and no one report the backend refuses
- * holding back the ones behind it.
- */
+/** Reporting handset calls: forgotten only once answered for, never sent twice at once, never lost. */
 import type {
   CallReportBatch,
   CallReportReceipt,
@@ -97,7 +93,7 @@ function setUp(): {
   unreadable: string[][];
 } {
   const native = new FakeNativeCallScreening();
-  // A reporter runs only while somebody is signed in, which is when the handset records.
+  // A reporter runs only while somebody is signed in.
   native.recording = true;
   const screening = callScreeningFrom(native) as CallScreening;
   const sender = new RecordingSender();

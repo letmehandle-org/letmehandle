@@ -1,10 +1,4 @@
-/**
- * Signing in from the app's point of view.
- *
- * The whole tree, with `fetch` standing in for the backend — so the session provider, the
- * client, the navigator and the screens are exercised together, which is where the mistakes in
- * this kind of code actually are.
- */
+/** Signing in through the whole tree, with `fetch` standing in for the backend. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -24,9 +18,7 @@ interface Reply {
 function replyWith(replies: Reply[]): jest.Mock {
   const queue = [...replies];
   const fake = jest.fn(async (url: string, _init?: RequestInit) => {
-    // Answered from the defaults rather than from the queue. The signed-in tree reads
-    // preferences and onboarding before it renders, and counting those into every queue would
-    // make each of these tests fail whenever a screen gains a request.
+    // Preferences and onboarding answer from fixed bodies, outside the queue.
     const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
     const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
     return jsonResponse(reply.status, reply.body ?? {}, reply.headers ?? {});
@@ -102,8 +94,6 @@ describe('signing in', () => {
     await fireEvent.changeText(view.getByTestId('code-input'), '000000');
     await fireEvent.press(view.getByTestId('code-continue'));
 
-    // The navigator follows the session rather than being told where to go, so arriving here
-    // proves the session was actually established.
     await waitFor(() => {
       expect(view.getByTestId('home-screen')).toBeOnTheScreen();
     });
@@ -205,14 +195,10 @@ describe('signing in', () => {
     await waitFor(() => {
       expect(view.getByText(en.code.invalid)).toBeOnTheScreen();
     });
-    // Cleared, so the next attempt starts from an empty field rather than from a code that has
-    // already been refused.
     expect(view.getByTestId('code-input').props.value).toBe('');
   });
 
   it('falls back to a general message for a failure it does not recognise', async () => {
-    // A 500 is not something to explain to somebody signing in, and guessing at a reason would
-    // be worse than saying plainly that it did not work.
     replyWith([
       { status: 500, body: { error: 'internal_error', message: 'no' } },
     ]);

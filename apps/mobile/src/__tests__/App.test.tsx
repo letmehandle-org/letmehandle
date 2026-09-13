@@ -4,8 +4,7 @@ import React from 'react';
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
 
-// Jest hoists jest.mock above the imports and rejects references to variables that are not
-// prefixed with "mock", because anything else would not be initialised by then.
+// Jest hoists jest.mock, so the factory refers only to `mock`-prefixed variables.
 let mockGate: Promise<void> | undefined;
 
 jest.mock('../i18n', () => {
@@ -25,10 +24,7 @@ describe('App', () => {
   });
 
   it('renders nothing until translation is ready, then renders the application', async () => {
-    // Rendering before i18next has loaded shows every screen its own keys for a frame. It
-    // looks like a flicker in development and like a defect in a release. Initialisation is
-    // held open here because otherwise it resolves before the first render is flushed and the
-    // assertion would prove nothing.
+    // Initialisation is held open so the first render happens before translations load.
     let release: () => void = () => undefined;
     mockGate = new Promise<void>(resolve => {
       release = resolve;
@@ -39,8 +35,6 @@ describe('App', () => {
 
     release();
 
-    // Welcome, not Home: nobody is signed in, and the navigator follows the session rather
-    // than starting somewhere and correcting itself.
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
@@ -53,7 +47,6 @@ describe('App', () => {
   });
 
   it('surfaces a translation failure rather than staying blank', async () => {
-    // A silent permanent blank screen hides the reason. This asserts the failure is loud.
     mockGate = Promise.reject(new Error('catalogue unavailable'));
     const errors = jest
       .spyOn(console, 'error')
@@ -65,8 +58,6 @@ describe('App', () => {
   });
 
   it('wraps a non-error rejection so that something useful is thrown', async () => {
-    // A promise can reject with anything. Rethrowing a bare string produces an error with no
-    // stack and no message, which is worse than the original failure.
     mockGate = Promise.reject('the catalogue is missing');
     const errors = jest
       .spyOn(console, 'error')
@@ -78,8 +69,6 @@ describe('App', () => {
   });
 
   it('does not update state after it has been unmounted', async () => {
-    // The promise can settle after the component has gone. Without the guard this warns in
-    // development and, in a longer-lived component, keeps a dead tree alive.
     let release: () => void = () => undefined;
     mockGate = new Promise<void>(resolve => {
       release = resolve;

@@ -1,10 +1,4 @@
-/**
- * Restoring a session, and ending one.
- *
- * A cold start is where this goes wrong: restoring too eagerly signs people out, restoring too
- * late shows them the sign-in screen they did not need, and renewing twice looks to the backend
- * exactly like a stolen token.
- */
+/** Restoring a session, keeping it through outages, and ending it. */
 import {
   act,
   fireEvent,
@@ -52,9 +46,7 @@ interface Reply {
 function replyWith(replies: Reply[]): jest.Mock {
   const queue = [...replies];
   const fake = jest.fn(async (url: string) => {
-    // Answered from the defaults rather than from the queue. The signed-in tree reads
-    // preferences and onboarding before it renders, and counting those into every queue would
-    // make each of these tests fail whenever a screen gains a request.
+    // Preferences and onboarding answer from fixed bodies, outside the queue.
     const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
     const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
     return jsonResponse(reply.status, reply.body ?? {});
@@ -97,8 +89,6 @@ describe('starting up', () => {
   });
 
   it('renews before the first request when the token is nearly expired', async () => {
-    // Rather than letting the first request fail and recovering from it, which would open the
-    // application on an error it could have avoided.
     store.loadSession.mockResolvedValue({
       accessToken: 'nearly-expired',
       refreshToken: 'a-refresh-token',
@@ -161,7 +151,6 @@ describe('starting up', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    // Nothing was asked of the backend: there was no session to check.
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
@@ -174,7 +163,6 @@ describe('never being asked for the number again without cause', () => {
   };
 
   it('opens signed in with no signal, even when the token needed renewing', async () => {
-    // On a train, in a lift, in airplane mode: the stored session is still the user's.
     store.loadSession.mockResolvedValue({
       accessToken: 'nearly-expired',
       refreshToken: 'a-refresh-token',
@@ -300,23 +288,18 @@ describe('signing out', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    // Revoked at the backend rather than only forgotten here, so the refresh token cannot be
-    // used by anybody who has a copy of it.
+    // The refresh token is revoked at the backend as well as forgotten here.
     expect(fetched.mock.calls.at(-1)?.[0]).toContain('/v1/auth/signout');
     expect(store.clearSession).toHaveBeenCalled();
   });
 
   it('still signs out locally when the backend cannot be told', async () => {
-    // Somebody who asked to be signed out is signed out. A network failure must not leave them
-    // looking at their own account.
     store.loadSession.mockResolvedValue({
       accessToken: 'a-token',
       refreshToken: 'a-refresh-token',
       accessTokenExpiresAt: Date.now() + 600_000,
     });
-    // Everything the signed-in tree needs answers; the sign-out that follows does not. Keyed
-    // by path rather than by how many requests have gone before, so that a screen gaining a
-    // request does not turn this into a test about something else.
+    // The signed-in tree answers by path; the sign-out request fails.
     globalThis.fetch = (async (url: string) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       const standing = { '/v1/me': PROFILE, ...SETUP_BODIES }[path];
@@ -486,8 +469,6 @@ describe('the profile', () => {
 
 describe('using the session outside a provider', () => {
   it('says where the mistake is', async () => {
-    // A screen rendered outside the provider would otherwise read undefined and fail somewhere
-    // unrelated, usually in a render three components away.
     const errors = jest
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);

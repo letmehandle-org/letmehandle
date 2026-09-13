@@ -1,6 +1,4 @@
-/**
- * Entering a number: the country chosen from where the phone is, and only whole numbers sent.
- */
+/** Entering a number: the country chosen from where the phone is, and only whole numbers sent. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -30,8 +28,7 @@ jest.mock('../calls/native/NativeDeviceCountry', () => ({
 
 const INDIA = countryFor('IN') as Country;
 const US = countryFor('US') as Country;
-// Ten digits a mobile number in India could have. Written without its country code, and joined to
-// one only at run time, so no whole international number sits in the source.
+// National digits only, joined to a calling code at run time so no whole number sits in source.
 const INDIAN_DIGITS = ['98765', '00000'].join('');
 
 describe('the rules for each country', () => {

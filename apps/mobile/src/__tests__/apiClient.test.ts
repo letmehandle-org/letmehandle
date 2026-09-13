@@ -1,10 +1,4 @@
-/**
- * The client's two rules: retry an unauthorised request once, and renew only once at a time.
- *
- * Both exist because of what the backend does with refresh tokens. Renewing rotates them, and
- * presenting a rotated one is treated as theft — so two concurrent renewals would sign the
- * user out, and an unbounded retry would do it repeatedly.
- */
+/** The client retries a 401 once and shares one renewal between requests. */
 import { ApiClient, type SessionHandle } from '../api/client';
 import { ApiError, NetworkError } from '../api/errors';
 import { jsonResponse } from './support/http';
@@ -84,8 +78,6 @@ describe('unauthenticated requests', () => {
   });
 
   it('does not renew when one fails', async () => {
-    // A rejected sign-in code is not an expired session, and renewing here would turn a wrong
-    // code into a sign-out.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'invalid_credentials', message: 'no' } },
     ]);
@@ -127,8 +119,6 @@ describe('authenticated requests', () => {
   });
 
   it('retries at most once', async () => {
-    // A second failure means the session is genuinely gone. Retrying further turns one expired
-    // token into a loop.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
@@ -180,9 +170,6 @@ describe('authenticated requests', () => {
   });
 
   it('renews once for several requests that fail together', async () => {
-    // The behaviour a cold start depends on. Renewing rotates the refresh token, so a second
-    // renewal would look to the backend exactly like a stolen token being replayed — and
-    // would sign the user out for opening the app.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
