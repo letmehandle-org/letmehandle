@@ -144,8 +144,7 @@ class ScreeningRulesTest {
     val ringsAsUnknown = Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE)
     val table =
         listOf(
-            // A national caller in the US shares ten trailing digits with a UK number: read as
-            // +1…, they are somebody else.
+            // A US national number sharing trailing digits with a UK contact is somebody else.
             MatchCase("national caller, contact abroad", "770-090-0143", unitedStates, rejectedAbroad, noon, ringsAsUnknown),
             // And with no country to read it by, a guess cannot reject.
             MatchCase("national caller, no country", "770-090-0143", null, rejectedAbroad, noon, ringsAsUnknown),
@@ -203,8 +202,7 @@ class ScreeningRulesTest {
 
   @Test
   fun `a blocked category the handset cannot recognise does not reject anybody`() {
-    // The handset does not classify callers. Spam blocked on the backend is a rule for the
-    // assistant; applying it here would mean guessing who is spam.
+    // The handset does not classify callers, so a blocked spam category decides nothing here.
     val snapshot = rules(defaultPosture = HandlingPosture.PASS_THROUGH, blocked = setOf(CallerCategory.SPAM))
     assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE), decide(snapshot))
   }
@@ -227,9 +225,7 @@ class ScreeningRulesTest {
 
   @Test
   fun `nothing the rules decide silences a call`() {
-    // Silencing was how quiet hours were kept; the user's hours now decide only when the assistant
-    // answers (D-030), and this path answers nothing, so every posture, at every hour, rings or
-    // is rejected.
+    // The user's hours only decide when the assistant answers (D-030).
     HandlingPosture.entries.forEach { posture ->
       listOf(noon, lateEvening).forEach { at ->
         val decision = decide(rules(defaultPosture = posture), at = at).decision

@@ -8,23 +8,18 @@ import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
-import org.json.JSONArray
+import java.util.concurrent.atomic.AtomicReference
 import org.letmehandle.app.calls.CallScreeningGraph
-import org.letmehandle.app.calls.rules.CallRulesSnapshotCodec
+import org.letmehandle.app.calls.events.CallEventRecord
 import org.letmehandle.app.specs.NativeCallScreeningSpec
 
-/**
- * Call screening, for the app's JavaScript.
- *
- * Every value that crosses is named in `src/calls/native/NativeCallScreening.ts`; the role
- * statuses here are the `RoleStatus` and `RoleRequestOutcome` unions in `src/calls/screeningRole.ts`.
- */
+/** Call screening for the app's JavaScript, as `src/calls/native/NativeCallScreening.ts` declares it. */
 class CallScreeningModule(private val context: ReactApplicationContext) :
     NativeCallScreeningSpec(context), ActivityEventListener {
 
   private val graph = CallScreeningGraph.get(context)
   private val pendingListener: () -> Unit = { emitOnCallEventsPending() }
-  private var roleRequest: Promise? = null
+  private val roleRequest = AtomicReference<Promise?>()
 
   init {
     context.addActivityEventListener(this)
@@ -34,6 +29,7 @@ class CallScreeningModule(private val context: ReactApplicationContext) :
   override fun invalidate() {
     graph.removeListener(pendingListener)
     context.removeActivityEventListener(this)
+    roleRequest.getAndSet(null)?.resolve(STATUS_DECLINED)
     super.invalidate()
   }
 
@@ -42,70 +38,42 @@ class CallScreeningModule(private val context: ReactApplicationContext) :
   }
 
   override fun requestRole(promise: Promise) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-      promise.resolve(STATUS_UNAVAILABLE)
+    val status = currentRoleStatus()
+    if (status != STATUS_AVAILABLE) {
+      promise.resolve(status)
       return
     }
     val activity = context.currentActivity
     if (activity == null) {
-      // Asked from a screen that is no longer in front: there is nothing to show the prompt on.
       promise.reject("no_activity", "the role can only be requested from a visible screen")
       return
     }
+    roleRequest.getAndSet(promise)?.resolve(STATUS_DECLINED)
     val roles = activity.getSystemService(RoleManager::class.java)
-    when {
-      !roles.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) -> promise.resolve(STATUS_UNAVAILABLE)
-      roles.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) -> promise.resolve(STATUS_HELD)
-      else -> {
-        roleRequest?.resolve(STATUS_DECLINED)
-        roleRequest = promise
-        activity.startActivityForResult(
-            roles.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING),
-            REQUEST_ROLE,
-        )
-      }
-    }
+    activity.startActivityForResult(roles.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING), REQUEST_ROLE)
   }
 
   override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode != REQUEST_ROLE) {
       return
     }
-    // RoleManager.createRequestRoleIntent: RESULT_OK when granted, RESULT_CANCELED otherwise —
-    // including when the user has asked not to be asked again, which is indistinguishable here.
-    roleRequest?.resolve(if (resultCode == Activity.RESULT_OK) STATUS_HELD else STATUS_DECLINED)
-    roleRequest = null
+    // RESULT_CANCELED also covers a user who asked not to be asked again.
+    roleRequest.getAndSet(null)?.resolve(if (resultCode == Activity.RESULT_OK) STATUS_HELD else STATUS_DECLINED)
   }
 
   override fun onNewIntent(intent: Intent) = Unit
 
-  override fun writeRulesSnapshot(snapshot: String, promise: Promise) {
-    try {
-      graph.writeSnapshot(snapshot)
-      promise.resolve(null)
-    } catch (invalid: CallRulesSnapshotCodec.InvalidSnapshot) {
-      promise.reject("invalid_snapshot", invalid.message, invalid)
-    }
-  }
+  override fun writeRulesSnapshot(snapshot: String, promise: Promise) = promise.settle { graph.writeSnapshot(snapshot) }
 
-  override fun startRecordingCalls(promise: Promise) {
-    graph.rememberAccount()
-    promise.resolve(null)
-  }
+  override fun startRecordingCalls(promise: Promise) = promise.settle { graph.rememberAccount() }
 
-  override fun forgetAccount(promise: Promise) {
-    graph.forgetAccount()
-    promise.resolve(null)
-  }
+  override fun forgetAccount(promise: Promise) = promise.settle { graph.forgetAccount() }
 
-  override fun pendingCallEvents(promise: Promise) {
-    promise.resolve(JSONArray(graph.ledger.pending().map { it.toJson() }).toString())
-  }
+  override fun pendingCallEvents(promise: Promise) =
+      promise.settle { CallEventRecord.listToJson(graph.ledger.pending()) }
 
-  override fun acknowledgeCallEvents(eventIds: ReadableArray, promise: Promise) {
-    graph.ledger.acknowledge((0 until eventIds.size()).mapNotNull(eventIds::getString))
-    promise.resolve(null)
-  }
+  override fun acknowledgeCallEvents(eventIds: ReadableArray, promise: Promise) =
+      promise.settle { graph.ledger.acknowledge((0 until eventIds.size()).mapNotNull(eventIds::getString)) }
 
   private fun currentRoleStatus(): String {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {

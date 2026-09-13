@@ -17,10 +17,7 @@ import org.letmehandle.app.calls.rules.ScreeningDecision
 import org.letmehandle.app.calls.rules.ScreeningReason
 import org.letmehandle.app.calls.rules.ScreeningRules
 
-/**
- * Real threads and a real timer, on purpose: what is being proven is that a response arrives
- * within the budget and arrives once, and a fake clock would prove only that the code asks it.
- */
+/** Runs on real threads and a real timer, because the budget itself is what is under test. */
 class DeadlineScreenerTest {
   private val worker = Executors.newSingleThreadExecutor()
   private val timer = Executors.newSingleThreadScheduledExecutor()
@@ -40,7 +37,7 @@ class DeadlineScreenerTest {
     val rejected = Screening(ScreeningDecision.REJECT, ScreeningReason.DEFAULT_POSTURE)
     val started = System.nanoTime()
 
-    screener(budgetMillis = 1_000).screen({ rejected }, failures::add, responses::add)
+    screener(budgetMillis = 1_000).screen({ rejected }, failures::add, responses::add) {}
 
     assertEquals(rejected, responses.poll(1, TimeUnit.SECONDS))
     assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 500)
@@ -59,7 +56,7 @@ class DeadlineScreenerTest {
         },
         failures::add,
         responses::add,
-    )
+    ) {}
 
     assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.TIMED_OUT), responses.poll(1, TimeUnit.SECONDS))
     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
@@ -73,16 +70,14 @@ class DeadlineScreenerTest {
   fun `a failed evaluation lets the call ring and is reported`() {
     val broken = IllegalStateException("storage unavailable")
 
-    screener(budgetMillis = 1_000).screen({ throw broken }, failures::add, responses::add)
+    screener(budgetMillis = 1_000).screen({ throw broken }, failures::add, responses::add) {}
 
     assertEquals(Screening(ScreeningDecision.ALLOW, ScreeningReason.FAILED), responses.poll(1, TimeUnit.SECONDS))
     assertEquals(broken, failures.poll(1, TimeUnit.SECONDS))
   }
 
   @Test
-  fun `a response that fails is reported, and does not escape onto the worker`() {
-    // What recording a decision does when shared preferences cannot commit. On a handset an
-    // exception that reaches a thread's top ends the whole process.
+  fun `a recording that fails is reported, and does not escape onto the worker`() {
     val unwritable = IllegalStateException("call screening state could not be written")
     val escaped = LinkedBlockingQueue<Throwable>()
     val worker =
@@ -94,6 +89,7 @@ class DeadlineScreenerTest {
       DeadlineScreener(worker, timer, budgetMillis = 1_000).screen(
           { Screening(ScreeningDecision.ALLOW, ScreeningReason.DEFAULT_POSTURE) },
           failures::add,
+          responses::add,
       ) { throw unwritable }
 
       assertEquals(unwritable, failures.poll(1, TimeUnit.SECONDS))
@@ -104,11 +100,31 @@ class DeadlineScreenerTest {
   }
 
   @Test
-  fun `a response that fails after the deadline is reported rather than lost in the timer`() {
+  fun `a response that fails on the deadline is reported rather than lost in the timer`() {
     val release = CountDownLatch(1)
-    val unwritable = IllegalStateException("call screening state could not be written")
-    // A scheduled task's exception is kept in its future, which nothing reads.
-    val timer = Executors.newSingleThreadScheduledExecutor()
+    val unreachable = IllegalStateException("telecom is gone")
+
+    try {
+      screener(budgetMillis = 100).screen(
+          {
+            release.await()
+            Screening(ScreeningDecision.REJECT, ScreeningReason.DEFAULT_POSTURE)
+          },
+          failures::add,
+          { throw unreachable },
+      ) {}
+
+      assertEquals(unreachable, failures.poll(1, TimeUnit.SECONDS))
+    } finally {
+      release.countDown()
+    }
+  }
+
+  @Test
+  fun `a timed-out decision is recorded on the worker once it is free, never on the timer`() {
+    val release = CountDownLatch(1)
+    val recordedOn = LinkedBlockingQueue<String>()
+    val worker = Executors.newSingleThreadExecutor { task -> Thread(task, "worker") }
 
     try {
       DeadlineScreener(worker, timer, budgetMillis = 100).screen(
@@ -117,12 +133,39 @@ class DeadlineScreenerTest {
             Screening(ScreeningDecision.REJECT, ScreeningReason.DEFAULT_POSTURE)
           },
           failures::add,
-      ) { throw unwritable }
+          responses::add,
+      ) { recordedOn.add(Thread.currentThread().name) }
 
-      assertEquals(unwritable, failures.poll(1, TimeUnit.SECONDS))
+      assertEquals(ScreeningReason.TIMED_OUT, responses.poll(1, TimeUnit.SECONDS)?.reason)
+      assertNull(recordedOn.poll(200, TimeUnit.MILLISECONDS))
+      release.countDown()
+      assertEquals("worker", recordedOn.poll(1, TimeUnit.SECONDS))
     } finally {
       release.countDown()
-      timer.shutdownNow()
+      worker.shutdownNow()
+    }
+  }
+
+  @Test
+  fun `a timed-out decision whose recording stalls does not hold back the next call's deadline`() {
+    val release = CountDownLatch(1)
+    val screener = screener(budgetMillis = 100)
+    val stalled = {
+      release.await()
+      Screening(ScreeningDecision.REJECT, ScreeningReason.DEFAULT_POSTURE)
+    }
+
+    try {
+      screener.screen(stalled, failures::add, responses::add) { release.await() }
+      assertEquals(ScreeningReason.TIMED_OUT, responses.poll(1, TimeUnit.SECONDS)?.reason)
+      val started = System.nanoTime()
+
+      screener.screen(stalled, failures::add, responses::add) {}
+
+      assertEquals(ScreeningReason.TIMED_OUT, responses.poll(1, TimeUnit.SECONDS)?.reason)
+      assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 500)
+    } finally {
+      release.countDown()
     }
   }
 
@@ -134,7 +177,7 @@ class DeadlineScreenerTest {
         { ScreeningRules.evaluate(snapshot = null, caller = caller, now = Instant.now(), country = null) },
         failures::add,
         responses::add,
-    )
+    ) {}
 
     assertEquals(
         Screening(ScreeningDecision.ALLOW, ScreeningReason.NO_RULES),

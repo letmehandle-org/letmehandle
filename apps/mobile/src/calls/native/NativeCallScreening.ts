@@ -1,14 +1,4 @@
-/**
- * The native side of call screening, as React Native's code generator sees it.
- *
- * Kept to strings and promises on purpose. The documents that cross this boundary — the rules
- * snapshot going in, the call events coming out — are JSON with one definition each side, and
- * `src/calls/wire-examples.json` is read by the tests on both sides so the two cannot drift. A
- * generated struct would hold the shape in step and leave the meaning unchecked.
- *
- * Absent on a platform with no such service. That absence is the capability: nothing asks which
- * platform it is running on.
- */
+/** The native call screening module as codegen sees it: strings and promises, absent where no screening exists. */
 import type { CodegenTypes, TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 

@@ -8,20 +8,7 @@ import org.letmehandle.app.calls.rules.Screening
 import org.letmehandle.app.calls.rules.ScreeningDecision
 import org.letmehandle.app.calls.rules.ScreeningReason
 
-/**
- * A screening decision that always arrives within the budget, and arrives once.
- *
- * `onScreenCall` runs on the main thread, and the platform stops listening five seconds after it
- * is called. The evaluation itself is microseconds; reading the snapshot from storage is what
- * could stall, on a handset under memory pressure. So the evaluation runs on a worker, a timer
- * races it, and whichever finishes first is the answer. When the timer wins, the call rings: a
- * decision that is late is not applied by the platform anyway, and ringing is the one that can
- * never refuse somebody wrongly.
- *
- * A failure after the decision — recording it, say, when storage cannot be written — is given to
- * `onFailure` too. On the worker it would otherwise reach the top of the thread and end the
- * process; on the timer it would vanish into a future nobody reads.
- */
+/** Races the evaluation on [worker] against a [timer], responds once, and records the answer on [worker]. */
 class DeadlineScreener(
     private val worker: Executor,
     private val timer: ScheduledExecutorService,
@@ -31,20 +18,25 @@ class DeadlineScreener(
       evaluate: () -> Screening,
       onFailure: (RuntimeException) -> Unit,
       respond: (Screening) -> Unit,
+      record: (Screening) -> Unit,
   ) {
     val answered = AtomicBoolean(false)
-    val once = { screening: Screening ->
-      if (answered.compareAndSet(false, true)) {
-        try {
-          respond(screening)
-        } catch (failure: RuntimeException) {
-          onFailure(failure)
-        }
+    val reporting = { step: () -> Unit ->
+      try {
+        step()
+      } catch (failure: RuntimeException) {
+        onFailure(failure)
       }
     }
     val deadline =
         timer.schedule(
-            { once(Screening(ScreeningDecision.ALLOW, ScreeningReason.TIMED_OUT)) },
+            {
+              val timedOut = Screening(ScreeningDecision.ALLOW, ScreeningReason.TIMED_OUT)
+              if (answered.compareAndSet(false, true)) {
+                reporting { respond(timedOut) }
+                worker.execute { reporting { record(timedOut) } }
+              }
+            },
             budgetMillis,
             TimeUnit.MILLISECONDS,
         )
@@ -57,15 +49,15 @@ class DeadlineScreener(
             Screening(ScreeningDecision.ALLOW, ScreeningReason.FAILED)
           }
       deadline.cancel(false)
-      once(screening)
+      if (answered.compareAndSet(false, true)) {
+        reporting { respond(screening) }
+        reporting { record(screening) }
+      }
     }
   }
 
   companion object {
-    /**
-     * Three of the platform's five seconds: the rest is left for the response to travel back to
-     * the telecom service, which happens after this budget and is not in this process's control.
-     */
+    /** Three of the platform's five seconds, leaving the rest for the response to reach telecom. */
     const val DEFAULT_BUDGET_MILLIS = 3_000L
   }
 }

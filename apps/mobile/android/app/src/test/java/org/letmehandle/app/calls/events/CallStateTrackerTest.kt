@@ -77,8 +77,7 @@ class CallStateTrackerTest {
 
   @Test
   fun `a call that rings without being screened is still reported, without a number or decision`() {
-    // A caller in the user's contacts, or one withholding their number: the platform does not
-    // pass either to a screening service.
+    // A contact or a withheld number, which the platform never passes to a screening service.
     val (_, events) = run(state(PhoneState.RINGING, 0), state(PhoneState.OFFHOOK, 3), state(PhoneState.IDLE, 60))
 
     assertEquals(listOf(CallEventKind.INCOMING, CallEventKind.ANSWERED, CallEventKind.ENDED), events.map { it.kind })
@@ -151,8 +150,8 @@ class CallStateTrackerTest {
   @Test
   fun `the call being followed survives being written down`() {
     val call = TrackedCall("call", screenedAt = start, ringing = true, answered = false)
-    assertEquals(call, TrackedCall.fromJson(call.toJson()))
+    assertEquals(call, TrackedCall.fromJson(call.toJson().toString()))
     val unscreened = call.copy(screenedAt = null, answered = true)
-    assertEquals(unscreened, TrackedCall.fromJson(unscreened.toJson()))
+    assertEquals(unscreened, TrackedCall.fromJson(unscreened.toJson().toString()))
   }
 }

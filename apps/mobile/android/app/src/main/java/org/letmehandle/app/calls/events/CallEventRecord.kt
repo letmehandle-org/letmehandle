@@ -1,35 +1,29 @@
 package org.letmehandle.app.calls.events
 
-import java.time.DateTimeException
 import java.time.Instant
-import org.json.JSONException
+import org.json.JSONArray
 import org.json.JSONObject
+import org.letmehandle.app.calls.WireValue
+import org.letmehandle.app.calls.optStringOrNull
+import org.letmehandle.app.calls.readingJson
+import org.letmehandle.app.calls.wireValueOf
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
-/**
- * What a handset can observe about its own call. Mirrors the backend's `ReportedCallKind`, which
- * is the same vocabulary every transport reports in, less what a handset cannot see.
- */
-enum class CallEventKind(val wire: String) {
+/** What a handset observes about its own call; mirrors the backend's `ReportedCallKind`. */
+enum class CallEventKind(override val wire: String) : WireValue {
   INCOMING("incoming"),
   ANSWERED("answered"),
   ENDED("ended"),
 }
 
 /** How a call ended. Mirrors `CallEnding`. */
-enum class CallEnding(val wire: String) {
+enum class CallEnding(override val wire: String) : WireValue {
   SCREENED_OUT("screened_out"),
   MISSED("missed"),
   COMPLETED("completed"),
 }
 
-/**
- * One thing that happened to one call, waiting to be reported.
- *
- * Its wire form is exactly the backend's `CallReportPayload`, so the app forwards what it is
- * given without translating it. The example documents in `src/calls/wire-examples.json` are read
- * by this codec's tests and by the TypeScript side's, which is what holds the two in step.
- */
+/** One event of one call awaiting report, in the wire form of the backend's `CallReportPayload`. */
 data class CallEventRecord(
     val eventId: String,
     val callId: String,
@@ -59,42 +53,25 @@ data class CallEventRecord(
         ending?.let { put("ending", it.wire) }
       }
 
-  /** A stored entry that is not a call event this build can read. Its message quotes nothing. */
-  class UnreadableRecord(cause: Throwable?) :
-      IllegalArgumentException("a stored call event could not be read", cause)
-
   companion object {
+    /** The events as a JSON array of call reports, the form both stored and handed to the app. */
+    fun listToJson(events: List<CallEventRecord>): String = JSONArray(events.map { it.toJson() }).toString()
+
     /** Reads one stored event, or throws [UnreadableRecord] and nothing else. */
     fun fromJson(json: JSONObject): CallEventRecord =
-        try {
-          read(json)
-        } catch (error: JSONException) {
-          throw UnreadableRecord(error)
-        } catch (error: IllegalArgumentException) {
-          throw UnreadableRecord(error)
-        } catch (error: DateTimeException) {
-          throw UnreadableRecord(error)
+        readingJson(::UnreadableRecord) {
+          CallEventRecord(
+              eventId = json.getString("event_id"),
+              callId = json.getString("call_id"),
+              kind = wireValueOf(json.getString("kind")),
+              occurredAt = Instant.parse(json.getString("occurred_at")),
+              callerNumber = json.optStringOrNull("caller_number"),
+              screening = json.optStringOrNull("screening")?.let { wireValueOf<ScreeningDecision>(it) },
+              ending = json.optStringOrNull("ending")?.let { wireValueOf<CallEnding>(it) },
+          )
         }
-
-    private fun read(json: JSONObject): CallEventRecord =
-        CallEventRecord(
-            eventId = json.getString("event_id"),
-            callId = json.getString("call_id"),
-            kind = wireValue(CallEventKind.entries, json.getString("kind")) { it.wire },
-            occurredAt = Instant.parse(json.getString("occurred_at")),
-            callerNumber = json.optStringOrNull("caller_number"),
-            screening =
-                json.optStringOrNull("screening")?.let { value ->
-                  wireValue(ScreeningDecision.entries, value) { it.wire }
-                },
-            ending =
-                json.optStringOrNull("ending")?.let { value -> wireValue(CallEnding.entries, value) { it.wire } },
-        )
-
-    private fun <T> wireValue(values: List<T>, value: String, wire: (T) -> String): T =
-        requireNotNull(values.firstOrNull { wire(it) == value }) { "not a value this build knows" }
-
-    private fun JSONObject.optStringOrNull(key: String): String? =
-        if (has(key) && !isNull(key)) getString(key) else null
   }
 }
+
+/** A stored record this build cannot read; its message quotes nothing it held. */
+class UnreadableRecord(cause: Throwable?) : IllegalArgumentException("a stored call record could not be read", cause)

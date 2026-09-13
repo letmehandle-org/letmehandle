@@ -1,40 +1,24 @@
 package org.letmehandle.app.calls.events
 
 import java.time.Instant
-import java.time.format.DateTimeParseException
 import org.json.JSONArray
 import org.json.JSONException
-import org.json.JSONObject
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
-/** Durable text, by key. Backed by shared preferences on a handset and by a map in tests. */
+/** Durable text by key, written before returning; a null value removes the key. */
 interface TextStore {
   fun read(key: String): String?
 
-  /** Writes before returning. A broadcast receiver's process may be gone a moment later. */
-  fun write(key: String, value: String?)
+  /** Applies every change in one atomic write, or none of them; throws [StoreUnavailable] when it cannot. */
+  fun write(changes: Map<String, String?>)
+
+  fun write(key: String, value: String?) = write(mapOf(key to value))
 }
 
-/**
- * The handset's record of call events not yet acknowledged by the backend, and the call being
- * followed.
- *
- * Records only while an account is signed in: from [startRecording] until [clear]. A call that
- * arrives with nobody signed in is nobody's to report, and on a shared phone it is somebody
- * else's; kept, it would be reported as the calls of whoever signed in next. The switch is stored
- * beside the events and read under the same lock, so a sign-out can never be followed by one
- * more event recorded for the account that left.
- *
- * Written from the screening service and the phone-state receiver, read and emptied by the app.
- * Those can run on different threads, so every operation holds the one lock.
- *
- * Bounded: a handset whose app is never opened would otherwise grow this without end. The
- * oldest events go first, and [onOverflow] is told how many, so the loss is visible.
- *
- * Forgiving on read: an entry that cannot be read is dropped, [onUnreadable] is told why, and the
- * ledger is written back without it. Refusing the whole list instead would hold every call behind
- * that one entry on the handset for good, and fail every read after.
- */
+/** The handset's storage refused a write. */
+class StoreUnavailable : IllegalStateException("call screening state could not be written")
+
+/** The unreported call events and the tracked call, recorded under one lock only while an account is signed in (D-028). */
 class CallEventLedger(
     private val store: TextStore,
     private val tracker: CallStateTracker,
@@ -45,7 +29,7 @@ class CallEventLedger(
 ) {
   private val lock = Any()
 
-  /** Record calls from now on, for the account that has signed in. */
+  /** Records calls from now on, for the account that has signed in. */
   fun startRecording() {
     synchronized(lock) { store.write(RECORDING, RECORDING_ON) }
   }
@@ -65,15 +49,10 @@ class CallEventLedger(
     }
   }
 
-  /**
-   * Forget everything and stop recording, for a sign-out: these calls belong to the account that
-   * is leaving, and the next ones to nobody until another signs in.
-   */
-  fun clear() {
+  /** Stops recording and forgets every event and the tracked call, with [alsoRemoving] in the same write. */
+  fun clear(alsoRemoving: Collection<String> = emptyList()) {
     synchronized(lock) {
-      store.write(RECORDING, null)
-      store.write(PENDING, null)
-      store.write(TRACKED, null)
+      store.write((listOf(RECORDING, PENDING, TRACKED) + alsoRemoving).associateWith { null })
     }
   }
 
@@ -83,12 +62,12 @@ class CallEventLedger(
           if (store.read(RECORDING) != RECORDING_ON) {
             return
           }
-          val tracked = readTracked()
-          val transition = step(tracked)
-          store.write(TRACKED, transition.call?.toJson()?.toString())
+          val transition = step(readTracked())
+          val changes = mutableMapOf<String, String?>(TRACKED to transition.call?.toJson()?.toString())
           if (transition.events.isNotEmpty()) {
-            writePending(readPending() + transition.events)
+            changes += pendingChange(readPending() + transition.events)
           }
+          store.write(changes)
           transition.events.isNotEmpty()
         }
     if (changed) {
@@ -96,28 +75,16 @@ class CallEventLedger(
     }
   }
 
-  /**
-   * The call being followed, or none if what is stored cannot be read.
-   *
-   * Forgotten rather than thrown: a corrupt record here would otherwise stop every later screening
-   * decision and phone state from being recorded at all. The next event starts from nothing, which
-   * at worst reports one call as two.
-   */
+  /** The call being followed, forgotten and reported when what is stored cannot be read. */
   private fun readTracked(): TrackedCall? {
     val text = store.read(TRACKED) ?: return null
     return try {
-      TrackedCall.fromJson(JSONObject(text))
-    } catch (unreadable: JSONException) {
-      forgetTracked(unreadable)
-    } catch (unreadable: DateTimeParseException) {
-      forgetTracked(unreadable)
+      TrackedCall.fromJson(text)
+    } catch (unreadable: UnreadableRecord) {
+      store.write(TRACKED, null)
+      onUnreadable(unreadable)
+      null
     }
-  }
-
-  private fun forgetTracked(failure: Exception): TrackedCall? {
-    store.write(TRACKED, null)
-    onUnreadable(failure)
-    return null
   }
 
   private fun readPending(): List<CallEventRecord> {
@@ -133,8 +100,8 @@ class CallEventLedger(
     val events =
         (0 until entries.length()).mapNotNull { index ->
           try {
-            CallEventRecord.fromJson(entries.optJSONObject(index) ?: throw CallEventRecord.UnreadableRecord(null))
-          } catch (unreadable: CallEventRecord.UnreadableRecord) {
+            CallEventRecord.fromJson(entries.optJSONObject(index) ?: throw UnreadableRecord(null))
+          } catch (unreadable: UnreadableRecord) {
             onUnreadable(unreadable)
             null
           }
@@ -146,11 +113,15 @@ class CallEventLedger(
   }
 
   private fun writePending(events: List<CallEventRecord>) {
+    store.write(mapOf(pendingChange(events)))
+  }
+
+  private fun pendingChange(events: List<CallEventRecord>): Pair<String, String> {
     val dropped = (events.size - capacity).coerceAtLeast(0)
     if (dropped > 0) {
       onOverflow(dropped)
     }
-    store.write(PENDING, JSONArray(events.drop(dropped).map { it.toJson() }).toString())
+    return PENDING to CallEventRecord.listToJson(events.drop(dropped))
   }
 
   companion object {

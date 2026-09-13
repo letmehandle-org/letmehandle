@@ -1,9 +1,4 @@
-/**
- * The country the phone's network says it is in, as the codegen sees it.
- *
- * Android only: the network's country, else the SIM's. iOS no longer tells an app its carrier's
- * country, so the module is absent there and the region setting is used instead.
- */
+/** The network's or SIM's country as codegen sees it; Android only. */
 import type { TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 

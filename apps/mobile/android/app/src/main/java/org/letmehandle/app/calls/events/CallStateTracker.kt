@@ -3,6 +3,8 @@ package org.letmehandle.app.calls.events
 import java.time.Duration
 import java.time.Instant
 import org.json.JSONObject
+import org.letmehandle.app.calls.optStringOrNull
+import org.letmehandle.app.calls.readingJson
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
 /** The handset's telephony call state, as `TelephonyManager` reports it. */
@@ -12,10 +14,7 @@ enum class PhoneState {
   OFFHOOK,
 }
 
-/**
- * The call being followed, if there is one. Persisted between broadcasts, because the process
- * that received "ringing" is not necessarily alive to receive "idle".
- */
+/** The call being followed, persisted between phone-state broadcasts. */
 data class TrackedCall(
     val callId: String,
     val screenedAt: Instant?,
@@ -31,34 +30,23 @@ data class TrackedCall(
       }
 
   companion object {
-    fun fromJson(json: JSONObject): TrackedCall =
-        TrackedCall(
-            callId = json.getString("call_id"),
-            screenedAt =
-                if (json.has("screened_at")) Instant.parse(json.getString("screened_at")) else null,
-            ringing = json.getBoolean("ringing"),
-            answered = json.getBoolean("answered"),
-        )
+    /** Reads the stored call, or throws [UnreadableRecord] and nothing else. */
+    fun fromJson(text: String): TrackedCall =
+        readingJson(::UnreadableRecord) {
+          val json = JSONObject(text)
+          TrackedCall(
+              callId = json.getString("call_id"),
+              screenedAt = json.optStringOrNull("screened_at")?.let(Instant::parse),
+              ringing = json.getBoolean("ringing"),
+              answered = json.getBoolean("answered"),
+          )
+        }
   }
 }
 
 data class Transition(val call: TrackedCall?, val events: List<CallEventRecord>)
 
-/**
- * Screening decisions and telephony call states, turned into incoming, answered and ended.
- *
- * Without the phone app's role, an application sees two things: the screening service's call
- * (with a number, before ringing, and only for callers not in the user's contacts and not
- * withheld), and the telephony call state broadcast (ringing, off hook, idle — no number, no
- * identifier). This joins them. A screened call that then rings is the same call; a call that
- * rings without having been screened is a new one, reported without a number or a decision.
- *
- * What it cannot see, and therefore does not report: a second call waiting behind one already
- * in progress, whose state never reaches "ringing" in the broadcast; and anything at all when the
- * phone-state permission is refused, beyond the screening decision itself.
- *
- * Pure. Identifiers and the clock are passed in, so every sequence is testable on the JVM.
- */
+/** Joins screening decisions and phone states into incoming, answered and ended events, as a pure function. */
 class CallStateTracker(private val newId: () -> String) {
 
   fun screened(
@@ -147,11 +135,7 @@ class CallStateTracker(private val newId: () -> String) {
       call.screenedAt?.let { Duration.between(it, now) > SCREENED_WINDOW } ?: true
 
   companion object {
-    /**
-     * How long after a screening decision a "ringing" broadcast is taken to be that call. The
-     * platform rings as soon as the decision is received, and never later than its five-second
-     * deadline; the margin covers a broadcast delivered to a process that was starting.
-     */
+    /** How long after a screening decision a ringing broadcast counts as the same call. */
     val SCREENED_WINDOW: Duration = Duration.ofSeconds(15)
   }
 }

@@ -2,20 +2,9 @@ package org.letmehandle.app.calls.rules
 
 import java.time.Duration
 import java.time.Instant
+import org.letmehandle.app.calls.WireValue
 
-/**
- * The user's deterministic call rules, as the handset holds them.
- *
- * Written by the app after it reads the preferences API, and read by the screening service when
- * a call arrives. A copy rather than a request: the platform gives the service five seconds, and
- * a network round trip is not something to spend them on.
- *
- * Mirrors the backend's `CallRules` and `ImportantContact` in `domain/models/preferences.py`,
- * limited to what a decision before ringing reads. Labels are left behind on purpose: the
- * handset needs a number and what to do with it, not what the user calls the person. The user's
- * hours are left behind too: they decide when the assistant answers (D-030), and nothing on this
- * path is answered by an assistant, so no decision here reads them.
- */
+/** The user's deterministic call rules as stored on the handset; mirrors the backend's `CallRules` (D-028). */
 data class CallRulesSnapshot(
     val syncedAt: Instant,
     val defaultPosture: HandlingPosture,
@@ -30,50 +19,28 @@ data class CallRulesSnapshot(
     }
   }
 
-  /**
-   * Whether these rules are too old to refuse a caller on, or dated by a clock that cannot be
-   * trusted to say how old they are.
-   */
+  /** Whether these rules are too old, or dated too far ahead, to refuse a caller on. */
   fun isStaleAt(now: Instant): Boolean =
       syncedAt > now + CLOCK_SKEW_ALLOWANCE || Duration.between(syncedAt, now) > MAX_AGE
 
   companion object {
-    /**
-     * How long a snapshot may go unrefreshed before it stops being trusted to refuse anybody.
-     *
-     * The app refreshes it whenever it opens. A handset whose app has not opened for a week may
-     * be carrying rules the user has since changed, and ringing is the recoverable mistake.
-     */
+    /** The age beyond which a snapshot refuses nobody. */
     val MAX_AGE: Duration = Duration.ofDays(7)
 
-    /**
-     * How far in the future a snapshot's sync time may be before the snapshot counts as stale.
-     *
-     * The app dates a snapshot by the handset's clock, and that clock can later be corrected
-     * backwards — by the network's time, or by the user. Without this, a snapshot written while
-     * the clock ran ahead would never reach [MAX_AGE] and would refuse callers indefinitely. Five
-     * minutes absorbs the small corrections network time makes all the time; anything larger means
-     * the age cannot be known, and the call rings until the app writes the rules again.
-     */
+    /** How far ahead of the handset's clock a snapshot may be dated before it counts as stale. */
     val CLOCK_SKEW_ALLOWANCE: Duration = Duration.ofMinutes(5)
   }
 }
 
 /** What should happen to a call before anybody has spoken to it. Mirrors `HandlingPosture`. */
-enum class HandlingPosture(val wire: String) {
+enum class HandlingPosture(override val wire: String) : WireValue {
   PASS_THROUGH("pass_through"),
   HANDLE_WITH_AGENT("handle_with_agent"),
-  REJECT("reject");
-
-  companion object {
-    fun fromWire(value: String): HandlingPosture =
-        entries.firstOrNull { it.wire == value }
-            ?: throw IllegalArgumentException("unknown posture")
-  }
+  REJECT("reject"),
 }
 
 /** What kind of caller this is. Mirrors `CallerCategory`. */
-enum class CallerCategory(val wire: String) {
+enum class CallerCategory(override val wire: String) : WireValue {
   KNOWN_CONTACT("known_contact"),
   DELIVERY("delivery"),
   HEALTHCARE("healthcare"),
@@ -82,13 +49,7 @@ enum class CallerCategory(val wire: String) {
   SERVICE_PROVIDER("service_provider"),
   SALES("sales"),
   SPAM("spam"),
-  UNKNOWN("unknown");
-
-  companion object {
-    fun fromWire(value: String): CallerCategory =
-        entries.firstOrNull { it.wire == value }
-            ?: throw IllegalArgumentException("unknown caller category")
-  }
+  UNKNOWN("unknown"),
 }
 
 /** Somebody the user has told the assistant about, by number. */
