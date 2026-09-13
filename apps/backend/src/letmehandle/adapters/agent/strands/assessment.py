@@ -22,6 +22,7 @@ from typing import Annotated, Final
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     PlainSerializer,
     PlainValidator,
     StrictBool,
@@ -30,6 +31,7 @@ from pydantic import (
     field_validator,
 )
 
+from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
@@ -77,7 +79,7 @@ class CallAssessment(BaseModel):
     caller_asked_for_the_user: StrictBool
     needs_the_users_decision: StrictBool
     requested_capability: _Capability | None = None
-    caller_summary: StrictStr | None = None
+    caller_summary: StrictStr | None = Field(default=None, max_length=SHORT_TEXT_CHARACTERS)
 
     @field_validator("caller_summary")
     @classmethod

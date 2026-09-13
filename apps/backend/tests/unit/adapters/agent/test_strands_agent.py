@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import structlog
+from pydantic import ValidationError
 from strands.tools import convert_pydantic_to_tool_spec
 from structlog.testing import capture_logs
 
@@ -14,6 +15,7 @@ from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL, StrandsCal
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
+from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from tests.support.agent_calls import a_call, fixed
@@ -95,3 +97,19 @@ def test_an_importance_is_written_back_as_the_word_it_was_given_as() -> None:
     )
     assert assessment.importance is CallImportance.LOW
     assert assessment.model_dump(mode="json")["importance"] == "low"
+
+
+def test_a_caller_summary_is_held_to_the_escalation_tools_limit() -> None:
+    fields = {
+        "intent": "sales",
+        "importance": "low",
+        "understood": True,
+        "caller_asked_for_the_user": False,
+        "needs_the_users_decision": False,
+    }
+    CallAssessment.model_validate({**fields, "caller_summary": "a" * SHORT_TEXT_CHARACTERS})
+
+    with pytest.raises(ValidationError, match="caller_summary"):
+        CallAssessment.model_validate(
+            {**fields, "caller_summary": "a" * (SHORT_TEXT_CHARACTERS + 1)}
+        )
