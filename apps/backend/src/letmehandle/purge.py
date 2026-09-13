@@ -123,6 +123,13 @@ async def purge_expired_challenges(
         )
 
 
+async def _purge_everything(settings: Settings) -> tuple[PurgeResult, int]:
+    """Purge transcripts, then spent challenges, on one engine released when both are done."""
+    async with _engine_for(settings, None) as engine:
+        result = await purge_transcripts(settings, engine=engine)
+        return result, await purge_expired_challenges(settings, engine=engine)
+
+
 def main() -> None:
     """The entry point for ``uv run letmehandle-purge``."""
     try:
@@ -133,8 +140,7 @@ def main() -> None:
 
     configure_logging(settings)
     try:
-        result = asyncio.run(purge_transcripts(settings))
-        challenges_deleted = asyncio.run(purge_expired_challenges(settings))
+        result, challenges_deleted = asyncio.run(_purge_everything(settings))
     except Exception as error:
         # The type only. A database error's message can carry a statement's parameters.
         logger.error("transcript_purge.failed", error_type=type(error).__name__)  # noqa: TRY400
