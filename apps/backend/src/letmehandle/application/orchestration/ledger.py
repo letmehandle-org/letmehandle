@@ -66,10 +66,16 @@ class CallLedger:
         await self._save("open")
 
     async def move(self, state: CallState) -> None:
-        """Move the call, stamped now, and store it. Raises for a move the state machine forbids."""
+        """Move the call, stamped now. Raises for a move the state machine forbids.
+
+        Stored at once, except an ending: that is stored with the summary, once teardown has let
+        everything go, so a process that stops part-way through a teardown leaves the call
+        unfinished for the next start to end rather than ended with no summary.
+        """
         self._call.move_to(state, at_instant=self._clock.now())
         self._metrics.increment(TRANSITION, {"outcome": state.value})
-        await self._save("move")
+        if not self._call.is_over:
+            await self._save("move")
 
     async def joined(self, role: ParticipantRole) -> None:
         """Somebody came on the call. Hearing it twice changes nothing."""
