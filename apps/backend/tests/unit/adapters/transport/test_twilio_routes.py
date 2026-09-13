@@ -195,7 +195,7 @@ async def test_the_assistant_route_reads_the_call_from_the_form_or_the_query(
     query = await signed_post(
         client,
         "/telephony/voice/assistant?call=CAsim-1&leg=assistant-1",
-        [("AccountSid", ACCOUNT), ("CallSid", "CAsim-y")],
+        [("AccountSid", ACCOUNT), ("CallSid", "CAsim-x")],
     )
     assert "<Stream" in query.text
 

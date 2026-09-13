@@ -153,14 +153,41 @@ class _Applied:
 
 
 @dataclass(eq=False)
+class _AssistantMedia:
+    """An assistant leg's stream, and what a websocket must present to carry it."""
+
+    stream: MediaStream
+    token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    token_spent: bool = False
+    # The application's own call, which asks for the stream and starts it; never the participant.
+    application_sid: str | None = None
+
+    def bind_application(self, call_sid: str) -> bool:
+        """Bind the application call asking for the stream; False when another call is bound."""
+        if self.application_sid is None:
+            self.application_sid = call_sid
+        return self.application_sid == call_sid
+
+    def admit(self, call_sid: str, presented: str | None) -> bool:
+        """Whether a stream start may attach, spending the token it presents: one start only."""
+        if self.token_spent or presented is None:
+            return False
+        if not hmac.compare_digest(presented.encode(), self.token.encode()):
+            return False
+        self.token_spent = True
+        return call_sid == self.application_sid
+
+
+@dataclass(eq=False)
 class _Leg:
     """One dialled participant: the assistant or a user."""
 
     label: str
     role: ParticipantRole
     number: PhoneNumber | None = None
-    stream: MediaStream | None = None
-    call_sid: str | None = None
+    media: _AssistantMedia | None = None
+    # The participant's call, named by leg and conference callbacks and by every request about it.
+    participant_sid: str | None = None
     answered: bool = False
     joined: bool = False
     finished: bool = False
@@ -170,15 +197,6 @@ class _Leg:
     last_progress: int = -1
     last_conference: int = -1
     applied: _Applied = field(default_factory=_Applied)
-    # What this leg's stream must present to be attached, and whether anything has presented it.
-    # The handshake's signature is the same for every call and a leg's identifier is no secret,
-    # so without this any signed socket could name any leg.
-    media_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
-    media_token_spent: bool = False
-    # The call that asked for this leg's stream. Dialling an application makes a call of its own on
-    # the provider's side, so this is not the participant's identifier, and it is the one a stream
-    # presents when it starts.
-    stream_call_sid: str | None = None
 
 
 @dataclass(eq=False)
@@ -220,7 +238,8 @@ class _Call:
 
     def current_stream(self) -> MediaStream | None:
         assistant = self.assistant()
-        return assistant.stream if assistant is not None else None
+        media = assistant.media if assistant is not None else None
+        return media.stream if media is not None else None
 
 
 class _Remembered:
@@ -351,7 +370,9 @@ class TwilioCallTransport(CallTransport):
             leg = _Leg(label, ParticipantRole.ASSISTANT)
             # Listening only is the conference muting this leg; the stream asks the leg so that
             # it stops sending audio nobody will hear, without being told separately.
-            leg.stream = MediaStream(monotonic=self._monotonic, is_muted=lambda: leg.applied.muted)
+            leg.media = _AssistantMedia(
+                MediaStream(monotonic=self._monotonic, is_muted=lambda: leg.applied.muted)
+            )
             call.legs[label] = leg
             call.presence = AssistantPresence.STAY
             target = (
@@ -504,25 +525,22 @@ class TwilioCallTransport(CallTransport):
             self._calls.get(CallId(params[CALL_PARAMETER])) if params.get(CALL_PARAMETER) else None
         )
         leg = call.legs.get(params.get(LEG_PARAMETER, "")) if call is not None else None
-        if call is None or leg is None:
-            call, leg = self._leg_by_call_sid(call_sid)
+        media = leg.media if leg is not None else None
         if (
             call is None
             or leg is None
-            or leg.role is not ParticipantRole.ASSISTANT
+            or media is None
             or leg.finished
-            or leg.stream is None
-            or leg.stream.has_ended
+            or media.stream.has_ended
+            or not media.bind_application(call_sid)
         ):
             return twiml.hang_up()
-        leg.call_sid = leg.call_sid or call_sid
-        leg.stream_call_sid = call_sid
         return twiml.assistant_stream(
             stream_url=self._verifier.websocket_url(self._config.path_prefix + MEDIA_PATH),
             parameters={
                 CALL_PARAMETER: call.call_id.value,
                 LEG_PARAMETER: leg.label,
-                TOKEN_PARAMETER: leg.media_token,
+                TOKEN_PARAMETER: media.token,
             },
         )
 
@@ -554,7 +572,7 @@ class TwilioCallTransport(CallTransport):
         key = f"leg:{progress.call_sid}:{progress.sequence}:{progress.status}"
         if not self._deliveries.add(key) or progress.status is None:
             return
-        leg.call_sid = leg.call_sid or progress.call_sid
+        leg.participant_sid = leg.participant_sid or progress.call_sid
         if progress.sequence is not None:
             if progress.sequence <= leg.last_progress:
                 return
@@ -625,32 +643,20 @@ class TwilioCallTransport(CallTransport):
                 continue
             call = self._calls.get(CallId(message.parameters.get(CALL_PARAMETER) or "-"))
             leg = call.legs.get(message.parameters.get(LEG_PARAMETER, "")) if call else None
-            stream = leg.stream if leg is not None else None
+            media = leg.media if leg is not None else None
             if (
                 leg is None
-                or not self._spend_token(leg, message.parameters.get(TOKEN_PARAMETER))
-                or stream is None
+                or media is None
+                or not media.admit(message.call_sid, message.parameters.get(TOKEN_PARAMETER))
                 or leg.finished
-                or stream.has_ended
-                or stream.is_connected
-                or (leg.stream_call_sid is not None and leg.stream_call_sid != message.call_sid)
+                or media.stream.has_ended
+                or media.stream.is_connected
             ):
                 logger.warning("telephony.media.unexpected_stream")
                 return None
-            leg.call_sid = leg.call_sid or message.call_sid
-            stream.attach(socket, message.stream_sid)
-            return stream
+            media.stream.attach(socket, message.stream_sid)
+            return media.stream
         return None
-
-    @staticmethod
-    def _spend_token(leg: _Leg, presented: str | None) -> bool:
-        """Whether the leg's token was presented, spending it if so: it is good for one start."""
-        if leg.media_token_spent or presented is None:
-            return False
-        if not hmac.compare_digest(presented.encode(), leg.media_token.encode()):
-            return False
-        leg.media_token_spent = True
-        return True
 
     async def _dial(
         self, call: _Call, leg: _Leg, target: str, ring_seconds: int, *, detect_machine: bool
@@ -672,7 +678,7 @@ class TwilioCallTransport(CallTransport):
             leg.finished = True
             self._end_stream(call, leg)
             raise
-        leg.call_sid = leg.call_sid or call_sid
+        leg.participant_sid = call_sid
         if call.released:
             # Released while the dial was being placed, which only a shutdown that could not wait
             # for it does. Nothing is left to hear this leg's callbacks, so it is ended now rather
@@ -694,7 +700,8 @@ class TwilioCallTransport(CallTransport):
         leg = call.legs.get(update.label or "")
         if leg is None and update.call_sid is not None:
             leg = next(
-                (each for each in call.legs.values() if each.call_sid == update.call_sid), None
+                (each for each in call.legs.values() if each.participant_sid == update.call_sid),
+                None,
             )
         if leg is not None and leg.given_up_on:
             # It was on the call after all. Being on it and having left is what happened, and
@@ -706,7 +713,7 @@ class TwilioCallTransport(CallTransport):
         if leg is None or update.sequence <= leg.last_conference or leg.finished:
             return
         leg.last_conference = update.sequence
-        leg.call_sid = leg.call_sid or update.call_sid
+        leg.participant_sid = leg.participant_sid or update.call_sid
         if update.event is ConferenceEvent.JOIN:
             if leg.joined:
                 return
@@ -770,7 +777,7 @@ class TwilioCallTransport(CallTransport):
         if call.presence is AssistantPresence.LEAVE:
             await self._hang_up_leg(call, assistant)
             return
-        if not assistant.joined or call.conference_sid is None or assistant.call_sid is None:
+        if not assistant.joined or call.conference_sid is None or assistant.participant_sid is None:
             return
         users = call.present_users()
         if not users or call.presence is AssistantPresence.STAY:
@@ -778,12 +785,12 @@ class TwilioCallTransport(CallTransport):
         elif call.presence is AssistantPresence.LISTEN_ONLY:
             target = _Applied(muted=True)
         else:
-            target = _Applied(coach_call_sid=users[-1].call_sid)
+            target = _Applied(coach_call_sid=users[-1].participant_sid)
         if target == assistant.applied:
             return
         await self._api.update_participant(
             call.conference_sid,
-            assistant.call_sid,
+            assistant.participant_sid,
             muted=target.muted,
             coach_call_sid=target.coach_call_sid,
         )
@@ -793,12 +800,14 @@ class TwilioCallTransport(CallTransport):
         leg.removed = True
         # A leg is only reachable here once its dial has returned, under the call's lock, and a
         # dial that did not return an identifier finished the leg. Narrowed for the type.
-        if leg.call_sid is None:  # pragma: no cover - unreachable while dials hold the lock
+        if leg.participant_sid is None:  # pragma: no cover - unreachable while dials hold the lock
             return
         if leg.joined and call.conference_sid is not None:
-            await self._api.remove_participant(call.conference_sid, leg.call_sid)
+            await self._api.remove_participant(call.conference_sid, leg.participant_sid)
         else:
-            await self._api.end_call(leg.call_sid, "completed" if leg.answered else "canceled")
+            await self._api.end_call(
+                leg.participant_sid, "completed" if leg.answered else "canceled"
+            )
 
     async def _end_remotely(self, call: _Call) -> None:
         """End the call on the provider's side, whatever state it has reached.
@@ -891,12 +900,12 @@ class TwilioCallTransport(CallTransport):
         for task in list(call.tasks):
             task.cancel()
         for leg in call.legs.values():
-            if leg.stream is not None:
-                await leg.stream.end()
+            if leg.media is not None:
+                await leg.media.stream.end()
 
     def _end_stream(self, call: _Call, leg: _Leg) -> None:
-        if leg.stream is not None and not leg.stream.has_ended:
-            self._spawn(call, leg.stream.end())
+        if leg.media is not None and not leg.media.stream.has_ended:
+            self._spawn(call, leg.media.stream.end())
 
     def _emit(
         self,
@@ -963,13 +972,6 @@ class TwilioCallTransport(CallTransport):
         if call is None:
             raise ProviderError(PROVIDER, "no such call is in progress", retryable=False)
         return call
-
-    def _leg_by_call_sid(self, call_sid: str) -> tuple[_Call | None, _Leg | None]:
-        for call in self._calls.values():
-            for leg in call.legs.values():
-                if leg.call_sid == call_sid:
-                    return call, leg
-        return None, None
 
     def _number_to_call_from(self, called: str | None) -> PhoneNumber:
         dialled = _number_or_none(called)
