@@ -717,6 +717,7 @@ async def _assistant_leg(provider: SimulatedTwilio, call_id: str) -> SimulatedLe
         while True:
             with contextlib.suppress(TimeoutError, KeyError, AssertionError):
                 return await provider.assistant_of(call_id)
+            await asyncio.sleep(_FRAME_SECONDS)
 
 
 async def _until(condition: Callable[[], bool], seconds: float) -> bool:
