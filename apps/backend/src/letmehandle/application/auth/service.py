@@ -284,3 +284,17 @@ class AuthenticationService:
             refresh_token=raw_refresh,
             expires_in_seconds=int((expires_at - now).total_seconds()),
         )
+
+
+async def forget_spent_challenges(
+    challenges: OTPChallengeRepository, clock: Clock, policy: AuthenticationPolicy | None = None
+) -> int:
+    """Delete the challenges nothing can use or count any more, returning how many went.
+
+    Each holds the number a code was sent to, for anybody who typed one in, account or not. One
+    that has expired can never be verified, but it is still counted against its number until the
+    per-number window has passed it, so that is when it goes: sooner would hand a number its limit
+    back as each code expired.
+    """
+    window = (policy or AuthenticationPolicy()).challenges_per_number_window
+    return await challenges.delete_expired(clock.now() - window)
