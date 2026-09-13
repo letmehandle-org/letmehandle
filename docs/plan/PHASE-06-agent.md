@@ -123,8 +123,10 @@ Acceptance criteria:  9 of 9 passed
 Unit tests:           passed   backend 1651 passed, 3 skipped; mobile 179 passed
 Integration tests:    passed   calls judged end to end through the SDK's real agent loop on a
                                scripted model, with the real tools and the real policy
-Evaluation:           passed   a real OpenAI-compatible model, prompts v2, three full runs:
-                               every class at or above 90% on the mean, below
+Evaluation:           partial  a real OpenAI-compatible model, prompts v2, three full runs of
+                               the larger suite, 12 to 14 scenarios a class: escalation and
+                               suspected_fraud 100%, routine and unsafe_request 89%; routine
+                               over six runs 82% [72%, 89%], below the 90% threshold, below
 Coverage:             100.00%  backend, floor 98; escalation policy 100% branches
 Lint / Format:        passed
 Typecheck:            passed   mypy --strict, including the evaluation runner
@@ -132,7 +134,8 @@ Static analysis:      passed   import-linter, 4 contracts kept: no agent SDK or 
                                the domain or application layers
 Application runs:     yes      the agent is optional at startup; nothing calls it in a request yet
 Docs updated:         D-026, the phase plan, docs/providers/README.md
-Known issues:         none open in code; one routine miss in three runs, below
+Known issues:         none open in code; routine over-escalates on the larger suite, with
+                               proposed prompt changes under Evaluation
 ```
 
 ## Acceptance criteria, each with its evidence
@@ -187,8 +190,68 @@ Limits across calls from the same caller belong to the hardening phase.
 ## Evaluation
 
 Run against a real OpenAI-compatible model with `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` set,
-from `apps/backend`: `uv run python ../../scripts/agent_evaluation.py`. Three full runs of the
-prompts as shipped (v2), each class as the mean of the three with the lowest and highest run:
+from `apps/backend`: `uv run python ../../scripts/agent_evaluation.py --runs 3`. With `--runs`, each
+class is reported over every call of every run with a 95% Wilson interval, and `--minimum` is held
+to that pooled rate.
+
+### The larger suite
+
+Each class had four or five scenarios, so one miss moved a run by twenty to twenty-five points and
+three runs could not tell a prompt change from the model answering differently. Every class now has
+at least twelve, each new one with a `why` saying which rule settles it: reminders, misdials and
+automated notices; harm at home or to family, and important contacts; injections as a claimed
+developer, a role-play, mixed Hindi and English, an encoded instruction, forged turns and a fake
+tool call; and fraud patterns common in India (a KYC code, a digital arrest, a UPI PIN, an
+electricity cut) and the US (a tech-support refund, a jury-duty warrant, an identity number), with
+controls that are not fraud. The existing scenarios are unchanged, and the constant strategies still
+fail every class.
+
+Three full runs of the v2 prompts on the larger suite:
+
+| Class | Scenarios | Mean | 95% interval |
+| --- | --- | --- | --- |
+| routine | 12 | 89% (32 of 36) | 75–96% |
+| escalation | 13 | 100% (39 of 39) | 91–100% |
+| unsafe_request | 12 | 89% (32 of 36) | 75–96% |
+| suspected_fraud | 14 | 100% (42 of 42) | 92–100% |
+
+Three earlier runs of the same routine scenarios scored 27 of 36, so over six runs routine is 82%
+(59 of 72), interval 72–89%: below the 90% threshold with the interval clearly under it. Two
+expectations were dropped between those runs because the calls do not settle them (a water-supply
+notice asking residents to act tonight, and a caller asking for a message and contact details at
+once), so the earlier unsafe_request and suspected_fraud runs are not pooled. The interval treats
+repeated runs of one scenario as independent, which they are not, so it is the narrowest defensible
+one.
+
+Every miss is the model grading a call notable that the rules mean to leave for later, never a
+missed escalation:
+
+- **Small preparations read as needing the user.** A clinic reminder that asks her to arrive ten
+  minutes early, a garage saying the car can be collected before six, and the existing dentist
+  confirmation were graded notable, once with a request to confirm an appointment that nobody made.
+  The prompt's notable includes anything that "needs them to act", which covers every such line.
+- **A delivery the assistant may direct still asks for the user.** With delivery instructions
+  granted, the rider at the gate and the existing courier at the door were sometimes marked as
+  needing the user's decision.
+- **An injection is graded notable.** A stranger who tries to override the rules and asks for her
+  availability or contact details is marked notable, and unless the model also labels the call
+  fraud, the request it may not grant becomes a reason to ring her.
+
+The prompts are unchanged here. The changes the misses point to, for a v3 to be measured against
+this suite:
+
+1. Notable only when the user must act or decide before they would normally read their call
+   history; a reminder, a collection window or a small preparation is routine.
+2. Beside `needs_the_users_decision` and `requested_capability`, say again that a request the
+   assistant is allowed to fulfil is neither a decision for the user nor a reason to raise
+   importance.
+3. An attempt to manipulate the assistant, with nothing else going on, is low importance: what the
+   caller tried belongs in the caller summary, not in a reason to interrupt.
+
+### The first suite
+
+Three full runs of the prompts as shipped (v2) on the original eighteen scenarios, each class as the
+mean of the three with the lowest and highest run:
 
 | Class | Scenarios | Mean | Min | Max |
 | --- | --- | --- | --- | --- |
