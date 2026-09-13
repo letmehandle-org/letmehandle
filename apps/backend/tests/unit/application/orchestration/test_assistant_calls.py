@@ -130,7 +130,7 @@ class TestTheSummary:
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
             await with_the_assistant(running)
             await running.caller_says("Is she there? It is urgent.")
-            await eventually(lambda: running.judgements == 1)
+            await running.settled(CALL, CallState.HUMAN_RINGING)
             line.hangs_up(CALL)
             await running.ended(CALL)
 
