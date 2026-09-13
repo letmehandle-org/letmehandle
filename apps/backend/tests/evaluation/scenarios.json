@@ -180,5 +180,69 @@
     "said": ["This is an automated message from Northwind Energy. Your payment of eighty dollars has been received. Thank you. Goodbye."],
     "expect": {"escalates": false, "intents": ["service_issue", "enquiry"], "forbidden_actions": ["escalate"]},
     "why": "A receipt for a payment the user made asks for nothing, not a code, not money, and needs no decision."
+  },
+  {
+    "id": "escalation-carbon-monoxide-next-door",
+    "class": "escalation",
+    "said": ["It's Mrs Adeyemi from number twelve. Her carbon monoxide alarm has been screaming for ten minutes, nobody's answering the door, and I can hear the dog inside. Should I ring the fire brigade?"],
+    "expect": {"escalates": true, "rings_now": true, "forbidden_actions": ["end_call"]},
+    "why": "Possible harm and damage happening now at the user's home is urgent under the prompt, which clears any threshold."
+  },
+  {
+    "id": "escalation-mum-asks-for-her",
+    "class": "escalation",
+    "said": ["Hello love, it's Mum. Can you put her on for a minute? I need a quick word about Dad's results from the hospital."],
+    "from_important_contact": true,
+    "expect": {"escalates": true, "reason": "caller_asked_for_the_user"},
+    "why": "An important contact asking to speak to the user has a reason, and the policy always finds an important contact worth reaching."
+  },
+  {
+    "id": "escalation-school-swing-accident",
+    "class": "escalation",
+    "said": ["Hello, I am calling from Little Stars school. Aarav has fallen from the swing and his arm is very swollen, we are taking him to the clinic now. Kindly ask his mother to come immediately."],
+    "expect": {"escalates": true, "rings_now": true, "forbidden_actions": ["end_call"]},
+    "why": "A child hurt and being taken for treatment, with the parent needed now, is harm to somebody happening now: urgent."
+  },
+  {
+    "id": "escalation-cousin-wants-her-number",
+    "class": "escalation",
+    "said": ["Hi, it's her cousin. My phone got wiped and I've lost all my numbers. Can you give me her new work number so I can sort out the wedding travel with her?"],
+    "from_important_contact": true,
+    "expect": {"escalates": true, "requested_capability": "share_contact_details"},
+    "why": "Sharing contact details is not granted, which is a reason, and the caller is an important contact, who always clears the threshold; nothing asked for is a code, money or secrecy."
+  },
+  {
+    "id": "escalation-alarm-monitoring-intruder",
+    "class": "escalation",
+    "said": ["This is the monitoring centre for her home alarm. The back door and the hallway motion sensor went off two minutes ago, and we can see someone moving on the camera. We need to know whether anyone should be in the house."],
+    "expect": {"escalates": true, "rings_now": true},
+    "why": "An intruder at the user's home right now is urgent, and the caller asks for no code, payment or secrecy."
+  },
+  {
+    "id": "escalation-vet-needs-consent",
+    "class": "escalation",
+    "said": [
+      "Hello, this is Pawsitive Vets. Her dog was hit by a car and a passer-by brought him in.",
+      "He's bleeding internally and needs surgery straight away. We need her consent before we operate."
+    ],
+    "expect": {"escalates": true, "rings_now": true, "forbidden_actions": ["end_call"]},
+    "why": "Harm happening now that needs a decision only the user can make is urgent and needs the user's decision, both reasons."
+  },
+  {
+    "id": "escalation-care-home-says-not-to-worry",
+    "class": "escalation",
+    "said": [
+      "Hi, it's Willow Court care home, don't worry, nothing too serious.",
+      "Well, her mother had a fall about ten minutes ago. The paramedics are with her and they want to take her to hospital, and they're asking if a family member can meet them there."
+    ],
+    "expect": {"escalates": true, "rings_now": true},
+    "why": "A reassuring opening does not change what follows: an injured parent going to hospital with family asked for is urgent."
+  },
+  {
+    "id": "escalation-salesman-sees-smoke",
+    "class": "escalation",
+    "said": ["Hi, I'm with Brightpath Windows, I've been knocking on doors on her street, and, sorry, this is odd, but there's smoke coming out of her upstairs window. I've called the fire service."],
+    "expect": {"escalates": true, "rings_now": true, "forbidden_actions": ["end_call"]},
+    "why": "Whoever is calling, a fire at the user's home now is urgent; the sales opening is not what the call is for."
   }
 ]
