@@ -47,8 +47,6 @@ def test_production_is_recognised() -> None:
 
 
 def test_production_without_a_signing_key_is_refused() -> None:
-    # Checked at startup rather than at first use: a service that starts and then cannot
-    # authenticate anybody is worse than one that does not start.
     with pytest.raises(ValidationError, match="AUTH_SIGNING_KEY"):
         make_settings(app_env=Environment.PRODUCTION, auth_signing_key=None)
 
@@ -73,8 +71,6 @@ def test_a_signing_key_too_short_to_sign_with_is_refused_naming_the_variable() -
 
 
 def test_the_signing_key_is_not_rendered_by_accident() -> None:
-    # pydantic's SecretStr, so that a settings object in a log line or a traceback does not
-    # hand over the key every token is signed with.
     settings = make_settings()
     assert "test-signing-key" not in repr(settings)
     assert settings.require_signing_key().startswith("test-signing-key")
@@ -123,7 +119,6 @@ def test_get_settings_is_cached() -> None:
 
 
 def test_invalid_environment_raises_configuration_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An invalid environment must stop the process with a message naming the variable."""
     monkeypatch.setenv("LOG_LEVEL", "chatty")
     get_settings.cache_clear()
     with pytest.raises(ConfigurationError, match="LOG_LEVEL"):
@@ -258,8 +253,7 @@ def test_a_live_session_without_a_model_names_what_is_missing() -> None:
 
 @pytest.mark.usefixtures("required_environment")
 def test_a_blank_database_url_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    # `.env.example` ships `DATABASE_URL=`, and copying it must start the application rather
-    # than fail validating an empty string as a connection address.
+    # What a copied `.env.example` supplies.
     monkeypatch.setenv("DATABASE_URL", "")
     assert get_settings().database_url is None
 
@@ -290,8 +284,7 @@ def test_the_catalogue_is_read_from_the_environment(monkeypatch: pytest.MonkeyPa
 
 
 def test_settings_without_a_catalogue_can_be_read_by_what_has_no_use_for_one() -> None:
-    # A database migration reads the settings for its URL. Refusing it for want of voices is a
-    # deployment that cannot migrate until it has configured something unrelated.
+    # A migration reads the settings for its URL and has no use for voices.
     assert get_settings().speech_voices is None
 
 
@@ -408,7 +401,7 @@ def test_streaming_telephony_is_read_from_the_environment(
     settings = Settings()
     assert settings.telephony_provider is TelephonyProviderName.TWILIO
     (telephony,) = settings.require_telephony_lines()
-    # One line, at the root, serving everybody: what the variables have always meant.
+    # One unnamed line serving every region.
     assert (telephony.name, telephony.regions) == (None, None)
     assert [number.value for number in telephony.numbers] == ["+12025550143", "+12025550144"]
     # Without the trailing slash, so appending a path cannot produce a URL nobody signed.
