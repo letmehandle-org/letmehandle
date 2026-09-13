@@ -155,10 +155,11 @@ function TimeCard({
   readonly onPress: () => void;
   readonly testID: string;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${label}, ${time}`}
+      accessibilityLabel={t('common.spoken', { first: label, second: time })}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       testID={testID}

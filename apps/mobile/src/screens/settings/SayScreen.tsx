@@ -66,7 +66,7 @@ export function SayScreen({ onBack }: Props): React.JSX.Element {
               key={fact}
               icon="msg"
               tone="assistant"
-              title={`“${fact}”`}
+              title={t('say.quoted', { fact })}
               last={position === facts.length - 1}
               trailing={
                 <Pressable

@@ -80,7 +80,7 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
           value={
             preferences.hours.active == null
               ? t('hours.always')
-              : `${preferences.hours.active.start}–${preferences.hours.active.end}`
+              : t('hours.window', preferences.hours.active)
           }
           onPress={() => {
             onOpen('hours');

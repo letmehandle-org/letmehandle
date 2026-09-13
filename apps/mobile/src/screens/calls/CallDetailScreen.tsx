@@ -167,11 +167,13 @@ function Summary({
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const day = dayOf(call.started_at, new Date());
-  const when = `${
-    day.kind === 'date'
-      ? dayAndMonth(day.date, i18n.language)
-      : t(`activity.${day.kind}`)
-  } ${timeOfDay(call.started_at)}`;
+  const when = t('call.when', {
+    day:
+      day.kind === 'date'
+        ? dayAndMonth(day.date, i18n.language)
+        : t(`activity.${day.kind}`),
+    time: timeOfDay(call.started_at),
+  });
   const length = durationWords(call.duration_seconds, t);
   const live = call.status === 'in_progress';
   const refused = call.outcome === 'rejected_by_rule';
@@ -190,7 +192,9 @@ function Summary({
             {callerName(call.caller, t)}
           </Text>
           <Text style={styles.when} testID="call-when">
-            {length === null ? when : `${when} · ${length}`}
+            {length === null
+              ? when
+              : t('common.pair', { first: when, second: length })}
           </Text>
         </View>
       </View>

@@ -53,9 +53,7 @@ export function WelcomeScreen({ onStart }: Props): React.JSX.Element {
       <View
         accessible
         accessibilityRole="header"
-        accessibilityLabel={`${t('welcome.title')} ${t(
-          'welcome.titleAccent',
-        )}${t('welcome.titleEnd')}`}
+        accessibilityLabel={t('welcome.titleSpoken')}
         style={styles.headline}
       >
         <Text style={styles.display}>{t('welcome.title')}</Text>

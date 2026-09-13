@@ -22,12 +22,19 @@ export const en = {
     somethingWentWrong: 'Something went wrong. Please try again.',
     noConnection: 'Could not reach the service. Check your connection.',
     saveFailed: "Couldn't save. It's been put back the way it was.",
+    /** Two facts on one line, such as what happened and how long it took. */
+    pair: '{{first}} · {{second}}',
+    /** A thing and its value, read aloud together. */
+    spoken: '{{first}}, {{second}}',
+    labelled: '{{label}}: {{value}}',
   },
   welcome: {
     /** "Let me handle it.", with "handle" set apart; read together as one sentence. */
     title: 'Let me',
     titleAccent: 'handle',
     titleEnd: ' it.',
+    titleSpoken:
+      '$t(welcome.title) $t(welcome.titleAccent)$t(welcome.titleEnd)',
     lead: "Your assistant picks up the calls you don't want to.",
     start: 'Get started',
     note: 'Signing in only needs your number.',
@@ -143,6 +150,7 @@ export const en = {
     set: 'Set hours',
     always: '24/7',
     alwaysOn: 'Always on',
+    window: '{{start}}–{{end}}',
     figure_one: '{{hours}} hr',
     figure_other: '{{hours}} hrs',
     aDay: 'A day',
@@ -208,6 +216,7 @@ export const en = {
     seconds: '{{count}} s',
   },
   call: {
+    when: '{{day}} {{time}}',
     loadFailed: 'Could not load this call.',
     gone: 'This call has been deleted.',
     withheld: 'Number withheld',
@@ -429,6 +438,7 @@ export const en = {
     invalid: 'Keep it to one short sentence.',
     duplicate: 'That is already on the list.',
     full: 'That is as many as it can hold.',
+    quoted: '“{{fact}}”',
   },
   account: {
     title: 'Account',

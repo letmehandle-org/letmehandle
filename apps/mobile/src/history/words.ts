@@ -50,5 +50,7 @@ export function listLine(call: CallSummary, t: TFunction): string {
     call.status === 'in_progress' || call.outcome === 'rejected_by_rule'
       ? null
       : durationWords(call.duration_seconds, t);
-  return length === null ? what : `${what} · ${length}`;
+  return length === null
+    ? what
+    : t('common.pair', { first: what, second: length });
 }

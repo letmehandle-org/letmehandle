@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
@@ -40,6 +41,7 @@ export function Row({
   last = false,
   testID,
 }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const content = (
     <>
       {icon !== undefined && <Disc icon={icon} tone={tone} size={40} />}
@@ -75,7 +77,11 @@ export function Row({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={value === undefined ? title : `${title}, ${value}`}
+      accessibilityLabel={
+        value === undefined
+          ? title
+          : t('common.spoken', { first: title, second: value })
+      }
       onPress={onPress}
       testID={testID}
       style={({ pressed }) => [...rowStyle, pressed && styles.pressed]}

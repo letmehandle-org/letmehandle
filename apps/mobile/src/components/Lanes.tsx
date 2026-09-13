@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
@@ -73,7 +74,11 @@ function End({
  * do.
  */
 export function Lane(props: LaneProps): React.JSX.Element {
-  const described = `${props.from.label}: ${props.to.label}`;
+  const { t } = useTranslation();
+  const described = t('common.labelled', {
+    label: props.from.label,
+    value: props.to.label,
+  });
   if (props.assistant === true) {
     return (
       <Hero style={styles.laneHero} testID={props.testID}>

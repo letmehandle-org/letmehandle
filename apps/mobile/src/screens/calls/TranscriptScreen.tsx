@@ -134,9 +134,10 @@ function Line({ line }: { readonly line: TranscriptLine }): React.JSX.Element {
     <View
       style={styles.line}
       accessible
-      accessibilityLabel={`${t(`transcript.speaker.${line.speaker}`)}: ${
-        line.text
-      }`}
+      accessibilityLabel={t('common.labelled', {
+        label: t(`transcript.speaker.${line.speaker}`),
+        value: line.text,
+      })}
       testID={`transcript-line-${line.speaker}`}
     >
       <View style={styles.who}>

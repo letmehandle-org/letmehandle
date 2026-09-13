@@ -154,13 +154,13 @@ export function PhoneNumberScreen({
         leading={
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${t('phone.country')}: ${t(
-              'phone.countryValue',
-              {
+            accessibilityLabel={t('common.labelled', {
+              label: t('phone.country'),
+              value: t('phone.countryValue', {
                 country: t(`phone.countries.${code}`),
                 dial: country.dial,
-              },
-            )}`}
+              }),
+            })}
             onPress={() => {
               setPicking(true);
             }}
