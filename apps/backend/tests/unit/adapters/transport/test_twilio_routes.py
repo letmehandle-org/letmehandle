@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from letmehandle.adapters.transport.twilio.routes import (
+    CALLBACK_REPEATED,
     TELEPHONY_BODY_LIMIT_BYTES,
     StarletteMediaSocket,
     build_router,
@@ -20,6 +21,8 @@ from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from tests.support.recording_metrics import RecordingMetrics
+from tests.support.recording_tracer import RecordingTracer
 from tests.unit.adapters.transport.test_twilio_transport import RecordingApi, drain
 
 if TYPE_CHECKING:
@@ -48,7 +51,9 @@ async def transport() -> AsyncIterator[TwilioCallTransport]:
 @pytest.fixture
 async def client(transport: TwilioCallTransport) -> AsyncIterator[AsyncClient]:
     app = FastAPI()
-    app.include_router(build_router(transport))
+    app.include_router(
+        build_router(transport, tracer=RecordingTracer(), metrics=RecordingMetrics())
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1") as c:
         yield c
 
@@ -327,3 +332,37 @@ async def test_closing_is_safe_whoever_closed_first() -> None:
     racing = FakeWebSocket()
     racing.fail_with = RuntimeError("already closed")
     await socket_over(racing).close()
+
+
+async def test_each_callback_is_a_span_naming_its_route_and_call_and_a_repeat_is_counted(
+    transport: TwilioCallTransport,
+) -> None:
+    tracer = RecordingTracer()
+    metrics = RecordingMetrics()
+    app = FastAPI()
+    app.include_router(build_router(transport, tracer=tracer, metrics=metrics))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1") as http:
+        await signed_post(http, "/telephony/voice/incoming", ARRIVAL, idempotency="t-1")
+        await signed_post(http, "/telephony/voice/incoming", ARRIVAL, idempotency="t-1")
+        status = [
+            ("AccountSid", ACCOUNT),
+            ("ConferenceSid", "CFsim-1"),
+            ("StatusCallbackEvent", "conference-start"),
+            ("SequenceNumber", "1"),
+        ]
+        path = "/telephony/conference/status?call=CAsim-1"
+        await signed_post(http, path, status, idempotency="t-2")
+        repeated = await signed_post(http, path, status, idempotency="t-2")
+        forged = await signed_post(http, path, status, token="not-the-token")
+
+    assert repeated.status_code == 204
+    assert forged.status_code == 403
+    assert [span.attributes for span in tracer.named("telephony.callback")] == [
+        {"stage": "incoming", "call.id": "CAsim-1"},
+        {"stage": "incoming", "call.id": "CAsim-1"},
+        {"stage": "conference", "call.id": "CAsim-1"},
+        {"stage": "conference", "call.id": "CAsim-1", "outcome": "repeated"},
+        {"stage": "conference", "outcome": "refused"},
+    ]
+    assert metrics.counted(CALLBACK_REPEATED, stage="incoming") == 1
+    assert metrics.counted(CALLBACK_REPEATED, stage="conference") == 1

@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from structlog.typing import EventDict, Processor, WrappedLogger
 
 from letmehandle.config.settings import LogFormat, Settings
+from letmehandle.domain.failures import classify
 from letmehandle.observability.scrubbing import outline_exception, scrub_event
+from letmehandle.observability.tracing import traceable_call_id
 
 # The identifier that ties every line produced while handling one request together. A context
 # variable rather than an argument, because threading it through every call signature is how
@@ -103,6 +105,33 @@ def configure_logging(settings: Settings) -> None:
     # Held at their floors, or above them when the process is set higher.
     for name, floor in _CONTENT_LOGGERS.items():
         logging.getLogger(name).setLevel(max(floor, logging.getLogger().level))
+
+
+def bind_call(call_id: str, request: str | None) -> None:
+    """Put a call's id, and the id of the request it arrived on, on every line this task logs.
+
+    For the task that runs one call, at its start. A task begins with a copy of the context it was
+    created in, so what is bound here stays with that call's run and the tasks the run starts, and
+    never reaches another call's lines.
+    """
+    structlog.contextvars.bind_contextvars(call_id=traceable_call_id(call_id))
+    if request is not None:
+        correlation_id.set(request)
+
+
+def log_failure(
+    logger: structlog.stdlib.BoundLogger, event: str, error: BaseException, **fields: object
+) -> None:
+    """Log a failure that was caught and handled, at the level its kind deserves.
+
+    An error when somebody running the deployment has to act on it — a defect, a record that will
+    not open — and a warning otherwise, since a timeout on one call is counted, and a dependency
+    failing on every call opens a circuit that says so at error. Never the message or a traceback:
+    the type and the kind find it, and a message can carry anything.
+    """
+    failure = classify(error)
+    write = logger.error if failure.needs_attention else logger.warning
+    write(event, error=type(error).__name__, kind=failure.kind.value, **fields)
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

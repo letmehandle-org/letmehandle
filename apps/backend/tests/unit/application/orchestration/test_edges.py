@@ -15,6 +15,7 @@ from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.plan import DialTheUser
 from letmehandle.application.orchestration.ports import Bounds
 from letmehandle.application.orchestration.run import CallIsOverError
+from letmehandle.application.resilience.circuit import Circuits
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.call import ParticipantRole
 from letmehandle.domain.models.call_state import CallState
@@ -30,6 +31,7 @@ from letmehandle.domain.models.preferences import CallRules, HandlingPosture, Us
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.call_transport import ParticipantOutcome, TransportCapabilities
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
+from letmehandle.observability.tracing import NoTracer
 from tests.contracts.fakes import FixedClock
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.orchestration import (
@@ -394,10 +396,16 @@ def test_a_streaming_line_without_an_assistant_cannot_be_orchestrated() -> None:
             ownership=EveryCallIsTheOwners(),
             stores=MemoryCallStores().scope,
             dispatcher=EscalationDispatcher(
-                providers=[], stores=InMemoryStores().scope, metrics=RecordingMetrics()
+                providers=[],
+                stores=InMemoryStores().scope,
+                metrics=RecordingMetrics(),
+                tracer=NoTracer(),
+                circuits=Circuits(metrics=RecordingMetrics()),
             ),
             clock=FixedClock(),
             metrics=RecordingMetrics(),
+            tracer=NoTracer(),
+            circuits=Circuits(metrics=RecordingMetrics()),
             assistant=None,
             summariser=None,
         )

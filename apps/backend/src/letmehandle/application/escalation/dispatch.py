@@ -34,21 +34,25 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
+from letmehandle.application.resilience.circuit import CircuitOpenError
+from letmehandle.application.resilience.timing import Stopwatch
 from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.escalation_context import NotificationDelivery
 from letmehandle.domain.ports.notification import DeliveryStatus, DevicePlatform
 from letmehandle.observability import catalogue
-from letmehandle.observability.logging import get_logger
+from letmehandle.observability.logging import get_logger, log_failure
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from contextlib import AbstractAsyncContextManager
     from datetime import datetime
 
+    from letmehandle.application.resilience.circuit import Circuits
     from letmehandle.domain.models.escalation_context import EscalationContext
     from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.notification import (
+        DeliveryOutcome,
         DeviceToken,
         EscalationNotification,
         NotificationProvider,
@@ -57,6 +61,7 @@ if TYPE_CHECKING:
         DeviceRepository,
         EscalationContextRepository,
     )
+    from letmehandle.domain.ports.tracing import Tracer
 
 logger = get_logger(__name__)
 
@@ -96,6 +101,8 @@ class AttemptResult(StrEnum):
     TIMED_OUT = "timed_out"
     ERRORED = "errored"
     NOT_CONFIGURED = "not_configured"
+    # Not attempted: the platform's push service has been failing, and its circuit is open.
+    UNAVAILABLE = "unavailable"
 
 
 DISPATCH_METRIC: Final = catalogue.count("escalation.dispatch", outcome=DispatchResult)
@@ -110,6 +117,9 @@ TOKEN_REMOVED_METRIC: Final = catalogue.count(
 )
 STORAGE_FAILED: Final = catalogue.count(
     "escalation.storage_failed", stage={"claim", "record", "end"}, kind=FailureKind
+)
+DELIVERY_SECONDS: Final = catalogue.measure(
+    "escalation.delivery_seconds", platform=DevicePlatform, provider=catalogue.NAMED_IN_CODE
 )
 
 _FROM_STATUS: Final = {
@@ -152,6 +162,8 @@ class EscalationDispatcher:
         providers: Iterable[NotificationProvider],
         stores: Callable[[], AbstractAsyncContextManager[EscalationStores]],
         metrics: MetricsRecorder,
+        tracer: Tracer,
+        circuits: Circuits,
         timeout: timedelta = DEFAULT_TIMEOUT,
         locale: str = DEFAULT_LOCALE,
     ) -> None:
@@ -162,6 +174,8 @@ class EscalationDispatcher:
             self._providers[provider.platform] = provider
         self._stores = stores
         self._metrics = metrics
+        self._tracer = tracer
+        self._circuits = circuits
         self._timeout = timeout
         self._locale = locale
         self._background: set[asyncio.Task[DispatchReport]] = set()
@@ -258,33 +272,36 @@ class EscalationDispatcher:
             )
             return attempt
 
+        labels = {"platform": token.platform.value, "provider": provider.name}
+        stopwatch = Stopwatch()
         try:
             notification = notification_for(
                 context, fits=_within_limit(provider), locale=self._locale
             )
-            async with asyncio.timeout_at(deadline):
-                outcome = await provider.send(token, notification)
+            with self._tracer.span("notification.delivery", platform=token.platform.value):
+                outcome = await self._circuits.push(token.platform).call(
+                    lambda: _sent_by(provider, token, notification, deadline),
+                    failed_when=_service_failed,
+                )
             attempt = DeliveryAttempt(token, _FROM_STATUS[outcome.status], outcome.detail)
+        except CircuitOpenError:
+            attempt = DeliveryAttempt(token, AttemptResult.UNAVAILABLE)
         except TimeoutError:
             attempt = DeliveryAttempt(token, AttemptResult.TIMED_OUT)
         except Exception as error:  # noqa: BLE001 - one device's defect must not cost the others
             # Logged without a traceback: its frames can hold the notification being sent.
-            logger.error(  # noqa: TRY400
+            log_failure(
+                logger,
                 "escalation.delivery_errored",
+                error,
                 provider=provider.name,
                 device=str(token),
-                error=type(error).__name__,
             )
             attempt = DeliveryAttempt(token, AttemptResult.ERRORED, type(error).__name__)
 
-        self._metrics.increment(
-            DELIVERY_METRIC,
-            {
-                "platform": token.platform.value,
-                "provider": provider.name,
-                "outcome": attempt.result.value,
-            },
-        )
+        if attempt.result is not AttemptResult.UNAVAILABLE:
+            self._metrics.observe(DELIVERY_SECONDS, stopwatch.seconds, labels)
+        self._metrics.increment(DELIVERY_METRIC, {**labels, "outcome": attempt.result.value})
         return attempt
 
     async def _record(
@@ -327,6 +344,22 @@ class EscalationDispatcher:
     def _failed(self, stage: str, error: Exception) -> None:
         logger.error("escalation.storage_failed", stage=stage, error=type(error).__name__)
         self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": classify(error).kind})
+
+
+async def _sent_by(
+    provider: NotificationProvider,
+    token: DeviceToken,
+    notification: EscalationNotification,
+    deadline: float,
+) -> DeliveryOutcome:
+    async with asyncio.timeout_at(deadline):
+        return await provider.send(token, notification)
+
+
+def _service_failed(outcome: DeliveryOutcome) -> bool:
+    # The platform saying it could not deliver is its service failing, as an unreachable one would
+    # be; a device it refuses, or a token it no longer knows, is the platform working.
+    return outcome.status is DeliveryStatus.FAILED
 
 
 def _within_limit(provider: NotificationProvider) -> Callable[[EscalationNotification], bool]:

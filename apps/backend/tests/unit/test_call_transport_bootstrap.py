@@ -33,6 +33,7 @@ from tests.support.config import (
     UNREACHABLE_DATABASE,
     make_settings,
 )
+from tests.support.observability import recorded_observability
 from tests.unit.test_entrypoint import recorded_uvicorn  # noqa: F401 - a fixture
 
 if TYPE_CHECKING:
@@ -74,12 +75,21 @@ async def statuses(app: FastAPI) -> set[int]:
 
 async def test_a_deployment_with_no_telephony_account_has_no_transport_and_no_routes() -> None:
     settings = make_settings()
-    assert build_call_transport(settings, reported_calls=build_reported_calls()) is None
+    assert (
+        build_call_transport(
+            settings, reported_calls=build_reported_calls(), observability=recorded_observability()
+        )
+        is None
+    )
     assert await statuses(create_app(settings)) == {404}
 
 
 async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares() -> None:
-    binding = build_call_transport(telephony_settings(), reported_calls=build_reported_calls())
+    binding = build_call_transport(
+        telephony_settings(),
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+    )
     assert binding is not None
     transport = binding.transport
     # Narrowing raises when a declaration and an implementation disagree; here none do.
@@ -93,11 +103,17 @@ async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares
 def test_a_configured_transport_missing_its_account_names_what_is_missing() -> None:
     settings = make_settings(telephony_provider=TelephonyProviderName.TWILIO)
     with pytest.raises(ConfigurationError, match="TELEPHONY_AUTH_TOKEN"):
-        build_call_transport(settings, reported_calls=build_reported_calls())
+        build_call_transport(
+            settings, reported_calls=build_reported_calls(), observability=recorded_observability()
+        )
 
 
 async def test_the_application_mounts_the_providers_routes_and_closes_the_transport() -> None:
-    binding = build_call_transport(telephony_settings(), reported_calls=build_reported_calls())
+    binding = build_call_transport(
+        telephony_settings(),
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+    )
     # Handed over rather than configured, so the lifespan runs without the storage a configured
     # transport refuses to start without.
     app = create_app(make_settings(), telephony=binding)

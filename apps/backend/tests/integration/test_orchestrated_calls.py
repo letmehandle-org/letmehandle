@@ -54,7 +54,7 @@ from letmehandle.domain.ports.repositories import MAX_CALL_PAGE
 from letmehandle.domain.ports.speech import SessionFailed, TranscriptProduced
 from tests.contracts.fakes import EchoSpeechProvider, RecordingNotificationProvider
 from tests.support.config import TEST_TRANSCRIPT_KEYS, make_settings
-from tests.support.recording_metrics import RecordingMetrics
+from tests.support.observability import recorded_observability
 from tests.support.scripted_model import ScriptedModel, assess, write_summary
 from tests.support.simulated_twilio import Answering, Deployment, eventually, simulated_deployment
 
@@ -224,7 +224,10 @@ async def orchestrating(
             )
             if before_start is not None:
                 await before_start(factory, container)
-            dispatcher = build_escalation_dispatcher(container, factory, metrics=RecordingMetrics())
+            observability = recorded_observability()
+            dispatcher = build_escalation_dispatcher(
+                container, factory, observability=observability
+            )
             speech = EchoSpeechProvider()
             model = ScriptedModel(steps or [ROUTINE] * 4)
             orchestrator = build_call_orchestrator(
@@ -233,7 +236,7 @@ async def orchestrating(
                 session_factory=factory,
                 telephony=deployment.binding,
                 dispatcher=dispatcher,
-                metrics=RecordingMetrics(),
+                observability=observability,
                 assistant=AssistantServices(
                     speech=speech,
                     voices=container.voices,

@@ -24,13 +24,22 @@ from letmehandle.application.orchestration.inputs import (
 from letmehandle.application.orchestration.plan import plan_for
 from letmehandle.application.orchestration.ports import Assistance, Bounds
 from letmehandle.application.orchestration.recovery import Recovery
-from letmehandle.application.orchestration.run import CallIsOverError, CallRun, RunContext
+from letmehandle.application.orchestration.run import (
+    DEGRADED,
+    DUPLICATE_IGNORED,
+    CallIsOverError,
+    CallRun,
+    CallStanding,
+    RunContext,
+)
+from letmehandle.application.resilience.circuit import Dependency
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.ports.call_transport import CallEventKind
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import datetime
 
     from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
     from letmehandle.application.calls.summariser import CallSummariser
@@ -41,12 +50,14 @@ if TYPE_CHECKING:
         CallOwnership,
         OpenCallStores,
     )
+    from letmehandle.application.resilience.circuit import Circuits
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.policy.escalation import EscalationProposal
     from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.tracing import Tracer
 
 logger = get_logger(__name__)
 
@@ -74,6 +85,8 @@ class CallOrchestrator:
         dispatcher: EscalationDispatcher,
         clock: Clock,
         metrics: MetricsRecorder,
+        tracer: Tracer,
+        circuits: Circuits,
         assistant: AssistantServices | None,
         summariser: CallSummariser | None,
         bounds: Bounds | None = None,
@@ -94,6 +107,8 @@ class CallOrchestrator:
             dispatcher=dispatcher,
             clock=clock,
             metrics=metrics,
+            tracer=tracer,
+            circuits=circuits,
             bounds=bounds or Bounds(),
             summariser=summariser,
         )
@@ -115,6 +130,14 @@ class CallOrchestrator:
     def live_calls(self) -> int:
         """How many calls have a run."""
         return len(self._tasks)
+
+    def standings(self) -> tuple[CallStanding, ...]:
+        """Where every live call stands, oldest state first, so one stuck in a state stands out.
+
+        A call still being matched to its owner has no standing yet, and is not listed.
+        """
+        standing = (run.standing for run in self._runs.values())
+        return tuple(sorted((each for each in standing if each is not None), key=_since))
 
     async def start(self) -> None:
         """End what a previous process left unfinished, then take calls."""
@@ -174,12 +197,28 @@ class CallOrchestrator:
         if call_id in self._ended or event.kind is not CallEventKind.INCOMING:
             # About a call already torn down, or one this process never saw arrive: nothing to do.
             logger.info("call.event_ignored", kind=event.kind.value)
+            self._context.metrics.increment(DUPLICATE_IGNORED, {"stage": "late"})
             return
-        run = CallRun(event, plan_for(self._transport, event, self._assistance), self._context)
+        run = CallRun(
+            event, plan_for(self._transport, event, self._assistance_now()), self._context
+        )
         task = asyncio.get_running_loop().create_task(run.run())
         self._runs[call_id] = run
         self._tasks[call_id] = task
         task.add_done_callback(lambda done: self._run_done(call_id, done))
+
+    def _assistance_now(self) -> Assistance | None:
+        """What an assistant would speak with, unless speech is failing every call just now.
+
+        A plan without it offers no assistant, and routing puts through to the user a call it would
+        have handed to one: better their phone rings than the caller meets an assistant that cannot
+        speak, or is hung up on while one fails to open.
+        """
+        if self._assistance is not None and self._context.circuits[Dependency.SPEECH].is_refusing:
+            logger.warning("call.degraded", stage="speech")
+            self._context.metrics.increment(DEGRADED, {"stage": "speech"})
+            return None
+        return self._assistance
 
     async def _consume(self) -> None:
         async for event in self._transport.events():
@@ -202,6 +241,10 @@ class CallOrchestrator:
         reply: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         run.post(make(reply))
         await reply
+
+
+def _since(standing: CallStanding) -> datetime:
+    return standing.since
 
 
 class _RunActions(CallActions):

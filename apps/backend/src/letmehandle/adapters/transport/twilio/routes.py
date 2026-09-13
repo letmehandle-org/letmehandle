@@ -40,12 +40,16 @@ from letmehandle.adapters.transport.twilio.transport import (
     LEG_PATH,
     MEDIA_PATH,
 )
+from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger
+from letmehandle.observability.tracing import CALL_ID
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
+    from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.tracing import Tracer
 
 logger = get_logger(__name__)
 
@@ -59,6 +63,11 @@ TELEPHONY_BODY_LIMIT_BYTES: Final = 64 * 1024
 # socket is ever accepted.
 _POLICY_VIOLATION: Final = 1008
 
+# A callback this provider delivered again, by the route it arrived on.
+CALLBACK_REPEATED: Final = catalogue.count(
+    "telephony.callback_repeated", stage={"incoming", "assistant", "caller", "conference", "leg"}
+)
+
 _FORBIDDEN: Final = 403
 _TOO_LARGE: Final = 413
 _UNPROCESSABLE: Final = 422
@@ -71,8 +80,14 @@ class _RefusedError(Exception):
         self.status = status
 
 
-def build_router(transport: TwilioCallTransport) -> APIRouter:
-    """The provider's routes, bound to one transport instance."""
+def build_router(
+    transport: TwilioCallTransport, *, tracer: Tracer, metrics: MetricsRecorder
+) -> APIRouter:
+    """The provider's routes, bound to one transport instance.
+
+    Each callback is a span of its own: the first of a call's life, and the way a provider's delay
+    in calling back is told apart from this service's in answering.
+    """
     router = APIRouter(include_in_schema=False)
 
     async def verified(request: Request) -> tuple[Parameters, dict[str, str]]:
@@ -100,18 +115,31 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
         query = dict(request.query_params.items())
         return params, query
 
-    async def handle(request: Request, respond: _Respond, *, skip_repeats: bool) -> Response:
-        try:
-            params, query = await verified(request)
-            repeat = transport.is_repeat_delivery(request.headers.get(IDEMPOTENCY_HEADER))
-            if repeat and skip_repeats:
-                return Response(status_code=_NO_CONTENT)
-            return respond(params, query)
-        except _RefusedError as refused:
-            return Response(status_code=refused.status)
-        except CallbackMalformedError as error:
-            logger.warning("telephony.webhook.malformed", path=request.url.path, reason=str(error))
-            return Response(status_code=_UNPROCESSABLE)
+    async def handle(
+        request: Request, stage: str, respond: _Respond, *, skip_repeats: bool
+    ) -> Response:
+        with tracer.span("telephony.callback", stage=stage) as span:
+            try:
+                params, query = await verified(request)
+                call = query.get(CALL_PARAMETER) or params.get("CallSid")
+                if call is not None:
+                    span.set_attribute(CALL_ID, call)
+                repeat = transport.is_repeat_delivery(request.headers.get(IDEMPOTENCY_HEADER))
+                if repeat:
+                    metrics.increment(CALLBACK_REPEATED, {"stage": stage})
+                if repeat and skip_repeats:
+                    span.set_attribute("outcome", "repeated")
+                    return Response(status_code=_NO_CONTENT)
+                return respond(params, query)
+            except _RefusedError as refused:
+                span.set_attribute("outcome", "refused")
+                return Response(status_code=refused.status)
+            except CallbackMalformedError as error:
+                logger.warning(
+                    "telephony.webhook.malformed", path=request.url.path, reason=str(error)
+                )
+                span.set_attribute("outcome", "malformed")
+                return Response(status_code=_UNPROCESSABLE)
 
     @router.post(INCOMING_PATH)
     async def incoming(request: Request) -> Response:
@@ -120,7 +148,7 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
 
         # A redelivered call still needs its instructions: the first answer may never have reached
         # the provider. Answering is idempotent by the call's own identifier.
-        return await handle(request, respond, skip_repeats=False)
+        return await handle(request, "incoming", respond, skip_repeats=False)
 
     @router.post(ASSISTANT_PATH)
     async def assistant(request: Request) -> Response:
@@ -132,7 +160,7 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             }
             return _twiml(transport.assistant_joining(identifiers, params.require("CallSid")))
 
-        return await handle(request, respond, skip_repeats=False)
+        return await handle(request, "assistant", respond, skip_repeats=False)
 
     @router.post(CALLER_PATH)
     async def caller(request: Request) -> Response:
@@ -142,7 +170,7 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             )
 
         # Instructions are owed on every delivery; ending a call twice is inert.
-        return await handle(request, respond, skip_repeats=False)
+        return await handle(request, "caller", respond, skip_repeats=False)
 
     @router.post(CONFERENCE_PATH)
     async def conference(request: Request) -> Response:
@@ -150,7 +178,7 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             transport.conference_updated(query.get(CALL_PARAMETER), read_conference_update(params))
             return Response(status_code=_NO_CONTENT)
 
-        return await handle(request, respond, skip_repeats=True)
+        return await handle(request, "conference", respond, skip_repeats=True)
 
     @router.post(LEG_PATH)
     async def leg(request: Request) -> Response:
@@ -160,7 +188,7 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             )
             return Response(status_code=_NO_CONTENT)
 
-        return await handle(request, respond, skip_repeats=True)
+        return await handle(request, "leg", respond, skip_repeats=True)
 
     @router.websocket(MEDIA_PATH)
     async def media(websocket: WebSocket) -> None:

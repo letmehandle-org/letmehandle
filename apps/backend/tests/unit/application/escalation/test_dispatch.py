@@ -9,10 +9,12 @@ import pytest
 
 from letmehandle.application.escalation import dispatch as dispatch_module
 from letmehandle.application.escalation.dispatch import (
+    DELIVERY_SECONDS,
     AttemptResult,
     DispatchResult,
     EscalationDispatcher,
 )
+from letmehandle.application.resilience.circuit import CircuitPolicy, Circuits, CircuitState
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.escalation_context import (
     EscalationContext,
@@ -30,6 +32,7 @@ from letmehandle.domain.ports.notification import (
 from tests.contracts.fakes import RecordingNotificationProvider
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.recording_metrics import RecordingMetrics
+from tests.support.recording_tracer import RecordingTracer
 
 RAISED = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 ALICE = UserId("user-1")
@@ -82,11 +85,16 @@ def dispatcher(
     *providers: RecordingNotificationProvider,
     metrics: RecordingMetrics | None = None,
     timeout: float = 5,
+    tracer: RecordingTracer | None = None,
+    circuits: Circuits | None = None,
 ) -> EscalationDispatcher:
+    recording = metrics or RecordingMetrics()
     return EscalationDispatcher(
         providers=providers,
         stores=stores.scope,
-        metrics=metrics or RecordingMetrics(),
+        metrics=recording,
+        tracer=tracer or RecordingTracer(),
+        circuits=circuits or Circuits(metrics=recording),
         timeout=timedelta(seconds=timeout),
     )
 
@@ -424,3 +432,66 @@ class TestBackgroundAndEnding:
         metrics = RecordingMetrics()
         await dispatcher(TimingOut(), metrics=metrics).call_ended(ALICE, CallId("c"), RAISED)
         assert metrics.counted("escalation.storage_failed", kind="timeout") == 1
+
+
+class TestAPushServiceFailing:
+    """One platform's service failing is isolated to that platform, and stops being waited on."""
+
+    async def test_its_circuit_opens_and_its_devices_are_not_sent_to_while_it_is_open(
+        self,
+    ) -> None:
+        stores = InMemoryStores()
+        await registered(stores, ALICE, PHONE, ANDROID)
+        apple = NamedProvider("apple_like", DevicePlatform.IOS, status=DeliveryStatus.FAILED)
+        google = NamedProvider("google_like", DevicePlatform.ANDROID)
+        metrics = RecordingMetrics()
+        circuits = Circuits(metrics=metrics, policy=CircuitPolicy(failures_to_open=1))
+        sending = dispatcher(stores, apple, google, metrics=metrics, circuits=circuits)
+
+        first = await sending.dispatch(ALICE, a_context("call-1"))
+        second = await sending.dispatch(ALICE, a_context("call-2"))
+
+        assert {attempt.result for attempt in first.attempts} == {
+            AttemptResult.FAILED,
+            AttemptResult.DELIVERED,
+        }
+        by_platform = {attempt.token.platform: attempt.result for attempt in second.attempts}
+        assert by_platform == {
+            DevicePlatform.IOS: AttemptResult.UNAVAILABLE,
+            DevicePlatform.ANDROID: AttemptResult.DELIVERED,
+        }
+        assert len(apple.sent) == 1
+        assert len(google.sent) == 2
+        assert second.delivery is NotificationDelivery.DELIVERED
+        assert circuits.states()["push_ios"] is CircuitState.OPEN
+        assert circuits.states()["push_android"] is CircuitState.CLOSED
+        assert metrics.counted("escalation.delivery", outcome="unavailable") == 1
+        # Nothing was asked of the service, so there is no latency to record for it.
+        assert len(metrics.observed(DELIVERY_SECONDS)) == 3
+
+    async def test_a_device_it_refuses_is_the_service_working(self) -> None:
+        stores = InMemoryStores()
+        await registered(stores, ALICE, PHONE)
+        refusing = NamedProvider("apple_like", DevicePlatform.IOS, status=DeliveryStatus.REJECTED)
+        circuits = Circuits(metrics=RecordingMetrics(), policy=CircuitPolicy(failures_to_open=1))
+        sending = dispatcher(stores, refusing, circuits=circuits)
+
+        await sending.dispatch(ALICE, a_context("call-1"))
+        await sending.dispatch(ALICE, a_context("call-2"))
+
+        assert len(refusing.sent) == 2
+        assert circuits.states()["push_ios"] is CircuitState.CLOSED
+
+    async def test_each_delivery_is_timed_and_traced_by_platform(self) -> None:
+        stores = InMemoryStores()
+        await registered(stores, ALICE, PHONE)
+        metrics = RecordingMetrics()
+        tracer = RecordingTracer()
+        apple = NamedProvider("apple_like", DevicePlatform.IOS)
+
+        await dispatcher(stores, apple, metrics=metrics, tracer=tracer).dispatch(ALICE, a_context())
+
+        [delivery] = tracer.named("notification.delivery")
+        assert delivery.attributes == {"platform": "ios"}
+        [observed] = [each for each in metrics.observations if each.name == DELIVERY_SECONDS]
+        assert observed.labels == {"platform": "ios", "provider": "apple_like"}

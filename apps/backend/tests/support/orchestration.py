@@ -35,6 +35,7 @@ from letmehandle.application.orchestration.ports import (
     CallOwnership,
     CallStores,
 )
+from letmehandle.application.resilience.circuit import CircuitPolicy, Circuits
 from letmehandle.domain.errors import AlreadyRecordedError, ProviderError, RecordNotFoundError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFormat, AudioFrame
 from letmehandle.domain.models.call import CallSession
@@ -81,6 +82,7 @@ from tests.contracts.preference_fakes import InMemoryPreferencesRepository
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.recording_call_actions import RecordingCallActions
 from tests.support.recording_metrics import RecordingMetrics
+from tests.support.recording_tracer import RecordingTracer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -333,8 +335,9 @@ class CallSpeaker(AudioSink):
 class Line(CallTransport):
     """A transport a test drives. What it may be asked depends on the subclass's capabilities.
 
-    `refusing` names requests that raise as a provider refusing them; `holding` names requests that
-    wait until their event is set, which is how a request that never returns is made.
+    `refusing` names requests that raise as a provider refusing them; `failing` names requests that
+    raise as a provider that cannot be reached, which trying again may get past; `holding` names
+    requests that wait until their event is set, which is how a request that never returns is made.
     """
 
     def __init__(self) -> None:
@@ -344,6 +347,7 @@ class Line(CallTransport):
         # Every event delivered twice, as providers do.
         self.duplicating = False
         self.refusing: set[str] = set()
+        self.failing: set[str] = set()
         self.holding: dict[str, asyncio.Event] = {}
 
     @property
@@ -399,6 +403,8 @@ class Line(CallTransport):
             await gate.wait()
         if request in self.refusing:
             raise ProviderError("line", f"{request} refused", retryable=False)
+        if request in self.failing:
+            raise ProviderError("line", f"{request} could not be reached", retryable=True)
 
 
 class StreamingLine(Line):
@@ -667,6 +673,8 @@ class Running:
     escalations: InMemoryStores
     dispatcher: EscalationDispatcher
     metrics: RecordingMetrics
+    tracer: RecordingTracer
+    circuits: Circuits
     summariser: WritingSummariser
 
     async def settled(self, call: str, state: CallState) -> CallSession:
@@ -727,6 +735,7 @@ async def orchestrating(
     bounds: Bounds = QUICK,
     stores: MemoryCallStores | None = None,
     start: bool = True,
+    circuit_policy: CircuitPolicy | None = None,
 ) -> AsyncIterator[Running]:
     """An orchestrator on `line`, started, and stopped afterwards with nothing of it left running.
 
@@ -741,8 +750,14 @@ async def orchestrating(
     await escalations.devices.register(OWNER, DEVICE)
     notifications = HeldNotifications()
     metrics = RecordingMetrics()
+    tracer = RecordingTracer()
+    circuits = Circuits(metrics=metrics, policy=circuit_policy)
     dispatcher = EscalationDispatcher(
-        providers=[notifications], stores=escalations.scope, metrics=metrics
+        providers=[notifications],
+        stores=escalations.scope,
+        metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
     )
     speech = ControlledSpeech()
     agent = Agent(list(looks))
@@ -754,6 +769,8 @@ async def orchestrating(
         dispatcher=dispatcher,
         clock=FixedClock(),
         metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
         assistant=AssistantServices(
             speech=speech, voices=StaticVoiceProvider(), judging=agent.judging
         ),
@@ -770,6 +787,8 @@ async def orchestrating(
         escalations=escalations,
         dispatcher=dispatcher,
         metrics=metrics,
+        tracer=tracer,
+        circuits=circuits,
         summariser=summariser,
     )
     if start:

@@ -51,8 +51,9 @@ NEVER_LEAVES_ITS_EDGE: Final = frozenset(
         "SummaryNotWrittenError",
         # Startup refusing to begin, which ends the process rather than reaching anything.
         "ConfigurationError",
-        # A metric label that could carry content: a defect at its call site, by design.
+        # A metric label or span attribute that could carry content: a defect at its call site.
         "MetricLabelError",
+        "SpanAttributeError",
     }
 )
 

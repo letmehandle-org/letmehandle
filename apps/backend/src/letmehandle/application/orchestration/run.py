@@ -48,6 +48,9 @@ from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
 from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
 from letmehandle.application.orchestration.summary import Findings, facts_of, with_findings
+from letmehandle.application.resilience.circuit import Dependency
+from letmehandle.application.resilience.retry import RetryPolicy, retry_idempotent
+from letmehandle.application.resilience.timing import Stopwatch, within
 from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.failures import FailureKind, classify
@@ -64,11 +67,12 @@ from letmehandle.domain.policy.routing import route
 from letmehandle.domain.ports.call_transport import CallEventKind, ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from letmehandle.observability import catalogue
-from letmehandle.observability.logging import get_logger
+from letmehandle.observability.logging import bind_call, get_logger, log_failure
+from letmehandle.observability.tracing import CALL_ID
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import timedelta
+    from datetime import datetime, timedelta
 
     from letmehandle.application.agent.ports import AgentJudgement
     from letmehandle.application.calls.fallback import CallFacts
@@ -82,6 +86,7 @@ if TYPE_CHECKING:
         CallStores,
         OpenCallStores,
     )
+    from letmehandle.application.resilience.circuit import Circuits
     from letmehandle.domain.models.escalation import EscalationDecision, EscalationReason
     from letmehandle.domain.models.identifiers import CallId, EventId, UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
@@ -89,17 +94,41 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.tracing import Tracer
 
 logger = get_logger(__name__)
 
+# What a run asks of the transport, each its own stage of the call.
+_TELEPHONY_STAGES: Final = frozenset({"answer", "dial", "cancel", "terminate"})
+
 PROVIDER_FAILED: Final = catalogue.count(
-    "call.provider_failed",
-    stage={"owner", "speech", "answer", "dial", "cancel", "terminate"},
-    kind=FailureKind,
+    "call.provider_failed", stage={"owner", "speech", *_TELEPHONY_STAGES}, kind=FailureKind
 )
 JUDGEMENT_FAILED: Final = catalogue.count("call.judgement_failed", kind=FailureKind)
 SUMMARY_FAILED: Final = catalogue.count("call.summary_failed", kind=FailureKind)
 CALL_ENDED: Final = catalogue.count("call.ended", outcome=TERMINAL)
+ROUTED: Final = catalogue.count("call.routed", outcome={*Route, "nobody"})
+# How an escalation that rang the user turned out: how their phone answered, or that it never rang,
+# or that the call ended while it did.
+ESCALATION_RESOLVED: Final = catalogue.count(
+    "call.escalation_resolved", outcome={*ParticipantOutcome, "dial_refused", "call_ended"}
+)
+# A transport event this run had already acted on, delivered again.
+DUPLICATE_IGNORED: Final = catalogue.count("call.duplicate_ignored", stage={"repeated", "late"})
+# A call handled without a dependency whose circuit was open: put through with no assistant, or
+# summarised from its facts with no model.
+DEGRADED: Final = catalogue.count("call.degraded", stage={"speech", "summary"})
+
+PROVIDER_SECONDS: Final = catalogue.measure("call.provider_seconds", stage=_TELEPHONY_STAGES)
+SPEECH_OPEN_SECONDS: Final = catalogue.measure(
+    "call.speech_open_seconds", outcome={"opened", "failed"}
+)
+JUDGEMENT_SECONDS: Final = catalogue.measure("call.judgement_seconds", outcome={"judged", "failed"})
+SUMMARY_SECONDS: Final = catalogue.measure("call.summary_seconds", outcome={"written", "fallback"})
+
+# Ending a call at the transport is safe to ask twice, so a timeout or an unreachable provider is
+# worth another try: a call left up at the provider is a caller left on a line nobody is on.
+TERMINATE_RETRY: Final = RetryPolicy(attempts=3)
 
 # While the assistant is on the call and the user is not, something the caller says is worth
 # another look. Once the user has joined, the call is theirs to handle.
@@ -141,8 +170,19 @@ class RunContext:
     dispatcher: EscalationDispatcher
     clock: Clock
     metrics: MetricsRecorder
+    tracer: Tracer
+    circuits: Circuits
     bounds: Bounds
     summariser: CallSummariser | None
+
+
+@dataclass(frozen=True, slots=True)
+class CallStanding:
+    """Where one live call is, and since when. A call long in one state is a call stuck in it."""
+
+    call_id: CallId
+    state: CallState
+    since: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +215,7 @@ class CallRun:
         self._handed_over = False
         self._finished = False
         self._owner: UserId | None = None
+        self._ledger: CallLedger | None = None
 
     @property
     def call_id(self) -> CallId:
@@ -184,6 +225,14 @@ class CallRun:
     def owner(self) -> UserId | None:
         """Whose call this is, once that has been found."""
         return self._owner
+
+    @property
+    def standing(self) -> CallStanding | None:
+        """Where the call is, once it has an owner and so a record."""
+        ledger = self._ledger
+        if ledger is None:
+            return None
+        return CallStanding(self.call_id, ledger.state, ledger.state_since)
 
     @property
     def is_over(self) -> bool:
@@ -200,10 +249,12 @@ class CallRun:
         On every exit, cancellation included, nothing the run started is left running, and a
         request still waiting in the inbox is told the call is over.
         """
+        bind_call(self.call_id.value, self._incoming.correlation_id)
         try:
-            live = await self._arrive()
-            while live is not None and not self._finished:
-                await self._handle(live, await self._inbox.get())
+            with self._context.tracer.span("call", **{CALL_ID: self.call_id.value}):
+                live = await self._arrive()
+                while live is not None and not self._finished:
+                    await self._handle(live, await self._inbox.get())
         finally:
             await self._release_tasks()
             self._refuse_waiting()
@@ -214,8 +265,9 @@ class CallRun:
         owner = await self._find_owner()
         if owner is None:
             # Nobody's call: there is nobody to record it for, and nobody to put it through to.
-            await self._provider("terminate", self._context.transport.terminate(self.call_id))
+            await self._terminate()
             self._finished = True
+            self._context.metrics.increment(ROUTED, {"outcome": "nobody"})
             return None
         self._owner = owner.user_id
         context = self._context
@@ -234,10 +286,15 @@ class CallRun:
                 metrics=context.metrics,
             ),
         )
+        self._ledger = live.ledger
         await live.ledger.opened()
         await live.ledger.move(CallState.ROUTING)
-        posture = route(live.ledger.call.caller, owner.preferences, context.clock.now())
-        match route_on(posture, self._plan):
+        with context.tracer.span("call.routing") as span:
+            posture = route(live.ledger.call.caller, owner.preferences, context.clock.now())
+            decided = route_on(posture, self._plan)
+            span.set_attribute("call.route", decided.value)
+        context.metrics.increment(ROUTED, {"outcome": decided.value})
+        match decided:
             case Route.ASSISTANT if self._plan.assistant is not None:
                 await self._hand_to_assistant(live, self._plan.assistant)
             case Route.PASS_THROUGH:
@@ -277,28 +334,38 @@ class CallRun:
 
     async def _hand_to_assistant(self, live: _Live, step: Converse) -> None:
         await live.ledger.move(CallState.AGENT_HANDLING)
-        if not await self._provider("answer", step.answering.answer(self.call_id)):
+        if not await self._provider("answer", lambda: step.answering.answer(self.call_id)):
             await self._finish(live, CallState.FAILED)
             return
+        context = self._context
+        stopwatch = Stopwatch()
         try:
-            await self._speaking.start(
-                step, live.owner.preferences, self._context.bounds.speech_open
-            )
+            with context.tracer.span("speech.open", dependency=Dependency.SPEECH.value):
+                await context.circuits[Dependency.SPEECH].call(
+                    lambda: self._speaking.start(
+                        step, live.owner.preferences, context.bounds.speech_open
+                    )
+                )
         # A speech service that will not open, or not in time, leaves nobody to talk to the caller:
         # the call fails, and the user reads that in its history.
         except Exception as error:  # noqa: BLE001
-            logger.error("call.speech_unavailable", error=type(error).__name__)  # noqa: TRY400
-            self._context.metrics.increment(
+            log_failure(logger, "call.speech_unavailable", error)
+            context.metrics.increment(
                 PROVIDER_FAILED, {"stage": "speech", "kind": classify(error).kind}
             )
+            context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "failed"})
             await self._finish(live, CallState.FAILED)
+        else:
+            context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "opened"})
 
     # ------------------------------------------------------------------------------ the inbox
 
     async def _handle(self, live: _Live, item: Input) -> None:
         match item:
             case Reported(event=event):
-                if event.event_id not in self._seen:
+                if event.event_id in self._seen:
+                    self._context.metrics.increment(DUPLICATE_IGNORED, {"stage": "repeated"})
+                else:
                     self._seen.add(event.event_id)
                     await self._on_event(live, event)
             case Heard(turn=turn):
@@ -349,6 +416,9 @@ class CallRun:
         match ledger.state:
             case CallState.HUMAN_RINGING:
                 self._ring.cancel()
+                self._context.metrics.increment(
+                    ESCALATION_RESOLVED, {"outcome": ParticipantOutcome.ANSWERED.value}
+                )
                 await ledger.move(CallState.HUMAN_JOINED)
                 await ledger.joined(ParticipantRole.HUMAN)
                 if self._handed_over:
@@ -454,17 +524,19 @@ class CallRun:
             # Nothing rings: the plan has no way to add the user, or the rules said not now. The
             # reason is kept, and the user reads it in the call's history.
             return
-        await ledger.move(CallState.ESCALATION_REQUESTED)
-        # Started, never awaited: the ring is the escalation and the notification only context for
-        # it, so nothing about delivering it may hold the dial back (D-016).
-        self._notify(live, decision, reason)
-        if not await self._dial(live, step):
-            await ledger.move(CallState.AGENT_HANDLING)
-            await self._tell(Situation(UserReach.NOT_REACHED, ParticipantOutcome.FAILED))
-            raise DialRefusedError
-        await ledger.move(CallState.HUMAN_RINGING)
-        self._ring_for(step)
-        await self._tell(Situation(UserReach.BEING_REACHED))
+        with self._context.tracer.span("call.escalation", outcome=reason.value):
+            await ledger.move(CallState.ESCALATION_REQUESTED)
+            # Started, never awaited: the ring is the escalation and the notification only context
+            # for it, so nothing about delivering it may hold the dial back (D-016).
+            self._notify(live, decision, reason)
+            if not await self._dial(live, step):
+                self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "dial_refused"})
+                await ledger.move(CallState.AGENT_HANDLING)
+                await self._tell(Situation(UserReach.NOT_REACHED, ParticipantOutcome.FAILED))
+                raise DialRefusedError
+            await ledger.move(CallState.HUMAN_RINGING)
+            self._ring_for(step)
+            await self._tell(Situation(UserReach.BEING_REACHED))
 
     async def _end_for_agent(self, live: _Live, ending: CallEnding) -> None:
         handed_over = ending is CallEnding.HANDED_OVER
@@ -510,6 +582,7 @@ class CallRun:
         """
         self._ring.cancel()
         self._handed_over = False
+        self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": outcome.value})
         if cancel is not None:
             await self._cancel_dial(live, cancel)
         if not self._speaking.is_speaking:
@@ -521,7 +594,7 @@ class CallRun:
 
     async def _cancel_dial(self, live: _Live, dial: DialTheUser) -> None:
         await self._provider(
-            "cancel", dial.bridge.remove_participant(self.call_id, live.owner.number)
+            "cancel", lambda: dial.bridge.remove_participant(self.call_id, live.owner.number)
         )
 
     # ------------------------------------------------------------------------------- judgement
@@ -541,16 +614,23 @@ class CallRun:
         self._judgement = asyncio.get_running_loop().create_task(self._look(assistant, so_far))
 
     async def _look(self, assistant: Converse, so_far: CallSoFar) -> None:
+        context = self._context
+        agent = assistant.assistance.judging.agent
+        stopwatch = Stopwatch()
         try:
-            async with asyncio.timeout(self._context.bounds.judgement.total_seconds()):
-                judgement = await assistant.assistance.judging.agent.judge(so_far)
+            with context.tracer.span("agent.judgement", dependency=Dependency.MODEL.value):
+                judgement = await context.circuits[Dependency.MODEL].call(
+                    lambda: within(context.bounds.judgement, lambda: agent.judge(so_far))
+                )
         # A judgement that fails or runs out of time changes nothing about the call: the assistant
         # carries on, and the next thing the caller says is looked at afresh.
         except Exception as error:  # noqa: BLE001
-            logger.warning("call.judgement_failed", error=type(error).__name__)
-            self._context.metrics.increment(JUDGEMENT_FAILED, {"kind": classify(error).kind})
+            log_failure(logger, "call.judgement_failed", error)
+            context.metrics.increment(JUDGEMENT_FAILED, {"kind": classify(error).kind})
+            context.metrics.observe(JUDGEMENT_SECONDS, stopwatch.seconds, {"outcome": "failed"})
             self.post(Judged(None))
         else:
+            context.metrics.observe(JUDGEMENT_SECONDS, stopwatch.seconds, {"outcome": "judged"})
             self.post(Judged(judgement))
 
     def _on_judged(self, live: _Live, judgement: AgentJudgement | None) -> None:
@@ -575,17 +655,20 @@ class CallRun:
         """
         self._finished = True
         ledger = live.ledger
-        await ledger.move(state)
-        await self._release_tasks()
-        await self._provider("terminate", self._context.transport.terminate(self.call_id))
-        if self._plan.assistant is not None:
-            self._plan.assistant.assistance.judging.forget(self.call_id)
-        written = await self._summary(live, facts_of(ledger.call, self._findings))
-        summary = with_findings(written, ledger.call, self._findings)
-        await ledger.summarised(summary)
-        await self._context.dispatcher.call_ended(
-            live.owner.user_id, self.call_id, summary.ended_at
-        )
+        if ledger.state in _USER_BEING_REACHED:
+            self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "call_ended"})
+        with self._context.tracer.span("call.teardown", **{"call.state": state.value}):
+            await ledger.move(state)
+            await self._release_tasks()
+            await self._terminate()
+            if self._plan.assistant is not None:
+                self._plan.assistant.assistance.judging.forget(self.call_id)
+            written = await self._summary(live, facts_of(ledger.call, self._findings))
+            summary = with_findings(written, ledger.call, self._findings)
+            await ledger.summarised(summary)
+            await self._context.dispatcher.call_ended(
+                live.owner.user_id, self.call_id, summary.ended_at
+            )
         self._context.metrics.increment(CALL_ENDED, {"outcome": state.value})
 
     async def _summary(self, live: _Live, facts: CallFacts) -> CallSummary:
@@ -597,16 +680,28 @@ class CallRun:
         """
         call = live.ledger.call
         locale = live.owner.preferences.locale
-        summariser = self._context.summariser
+        context = self._context
+        summariser = context.summariser
         if summariser is None or call.handling is not CallHandling.ASSISTANT:
             return fallback_summary(facts, locale=locale)
+        if context.circuits[Dependency.MODEL].is_refusing:
+            # The model is failing every call: asking it would only wait out the bound first.
+            context.metrics.increment(DEGRADED, {"stage": "summary"})
+            return fallback_summary(facts, locale=locale)
+        stopwatch = Stopwatch()
         try:
-            async with asyncio.timeout(self._context.bounds.summary.total_seconds()):
-                return await summariser.summarise(facts, call.transcript, locale=locale)
+            with context.tracer.span("summary.write", dependency=Dependency.MODEL.value):
+                written = await within(
+                    context.bounds.summary,
+                    lambda: summariser.summarise(facts, call.transcript, locale=locale),
+                )
         except TimeoutError:
             logger.warning("call.summary_failed", error="TimeoutError")
-            self._context.metrics.increment(SUMMARY_FAILED, {"kind": FailureKind.TIMEOUT})
+            context.metrics.increment(SUMMARY_FAILED, {"kind": FailureKind.TIMEOUT})
+            context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "fallback"})
             return fallback_summary(facts, locale=locale)
+        context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "written"})
+        return written
 
     async def _release_tasks(self) -> None:
         """Stop the judgement, the timers and the conversation, and wait for each to go."""
@@ -627,21 +722,45 @@ class CallRun:
     # ------------------------------------------------------------------------------- utilities
 
     async def _dial(self, live: _Live, step: DialTheUser) -> bool:
+        # Never retried: a second dial is a second ring on the user's phone.
         return await self._provider(
-            "dial", step.bridge.add_participant(self.call_id, live.owner.number)
+            "dial", lambda: step.bridge.add_participant(self.call_id, live.owner.number)
         )
 
-    async def _provider(self, stage: str, work: Awaitable[None]) -> bool:
-        """Ask the transport for something, within the provider bound, and say whether it did."""
+    async def _terminate(self) -> bool:
+        return await self._provider(
+            "terminate", lambda: self._context.transport.terminate(self.call_id), repeatable=True
+        )
+
+    async def _provider(
+        self, stage: str, work: Callable[[], Awaitable[None]], *, repeatable: bool = False
+    ) -> bool:
+        """Ask the transport for something, within the provider bound, and say whether it did.
+
+        Through the transport's circuit, so a transport failing every call is not waited on by each.
+        `repeatable` work, safe to ask twice, is asked again after a failure that may pass.
+        """
+        context = self._context
+        circuit = context.circuits[Dependency.TELEPHONY]
+
+        async def attempt() -> None:
+            await circuit.call(lambda: within(context.bounds.provider, work))
+
+        stopwatch = Stopwatch()
         try:
-            async with asyncio.timeout(self._context.bounds.provider.total_seconds()):
-                await work
+            with context.tracer.span(f"telephony.{stage}", dependency=Dependency.TELEPHONY.value):
+                if repeatable:
+                    await retry_idempotent(attempt, policy=TERMINATE_RETRY)
+                else:
+                    await attempt()
         except (TimeoutError, DomainError) as error:
-            logger.warning("call.provider_failed", stage=stage, error=type(error).__name__)
-            self._context.metrics.increment(
-                PROVIDER_FAILED, {"stage": stage, "kind": classify(error).kind}
-            )
+            failure = classify(error)
+            log_failure(logger, "call.provider_failed", error, stage=stage)
+            context.metrics.increment(PROVIDER_FAILED, {"stage": stage, "kind": failure.kind})
+            if failure.kind is not FailureKind.CIRCUIT_OPEN:
+                context.metrics.observe(PROVIDER_SECONDS, stopwatch.seconds, {"stage": stage})
             return False
+        context.metrics.observe(PROVIDER_SECONDS, stopwatch.seconds, {"stage": stage})
         return True
 
     async def _tell(self, situation: Situation) -> None:

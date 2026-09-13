@@ -768,11 +768,15 @@ async def simulated_deployment(
     event stream has one reader, as the orchestrator is its one reader in the product.
     """
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
+    from tests.support.observability import recorded_observability
 
     provider = SimulatedTwilio(public_base_url=public_base_url)
     settings = telephony_settings(public_base_url)
     binding = build_call_transport(
-        settings, reported_calls=build_reported_calls(), http_transport=provider.rest
+        settings,
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+        http_transport=provider.rest,
     )
     assert binding is not None
     transport = binding.transport

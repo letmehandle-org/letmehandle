@@ -28,6 +28,10 @@ dependencies = [
     # A runtime dependency since push delivery, not only a test client. The http2 extra brings
     # `h2`: APNs accepts nothing but HTTP/2.
     "httpx[http2]>=0.28",
+    # Tracing, behind the tracer port. Exported only when an endpoint is configured; the exporter
+    # posts from the SDK's own background thread, so a slow collector never waits on a call.
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
 ]
 
 [dependency-groups]
@@ -210,4 +214,12 @@ name = "Application code names no agent framework or model client"
 type = "forbidden"
 source_modules = ["letmehandle.application"]
 forbidden_modules = ["strands", "openai", "websockets", "letmehandle.adapters"]
+
+[[tool.importlinter.contracts]]
+# Spans are begun through the tracer port. The SDK that exports them is an adapter, chosen in
+# bootstrap, so the call path is the same code with a tracing backend and without one.
+name = "Only the tracing adapter knows the tracing SDK"
+type = "forbidden"
+source_modules = ["letmehandle.domain", "letmehandle.application", "letmehandle.observability"]
+forbidden_modules = ["opentelemetry"]
 

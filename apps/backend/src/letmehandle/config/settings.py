@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import (
+    AfterValidator,
     AnyHttpUrl,
     AnyWebsocketUrl,
     BeforeValidator,
@@ -289,6 +290,18 @@ class LLMEndpoint:
     timeout_seconds: float
 
 
+# The shortest diagnostics token accepted: as long as the shortest signing key, for the same reason.
+MIN_DIAGNOSTICS_TOKEN_LENGTH: Final = 32
+
+
+def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
+    if value is not None and len(value.get_secret_value()) < MIN_DIAGNOSTICS_TOKEN_LENGTH:
+        raise ValueError(
+            f"DIAGNOSTICS_TOKEN must be at least {MIN_DIAGNOSTICS_TOKEN_LENGTH} characters"
+        )
+    return value
+
+
 def _blank_is_absent(value: object) -> object:
     # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
     # leave them unset, not set to an empty string that then fails as a malformed URL.
@@ -431,6 +444,17 @@ class Settings(BaseSettings):
     )
     fcm_project_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
     fcm_service_account_json: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+
+    # Observability. Spans are exported over OTLP's HTTP protocol to this URL, a collector's traces
+    # endpoint, and to nowhere without one: a deployment with no tracing backend runs with none and
+    # loses nothing else. The URL is the collector's, never a credential; one that needs a key is
+    # reached through a collector beside the service rather than configured here.
+    tracing_otlp_endpoint: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = None
+    # The bearer token the diagnostics routes require. Without one they do not exist: they list live
+    # calls and every provider's latency, which no signed-in user of the app is owed.
+    diagnostics_token: Annotated[
+        SecretStr | None, BeforeValidator(_blank_is_absent), AfterValidator(_long_enough_to_guard)
+    ] = None
 
     @field_validator("log_level")
     @classmethod
