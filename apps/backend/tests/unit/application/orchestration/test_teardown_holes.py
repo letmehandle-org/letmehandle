@@ -5,20 +5,33 @@ Each test here reproduces a defect and is expected to fail until it is fixed.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
 import pytest
 
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import ParticipantRole
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
+from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from tests.support.orchestration import (
+    OWNER,
+    WANTS_THE_USER,
+    Look,
     Running,
     StreamingLine,
     eventually,
     orchestrating,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from letmehandle.application.escalation.dispatch import EscalationStores
 
 CALL = "call"
 STRANGER = Caller(number=PhoneNumber("+12025550101"))
@@ -56,3 +69,39 @@ async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> Non
         assert line.asked("terminate", CALL) == 1
         assert CallId(CALL) in running.stores.summaries.stored
         assert running.stores.call(CALL).state is CallState.COMPLETED
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="call_ended can run before the background dispatch claims the context, "
+    "which is then stored open for a call that is over",
+)
+async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marked_ended() -> None:
+    line = StreamingLine()
+    async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+        claim_may_go = asyncio.Event()
+        original = running.escalations.scope
+        openings = 0
+
+        @asynccontextmanager
+        async def slow_first_opening() -> AsyncIterator[EscalationStores]:
+            # The claim is the dispatch's first unit of work: a database under load answers late.
+            nonlocal openings
+            openings += 1
+            if openings == 1:
+                await claim_may_go.wait()
+            async with original() as stores:
+                yield stores
+
+        running.dispatcher._stores = slow_first_opening
+        await with_the_assistant(running)
+        await running.caller_says("Can I speak to them, please?")
+        await running.settled(CALL, CallState.HUMAN_RINGING)
+
+        line.hangs_up(CALL)
+        call = await running.ended(CALL)
+        claim_may_go.set()
+        await running.quiet()
+
+        context = running.escalations.contexts.stored[(OWNER, call.id)]
+        assert context.status is EscalationStatus.ENDED
