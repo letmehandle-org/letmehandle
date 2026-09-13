@@ -58,6 +58,7 @@ class SpeechProviderName(StrEnum):
 
     REALTIME = "realtime"
     ELEVENLABS = "elevenlabs"
+    GPT_LIVE = "gpt_live"
 
 
 class APNsEnvironmentName(StrEnum):
@@ -534,8 +535,8 @@ class Settings(BaseSettings):
     # is optional at startup: nothing opens a speech session in a request yet, and a process that
     # refuses to start for want of a service it never calls is a process nobody can develop
     # against. The shape is still checked when a value is present, so a typo fails here rather
-    # than on the first call. The model names what a realtime service runs; the agent id names
-    # which ElevenLabs agent to talk to; each is required only by its own protocol.
+    # than on the first call. The model names what a realtime or GPT-Live service runs; the agent
+    # id names which ElevenLabs agent to talk to; each is required only by its own protocol.
     speech_provider: SpeechProviderName = Field(
         default=SpeechProviderName.REALTIME,
         description="Which protocol the speech service speaks.",
@@ -564,8 +565,10 @@ class Settings(BaseSettings):
         str | None,
         BeforeValidator(_blank_is_absent),
         Field(
-            description="The model a `realtime` service runs.",
-            json_schema_extra={"required_when": "the assistant takes calls over `realtime`"},
+            description="The model a `realtime` or `gpt_live` service runs.",
+            json_schema_extra={
+                "required_when": "the assistant takes calls over `realtime` or `gpt_live`"
+            },
         ),
     ] = None
     speech_agent_id: Annotated[
@@ -940,6 +943,10 @@ class Settings(BaseSettings):
         required by whatever does, so that it fails naming the variable rather than connecting to
         nothing.
         """
+        return self._require_speech(("SPEECH_MODEL", self.speech_model))
+
+    def require_speech_live_model(self) -> tuple[str, str]:
+        """The speech endpoint and GPT-Live model, or a failure naming whichever is missing."""
         return self._require_speech(("SPEECH_MODEL", self.speech_model))
 
     def require_speech_agent(self) -> tuple[str, str]:

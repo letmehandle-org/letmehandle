@@ -60,6 +60,8 @@ from letmehandle.adapters.speech.elevenlabs.provider import ElevenLabsSpeechProv
 from letmehandle.adapters.speech.elevenlabs.websocket import (
     websocket_opener as elevenlabs_opener,
 )
+from letmehandle.adapters.speech.gpt_live.provider import GptLiveSpeechProvider
+from letmehandle.adapters.speech.gpt_live.websocket import websocket_opener as gpt_live_opener
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
@@ -437,6 +439,18 @@ def build_speech_provider(
                 # What an agent speaks unless configured otherwise, so that an agent left at its
                 # default is not converted twice on the way out either.
                 output_format=ELEVENLABS_WIRE_FORMAT,
+            )
+        case SpeechProviderName.GPT_LIVE:
+            endpoint, model = settings.require_speech_live_model()
+            return GptLiveSpeechProvider(
+                wrap(gpt_live_opener(endpoint, api_key=api_key)),
+                metrics,
+                model=model,
+                languages=settings.speech_languages,
+                input_formats=_SPEECH_INPUT_FORMATS,
+                # A call's own format. A session speaks the format its audio arrives in, so a phone
+                # call's is neither converted on the way in nor on the way out.
+                output_format=TELEPHONY_NARROWBAND,
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
