@@ -28,7 +28,7 @@ from letmehandle.domain.models.call import (
     Speaker,
     TranscriptEntry,
 )
-from letmehandle.domain.models.call_state import CallState
+from letmehandle.domain.models.call_state import TERMINAL, CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.escalation_context import (
@@ -138,16 +138,30 @@ class SqlCallRepository(CallRepository):
         statement = insert(CallRow).values(
             id=call.id.value, user_id=call.user_id.value, started_at=call.started_at, **values
         )
+        excluded = statement.excluded
         # One statement, and conditional on the owner. An identifier that already belongs to
-        # somebody else's call updates nothing rather than taking the row over.
+        # somebody else's call updates nothing rather than taking the row over. Nor does a call
+        # that has ended take a write that would move it anywhere: the same call announced again
+        # after its ending must not turn a finished record back into a live one. The same ending
+        # written again is let through, because a write that was stored but reported as failed is
+        # tried again.
         result = await self._session.execute(
             statement.on_conflict_do_update(
                 index_elements=[CallRow.id],
                 set_=values,
-                where=CallRow.user_id == statement.excluded.user_id,
+                where=(CallRow.user_id == excluded.user_id)
+                & (
+                    CallRow.state.not_in([state.value for state in TERMINAL])
+                    | ((CallRow.state == excluded.state) & (CallRow.ended_at == excluded.ended_at))
+                ),
             )
         )
         if _affected(result) == 0:
+            owner = await self._session.scalar(
+                select(CallRow.user_id).where(CallRow.id == call.id.value)
+            )
+            if owner == call.user_id.value:
+                raise AlreadyRecordedError("call", call.id.value)
             raise RecordNotFoundError("call", call.id.value)
 
         # Participants are written whole with the call: the list is short, and replacing it is

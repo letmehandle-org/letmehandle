@@ -163,6 +163,12 @@ class MemoryCalls(CallRepository):
         existing = self.stored.get(call.id)
         if existing is not None and existing.user_id != call.user_id:
             raise RecordNotFoundError("call", call.id.value)
+        if (
+            existing is not None
+            and existing.is_over
+            and (existing.state, existing.ended_at) != (call.state, call.ended_at)
+        ):
+            raise AlreadyRecordedError("call", call.id.value)
         self.stored[call.id] = snapshot(call)
         history = self.states[call.id]
         if not history or history[-1] is not call.state:

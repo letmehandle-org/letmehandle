@@ -234,6 +234,23 @@ class TestCalls:
         assert mine.state is CallState.AGENT_HANDLING
         assert await calls.get(THEM, CallId("call-1")) is None
 
+    @pytest.mark.parametrize("ended", sorted(TERMINAL))
+    async def test_a_call_that_has_ended_is_never_made_live_again(
+        self, session: AsyncSession, calls: SqlCallRepository, ended: CallState
+    ) -> None:
+        await users(session)
+        finished = a_call(state=ended)
+        await calls.save(finished)
+        # The same ending written again, as a save stored but reported failed is retried.
+        await calls.save(finished)
+
+        with pytest.raises(AlreadyRecordedError):
+            await calls.save(a_call(state=CallState.RECEIVED))
+        with pytest.raises(AlreadyRecordedError):
+            await calls.save(a_call(state=ended, started_at=later(600)))
+
+        assert await calls.get(ME, finished.id) == finished
+
     async def test_a_call_whose_end_was_reported_before_its_start_saves_reads_and_lists(
         self, session: AsyncSession, calls: SqlCallRepository
     ) -> None:

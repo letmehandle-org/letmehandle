@@ -275,7 +275,9 @@ class CallRepository(ABC):
         """Store the call as it now stands, creating it the first time.
 
         Raises `RecordNotFoundError` when the identifier already belongs to another user's call,
-        and changes nothing: one user's write can never land on another user's record.
+        and changes nothing: one user's write can never land on another user's record. Raises
+        `AlreadyRecordedError` for a call stored as ended, unless this is that same ending again,
+        and changes nothing: a call that is over is never made live again.
         """
 
     @abstractmethod

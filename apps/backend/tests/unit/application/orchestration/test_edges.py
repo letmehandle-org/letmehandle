@@ -268,6 +268,13 @@ class TestRememberingEndings:
             assert line.asked("answer", "second") == 1
             line.hangs_up("first")
             await eventually(lambda: running.orchestrator.live_calls == 0)
+            # Taken for a new call, but never written over the record of the one that ended.
+            assert running.stores.states("first") == [
+                CallState.RECEIVED,
+                CallState.ROUTING,
+                CallState.AGENT_HANDLING,
+                CallState.COMPLETED,
+            ]
 
 
 class TestEndingOneUsersCalls:
