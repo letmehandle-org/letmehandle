@@ -232,14 +232,20 @@ def _number(what: str, text: str) -> PhoneNumber:
         raise ValueError(f"{what} is not an international number in E.164 form") from None
 
 
-def _parsed(parse: Callable[[str], object]) -> BeforeValidator:
-    """A validator that parses text with `parse` and passes any other value through."""
-    return BeforeValidator(lambda value: parse(value) if isinstance(value, str) else value)
+def _parsed(parse: Callable[[str], object], *, optional: bool = False) -> BeforeValidator:
+    """A validator parsing text with `parse`, blank text as None when `optional`; else unchanged."""
+
+    def read(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return None if optional and not value.strip() else parse(value)
+
+    return BeforeValidator(read)
 
 
 def _e164(variable: str) -> BeforeValidator:
-    """A validator that reads one number in E.164 form, naming `variable` when it cannot."""
-    return _parsed(partial(_number, variable))
+    """A validator reading one optional number in E.164 form, naming `variable` when it cannot."""
+    return _parsed(partial(_number, variable), optional=True)
 
 
 def parse_calling_codes(text: str) -> frozenset[str] | None:
@@ -495,7 +501,6 @@ class Settings(BaseSettings):
     sms_from_number: Annotated[
         PhoneNumber | None,
         _e164("SMS_FROM_NUMBER"),
-        BeforeValidator(_blank_is_absent),
         Field(
             description="The number sign-in texts come from, in E.164 form.",
             json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
@@ -569,8 +574,7 @@ class Settings(BaseSettings):
     speech_voices: Annotated[
         tuple[Voice, ...] | None,
         NoDecode,
-        BeforeValidator(_blank_is_absent),
-        _parsed(parse_voice_catalogue),
+        _parsed(parse_voice_catalogue, optional=True),
         Field(
             description="The voices offered, as `id:Display name:locale|locale`, comma-separated, "
             "such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices "
@@ -623,9 +627,7 @@ class Settings(BaseSettings):
     telephony_numbers: Annotated[
         tuple[PhoneNumber, ...] | None,
         NoDecode,
-        # Validators run last-listed first: a blank is set aside before anything parses it.
-        _parsed(parse_number_list),
-        BeforeValidator(_blank_is_absent),
+        _parsed(parse_number_list, optional=True),
         Field(
             description="The numbers calls are placed from, comma-separated, in E.164 form.",
             json_schema_extra={"required_when": _STREAMING_CALLS},
@@ -654,8 +656,7 @@ class Settings(BaseSettings):
     telephony_lines: Annotated[
         tuple[LineDescription, ...] | None,
         NoDecode,
-        _parsed(parse_telephony_lines),
-        BeforeValidator(_blank_is_absent),
+        _parsed(parse_telephony_lines, optional=True),
         Field(
             description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
             "account: `name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
@@ -675,7 +676,6 @@ class Settings(BaseSettings):
     telephony_unforwarded_calls_owner: Annotated[
         PhoneNumber | None,
         _e164("TELEPHONY_UNFORWARDED_CALLS_OWNER"),
-        BeforeValidator(_blank_is_absent),
         Field(
             description="Development only: the signed-in number whose calls dialled straight at "
             "the account's number are. Refused in production.",

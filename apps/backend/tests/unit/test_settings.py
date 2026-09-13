@@ -295,6 +295,12 @@ def test_settings_without_a_catalogue_can_be_read_by_what_has_no_use_for_one() -
     assert get_settings().speech_voices is None
 
 
+def test_a_blank_catalogue_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEECH_VOICES", "")
+    monkeypatch.setenv("SPEECH_DEFAULT_VOICE", "")
+    assert get_settings().speech_voices is None
+
+
 def test_asking_for_the_catalogue_without_one_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="SPEECH_VOICES and SPEECH_DEFAULT_VOICE"):
         get_settings().require_voice_catalogue()
