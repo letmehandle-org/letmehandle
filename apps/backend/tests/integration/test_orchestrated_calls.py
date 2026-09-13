@@ -20,12 +20,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
+    SqlEscalationContextRepository,
     SqlSummaryRepository,
     SqlTranscriptRepository,
 )
 from letmehandle.adapters.database.repositories import (
     SqlDeviceRepository,
-    SqlEscalationContextRepository,
     SqlPreferencesRepository,
     SqlUserRepository,
 )
@@ -404,10 +404,13 @@ async def test_a_notification_that_fails_leaves_the_escalation_ringing(
         await running.reaches(CallState.AGENT_HANDLING)
         await running.caller_says("I need to speak to her now.")
         await running.reaches(CallState.HUMAN_JOINED)
+        cipher = running.container.transcript_cipher
+        assert cipher is not None
         async with asyncio.timeout(10):
             while True:
                 async with unit_of_work(running.factory) as session:
-                    context = await SqlEscalationContextRepository(session).get(USER, CallId(CALL))
+                    contexts = SqlEscalationContextRepository(session, cipher)
+                    context = await contexts.get(USER, CallId(CALL))
                 if context is not None and context.delivery is NotificationDelivery.FAILED:
                     break
                 await asyncio.sleep(0.02)

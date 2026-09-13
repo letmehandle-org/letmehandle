@@ -23,11 +23,12 @@ from letmehandle.config.settings import (
     APNsEnvironmentName,
     ConfigurationError,
     Settings,
+    TelephonyProviderName,
     get_settings,
 )
 from letmehandle.main import create_app
 from tests.contracts.fakes import FixedClock, RecordingNotificationProvider
-from tests.support.config import UNREACHABLE_DATABASE, make_settings
+from tests.support.config import TEST_TRANSCRIPT_KEYS, UNREACHABLE_DATABASE, make_settings
 from tests.support.push_services import (
     EXAMPLE_KEY_ID,
     EXAMPLE_PROJECT,
@@ -176,7 +177,7 @@ class TestProviders:
         )
 
     def test_the_dispatcher_is_given_every_provider(self) -> None:
-        settings = make_settings(**FCM)
+        settings = make_settings(transcript_encryption_keys=TEST_TRANSCRIPT_KEYS, **FCM)
         container = build_container(
             settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
         )
@@ -185,10 +186,27 @@ class TestProviders:
         assert isinstance(dispatcher, EscalationDispatcher)
         assert [each.name for each in dispatcher._providers.values()] == ["fcm"]
 
+    def test_a_dispatcher_that_could_not_seal_what_it_stores_is_refused(self) -> None:
+        settings = make_settings(**FCM)
+        container = build_container(
+            settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
+        )
+        factory: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
+        with pytest.raises(ConfigurationError, match="TRANSCRIPT_ENCRYPTION_KEYS"):
+            build_escalation_dispatcher(container, factory, metrics=RecordingMetrics())
+
 
 class TestLifespan:
-    async def test_with_a_database_there_is_a_dispatcher_and_it_is_released(self) -> None:
-        app = create_app(make_settings(database_url=UNREACHABLE_DATABASE, **FCM))
+    async def test_with_calls_and_a_database_there_is_a_dispatcher_and_it_is_released(
+        self,
+    ) -> None:
+        settings = make_settings(
+            database_url=UNREACHABLE_DATABASE,
+            transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
+            telephony_provider=TelephonyProviderName.ANDROID_NATIVE,
+            **FCM,
+        )
+        app = create_app(settings)
         async with app.router.lifespan_context(app):
             assert isinstance(app.state.escalations, EscalationDispatcher)
             provider = app.state.container.notifications[0]
@@ -197,5 +215,11 @@ class TestLifespan:
 
     async def test_without_a_database_there_is_no_dispatcher(self) -> None:
         app = create_app(make_settings())
+        async with app.router.lifespan_context(app):
+            assert app.state.escalations is None
+
+    async def test_without_calls_to_escalate_there_is_no_dispatcher(self) -> None:
+        # Nothing but orchestration escalates, so a deployment without keys still starts.
+        app = create_app(make_settings(database_url=UNREACHABLE_DATABASE, **FCM))
         async with app.router.lifespan_context(app):
             assert app.state.escalations is None

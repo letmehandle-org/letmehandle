@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -309,8 +310,11 @@ class EscalationContextRow(Base):
     Keyed by the user and the call together. The call id alone would let one user's escalation
     stand in the way of another's, and every read filters by both anyway.
 
-    Nothing here is a transcript or a recording: a label for the caller, two short sentences, and
-    what became of the notification.
+    The label for the caller and the two sentences are sealed together, under the transcript keys
+    and bound to the user, the call, the reason and the moment it was raised (D-014): the sentences
+    are the model's account of what the caller said. A context with none of the three seals
+    nothing, and holds no key id either. The reason, the status and the delivery stay readable,
+    being what happened rather than what was said.
     """
 
     __tablename__ = "escalation_contexts"
@@ -320,15 +324,19 @@ class EscalationContextRow(Base):
     )
     call_id: Mapped[str] = mapped_column(String(64), nullable=False)
     reason: Mapped[str] = mapped_column(String(64), nullable=False)
-    caller_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    established: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    needed: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    key_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     delivery: Mapped[str] = mapped_column(String(16), nullable=False)
     raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (PrimaryKeyConstraint("user_id", "call_id", name="pk_escalation_contexts"),)
+    __table_args__ = (
+        PrimaryKeyConstraint("user_id", "call_id", name="pk_escalation_contexts"),
+        CheckConstraint(
+            "(key_id IS NULL) = (ciphertext IS NULL)", name="ck_escalation_contexts_sealed"
+        ),
+    )
 
 
 class CallReportRow(Base):

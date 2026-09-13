@@ -23,12 +23,12 @@ from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
+    SqlEscalationContextRepository,
     SqlSummaryRepository,
     SqlTranscriptRepository,
 )
 from letmehandle.adapters.database.repositories import (
     SqlDeviceRepository,
-    SqlEscalationContextRepository,
     SqlPreferencesRepository,
     SqlUserRepository,
 )
@@ -256,15 +256,23 @@ def build_escalation_dispatcher(
     This is the object the call orchestration asks to notify a user. It opens a unit of work to
     claim the context and read devices, closes it, sends, and opens another to record the result,
     so no transaction is held open across a push.
+
+    What the user is told about an escalation is sealed like the call it is about, so the
+    transcript keys are required, as they are to carry calls at all.
     """
     clock = container.clock
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ConfigurationError(
+            "TRANSCRIPT_ENCRYPTION_KEYS is required to escalate: what the user is told is sealed."
+        )
 
     @asynccontextmanager
     async def stores() -> AsyncIterator[EscalationStores]:
         async with unit_of_work(session_factory) as session:
             yield EscalationStores(
                 devices=SqlDeviceRepository(session, clock),
-                contexts=SqlEscalationContextRepository(session),
+                contexts=SqlEscalationContextRepository(session, cipher),
             )
 
     return EscalationDispatcher(providers=container.notifications, stores=stores, metrics=metrics)

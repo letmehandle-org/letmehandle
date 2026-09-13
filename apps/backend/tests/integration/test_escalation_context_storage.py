@@ -1,4 +1,4 @@
-"""Escalation contexts, against a real database: deduplication, isolation, and ending."""
+"""Escalation contexts, against a real database: sealing, deduplication, isolation, and ending."""
 
 from __future__ import annotations
 
@@ -6,14 +6,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 
+from letmehandle.adapters.database.call_repositories import SqlEscalationContextRepository
 from letmehandle.adapters.database.models import UserRow
-from letmehandle.adapters.database.repositories import (
-    SqlEscalationContextRepository,
-    SqlUserRepository,
-)
-from letmehandle.domain.errors import InvariantError
+from letmehandle.adapters.database.repositories import SqlUserRepository
+from letmehandle.adapters.security.transcript_cipher import AesGcmTranscriptCipher
+from letmehandle.domain.errors import DecryptionError, InvariantError
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.escalation_context import (
     EscalationContext,
@@ -24,6 +23,7 @@ from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
 from tests.contracts.fakes import FixedClock
+from tests.support.stored_bytes import assert_nowhere_in
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,7 @@ RAISED = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 ALICE = UserId("user-1")
 BOB = UserId("user-2")
 CALL = CallId("call-1")
+KEY = ("key-a", bytes(range(32)))
 
 
 def a_context(**overrides: object) -> EscalationContext:
@@ -54,7 +55,7 @@ async def contexts(session: AsyncSession) -> SqlEscalationContextRepository:
     users = SqlUserRepository(session, FixedClock(RAISED))
     await users.add(User(id=ALICE, phone_number=PhoneNumber.parse("+12025550143")))
     await users.add(User(id=BOB, phone_number=PhoneNumber.parse("+12025550144")))
-    return SqlEscalationContextRepository(session)
+    return SqlEscalationContextRepository(session, AesGcmTranscriptCipher([KEY]))
 
 
 async def test_a_context_round_trips(contexts: SqlEscalationContextRepository) -> None:
@@ -66,6 +67,46 @@ async def test_a_minimal_context_round_trips(contexts: SqlEscalationContextRepos
     sparse = a_context(caller_label=None, established=None, needed=None)
     await contexts.claim(ALICE, sparse)
     assert await contexts.get(ALICE, CALL) == sparse
+
+
+async def test_nothing_the_user_was_told_is_stored_in_clear(
+    session: AsyncSession, contexts: SqlEscalationContextRepository
+) -> None:
+    # The two sentences are the model's account of what the caller said (D-014).
+    await contexts.claim(ALICE, a_context())
+    await session.flush()
+    for words in ("a courier", "They are at the gate.", "Where to leave the parcel."):
+        await assert_nowhere_in(session, "escalation_contexts", 1, words)
+
+
+async def test_a_context_with_nothing_to_say_stores_nothing_sealed(
+    session: AsyncSession, contexts: SqlEscalationContextRepository
+) -> None:
+    await contexts.claim(ALICE, a_context(caller_label=None, established=None, needed=None))
+    stored = await session.execute(text("SELECT key_id, ciphertext FROM escalation_contexts"))
+    assert stored.one() == (None, None)
+
+
+@pytest.mark.parametrize(
+    "tampering",
+    [
+        "UPDATE escalation_contexts SET user_id = 'user-2'",
+        "UPDATE escalation_contexts SET call_id = 'call-2'",
+        "UPDATE escalation_contexts SET reason = 'decision_needs_the_user'",
+        "UPDATE escalation_contexts SET raised_at = raised_at - interval '1 hour'",
+    ],
+    ids=["another-user", "another-call", "another-reason", "another-moment"],
+)
+async def test_sealed_words_moved_onto_another_escalation_do_not_open(
+    session: AsyncSession, contexts: SqlEscalationContextRepository, tampering: str
+) -> None:
+    await contexts.claim(ALICE, a_context())
+    await session.execute(text(tampering))
+    session.expunge_all()
+    rows = await session.execute(text("SELECT user_id, call_id FROM escalation_contexts"))
+    user, call = rows.one()
+    with pytest.raises(DecryptionError):
+        await contexts.get(UserId(user), CallId(call))
 
 
 async def test_the_first_claim_wins_and_a_repeat_changes_nothing(

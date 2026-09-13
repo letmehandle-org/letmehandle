@@ -20,10 +20,10 @@ from sqlalchemy import text
 
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
+    SqlEscalationContextRepository,
     SqlSummaryRepository,
     SqlTranscriptRepository,
 )
-from letmehandle.adapters.database.repositories import SqlEscalationContextRepository
 from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.domain.models.call import (
@@ -742,7 +742,7 @@ class TestDeletion:
         call = escalated_call(me)
         await Seed(api).call(call)
         async with unit_of_work(api.app.state.session_factory) as session:
-            assert await SqlEscalationContextRepository(session).claim(
+            assert await SqlEscalationContextRepository(session, Seed(api).cipher).claim(
                 me.user_id,
                 EscalationContext(
                     call_id=call.id,

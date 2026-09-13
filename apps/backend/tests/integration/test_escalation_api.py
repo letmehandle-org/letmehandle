@@ -381,6 +381,18 @@ class TestEscalationContext:
     async def test_it_needs_a_token(self, api: Api) -> None:
         assert (await api.client.get("/v1/escalations/call-1")).status_code == 401
 
+    async def test_without_transcript_keys_it_is_unavailable_as_call_history_is(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        container = api.app.state.container
+        api.app.state.container = replace(container, transcript_cipher=None)
+
+        response = await api.client.get("/v1/escalations/call-1", headers=bearer(tokens))
+
+        assert response.status_code == 503
+        assert response.json()["error"] == "escalations_unavailable"
+
     @pytest.mark.parametrize("call_id", ["c" * 65, "%20padded%20"])
     async def test_a_malformed_call_id_is_a_422(self, api: Api, call_id: str) -> None:
         tokens = await sign_in(api)

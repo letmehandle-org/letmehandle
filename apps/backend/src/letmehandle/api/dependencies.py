@@ -23,13 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
+    SqlEscalationContextRepository,
     SqlSummaryRepository,
     SqlTranscriptRepository,
 )
 from letmehandle.adapters.database.repositories import (
     SqlCallReportRepository,
     SqlDeviceRepository,
-    SqlEscalationContextRepository,
     SqlOnboardingRepository,
     SqlOTPChallengeRepository,
     SqlPreferencesRepository,
@@ -268,10 +268,22 @@ def get_device_service(
 
 
 def get_escalation_contexts(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> EscalationContextRepository:
-    """Stored escalation contexts, on this request's session."""
-    return SqlEscalationContextRepository(session)
+    """Stored escalation contexts, on this request's session, or a 503 as call history gives.
+
+    What the user was told is sealed like the call it was about, so without the keys there is
+    nothing here to read either.
+    """
+    cipher = container_of(request).transcript_cipher
+    if cipher is None:
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "escalations_unavailable",
+            "This service cannot read escalations: it has no transcript keys configured.",
+        )
+    return SqlEscalationContextRepository(session, cipher)
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

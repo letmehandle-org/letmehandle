@@ -64,28 +64,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = build_container(
             settings, voices=app.state.voices, reported_calls=app.state.reported_calls
         )
-        if app.state.session_factory is not None:
-            # What call orchestration asks to notify a user. It needs storage, so a process
-            # without a database has none, and nothing that escalates runs in one.
+        telephony: CallTransportBinding | None = app.state.telephony
+        if app.state.session_factory is not None and telephony is not None:
+            # What call orchestration asks to notify a user, and nothing else does. It needs
+            # storage and the transcript keys, so a process that carries no calls builds none.
             app.state.escalations = build_escalation_dispatcher(
                 app.state.container, app.state.session_factory, metrics=LoggingMetricsRecorder()
             )
-            telephony: CallTransportBinding | None = app.state.telephony
-            if telephony is not None:
-                # One owner of every call on the transport, started before the application takes
-                # requests and stopped before the transport is closed beneath it. Starting ends
-                # whatever calls a previous process left unfinished.
-                orchestrator = build_call_orchestrator(
-                    settings,
-                    container=app.state.container,
-                    session_factory=app.state.session_factory,
-                    telephony=telephony,
-                    dispatcher=app.state.escalations,
-                    metrics=LoggingMetricsRecorder(),
-                    assistant=app.state.assistant,
-                )
-                await orchestrator.start()
-                app.state.orchestrator = orchestrator
+            # One owner of every call on the transport, started before the application takes
+            # requests and stopped before the transport is closed beneath it. Starting ends
+            # whatever calls a previous process left unfinished.
+            orchestrator = build_call_orchestrator(
+                settings,
+                container=app.state.container,
+                session_factory=app.state.session_factory,
+                telephony=telephony,
+                dispatcher=app.state.escalations,
+                metrics=LoggingMetricsRecorder(),
+                assistant=app.state.assistant,
+            )
+            await orchestrator.start()
+            app.state.orchestrator = orchestrator
 
         logger.info(
             "startup",

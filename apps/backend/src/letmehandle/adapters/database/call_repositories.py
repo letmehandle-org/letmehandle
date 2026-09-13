@@ -1,9 +1,9 @@
-"""Calls, transcripts and summaries, implemented against PostgreSQL.
+"""Calls, transcripts, summaries and escalation contexts, implemented against PostgreSQL.
 
-In a module of their own because all three hold a cipher, and nothing else in the database
-adapter does: whatever a transcript or a summary says, and who the caller was, is sealed before
-it reaches a statement and opened after it leaves one, so none of it ever becomes a bound
-parameter.
+In a module of their own because all four hold a cipher, and nothing else in the database
+adapter does: whatever a transcript, a summary or an escalation says, and who the caller was, is
+sealed before it reaches a statement and opened after it leaves one, so none of it ever becomes a
+bound parameter.
 
 Every read filters by the owner, and every write against a call first proves the call is the
 writer's. The composite foreign keys underneath enforce the same thing a second time.
@@ -31,6 +31,11 @@ from letmehandle.domain.models.call import (
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation import EscalationReason
+from letmehandle.domain.models.escalation_context import (
+    EscalationContext,
+    EscalationStatus,
+    NotificationDelivery,
+)
 from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -42,6 +47,7 @@ from letmehandle.domain.ports.repositories import (
     CallFilter,
     CallPage,
     CallRepository,
+    EscalationContextRepository,
     SummaryRepository,
     TranscriptRepository,
     TranscriptRetentionRepository,
@@ -632,4 +638,116 @@ class SqlSummaryRepository(SummaryRepository):
                 ExtractedDetail(each["label"], each["value"], each["evidence"])
                 for each in document["details"]
             ),
+        )
+
+
+def _escalation_context(
+    user_id: str, call_id: str, *, reason: str, raised_at: datetime
+) -> tuple[str, ...]:
+    """What an escalation's sealed words are bound to: its owner, its call, and why and when.
+
+    The reason and the moment are the columns that never change once the escalation is claimed.
+    Bound here, words moved onto another escalation, or an escalation changed to say it was about
+    something else, no longer open.
+    """
+    return ("escalation", user_id, call_id, reason, _moment(raised_at))
+
+
+class SqlEscalationContextRepository(EscalationContextRepository):
+    """What each user was told about each escalation, with the words sealed."""
+
+    def __init__(self, session: AsyncSession, cipher: TranscriptCipher) -> None:
+        self._session = session
+        self._cipher = cipher
+
+    async def claim(self, user_id: UserId, context: EscalationContext) -> bool:
+        words = {
+            "caller_label": context.caller_label,
+            "established": context.established,
+            "needed": context.needed,
+        }
+        sealed = (
+            None
+            if all(value is None for value in words.values())
+            else self._cipher.seal(
+                json.dumps(words).encode(),
+                _escalation_context(
+                    user_id.value,
+                    context.call_id.value,
+                    reason=context.reason.value,
+                    raised_at=context.raised_at,
+                ),
+            )
+        )
+        # One statement, so two dispatches racing for the same call cannot both win: the database
+        # decides which insert happened, and the other sees nothing returned.
+        statement = (
+            insert(EscalationContextRow)
+            .values(
+                user_id=user_id.value,
+                call_id=context.call_id.value,
+                reason=context.reason.value,
+                key_id=None if sealed is None else sealed.key_id,
+                ciphertext=None if sealed is None else sealed.ciphertext,
+                status=context.status.value,
+                delivery=context.delivery.value,
+                raised_at=context.raised_at,
+                ended_at=context.ended_at,
+            )
+            .on_conflict_do_nothing(index_elements=["user_id", "call_id"])
+            .returning(EscalationContextRow.call_id)
+        )
+        claimed = (await self._session.execute(statement)).scalar_one_or_none()
+        return claimed is not None
+
+    async def get(self, user_id: UserId, call_id: CallId) -> EscalationContext | None:
+        row = await self._session.get(EscalationContextRow, (user_id.value, call_id.value))
+        return None if row is None else self._to_context(row)
+
+    async def record_delivery(
+        self, user_id: UserId, call_id: CallId, delivery: NotificationDelivery
+    ) -> None:
+        await self._session.execute(
+            update(EscalationContextRow)
+            .where(
+                EscalationContextRow.user_id == user_id.value,
+                EscalationContextRow.call_id == call_id.value,
+            )
+            .values(delivery=delivery.value)
+        )
+
+    async def mark_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
+        row = await self._session.get(
+            EscalationContextRow, (user_id.value, call_id.value), with_for_update=True
+        )
+        if row is None:
+            return False
+        # Through the domain, so an end before the escalation is refused rather than stored.
+        ended = self._to_context(row).ended(at_instant)
+        row.status = ended.status.value
+        row.ended_at = ended.ended_at
+        await self._session.flush()
+        return True
+
+    def _to_context(self, row: EscalationContextRow) -> EscalationContext:
+        words: dict[str, str | None] = {}
+        if row.key_id is not None and row.ciphertext is not None:
+            words = json.loads(
+                self._cipher.open(
+                    SealedBytes(row.key_id, row.ciphertext),
+                    _escalation_context(
+                        row.user_id, row.call_id, reason=row.reason, raised_at=row.raised_at
+                    ),
+                )
+            )
+        return EscalationContext(
+            call_id=CallId(row.call_id),
+            reason=EscalationReason(row.reason),
+            raised_at=row.raised_at,
+            caller_label=words.get("caller_label"),
+            established=words.get("established"),
+            needed=words.get("needed"),
+            status=EscalationStatus(row.status),
+            ended_at=row.ended_at,
+            delivery=NotificationDelivery(row.delivery),
         )
