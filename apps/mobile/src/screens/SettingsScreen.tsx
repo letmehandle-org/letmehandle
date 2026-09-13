@@ -1,119 +1,163 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
+import { useCallScreening } from '../calls/CallScreeningProvider';
+import { Card } from '../components/Card';
+import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
-import {
-  PREFERENCE_SECTIONS,
-  type PreferenceSection,
-} from '../preferences/options';
+import { usePreferences } from '../preferences/PreferencesProvider';
+import { CAPABILITIES } from '../preferences/options';
+import { answersAroundTheClock, followsTwoLanes } from '../preferences/rules';
 import { theme } from '../theme';
 
+export type SettingsPage =
+  | 'who'
+  | 'when'
+  | 'hours'
+  | 'authority'
+  | 'say'
+  | 'personalise'
+  | 'account'
+  | 'callScreening';
+
 interface Props {
-  readonly onOpenSection: (section: PreferenceSection) => void;
-  readonly onOpenVoice: () => void;
-  /** Absent where the handset cannot screen calls, and then so is the row. */
-  readonly onOpenCallScreening: (() => void) | null;
+  readonly onOpen: (page: SettingsPage) => void;
 }
 
 /**
- * The way back into every answer given during setup.
+ * Every setting, each row showing where it stands.
  *
- * Every section is here, including the ones onboarding let somebody skip. Nothing about this
- * product is set once: a preference that could only be given during setup would be one people
- * reinstall the application to change.
- *
- * The voice sits alongside them although it was never a setup question. Setup asks what the
- * server says is left to ask, and the server has no voice step — which is a statement about
- * what somebody must answer before their assistant can work, not about where they should later
- * look for it.
+ * The value on the right answers most questions without opening anything. Privacy is not here:
+ * how long transcripts are kept is not yet something the API lets anybody change, and a row for
+ * it would be a control that cannot work.
  */
-export function SettingsScreen({
-  onOpenSection,
-  onOpenVoice,
-  onOpenCallScreening,
-}: Props): React.JSX.Element {
+export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const { preferences } = usePreferences();
+  const facts = preferences.personality.disclosable_facts ?? [];
+  const granted = preferences.authority.capabilities?.length ?? 0;
+  // A row only where the handset has a screening service to grant.
+  const { screening } = useCallScreening();
 
   return (
     <Screen
       title={t('settings.title')}
-      subtitle={t('settings.subtitle')}
       scrollable
+      insideTabs
       testID="settings-screen"
     >
-      {PREFERENCE_SECTIONS.map(section => (
+      <Text style={styles.label}>{t('settings.calls')}</Text>
+      <Card>
         <Row
-          key={section}
-          title={t(`preferences.${section}.title`)}
-          subtitle={t(`preferences.${section}.subtitle`)}
-          testID={`settings-open-${section}`}
+          icon="users"
+          tone="assistant"
+          title={t('settings.who')}
+          value={t(
+            followsTwoLanes(preferences.call_handling)
+              ? 'settings.whoValue'
+              : 'settings.whoCustom',
+          )}
           onPress={() => {
-            onOpenSection(section);
+            onOpen('who');
           }}
+          testID="settings-open-who"
         />
-      ))}
-
-      <Row
-        title={t('voice.title')}
-        subtitle={t('voice.subtitle')}
-        testID="settings-open-voice"
-        onPress={onOpenVoice}
-      />
-
-      {onOpenCallScreening !== null && (
         <Row
-          title={t('screening.settingsRow')}
-          subtitle={t('screening.settingsRowSubtitle')}
-          testID="settings-open-call-screening"
-          onPress={onOpenCallScreening}
+          icon="phone-ring"
+          tone="needsYou"
+          title={t('settings.when')}
+          value={t('settings.whenValue')}
+          onPress={() => {
+            onOpen('when');
+          }}
+          testID="settings-open-when"
         />
-      )}
+        <Row
+          icon="clock"
+          title={t('settings.hours')}
+          value={t(
+            answersAroundTheClock(preferences.hours)
+              ? 'hours.always'
+              : 'settings.hoursSet',
+          )}
+          onPress={() => {
+            onOpen('hours');
+          }}
+          last={screening === null}
+          testID="settings-open-hours"
+        />
+        {screening !== null && (
+          <Row
+            icon="shield"
+            title={t('screening.settingsRow')}
+            onPress={() => {
+              onOpen('callScreening');
+            }}
+            last
+            testID="settings-open-call-screening"
+          />
+        )}
+      </Card>
+
+      <Text style={styles.label}>{t('settings.assistant')}</Text>
+      <Card>
+        <Row
+          icon="key"
+          title={t('settings.authority')}
+          value={t('settings.authorityValue', {
+            granted,
+            total: CAPABILITIES.length,
+          })}
+          onPress={() => {
+            onOpen('authority');
+          }}
+          testID="settings-open-authority"
+        />
+        <Row
+          icon="eye-off"
+          title={t('settings.say')}
+          value={
+            facts.length === 0 ? t('settings.sayNothing') : String(facts.length)
+          }
+          onPress={() => {
+            onOpen('say');
+          }}
+          testID="settings-open-say"
+        />
+        <Row
+          icon="sparkle"
+          tone="assistant"
+          title={t('settings.personalise')}
+          onPress={() => {
+            onOpen('personalise');
+          }}
+          last
+          testID="settings-open-personalise"
+        />
+      </Card>
+
+      <Text style={styles.label}>{t('settings.you')}</Text>
+      <Card>
+        <Row
+          icon="user"
+          title={t('settings.account')}
+          onPress={() => {
+            onOpen('account');
+          }}
+          last
+          testID="settings-open-account"
+        />
+      </Card>
     </Screen>
   );
 }
 
-function Row({
-  title,
-  subtitle,
-  testID,
-  onPress,
-}: {
-  readonly title: string;
-  readonly subtitle: string;
-  readonly testID: string;
-  readonly onPress: () => void;
-}): React.JSX.Element {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      testID={testID}
-      onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-    >
-      <View style={styles.rowText}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
-      </View>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  row: {
-    backgroundColor: theme.colour.surface,
-    borderRadius: theme.radius.sm,
-    padding: theme.space.md,
-    minHeight: 64,
-    justifyContent: 'center',
-  },
-  pressed: { opacity: 0.85 },
-  rowText: { gap: theme.space.xs },
-  title: { ...theme.type.body, color: theme.colour.text },
-  subtitle: {
-    ...theme.type.body,
-    fontSize: 14,
-    color: theme.colour.textMuted,
+  label: {
+    ...theme.type.label,
+    color: theme.colour.textFaint,
+    marginTop: theme.space.sm,
+    marginLeft: theme.space.sm,
   },
 });

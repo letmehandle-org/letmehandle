@@ -176,7 +176,7 @@ PHASE 7 VERIFICATION
 
 Planned tasks:        complete, except the calls made by hand on real numbers and handsets
 Acceptance criteria:  9 of 11 passed; 3 and 4 held on a real call, each proven against simulators
-Unit tests:           passed   backend 2020 passed, 14 skipped (make verify); mobile 233 passed;
+Unit tests:           passed   backend 2020 passed, 14 skipped (make verify); mobile 224 passed;
                                Android JVM 84 passed (./gradlew :app:testDebugUnitTest)
 Integration tests:    passed   whole calls replayed against the simulated provider, duplicated,
                                reordered and delivered concurrently; call reports against Postgres

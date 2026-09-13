@@ -77,7 +77,7 @@ async function openScreening(
 ): Promise<{ view: View; backend: RunningBackend }> {
   const backend = runningBackend();
   const view = await signedIn(callScreeningFrom(native));
-  await fireEvent.press(view.getByTestId('open-settings'));
+  await fireEvent.press(view.getByTestId('tab-settings'));
   await fireEvent.press(view.getByTestId('settings-open-call-screening'));
   await waitFor(() => {
     expect(view.getByTestId('screening-screen')).toBeOnTheScreen();
@@ -89,7 +89,7 @@ describe('a handset that cannot screen calls', () => {
   it('offers nothing about screening', async () => {
     runningBackend();
     const view = await signedIn(null);
-    await fireEvent.press(view.getByTestId('open-settings'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
 
     expect(view.getByTestId('settings-screen')).toBeOnTheScreen();
     expect(view.queryByTestId('settings-open-call-screening')).toBeNull();
@@ -217,15 +217,14 @@ describe('keeping the handset in step', () => {
     await waitFor(() => {
       expect(native.snapshots).toHaveLength(1);
     });
-    expect(native.latestSnapshot().anonymous_posture).toBe('handle_with_agent');
+    expect(native.latestSnapshot().blocked_categories).toEqual([]);
 
-    await fireEvent.press(view.getByTestId('open-settings'));
-    await fireEvent.press(view.getByTestId('settings-open-call_handling'));
-    await fireEvent.press(await view.findByTestId('handling-anonymous-reject'));
-    await fireEvent.press(view.getByTestId('settings-save'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-who'));
+    await fireEvent.press(await view.findByTestId('who-apply'));
 
     await waitFor(() => {
-      expect(native.latestSnapshot().anonymous_posture).toBe('reject');
+      expect(native.latestSnapshot().blocked_categories).toEqual(['spam']);
     });
     expect(backend.patches).toHaveLength(1);
   });
@@ -317,7 +316,8 @@ describe('keeping the handset in step', () => {
     const native = new FakeNativeCallScreening();
     runningBackend();
     const view = await signedIn(callScreeningFrom(native));
-    await fireEvent.press(view.getByTestId('open-profile'));
+    await fireEvent.press(view.getByTestId('tab-settings'));
+    await fireEvent.press(view.getByTestId('settings-open-account'));
 
     await fireEvent.press(await view.findByTestId('profile-sign-out'));
 

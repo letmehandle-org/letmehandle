@@ -22,8 +22,10 @@ import { useScreeningSetup, type RoleState } from './useScreeningSetup';
  */
 export function CallScreeningScreen({
   screening,
+  onBack,
 }: {
   readonly screening: CallScreening;
+  readonly onBack: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const { rulesNotSaved } = useCallScreening();
@@ -37,6 +39,7 @@ export function CallScreeningScreen({
     <Screen
       title={t('screening.title')}
       subtitle={t('screening.subtitle')}
+      onBack={onBack}
       scrollable
       testID="screening-screen"
     >
