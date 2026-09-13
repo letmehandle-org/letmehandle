@@ -39,6 +39,13 @@ export type Formality = Schemas['Formality'];
 export type Verbosity = Schemas['Verbosity'];
 export type CallImportance = Schemas['CallImportance'];
 
+export type CallReport = Schemas['CallReportPayload'];
+export type CallReportBatch = Schemas['CallReportBatch'];
+export type CallReportReceipt = Schemas['CallReportReceipt'];
+export type ReportedCallKind = Schemas['ReportedCallKind'];
+export type ScreeningDecision = Schemas['ScreeningDecision'];
+export type CallEnding = Schemas['CallEnding'];
+
 /**
  * The machine-readable codes the API returns with a failure.
  *

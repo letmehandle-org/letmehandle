@@ -1,0 +1,4 @@
+<resources>
+    <!-- A screening service is bound for an ordinary app only through the role added in API 29. -->
+    <bool name="call_screening_supported">false</bool>
+</resources>

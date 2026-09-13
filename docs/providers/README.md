@@ -36,7 +36,7 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 
 | Port | Interface | Contract suite | First implementation |
 | --- | --- | --- | --- |
-| `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them |
+| `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them, [documented](call-transport.md) |
 | `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5, [documented](speech.md) |
 | `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, `adapters/agent/strands` |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
@@ -55,9 +55,10 @@ do rather than which one it is. The flags are `TransportCapabilities` in
 matrix is written up in phase 15.
 
 An operation that depends on a capability is not on `CallTransport` itself. It is reached by
-narrowing — `screening(transport)`, `audio_streaming(transport)`, `bridging(transport)` — so a
-caller that has not checked cannot name the method, and a transport whose declaration and
-implementation disagree fails at the narrowing rather than in the middle of somebody's call.
+narrowing — `answering(transport)`, `screening(transport)`, `audio_streaming(transport)`,
+`bridging(transport)`, `three_way(transport)` — so a caller that has not checked cannot name the
+method, and a transport whose declaration and implementation disagree fails at the narrowing
+rather than in the middle of somebody's call.
 
 ## Offering one
 

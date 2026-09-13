@@ -88,7 +88,9 @@ async def running(
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
-    app.state.container = build_container(settings, voices=app.state.voices)
+    app.state.container = build_container(
+        settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+    )
 
     try:
         transport = ASGITransport(app=app)

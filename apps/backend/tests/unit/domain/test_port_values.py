@@ -12,8 +12,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from letmehandle.domain.errors import InvariantError
-from letmehandle.domain.models.identifiers import CallId
-from letmehandle.domain.ports.call_transport import TransportCapabilities
+from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.ports.call_transport import (
+    CallEvent,
+    CallEventKind,
+    ParticipantOutcome,
+    ParticipantRole,
+    ScreeningDecision,
+    TransportCapabilities,
+)
 from letmehandle.domain.ports.notification import (
     DevicePlatform,
     DeviceToken,
@@ -59,6 +66,7 @@ class TestTransportCapabilities:
 
     def test_the_capability_names_are_the_documented_matrix(self) -> None:
         assert set(TransportCapabilities().names()) == {
+            "can_answer_under_program_control",
             "can_screen_before_ringing",
             "can_stream_call_audio_to_ai",
             "can_inject_ai_audio",
@@ -66,6 +74,81 @@ class TestTransportCapabilities:
             "supports_three_way_call",
             "supports_native_ringing",
         }
+
+
+class TestCallEvents:
+    """The shapes an event may take, so every consumer reads one the same way."""
+
+    @staticmethod
+    def event(
+        kind: CallEventKind,
+        participant: ParticipantRole | None = None,
+        outcome: ParticipantOutcome | None = None,
+    ) -> CallEvent:
+        return CallEvent(kind, CallId("c"), EventId("e"), participant=participant, outcome=outcome)
+
+    def test_a_participant_event_says_whom_it_is_about(self) -> None:
+        # The assistant's leg dropping and the user hanging up call for opposite responses.
+        with pytest.raises(InvariantError, match="which participant"):
+            self.event(CallEventKind.PARTICIPANT_LEFT)
+
+    def test_an_event_about_the_whole_call_names_no_participant(self) -> None:
+        with pytest.raises(InvariantError, match="which participant"):
+            self.event(CallEventKind.ENDED, ParticipantRole.USER)
+
+    @pytest.mark.parametrize("outcome", [None, ParticipantOutcome.ANSWERED])
+    def test_an_unreachable_participant_says_why(self, outcome: ParticipantOutcome | None) -> None:
+        # A caller is waiting for somebody who is not coming, and what to do depends on why.
+        with pytest.raises(InvariantError, match="outcome other than answered"):
+            self.event(CallEventKind.PARTICIPANT_UNREACHABLE, ParticipantRole.USER, outcome)
+
+    def test_leaving_has_no_dialling_outcome(self) -> None:
+        with pytest.raises(InvariantError, match="dialling outcome"):
+            self.event(
+                CallEventKind.PARTICIPANT_LEFT, ParticipantRole.USER, ParticipantOutcome.BUSY
+            )
+
+    def test_a_participant_who_joined_was_answered(self) -> None:
+        with pytest.raises(InvariantError, match="was answered"):
+            self.event(
+                CallEventKind.PARTICIPANT_JOINED, ParticipantRole.USER, ParticipantOutcome.BUSY
+            )
+
+    def test_only_a_person_can_be_answered_by_a_machine(self) -> None:
+        with pytest.raises(InvariantError, match="machine"):
+            self.event(
+                CallEventKind.PARTICIPANT_UNREACHABLE,
+                ParticipantRole.ASSISTANT,
+                ParticipantOutcome.ANSWERED_BY_MACHINE,
+            )
+
+    def test_the_shapes_that_are_allowed(self) -> None:
+        self.event(CallEventKind.INCOMING)
+        self.event(CallEventKind.PARTICIPANT_JOINED, ParticipantRole.ASSISTANT)
+        self.event(
+            CallEventKind.PARTICIPANT_JOINED, ParticipantRole.USER, ParticipantOutcome.ANSWERED
+        )
+        unreachable = self.event(
+            CallEventKind.PARTICIPANT_UNREACHABLE,
+            ParticipantRole.USER,
+            ParticipantOutcome.ANSWERED_BY_MACHINE,
+        )
+        assert unreachable.outcome is ParticipantOutcome.ANSWERED_BY_MACHINE
+
+    def test_the_incoming_event_carries_the_screening_decision(self) -> None:
+        event = CallEvent(
+            CallEventKind.INCOMING, CallId("c"), EventId("e"), screening=ScreeningDecision.REJECT
+        )
+        assert event.screening is ScreeningDecision.REJECT
+
+    @pytest.mark.parametrize(
+        "kind", [kind for kind in CallEventKind if kind is not CallEventKind.INCOMING]
+    )
+    def test_no_later_event_carries_one(self, kind: CallEventKind) -> None:
+        # There is one decision per call, taken before it rang. On a later event it would read
+        # as a second one.
+        with pytest.raises(InvariantError, match="incoming event only"):
+            CallEvent(kind, CallId("c"), EventId("e"), screening=ScreeningDecision.ALLOW)
 
 
 class TestNotificationValues:

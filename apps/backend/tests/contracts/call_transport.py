@@ -19,11 +19,14 @@ from letmehandle.domain.models.audio import AudioFrame
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
+    AssistantPresence,
     CallTransport,
     ScreeningDecision,
+    answering,
     audio_streaming,
     bridging,
     screening,
+    three_way,
 )
 
 A_CALL = CallId("contract-call")
@@ -50,8 +53,7 @@ class CallTransportContract:
 
     # ------------------------------------------------------------ the basics
 
-    async def test_it_can_answer_and_terminate(self, transport: CallTransport) -> None:
-        await transport.answer(A_CALL)
+    async def test_it_can_terminate(self, transport: CallTransport) -> None:
         await transport.terminate(A_CALL)
 
     async def test_terminating_twice_is_safe(self, transport: CallTransport) -> None:
@@ -86,8 +88,10 @@ class CallTransportContract:
         # agree. A transport claiming a capability it has not implemented fails here rather
         # than with an attribute error, mid-call, in front of somebody.
         for capability, narrow in (
+            ("can_answer_under_program_control", answering),
             ("can_screen_before_ringing", screening),
             ("can_bridge_human", bridging),
+            ("supports_three_way_call", three_way),
         ):
             if transport.capabilities.has(capability):
                 # Narrowing returns the transport itself; what matters is that it does not
@@ -99,11 +103,37 @@ class CallTransportContract:
 
     # -------------------------------------------------- capability behaviours
 
-    async def test_screening_works_where_it_is_declared(self, transport: CallTransport) -> None:
+    async def test_a_call_can_be_answered_and_terminated_where_declared(
+        self, transport: CallTransport
+    ) -> None:
+        if not transport.capabilities.can_answer_under_program_control:
+            pytest.skip("this transport's calls are answered by the person holding the handset")
+        await answering(transport).answer(A_CALL)
+        await transport.terminate(A_CALL)
+
+    def test_a_screening_transport_can_always_let_a_call_ring(
+        self, transport: CallTransport
+    ) -> None:
+        # Letting the call ring is the fallback when a decision cannot be made in time, or
+        # cannot be made safely. A screener that could not do it would have no safe answer.
         if not transport.capabilities.can_screen_before_ringing:
             pytest.skip("this transport does not see calls before they ring")
-        for decision in ScreeningDecision:
-            await screening(transport).screen(A_CALL, decision)
+        assert ScreeningDecision.ALLOW in screening(transport).screening_decisions()
+
+    def test_a_screening_transport_states_its_deadline(self, transport: CallTransport) -> None:
+        if not transport.capabilities.can_screen_before_ringing:
+            pytest.skip("this transport does not see calls before they ring")
+        assert screening(transport).screening_deadline().total_seconds() > 0
+
+    async def test_only_a_screening_transport_reports_a_screening_decision(
+        self, transport: CallTransport
+    ) -> None:
+        # A decision reported by a transport that declares it cannot screen is a claim about
+        # something that did not happen.
+        async for event in transport.events():
+            if event.screening is not None:
+                assert transport.capabilities.can_screen_before_ringing
+            break
 
     async def test_audio_flows_both_ways_where_it_is_declared(
         self, transport: CallTransport
@@ -116,6 +146,22 @@ class CallTransportContract:
         async for _incoming in streaming.stream_audio(A_CALL):
             break
 
+    async def test_a_call_is_a_conversations_source_and_sink_where_declared(
+        self, transport: CallTransport
+    ) -> None:
+        # A conversation runs over a source and a sink. A call has to be both, or the speech
+        # layer grows a second way of talking that only calls use.
+        if not transport.capabilities.supports_agent_conversation:
+            pytest.skip("this transport cannot carry the call's audio")
+        streaming = audio_streaming(transport)
+        source = streaming.audio_source(A_CALL)
+        sink = streaming.audio_sink(A_CALL)
+        assert source.format == streaming.audio_format()
+        await sink.write(AudioFrame(b"\x00\x01", sink.format))
+        await sink.discard()
+        async for _incoming in source.frames():
+            break
+
     async def test_a_third_party_can_be_added_and_removed_where_declared(
         self, transport: CallTransport
     ) -> None:
@@ -124,6 +170,17 @@ class CallTransportContract:
         bridge = bridging(transport)
         await bridge.add_participant(A_CALL, A_NUMBER)
         await bridge.remove_participant(A_CALL, A_NUMBER)
+
+    async def test_every_assistant_presence_can_be_chosen_where_three_way_is_declared(
+        self, transport: CallTransport
+    ) -> None:
+        # The policy chooses among these; a transport that offered three of the four would make
+        # a preference that silently does nothing.
+        if not transport.capabilities.supports_three_way_call:
+            pytest.skip("this transport cannot hold three parties")
+        call = three_way(transport)
+        for presence in AssistantPresence:
+            await call.set_assistant_presence(A_CALL, presence)
 
     def test_an_undeclared_capability_is_refused_rather_than_attempted(
         self, transport: CallTransport

@@ -1,1 +1,1 @@
-"""Calls after the fact: the summary written when one ends, and the history a user reads."""
+"""Calls: what transports report, what the product acts on, and the history a user reads."""

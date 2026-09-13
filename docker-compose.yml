@@ -55,6 +55,12 @@ services:
       APNS_ENVIRONMENT: ${APNS_ENVIRONMENT:-}
       FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
       FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+      TELEPHONY_PROVIDER: ${TELEPHONY_PROVIDER:-}
+      TELEPHONY_ACCOUNT_ID: ${TELEPHONY_ACCOUNT_ID:-}
+      TELEPHONY_AUTH_TOKEN: ${TELEPHONY_AUTH_TOKEN:-}
+      TELEPHONY_NUMBERS: ${TELEPHONY_NUMBERS:-}
+      TELEPHONY_APP_ID: ${TELEPHONY_APP_ID:-}
+      TELEPHONY_WEBHOOK_BASE_URL: ${TELEPHONY_WEBHOOK_BASE_URL:-}
     ports:
       # Configurable, because 8000 is a popular port and a clash with something else on a
       # contributor's machine should not need a file to be edited.

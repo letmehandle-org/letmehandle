@@ -17,7 +17,7 @@ from letmehandle.domain.errors import InvariantError
 # E.164 allows at most fifteen digits including the country code, and a country code never
 # starts with zero. Punctuation is stripped before this is applied, so it describes the stored
 # form rather than what a person may type.
-_E164 = re.compile(r"^\+[1-9]\d{1,14}$")
+_E164 = re.compile(r"\+[1-9][0-9]{1,14}")
 
 # Everything people put in a phone number that is not part of it.
 _DECORATION = re.compile(r"[\s\-().]")
@@ -30,7 +30,7 @@ class PhoneNumber:
     value: str
 
     def __post_init__(self) -> None:
-        if not _E164.match(self.value):
+        if not _E164.fullmatch(self.value):
             raise InvariantError("that is not a phone number in E.164 form, such as +12025550143")
 
     @classmethod

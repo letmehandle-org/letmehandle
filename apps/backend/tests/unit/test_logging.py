@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import structlog
 
 from letmehandle.config.settings import LogFormat
@@ -40,3 +42,14 @@ def test_console_format_is_configured() -> None:
 def test_logger_is_bound_to_its_module() -> None:
     configure_logging(make_settings())
     assert get_logger("letmehandle.test") is not None
+
+
+def test_the_http_client_does_not_log_request_urls_at_the_default_level() -> None:
+    # The client logs every request's full URL at info, and a provider's URL carries the account
+    # it authenticates as and the identifiers of the calls it is acting on.
+    configure_logging(make_settings(log_level="info"))
+    try:
+        for name in ("httpx", "httpcore"):
+            assert not logging.getLogger(name).isEnabledFor(logging.INFO), name
+    finally:
+        configure_logging(make_settings())

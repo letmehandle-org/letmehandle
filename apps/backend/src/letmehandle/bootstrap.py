@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
 
+from fastapi import APIRouter
+
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
@@ -49,6 +51,11 @@ from letmehandle.adapters.speech.elevenlabs.websocket import (
 from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIME_WIRE_FORMAT
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
+from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
+from letmehandle.adapters.transport.twilio.routes import build_router as build_twilio_router
+from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
+from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
@@ -60,22 +67,26 @@ from letmehandle.config.settings import (
     OTPProviderName,
     Settings,
     SpeechProviderName,
+    TelephonyProviderName,
 )
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
+    import httpx
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
     from strands.models.model import Model
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions, CallAgent
+    from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.notification import NotificationProvider
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
+    from letmehandle.domain.ports.reported_calls import CallEventSink
     from letmehandle.domain.ports.security import (
         SecretGenerator,
         SecretHasher,
@@ -109,18 +120,28 @@ class Container:
     # None when no transcript keys are configured. Call history cannot be read without them, and
     # its routes say so; everything else, which never opens a sealed record, runs regardless.
     transcript_cipher: TranscriptCipher | None
+    # Where a handset's reports about its own calls become call events. The transport that
+    # represents handsets is that sink, so the one instance is both what the reporting route
+    # feeds and what anything consuming that transport's events reads.
+    reported_calls: CallEventSink
     # One per configured platform, possibly none. A platform without one is an outcome at
     # dispatch, not a startup failure: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
 
 
-def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
+def build_container(
+    settings: Settings, *, voices: VoiceProvider, reported_calls: CallEventSink
+) -> Container:
     """Choose the implementations for this configuration.
 
     The voice provider is passed in rather than chosen here because it is needed earlier
     than the rest: which routes the application has depends on what it can do, and routing
     is settled before anything starts. Handing the same instance on is what stops a second
     one being built that could answer differently.
+
+    Where handsets' reports go is passed in for the same reason: the call transport is chosen
+    before routing too, and when it is the handset transport it must be this very instance, or
+    the reports would feed one feed while the product read another.
     """
     clock = SystemClock()
     signing_key = settings.require_signing_key()
@@ -146,6 +167,7 @@ def build_container(settings: Settings, *, voices: VoiceProvider) -> Container:
             else AesGcmTranscriptCipher(settings.require_transcript_keys())
         ),
         notifications=build_notification_providers(settings, clock=clock),
+        reported_calls=reported_calls,
     )
 
 
@@ -300,6 +322,85 @@ def build_speech_provider(
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
+
+
+@dataclass(frozen=True, slots=True)
+class CallTransportBinding:
+    """A call transport, the routes its provider calls, and how to release it.
+
+    Handed to the application as one value so that what mounts the routes and what closes the
+    transport never have to know which transport it is.
+    """
+
+    transport: CallTransport
+    router: APIRouter
+    close: Callable[[], Awaitable[None]]
+
+
+def build_reported_calls() -> AndroidNativeCallTransport:
+    """Where handsets' reports about their own calls become call events.
+
+    Built once per application and handed both to the container, whose reporting route feeds
+    it, and to `build_call_transport`, which offers it as the transport when handsets are the
+    configured one. A deployment carrying streaming calls still accepts handsets' reports: they
+    are stored either way, and only which feed the product reads changes.
+    """
+    return AndroidNativeCallTransport()
+
+
+def build_call_transport(
+    settings: Settings,
+    *,
+    reported_calls: AndroidNativeCallTransport,
+    http_transport: httpx.AsyncBaseTransport | None = None,
+) -> CallTransportBinding | None:
+    """The call transport this deployment is configured for, if any.
+
+    `None` is a supported answer: a deployment configured with no transport carries no calls,
+    and no provider's routes exist in it. `reported_calls` is the application's one handset
+    transport, offered rather than built here so that there is never a second. `http_transport`
+    lets a test put a simulated provider where the provider's API would be, without
+    constructing the adapter.
+    """
+    match settings.telephony_provider:
+        case None:
+            return None
+        case TelephonyProviderName.ANDROID_NATIVE:
+            # The handset reports over the application's own authenticated route, which exists
+            # whichever transport is chosen, so this transport brings no routes of its own and
+            # holds nothing that needs releasing.
+            return CallTransportBinding(
+                transport=reported_calls, router=APIRouter(), close=_nothing_to_close
+            )
+        case TelephonyProviderName.TWILIO:
+            telephony = settings.require_streaming_telephony()
+            transport = TwilioCallTransport(
+                config=TwilioConfig(
+                    account_id=telephony.account_id,
+                    app_id=telephony.app_id,
+                    numbers=telephony.numbers,
+                ),
+                api=HttpTelephonyApi(
+                    account_id=telephony.account_id,
+                    auth_token=telephony.auth_token,
+                    transport=http_transport,
+                ),
+                verifier=SignatureVerifier(
+                    auth_token=telephony.auth_token,
+                    public_base_url=telephony.webhook_base_url,
+                ),
+            )
+            return CallTransportBinding(
+                transport=transport,
+                router=build_twilio_router(transport),
+                close=transport.close,
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+async def _nothing_to_close() -> None:
+    return None
 
 
 def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:

@@ -26,6 +26,7 @@ from letmehandle.adapters.database.call_repositories import (
     SqlTranscriptRepository,
 )
 from letmehandle.adapters.database.repositories import (
+    SqlCallReportRepository,
     SqlDeviceRepository,
     SqlEscalationContextRepository,
     SqlOnboardingRepository,
@@ -37,6 +38,7 @@ from letmehandle.adapters.database.repositories import (
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
 from letmehandle.application.calls.history import CallHistoryService
+from letmehandle.application.calls.reports import CallReporting
 from letmehandle.application.escalation.devices import DeviceRegistrationService
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
@@ -203,6 +205,19 @@ def get_call_history_service(
     )
 
 
+def get_call_reporting(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CallReporting:
+    """Accepting a handset's reports about its calls, on this request's session."""
+    container = container_of(request)
+    return CallReporting(
+        reports=SqlCallReportRepository(session, container.clock),
+        sink=container.reported_calls,
+        rate_limiter=container.rate_limiter,
+    )
+
+
 def get_voice_provider(request: Request) -> VoiceProvider:
     """The voices this deployment offers.
 
@@ -240,6 +255,7 @@ AuthService = Annotated[AuthenticationService, Depends(get_authentication_servic
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+CallReports = Annotated[CallReporting, Depends(get_call_reporting)]
 CallHistory = Annotated[CallHistoryService, Depends(get_call_history_service)]
 Devices = Annotated[DeviceRegistrationService, Depends(get_device_service)]
 EscalationContexts = Annotated[EscalationContextRepository, Depends(get_escalation_contexts)]

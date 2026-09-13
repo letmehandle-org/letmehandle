@@ -15,6 +15,7 @@ from letmehandle.bootstrap import (
     build_container,
     build_escalation_dispatcher,
     build_notification_providers,
+    build_reported_calls,
     build_voice_provider,
     close_notification_providers,
 )
@@ -124,7 +125,9 @@ class TestProviders:
         assert build_notification_providers(make_settings(), clock=FixedClock()) == ()
         assert (
             build_container(
-                make_settings(), voices=build_voice_provider(make_settings())
+                make_settings(),
+                voices=build_voice_provider(make_settings()),
+                reported_calls=build_reported_calls(),
             ).notifications
             == ()
         )
@@ -160,7 +163,9 @@ class TestProviders:
 
     async def test_closing_closes_what_can_be_closed(self) -> None:
         settings = make_settings(**APNS, **FCM)
-        container = build_container(settings, voices=build_voice_provider(settings))
+        container = build_container(
+            settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
+        )
         recording = RecordingNotificationProvider()
         container = replace(container, notifications=(*container.notifications, recording))
         await close_notification_providers(container)
@@ -172,7 +177,9 @@ class TestProviders:
 
     def test_the_dispatcher_is_given_every_provider(self) -> None:
         settings = make_settings(**FCM)
-        container = build_container(settings, voices=build_voice_provider(settings))
+        container = build_container(
+            settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
+        )
         factory: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
         dispatcher = build_escalation_dispatcher(container, factory, metrics=RecordingMetrics())
         assert isinstance(dispatcher, EscalationDispatcher)
