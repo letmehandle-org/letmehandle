@@ -9,7 +9,8 @@ Scenarios are data, in `scenarios.json`. Each is a call, what the user has grant
 must be true of the judgement: whether the user is reached, whether their phone rings now, and
 optionally why, which intents are acceptable, what the caller was asking the assistant to do, and
 which actions must not have happened to the call. An expectation left out is not checked, so a
-scenario says only what it means.
+scenario says only what it means. A scenario may say why its expectation is right, which a report
+prints beside a miss.
 
 The tools are the real ones, from the registry, acting on a recording of the call, and the
 conclusion acts through the real escalation service. What is evaluated is what will run.
@@ -95,6 +96,9 @@ class Scenario(BaseModel):
     granted: tuple[Capability, ...] = ()
     from_important_contact: bool = False
     expect: Expectation
+    # Why the expectation is the right one under the product's rules, printed beside a miss so the
+    # miss can be judged against the reasoning rather than re-derived.
+    why: str | None = Field(default=None, min_length=1)
 
 
 def load_scenarios(path: Path = SCENARIOS) -> tuple[Scenario, ...]:

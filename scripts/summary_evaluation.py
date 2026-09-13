@@ -42,6 +42,8 @@ def print_report(report: SummaryReport) -> None:
         print(f"{mark}  {outcome.scenario.id}")
         for miss in outcome.misses:
             print(f"        {miss}")
+        if outcome.misses and outcome.scenario.why:
+            print(f"        why: {outcome.scenario.why}")
     print()
     for name, (passed, total) in report.pass_rates().items():
         print(f"{name:<16} {passed}/{total}  {passed / total:.0%}")

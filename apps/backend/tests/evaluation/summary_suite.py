@@ -76,6 +76,8 @@ class SummaryScenario(BaseModel):
     intents: tuple[CallIntent, ...] = Field(min_length=1)
     reference: Reference
     absent: tuple[DetailKind, ...] = Field(min_length=1)
+    # Why the reference and the absent kinds are right for this call, printed beside a miss.
+    why: str | None = Field(default=None, min_length=1)
 
     def facts(self) -> CallFacts:
         """The call as orchestration hands it over at teardown."""

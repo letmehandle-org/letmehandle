@@ -205,3 +205,9 @@ def test_an_expectation_nothing_checks_is_refused(tmp_path: Path) -> None:
     malformed: dict[str, object] = {**SCENARIOS[0], "expect": {"escalate": False}}
     with pytest.raises(ValidationError, match="escalate"):
         load_scenarios(write(tmp_path / "s.json", [malformed]))
+
+
+def test_a_reason_that_says_nothing_is_refused(tmp_path: Path) -> None:
+    blank: dict[str, object] = {**SCENARIOS[0], "why": ""}
+    with pytest.raises(ValidationError, match="why"):
+        load_scenarios(write(tmp_path / "s.json", [blank]))
