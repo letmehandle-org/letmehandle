@@ -5,7 +5,8 @@ backend and signs in. Part two runs whole calls — the assistant handling one, 
 live call, a handset screening one — against simulated providers. Part three is the mobile app. Part
 four is what needs real accounts, and is not a demonstration anybody can run from a clone.
 
-Every command runs from the repository root unless it says otherwise.
+Every command runs from the repository root unless it says otherwise. If you started the stack on
+other ports, use them in place of `8000` and `5432` below.
 
 ## 1. The backend, signed in
 
@@ -38,11 +39,11 @@ ACCESS=$(printf '%s' "$TOKENS" | python3 -c 'import json,sys; print(json.load(sy
 Then look around as that user:
 
 ```bash
-curl -s $B/v1/me -H "authorization: Bearer $ACCESS"
-curl -s $B/v1/onboarding -H "authorization: Bearer $ACCESS"
-curl -s $B/v1/preferences -H "authorization: Bearer $ACCESS"
-curl -s $B/v1/voices -H "authorization: Bearer $ACCESS"
-curl -s $B/v1/calls -H "authorization: Bearer $ACCESS"
+curl -s -w '\n' $B/v1/me -H "authorization: Bearer $ACCESS"
+curl -s -w '\n' $B/v1/onboarding -H "authorization: Bearer $ACCESS"
+curl -s -w '\n' $B/v1/preferences -H "authorization: Bearer $ACCESS"
+curl -s -w '\n' $B/v1/voices -H "authorization: Bearer $ACCESS"
+curl -s -w '\n' $B/v1/calls -H "authorization: Bearer $ACCESS"
 ```
 
 What each shows:

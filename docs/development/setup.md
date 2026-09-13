@@ -106,7 +106,8 @@ DATABASE_URL=postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:5432/letmeha
 ```
 
 The settings read `.env` from the working directory, which is `apps/backend` here, hence
-`--env-file`. A variable already set in the shell wins over the file.
+`--env-file`. A variable already set in the shell wins over the file. Outside Docker the server
+listens on port 8000 whatever `BACKEND_PORT` says, so that port has to be free.
 
 ### Tests that need a database
 
