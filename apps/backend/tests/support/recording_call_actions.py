@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.models.identifiers import CallId
+    from letmehandle.domain.policy.escalation import EscalationProposal
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +87,9 @@ class RecordingCallActions(CallActions):
             raise self.message_failures.pop(0)
         self.actions.append(MessageTaken(call_id, message))
 
-    async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
+    async def end_call(
+        self, call_id: CallId, ending: CallEnding, assessment: EscalationProposal
+    ) -> None:
         self._still_on(call_id)
         self.actions.append(Ended(call_id, ending))
 

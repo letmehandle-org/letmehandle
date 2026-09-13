@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from letmehandle.application.orchestration.plan import DialTheUser
     from letmehandle.application.speech.conversation import ConversationEnd, TranscriptTurn
     from letmehandle.domain.models.escalation import EscalationDecision
+    from letmehandle.domain.policy.escalation import EscalationProposal
     from letmehandle.domain.ports.call_transport import CallEvent
 
 
@@ -82,6 +83,7 @@ class EscalationRequested:
 @dataclass(frozen=True, slots=True)
 class EndingRequested:
     ending: CallEnding
+    assessment: EscalationProposal
     reply: asyncio.Future[None]
 
 

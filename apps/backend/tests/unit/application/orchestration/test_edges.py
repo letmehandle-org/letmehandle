@@ -36,6 +36,7 @@ from tests.support.orchestration import (
     ANOTHER_OWNER,
     OWNER,
     OWNERS_NUMBER,
+    ROUTINE,
     EveryCallIsTheOwners,
     MemoryCallStores,
     Running,
@@ -366,7 +367,7 @@ class TestStopping:
             await on_the_assistant(running)
             actions = actions_of(running)
             ending = asyncio.get_running_loop().create_task(
-                actions.end_call(CallId(CALL), CallEnding.RESOLVED)
+                actions.end_call(CallId(CALL), CallEnding.RESOLVED, ROUTINE)
             )
             await eventually(lambda: line.asked("terminate", CALL) == 1)
             with pytest.raises(CallIsOverError):

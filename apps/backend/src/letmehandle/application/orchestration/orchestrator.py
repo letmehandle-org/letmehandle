@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     )
     from letmehandle.domain.models.escalation import EscalationDecision
     from letmehandle.domain.models.identifiers import CallId, UserId
+    from letmehandle.domain.policy.escalation import EscalationProposal
     from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -221,5 +222,7 @@ class _RunActions(CallActions):
     async def take_message(self, call_id: CallId, message: str) -> None:
         await self._request(call_id, lambda reply: MessageTaken(message, reply))
 
-    async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
-        await self._request(call_id, lambda reply: EndingRequested(ending, reply))
+    async def end_call(
+        self, call_id: CallId, ending: CallEnding, assessment: EscalationProposal
+    ) -> None:
+        await self._request(call_id, lambda reply: EndingRequested(ending, assessment, reply))

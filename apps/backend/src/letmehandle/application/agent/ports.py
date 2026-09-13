@@ -208,5 +208,11 @@ class CallActions(ABC):
         """Keep a message the caller left for the user."""
 
     @abstractmethod
-    async def end_call(self, call_id: CallId, ending: CallEnding) -> None:
-        """Hang up on the caller, for the kind of ending the judgement was allowed."""
+    async def end_call(
+        self, call_id: CallId, ending: CallEnding, assessment: EscalationProposal
+    ) -> None:
+        """Hang up on the caller, for the kind of ending the judgement was allowed.
+
+        `assessment` is the judgement's reading of the call it ends. It comes with the ending
+        because ending the call ends the judgement too, before it could report that reading.
+        """

@@ -416,7 +416,10 @@ class CallRun:
             match request:
                 case EscalationRequested(decision=decision):
                     await self._escalate(live, decision)
-                case EndingRequested(ending=ending):
+                case EndingRequested(ending=ending, assessment=assessment):
+                    # Kept before acting on it: ending the call cancels the judgement that asked,
+                    # and with it the report of what it judged the call to be.
+                    self._findings = replace(self._findings, proposal=assessment)
                     await self._end_for_agent(live, ending)
                 case OutcomeRecorded(record=record):
                     self._findings = replace(self._findings, outcome=record)

@@ -29,6 +29,7 @@ from letmehandle.domain.ports.call_transport import ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from tests.support.orchestration import (
     OWNERS_NUMBER,
+    ROUTINE,
     Running,
     StreamingLine,
     eventually,
@@ -167,7 +168,7 @@ class TestNamedRaces:
             )
             await eventually(lambda: line.asked("dial", CALL) == 1)
             ending = asyncio.get_running_loop().create_task(
-                actions.end_call(CallId(CALL), CallEnding.RESOLVED)
+                actions.end_call(CallId(CALL), CallEnding.RESOLVED, ROUTINE)
             )
             await together(dialling.set)
             await asyncio.gather(ringing, ending)
@@ -208,7 +209,7 @@ class TestNamedRaces:
         async with orchestrating(line) as running:
             await on_the_assistant(running)
             actions = actions_of(running)
-            ending = actions.end_call(CallId(CALL), CallEnding.RESOLVED)
+            ending = actions.end_call(CallId(CALL), CallEnding.RESOLVED, ROUTINE)
             late = actions.take_message(CallId(CALL), "Call me back.")
             outcomes = await asyncio.gather(ending, late, return_exceptions=True)
             assert outcomes[0] is None

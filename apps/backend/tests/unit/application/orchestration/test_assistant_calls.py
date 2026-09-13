@@ -37,6 +37,7 @@ from letmehandle.domain.ports.speech import SessionFailed, SpeechEnded, Transcri
 from tests.support.orchestration import (
     OWNERS_NUMBER,
     QUICK,
+    ROUTINE,
     WANTS_THE_USER,
     Look,
     Running,
@@ -235,6 +236,19 @@ class TestTheAssistantHandlesACall:
             assert summary.headline == "Took a message about the parcel."
             assert summary.detail(MESSAGE_LABEL) is not None
             assert line.asked("terminate", CALL) == 1
+
+    async def test_the_agent_ending_the_call_keeps_what_it_assessed_the_call_to_be(self) -> None:
+        looks = [Look(proposal=ROUTINE, ending=CallEnding.RESOLVED)]
+        line = streaming()
+        async with orchestrating(line, looks=looks) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Just a question about opening hours.")
+            await running.ended(CALL)
+
+            # The look that ended the call is torn down with it, and its reading is not lost.
+            [(facts, _)] = running.summariser.asked
+            assert facts.intent is CallIntent.ENQUIRY
+            assert running.stores.summaries.stored[CallId(CALL)].intent is CallIntent.ENQUIRY
 
     async def test_a_record_the_domain_refuses_falls_back_to_the_facts(self) -> None:
         record = OutcomeRecord(CallOutcome.RESOLVED_BY_AGENT, "x" * 400)

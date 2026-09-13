@@ -30,6 +30,7 @@ from letmehandle.domain.ports.call_transport import ParticipantOutcome, Screenin
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from letmehandle.domain.ports.speech import SessionFailed, TranscriptProduced
 from tests.support.orchestration import (
+    ROUTINE,
     WANTS_THE_USER,
     HandsetLine,
     Look,
@@ -69,7 +70,7 @@ async def asks(running: Running, chance: random.Random) -> None:
     request = (
         agent._actions.escalate(CallId(CALL), decision)
         if chance.random() < 0.7
-        else agent._actions.end_call(CallId(CALL), ending)
+        else agent._actions.end_call(CallId(CALL), ending, ROUTINE)
     )
     # A refusal is an answer, not a failure of the property: the call may be over, or the dial may
     # have been refused.

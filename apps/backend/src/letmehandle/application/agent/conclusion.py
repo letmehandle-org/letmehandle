@@ -70,7 +70,7 @@ class JudgementConclusion:
         if ending is not None:
             refused_because = ending_withheld or _why_not_to_end(ending, decision)
             if refused_because is None:
-                await self._actions.end_call(call.call_id, ending)
+                await self._actions.end_call(call.call_id, ending, assessment)
                 notes.call_ended()
             else:
                 notes.refused(ToolRefusal(END_CALL, refused_because))
