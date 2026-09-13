@@ -48,6 +48,7 @@ def print_report(report: SummaryReport) -> None:
 async def evaluate(minimum: float | None) -> int:
     # Imported after the path is set.
     from letmehandle.application.calls.prompts import SUMMARY_PROMPT_VERSION
+    from letmehandle.application.orchestration.ports import Bounds
     from letmehandle.bootstrap import build_call_summariser
     from letmehandle.config.settings import ConfigurationError, get_settings
     from letmehandle.observability.logging import configure_logging
@@ -62,7 +63,8 @@ async def evaluate(minimum: float | None) -> int:
     # To stderr, at the configured level, so why a summary fell back is beside the report and not
     # inside it.
     configure_logging(settings)
-    summariser = build_call_summariser(settings)
+    # Given the bound a call's teardown gives it, so the evaluation measures what calls get.
+    summariser = build_call_summariser(settings, timeout=Bounds().summary)
 
     def summariser_for(_scenario: SummaryScenario) -> CallSummariser:
         return summariser

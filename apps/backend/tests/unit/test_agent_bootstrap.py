@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from letmehandle.application.calls.fallback import fallback_summary
+from letmehandle.application.orchestration.ports import Bounds
 from letmehandle.bootstrap import build_call_judging, build_call_summariser, call_judging_on
 from letmehandle.config.settings import ConfigurationError
 from letmehandle.observability.logging import configure_logging
@@ -188,7 +189,7 @@ async def test_the_summariser_talks_to_the_configured_endpoint(endpoint: Refusin
     )
     facts = ended(caller_said("Is she in today?"))
 
-    summary = await build_call_summariser(settings).summarise(
+    summary = await build_call_summariser(settings, timeout=Bounds().summary).summarise(
         facts, facts.call.transcript, locale="en"
     )
 
@@ -222,7 +223,9 @@ async def test_at_debug_a_summarised_call_never_reaches_the_log(
     configure_logging(settings)
     facts = ended(caller_said(said))
 
-    await build_call_summariser(settings).summarise(facts, facts.call.transcript, locale="en")
+    await build_call_summariser(settings, timeout=Bounds().summary).summarise(
+        facts, facts.call.transcript, locale="en"
+    )
 
     logged = capfd.readouterr()
     everything = logged.out + logged.err
@@ -234,4 +237,4 @@ async def test_at_debug_a_summarised_call_never_reaches_the_log(
 
 def test_a_summariser_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
-        build_call_summariser(make_settings())
+        build_call_summariser(make_settings(), timeout=Bounds().summary)

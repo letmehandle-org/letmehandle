@@ -76,6 +76,7 @@ from letmehandle.application.escalation.dispatch import EscalationDispatcher, Es
 from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.ports import (
     AssistantServices,
+    Bounds,
     CallJudging,
     CallOwnership,
     CallStores,
@@ -503,8 +504,10 @@ def build_call_orchestrator(
             voices=container.voices,
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
+    # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
+    bounds = Bounds()
     if summariser is None and settings.llm_configured:
-        summariser = build_call_summariser(settings)
+        summariser = build_call_summariser(settings, timeout=bounds.summary)
     return CallOrchestrator(
         transport=telephony.transport,
         ownership=telephony.ownership(find_user),
@@ -514,6 +517,7 @@ def build_call_orchestrator(
         metrics=metrics,
         assistant=assistant,
         summariser=summariser,
+        bounds=bounds,
     )
 
 
@@ -551,16 +555,14 @@ def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -
     )
 
 
-def build_call_summariser(settings: Settings) -> CallSummariser:
+def build_call_summariser(settings: Settings, *, timeout: timedelta) -> CallSummariser:
     """What writes a call's summary when it ends, on the same model the agent judges with.
 
-    Bounded by the same timeout as a judgement. Nobody is waiting on the line by then, but a
-    teardown that waits minutes for a summary is a call whose history appears minutes late.
+    Bounded by `timeout`, which is teardown's own bound on a summary: nobody is waiting on the line
+    by then, but a teardown that waits minutes for a summary is a call whose history appears
+    minutes late, and a summariser given longer than teardown waits would be abandoned mid-draft.
     """
-    endpoint = settings.require_llm()
-    return call_summariser_on(
-        openai_compatible_model(endpoint), timeout=timedelta(seconds=endpoint.timeout_seconds)
-    )
+    return call_summariser_on(openai_compatible_model(settings.require_llm()), timeout=timeout)
 
 
 def call_summariser_on(model: Model, *, timeout: timedelta) -> CallSummariser:
