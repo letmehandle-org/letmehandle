@@ -36,6 +36,7 @@ jobs:
   prepare:
     name: Version and notes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
       image: ${{ steps.version.outputs.image }}
@@ -90,6 +91,7 @@ jobs:
     name: Backend image
     needs: prepare
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -125,6 +127,7 @@ jobs:
     name: Release notes
     needs: [prepare, image]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
