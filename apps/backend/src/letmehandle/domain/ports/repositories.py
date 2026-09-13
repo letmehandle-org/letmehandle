@@ -304,8 +304,9 @@ class CallRepository(ABC):
     async def delete(self, user_id: UserId, call_id: CallId) -> None:
         """Delete this user's call and everything recorded about it, at once and together.
 
-        Its participants, every line of its transcript and its summary go with it, in the same
-        transaction: a summary left behind is a record of a call the user deleted. Deleting a
+        Its participants, every line of its transcript, its summary and what the user was told
+        about its escalation go with it, in the same transaction: a summary left behind is a
+        record of a call the user deleted. Deleting a
         call that is not there — never was, already deleted, or somebody else's — does nothing,
         and says nothing about which.
         """
