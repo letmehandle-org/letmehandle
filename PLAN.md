@@ -24,17 +24,17 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 2 | Authentication and user foundation | **complete** |
 | 3 | Onboarding and preferences | **complete** |
 | 4 | Voice configuration | **complete** |
-| 5 | Realtime speech foundation | **complete** — live run held |
-| 6 | Agent and decision-making | **complete** — model evaluation held |
-| 7 | Call transport | **complete** — real-call checks held |
-| 8 | Call orchestration | **complete** — real-call checks held |
-| 9 | Mobile core experience | not started |
-| 10 | Human escalation experience | in progress — backend done, mobile and devices open |
-| 11 | Call summary and history | in progress — backend done, mobile screens open |
-| 12 | Security, privacy and hardening | in progress — review done, mobile and build audits open |
-| 13 | Observability and failure handling | **complete** — real-call investigation held |
-| 14 | Full system end to end | in progress — automated scenarios pass, manual run held |
-| 15 | Release readiness | in progress — docs, sample, release workflow done; tag, real calls, CI and dependency audit held |
+| 5 | Realtime speech foundation | **complete** — live speech verified on a real call |
+| 6 | Agent and decision-making | **complete** — evaluated on a real model; routine class below 90% |
+| 7 | Call transport | **complete** — a real inbound call verified; carrier forwarding held |
+| 8 | Call orchestration | **complete** — a real call verified; real escalation held |
+| 9 | Mobile core experience | in progress — screens built; home status screen open |
+| 10 | Human escalation experience | in progress — backend and screens done; real escalation and device push held |
+| 11 | Call summary and history | **complete** — evaluated on a real model |
+| 12 | Security, privacy and hardening | **complete** — review, fixes and audits in the build |
+| 13 | Observability and failure handling | **complete** — first real call investigated from its logs |
+| 14 | Full system end to end | in progress — automated, emulator, live rehearsal and one real call done; manual script, escalation and devices held |
+| 15 | Release readiness | in progress — docs, sample and release workflow done; first tag held |
 
 ## The completion rule
 
