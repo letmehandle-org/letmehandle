@@ -59,6 +59,7 @@ async def configuration_sent(transcription_model: str | None) -> Mapping[str, An
     async with await provider.connect(
         system_context="You answer calls.",
         voice_id=EXAMPLE_DEFAULT_VOICE,
+        greeting="Hello.",
         locale="en",
         input_format=SPEECH_WIDEBAND,
     ):

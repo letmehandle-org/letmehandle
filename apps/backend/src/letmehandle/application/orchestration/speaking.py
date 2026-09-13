@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.application.orchestration.inputs import ConversationStopped, Heard
-from letmehandle.application.preferences.context import build_preference_context
+from letmehandle.application.preferences.context import DEFAULT_LOCALE, build_preference_context
 from letmehandle.application.speech.conversation import (
     Conversation,
     Transcript,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.call_transport import ParticipantOutcome
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
-    from letmehandle.domain.ports.speech import SpeechSession
+    from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechSession
 
 logger = get_logger(__name__)
 
@@ -104,14 +104,14 @@ class Speaking:
     async def start(self, step: Converse, preferences: UserPreferences, bound: timedelta) -> None:
         """Open the session and start the conversation, within `bound`. Raises when it cannot."""
         assistance = step.assistance
+        locale = _opening_locale(assistance.speech.capabilities, preferences.locale)
         async with asyncio.timeout(bound.total_seconds()):
-            voice = await resolve_voice(
-                assistance.voices, preferences.voice, locale=preferences.locale
-            )
+            voice = await resolve_voice(assistance.voices, preferences.voice, locale=locale)
             session = await assistance.speech.connect(
                 system_context=self._context(preferences, Situation()),
                 voice_id=voice,
-                locale=preferences.locale,
+                greeting=load_prompts(locale).greeting(),
+                locale=locale,
                 input_format=step.audio.audio_format(),
             )
         self._session = (session, preferences)
@@ -172,3 +172,12 @@ class Speaking:
             preferences.authority,
             situation=situation.as_data(),
         )
+
+
+def _opening_locale(capabilities: SpeechCapabilities, locale: str) -> str:
+    """The language a call opens in: the user's, where the speech service speaks it (D-039).
+
+    English otherwise, rather than a refusal: a caller answered in the wrong language can still be
+    helped, and the service may yet follow them into their own.
+    """
+    return locale if capabilities.speaks(locale) else DEFAULT_LOCALE

@@ -123,6 +123,7 @@ async def connect(provider: SpeechProvider) -> SpeechSession:
     return await provider.connect(
         system_context=SYSTEM_CONTEXT,
         voice_id=EXAMPLE_DEFAULT_VOICE,
+        greeting="Hello.",
         locale="en",
         input_format=SPEECH_WIDEBAND,
     )
@@ -183,7 +184,7 @@ async def test_a_conversation_is_held_end_to_end_over_a_real_socket(
     assert service.openings == [
         Opening(
             prompt=SYSTEM_CONTEXT,
-            first_message=None,
+            first_message="Hello.",
             language="en",
             voice_id=EXAMPLE_DEFAULT_VOICE,
         )
@@ -269,23 +270,20 @@ async def test_a_dropped_conversation_is_replaced_by_one_told_what_was_said(
     assert service.open_connections == 0
 
 
-async def test_an_agent_that_does_not_allow_the_overrides_ends_the_conversation(
+async def test_an_agent_that_does_not_allow_the_overrides_is_refused_before_a_conversation(
     metrics: RecordingMetrics,
 ) -> None:
     # A deployment whose agent allows the prompt, language and voice but not the first message:
-    # the first conversation opens, and the replacement for a dropped one is refused.
+    # the greeting is refused, so no conversation opens, and nothing is retried behind the call.
     async with SimulatedElevenLabsService(
         allowed_overrides=OVERRIDES_THIS_ADAPTER_NEEDS - {"first_message"}
     ) as service:
-        async with await connect(provider_for(service, metrics)) as session:
-            call = Call(session, metrics)
-            service.drop_connections()
-            with pytest.raises(ConversationFailedError) as failed:
-                await asyncio.wait_for(call.task, PATIENCE_SECONDS)
+        with pytest.raises(ProviderError) as refused:
+            await connect(provider_for(service, metrics))
         await service.wait_until_idle()
 
-    assert not failed.value.retryable
-    assert len(service.handshakes) == 2
+    assert not refused.value.retryable
+    assert len(service.handshakes) == 1
 
 
 async def test_an_agent_that_sends_no_caller_transcripts_still_holds_a_conversation(

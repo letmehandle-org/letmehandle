@@ -108,7 +108,11 @@ async def connect(
     locale: str = "en",
 ) -> SpeechSession:
     return await provider.connect(
-        system_context=INSTRUCTIONS, voice_id="calm", locale=locale, input_format=input_format
+        system_context=INSTRUCTIONS,
+        voice_id="calm",
+        greeting="Hello.",
+        locale=locale,
+        input_format=input_format,
     )
 
 
@@ -142,16 +146,67 @@ def agent_said(text: str) -> TranscriptProduced:
 # ------------------------------------------------------------------------------- connecting
 
 
-async def test_the_conversation_is_opened_with_the_session_s_prompt_language_and_voice(
+async def test_the_conversation_is_opened_with_the_session_s_prompt_greeting_language_and_voice(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService
 ) -> None:
     async with await connect(provider, locale="en-GB"):
         assert service.current.sent_types()[0] == "conversation_initiation_client_data"
-        # No first message: the agent greets the caller as it was configured to.
         assert override(service.current) == {
-            "agent": {"prompt": {"prompt": INSTRUCTIONS}, "language": "en"},
+            "agent": {
+                "prompt": {"prompt": INSTRUCTIONS},
+                "language": "en",
+                "first_message": "Hello.",
+            },
             "tts": {"voice_id": "calm"},
         }
+
+
+async def test_an_agent_speaking_several_languages_chooses_its_own_voice_for_each(
+    service: ScriptedElevenLabsService, metrics: RecordingMetrics
+) -> None:
+    # A voice sent here would hold for the whole conversation, and a caller the agent followed
+    # into Hindi would be answered in Hindi by the English voice.
+    provider = ElevenLabsSpeechProvider(
+        service.open,
+        metrics,
+        languages=("en", "hi"),
+        input_formats=(SPEECH_WIDEBAND,),
+        output_format=SPEECH_WIDEBAND,
+    )
+    async with await provider.connect(
+        system_context=INSTRUCTIONS,
+        voice_id="calm",
+        greeting="नमस्ते, hello!",
+        locale="hi-IN",
+        input_format=SPEECH_WIDEBAND,
+    ):
+        assert override(service.current) == {
+            "agent": {
+                "prompt": {"prompt": INSTRUCTIONS},
+                "language": "hi",
+                "first_message": "नमस्ते, hello!",
+            }
+        }
+
+
+async def test_regional_variants_of_one_language_are_still_one_voice(
+    service: ScriptedElevenLabsService, metrics: RecordingMetrics
+) -> None:
+    provider = ElevenLabsSpeechProvider(
+        service.open,
+        metrics,
+        languages=("en", "en-GB"),
+        input_formats=(SPEECH_WIDEBAND,),
+        output_format=SPEECH_WIDEBAND,
+    )
+    async with await provider.connect(
+        system_context=INSTRUCTIONS,
+        voice_id="calm",
+        greeting="Hello.",
+        locale="en-GB",
+        input_format=SPEECH_WIDEBAND,
+    ):
+        assert override(service.current)["tts"] == {"voice_id": "calm"}
 
 
 async def test_connect_waits_for_the_service_to_begin_the_conversation(
@@ -249,7 +304,11 @@ async def test_connect_refuses_what_the_provider_cannot_honour(
 ) -> None:
     with pytest.raises(refusal):
         await provider.connect(
-            system_context="c", voice_id=voice, locale=locale, input_format=input_format
+            system_context="c",
+            voice_id=voice,
+            greeting="Hello.",
+            locale=locale,
+            input_format=input_format,
         )
     assert service.connections == []
 

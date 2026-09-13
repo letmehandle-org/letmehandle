@@ -8,6 +8,9 @@ The capabilities it declares about itself are the ones this adapter implements r
 ones the protocol allows: barge-in, because the session acts on the service's speech-started
 signal; context updates, because instructions can be sent again mid-session; reconnection,
 because a dropped connection is replaced and told what it missed.
+
+It does not greet. A session opens listening and the model first speaks in answer to the caller, so
+the greeting a connection is given goes unsaid on this protocol; the caller speaks first.
 """
 
 from __future__ import annotations
@@ -92,6 +95,7 @@ class RealtimeSpeechProvider(SpeechProvider):
         *,
         system_context: str,
         voice_id: str,
+        greeting: str,
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:

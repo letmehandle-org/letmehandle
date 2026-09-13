@@ -232,6 +232,30 @@ class TestTheAssistantHandlesACall:
             assert connection["voice_id"] == "calm"
             assert '"user": "not_asked"' in str(connection["system_context"])
 
+    async def test_a_hindi_users_call_opens_in_hindi_with_a_voice_that_speaks_it(self) -> None:
+        async with orchestrating(
+            streaming(), preferences=UserPreferences(locale="hi-IN")
+        ) as running:
+            running.speech.languages = ("en", "hi")
+            await with_the_assistant(running)
+            connection = running.speech.connections[0]
+            assert connection["locale"] == "hi-IN"
+            assert connection["voice_id"] == "gentle"
+            assert str(connection["greeting"]).startswith("नमस्ते")
+
+    async def test_a_language_the_speech_service_cannot_speak_opens_the_call_in_english(
+        self,
+    ) -> None:
+        async with orchestrating(
+            streaming(), preferences=UserPreferences(locale="hi-IN")
+        ) as running:
+            await with_the_assistant(running)
+            connection = running.speech.connections[0]
+            assert connection["locale"] == "en"
+            assert connection["voice_id"] == "calm"
+            assert connection["greeting"] == "Hello, how can I help?"
+            assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
+
     async def test_what_the_assistant_says_is_kept_and_does_not_start_a_judgement(self) -> None:
         async with orchestrating(streaming()) as running:
             await with_the_assistant(running)

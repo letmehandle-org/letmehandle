@@ -259,9 +259,10 @@ class EchoSpeechSession(SpeechSession):
 class EchoSpeechProvider(SpeechProvider):
     """Opens echo sessions, and remembers how it was asked to."""
 
-    def __init__(self) -> None:
+    def __init__(self, languages: tuple[str, ...] = ("en", "en-GB")) -> None:
         self.sessions: list[EchoSpeechSession] = []
         self.connections: list[dict[str, object]] = []
+        self.languages = languages
 
     @property
     def name(self) -> str:
@@ -273,7 +274,7 @@ class EchoSpeechProvider(SpeechProvider):
             barge_in=True,
             context_updates_mid_session=True,
             reconnection=True,
-            languages=("en", "en-GB"),
+            languages=self.languages,
             input_formats=(SPEECH_WIDEBAND,),
             output_format=SPEECH_WIDEBAND,
         )
@@ -283,6 +284,7 @@ class EchoSpeechProvider(SpeechProvider):
         *,
         system_context: str,
         voice_id: str,
+        greeting: str,
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:
@@ -290,6 +292,7 @@ class EchoSpeechProvider(SpeechProvider):
             {
                 "system_context": system_context,
                 "voice_id": voice_id,
+                "greeting": greeting,
                 "locale": locale,
                 "input_format": input_format,
             }

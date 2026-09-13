@@ -68,6 +68,7 @@ async def open_session() -> EchoSpeechSession:
     session = await EchoSpeechProvider().connect(
         system_context="a conversation with nobody in particular",
         voice_id="calm",
+        greeting="Hello.",
         locale="en",
         input_format=SPEECH_WIDEBAND,
     )

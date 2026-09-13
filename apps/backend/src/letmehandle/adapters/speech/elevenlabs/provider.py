@@ -15,6 +15,11 @@ stated rather than smoothed over:
   so a replacement is a new conversation opened with the instructions, the updates and a bounded
   record of what was said written into its prompt, and asked not to greet the caller again. The
   model is reminded of the conversation; it does not get it back.
+
+An agent told it speaks more than one language is sent no voice (D-039). Its voice for each
+language is its own configuration — its base voice, and a language preset for every other
+language — and the protocol holds a voice sent by the client for the whole conversation, so a
+caller whose language the agent switched to would be answered in the voice of the one it left.
 """
 
 from __future__ import annotations
@@ -86,6 +91,7 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             reconnection=True,
         )
         self._output_format = output_format
+        self._switches_language = len({language.split("-")[0] for language in languages}) > 1
         self._reconnect = reconnect or ReconnectPolicy()
         self._history_turns = history_turns
         self._audio_ceiling_seconds = audio_ceiling_seconds
@@ -105,6 +111,7 @@ class ElevenLabsSpeechProvider(SpeechProvider):
         *,
         system_context: str,
         voice_id: str,
+        greeting: str,
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:
@@ -128,7 +135,8 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             ),
             ConversationContext(
                 instructions=system_context,
-                voice_id=voice_id,
+                voice_id=None if self._switches_language else voice_id,
+                greeting=greeting,
                 language=locale.split("-")[0],
                 history_turns=self._history_turns,
             ),

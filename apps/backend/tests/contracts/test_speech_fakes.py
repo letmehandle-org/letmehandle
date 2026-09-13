@@ -21,6 +21,7 @@ class TestEchoSpeechProvider(SpeechProviderContract):
         session = await provider.connect(
             system_context="you are answering for someone",
             voice_id="calm",
+            greeting="Hello.",
             locale="en-GB",
             input_format=provider.capabilities.input_formats[0],
         )
@@ -33,6 +34,7 @@ class TestEchoSpeechProvider(SpeechProviderContract):
         session = await provider.connect(
             system_context="c",
             voice_id="calm",
+            greeting="Hello.",
             locale="en",
             input_format=provider.capabilities.input_formats[0],
         )

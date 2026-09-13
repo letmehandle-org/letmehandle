@@ -51,7 +51,11 @@ async def connect(
     provider: RealtimeSpeechProvider, input_format: AudioFormat = SPEECH_WIDEBAND
 ) -> SpeechSession:
     return await provider.connect(
-        system_context="answer for someone", voice_id="calm", locale="en", input_format=input_format
+        system_context="answer for someone",
+        voice_id="calm",
+        greeting="Hello.",
+        locale="en",
+        input_format=input_format,
     )
 
 
@@ -95,7 +99,11 @@ async def test_transcription_is_configured_in_the_session_s_language(
 ) -> None:
     provider = make_provider(transcription_model="a-transcriber")
     async with await provider.connect(
-        system_context="c", voice_id="calm", locale="en-GB", input_format=SPEECH_WIDEBAND
+        system_context="c",
+        voice_id="calm",
+        greeting="Hello.",
+        locale="en-GB",
+        input_format=SPEECH_WIDEBAND,
     ):
         transcription = service.current.sent[0]["session"]["audio"]["input"]["transcription"]
         assert transcription == {"model": "a-transcriber", "language": "en"}
@@ -160,7 +168,11 @@ async def test_connect_refuses_what_the_provider_cannot_honour(
 ) -> None:
     with pytest.raises(refusal):
         await provider.connect(
-            system_context="c", voice_id=voice, locale=locale, input_format=input_format
+            system_context="c",
+            voice_id=voice,
+            greeting="Hello.",
+            locale=locale,
+            input_format=input_format,
         )
     # Refused before a connection was ever opened.
     assert service.connections == []

@@ -33,13 +33,23 @@ _LABELS: Final = {Speaker.CALLER: "Caller", Speaker.ASSISTANT: "You"}
 
 
 class ConversationContext:
-    """Instructions, voice, the updates sent since, and a bounded memory of settled turns."""
+    """Instructions, voice, greeting, the updates sent since, and a bounded memory of settled turns.
+
+    `voice_id` is `None` for an agent that chooses its voice per language itself.
+    """
 
     def __init__(
-        self, *, instructions: str, voice_id: str, language: str, history_turns: int
+        self,
+        *,
+        instructions: str,
+        voice_id: str | None,
+        greeting: str,
+        language: str,
+        history_turns: int,
     ) -> None:
         self._instructions = instructions
         self._voice_id = voice_id
+        self._greeting = greeting
         self._language = language
         self._updates: deque[str] = deque(maxlen=CONTEXT_UPDATES_KEPT)
         self.history = ConversationHistory(history_turns)
@@ -58,7 +68,7 @@ class ConversationContext:
             prompt=self._prompt(resuming=resuming),
             language=self._language,
             voice_id=self._voice_id,
-            first_message="" if resuming else None,
+            first_message="" if resuming else self._greeting,
         )
 
     def _prompt(self, *, resuming: bool) -> str:

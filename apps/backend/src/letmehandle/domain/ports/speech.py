@@ -172,14 +172,18 @@ class SpeechProvider(ABC):
         *,
         system_context: str,
         voice_id: str,
+        greeting: str,
         locale: str,
         input_format: AudioFormat,
     ) -> SpeechSession:
-        """Open a session, or raise `ProviderError`.
+        """Open a session in `locale`, or raise `ProviderError`.
 
         The input format is supplied by the caller rather than assumed, because the audio comes
         from a transport whose format is not this provider's choice. A provider that cannot
         accept it converts, or says so.
+
+        `greeting` is what the assistant says first, in `locale`. A protocol with no way to open
+        with words of the client's waits for the caller to speak first, and its adapter says so.
         """
 
     def supported_locales(self) -> Sequence[str]:
