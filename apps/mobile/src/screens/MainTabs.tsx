@@ -12,6 +12,8 @@ type TabKey = 'home' | 'activity' | 'settings';
 
 interface Props {
   readonly onOpenSetting: (page: SettingsPage) => void;
+  readonly onOpenCall: (callId: string) => void;
+  readonly historyVersion?: number;
 }
 
 /**
@@ -21,7 +23,11 @@ interface Props {
  * not need one, and settings' own pages open over the tabs on the app stack, where back goes
  * where people expect.
  */
-export function MainTabs({ onOpenSetting }: Props): React.JSX.Element {
+export function MainTabs({
+  onOpenSetting,
+  onOpenCall,
+  historyVersion = 0,
+}: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [current, setCurrent] = useState<TabKey>('home');
 
@@ -35,7 +41,9 @@ export function MainTabs({ onOpenSetting }: Props): React.JSX.Element {
     <View style={styles.fill}>
       <View style={styles.fill}>
         {current === 'home' && <HomeScreen />}
-        {current === 'activity' && <ActivityScreen />}
+        {current === 'activity' && (
+          <ActivityScreen onOpenCall={onOpenCall} refreshKey={historyVersion} />
+        )}
         {current === 'settings' && <SettingsScreen onOpen={onOpenSetting} />}
       </View>
       <TabBar tabs={tabs} current={current} onSelect={setCurrent} />

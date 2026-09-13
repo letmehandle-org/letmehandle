@@ -18,6 +18,7 @@ export type SettingsPage =
   | 'authority'
   | 'say'
   | 'personalise'
+  | 'privacy'
   | 'account'
   | 'callScreening';
 
@@ -139,6 +140,17 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
 
       <Text style={styles.label}>{t('settings.you')}</Text>
       <Card>
+        <Row
+          icon="lock"
+          title={t('settings.privacy')}
+          value={t('privacy.days', {
+            count: preferences.privacy?.transcript_retention_days ?? 7,
+          })}
+          onPress={() => {
+            onOpen('privacy');
+          }}
+          testID="settings-open-privacy"
+        />
         <Row
           icon="user"
           title={t('settings.account')}

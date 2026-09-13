@@ -46,6 +46,22 @@ export type ReportedCallKind = Schemas['ReportedCallKind'];
 export type ScreeningDecision = Schemas['ScreeningDecision'];
 export type CallEnding = Schemas['CallEnding'];
 
+export type CallPage = Schemas['CallPageResponse'];
+export type CallSummary = Schemas['CallListItem'];
+export type CallDetail = Schemas['CallDetailResponse'];
+export type CallOutcome = Schemas['CallOutcome'];
+export type CallIntent = Schemas['CallIntent'];
+export type CallStatus = Schemas['CallStatus'];
+export type CallRouting = Schemas['CallHandling'];
+export type Caller = Schemas['CallerPayload'];
+export type ExtractedDetail = Schemas['ExtractedDetailPayload'];
+export type Transcript = Schemas['TranscriptResponse'];
+export type TranscriptLine = Schemas['TranscriptLinePayload'];
+export type Speaker = Schemas['Speaker'];
+export type Escalation = Schemas['EscalationContextResponse'];
+export type EscalationReason = Schemas['EscalationReason'];
+export type Privacy = Schemas['PrivacyPayload'];
+
 /**
  * The machine-readable codes the API returns with a failure.
  *
