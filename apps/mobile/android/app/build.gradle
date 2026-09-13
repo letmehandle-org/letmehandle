@@ -10,6 +10,8 @@ react {
     reactNativeDir = gradle.ext.reactNativeDir
     codegenDir = new File(gradle.ext.reactNativeDir.parentFile, "@react-native/codegen")
     cliFile = new File(gradle.ext.reactNativeDir, "cli.js")
+    // The plugin fills in %OS-BIN% for the machine building.
+    hermesCommand = new File(gradle.ext.hermesCompilerDir, "hermesc/%OS-BIN%/hermesc").path
     autolinkLibrariesWithApp()
 }
 
