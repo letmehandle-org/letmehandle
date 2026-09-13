@@ -116,11 +116,8 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
 
-      - name: Types
-        run: uv run mypy src tests
-
-      - name: Architecture boundaries
-        run: uv run lint-imports
+      - name: Types and architecture boundaries
+        run: make -C ../.. typecheck-backend
 
       - name: Migrations run forwards and backwards
         run: |

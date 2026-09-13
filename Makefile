@@ -6,6 +6,8 @@ SHELL := /usr/bin/env bash
 
 BACKEND := apps/backend
 MOBILE  := apps/mobile
+TYPED_SCRIPTS := agent_evaluation comment_audit dependency_audit generate_config_reference \
+	licence_report live_rehearsal summary_evaluation
 
 define CHECK_DATABASE
 import asyncio, os, sys
@@ -119,9 +121,13 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/comment_audit.py ../../scripts/live_rehearsal.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py ../../scripts/generate_config_reference.py ../../scripts/licence_report.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then $(MAKE) --no-print-directory typecheck-backend; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
+
+.PHONY: typecheck-backend
+typecheck-backend: ## Type check the backend and its typed scripts, and the import boundaries
+	@cd $(BACKEND) && uv run mypy src tests $(TYPED_SCRIPTS:%=../../scripts/%.py) && uv run lint-imports
 
 .PHONY: test
 test: ## Run the unit and integration suites
