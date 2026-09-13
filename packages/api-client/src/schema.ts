@@ -791,10 +791,12 @@ export interface components {
             /** Version */
             version: string;
         };
-        /** HoursPayload */
+        /**
+         * HoursPayload
+         * @description When the assistant answers; outside it, calls ring the user. `null` is always (D-030).
+         */
         HoursPayload: {
-            quiet?: components["schemas"]["TimeWindowPayload"] | null;
-            working?: components["schemas"]["TimeWindowPayload"] | null;
+            active?: components["schemas"]["TimeWindowPayload"] | null;
         };
         /** ImportantContactPayload */
         ImportantContactPayload: {
@@ -834,10 +836,10 @@ export interface components {
              */
             on_missed_escalation: boolean;
             /**
-             * Respect Quiet Hours
+             * Respect Active Hours
              * @default true
              */
-            respect_quiet_hours: boolean;
+            respect_active_hours: boolean;
         };
         /**
          * OnboardingResponse
@@ -862,7 +864,7 @@ export interface components {
          *     two unrelated things is one people abandon.
          * @enum {string}
          */
-        OnboardingStep: "introduction" | "call_handling" | "important_contacts" | "hours" | "authority" | "notifications" | "personality";
+        OnboardingStep: "call_handling" | "hours" | "authority" | "notifications";
         /** OnboardingUpdate */
         OnboardingUpdate: {
             /**

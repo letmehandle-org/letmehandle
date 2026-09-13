@@ -880,18 +880,9 @@
       },
       "HoursPayload": {
         "additionalProperties": false,
+        "description": "When the assistant answers; outside it, calls ring the user. `null` is always (D-030).",
         "properties": {
-          "quiet": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TimeWindowPayload"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "working": {
+          "active": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/TimeWindowPayload"
@@ -966,9 +957,9 @@
             "title": "On Missed Escalation",
             "type": "boolean"
           },
-          "respect_quiet_hours": {
+          "respect_active_hours": {
             "default": true,
-            "title": "Respect Quiet Hours",
+            "title": "Respect Active Hours",
             "type": "boolean"
           }
         },
@@ -1027,13 +1018,10 @@
       "OnboardingStep": {
         "description": "One thing to ask about.\n\nOne step per group of preferences, because a step is a screen and a screen that asks about\ntwo unrelated things is one people abandon.",
         "enum": [
-          "introduction",
           "call_handling",
-          "important_contacts",
           "hours",
           "authority",
-          "notifications",
-          "personality"
+          "notifications"
         ],
         "title": "OnboardingStep",
         "type": "string"

@@ -9,25 +9,33 @@ from __future__ import annotations
 from datetime import UTC, datetime, time
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.agent import escalation as escalation_service
 from letmehandle.application.agent.ports import CallSoFar
+from letmehandle.application.agent.tools import escalation as escalation_tool
 from letmehandle.application.preferences.context import build_preference_context
 from letmehandle.domain.models.call import Speaker, TranscriptEntry
 from letmehandle.domain.models.caller import Caller, CallerCategory
+from letmehandle.domain.models.escalation import EscalationDecision, EscalationUrgency
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import CallRules, TimeWindow, UserPreferences
+from letmehandle.domain.policy.escalation import decide_escalation
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from letmehandle.domain.models.authority import AgentAuthority
+    import pytest
 
-# Winter, so London is on UTC and the quiet window reads the same in both.
+    from letmehandle.domain.models.authority import AgentAuthority
+    from letmehandle.domain.policy.escalation import CallCircumstances, EscalationProposal
+
+# Winter, so London is on UTC and the active window reads the same in both. Noon is inside it and
+# three in the morning outside.
 NOON: Final = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 THREE_AM: Final = datetime(2026, 1, 15, 3, 0, tzinfo=UTC)
-QUIET: Final = TimeWindow(time(22, 0), time(7, 0), "Europe/London")
-RULES: Final = CallRules(quiet_hours=QUIET, escalate_at_or_above=CallImportance.NOTABLE)
+ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
+RULES: Final = CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.NOTABLE)
 
 # Reserved for fiction, never routable.
 STRANGER_NUMBER: Final = PhoneNumber("+12025550101")
@@ -63,3 +71,26 @@ def a_call(
         now=now,
         contact_label=contact_label,
     )
+
+
+def deferring(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand in for a policy that leaves what is not urgent for later.
+
+    Today's policy never does (D-030), but the service, the tool and the conclusion still act on a
+    decision that waits — `WHILE_CONVENIENT` is kept in the model — so they are tested against one.
+    Everything else about the decision is the real policy's.
+    """
+
+    def decide(
+        proposal: EscalationProposal, circumstances: CallCircumstances
+    ) -> EscalationDecision:
+        decision = decide_escalation(proposal, circumstances)
+        if not decision.required or proposal.importance >= CallImportance.URGENT:
+            return decision
+        assert decision.reason is not None
+        return EscalationDecision.needed(
+            decision.reason, EscalationUrgency.WHILE_CONVENIENT, decision.caller_summary
+        )
+
+    for module in (escalation_service, escalation_tool):
+        monkeypatch.setattr(module, "decide_escalation", decide)

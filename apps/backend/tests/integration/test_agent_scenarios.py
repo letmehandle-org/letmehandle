@@ -27,10 +27,10 @@ from letmehandle.application.agent.conclusion import (
 from letmehandle.application.agent.ports import CallEnding, ToolRefusal
 from letmehandle.bootstrap import call_judging_on
 from letmehandle.domain.models.authority import AgentAuthority, Capability
-from letmehandle.domain.models.escalation import EscalationReason, EscalationUrgency
+from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
-from tests.support.agent_calls import QUIET_AT_MIDDAY, a_call
+from tests.support.agent_calls import a_call
 from tests.support.recording_call_actions import (
     Ended,
     Escalated,
@@ -514,26 +514,6 @@ class TestEndingAndEscalatingTogether:
             Ended(call.call_id, CallEnding.HANDED_OVER),
         ]
         assert run.judgement.ended
-
-    async def test_a_note_for_later_is_not_a_hand_over(self) -> None:
-        call = a_call("Could she ring the garage back about the car?", quiet_hours=QUIET_AT_MIDDAY)
-        run = await judged(
-            call,
-            [
-                CallTool(
-                    "request_human_escalation", {"importance": "notable", "intent": "enquiry"}
-                ),
-                CallTool("end_call", {"ending": "handed_over"}),
-                assess(intent="enquiry", importance="notable"),
-            ],
-        )
-
-        assert run.judgement.escalation.urgency is EscalationUrgency.WHILE_CONVENIENT
-        assert run.actions.of_kind(Ended) == []
-        assert not run.judgement.ended
-        assert [refusal.reason for refusal in run.judgement.refusals] == [
-            "the user was not reached for this call, so it was not handed over"
-        ]
 
     async def test_an_earlier_request_for_the_user_outlasts_a_calmer_assessment(self) -> None:
         run = await judged(

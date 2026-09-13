@@ -166,8 +166,9 @@ class PreferenceContext:
     posture_by_category: tuple[tuple[CallerCategory, HandlingPosture], ...]
     blocked_categories: tuple[CallerCategory, ...]
     escalate_at_or_above: CallImportance
-    in_quiet_hours: bool
-    in_working_hours: bool
+    # Whether the user asked the assistant to be working right now (D-030). Resolved here, so the
+    # model is told an answer rather than handed a window to do timezone arithmetic on.
+    in_active_hours: bool
     capabilities: tuple[CapabilityStatement, ...]
     important_contacts: tuple[ContactStatement, ...]
     topics: tuple[str, ...]
@@ -224,8 +225,8 @@ def build_preference_context(preferences: UserPreferences, *, now: datetime) -> 
     if now.tzinfo is None:
         raise InvariantError(
             "preference context is built against an instant that knows its own timezone; "
-            "a naive one silently means whatever the server is set to, and quiet hours "
-            "resolved in the wrong zone are quiet hours the user never asked for"
+            "a naive one silently means whatever the server is set to, and hours resolved in "
+            "the wrong zone are hours the user never asked for"
         )
 
     rules = preferences.rules
@@ -243,8 +244,7 @@ def build_preference_context(preferences: UserPreferences, *, now: datetime) -> 
         posture_by_category=tuple(sorted(rules.posture_by_category.items())),
         blocked_categories=tuple(sorted(rules.blocked_categories)),
         escalate_at_or_above=rules.escalate_at_or_above,
-        in_quiet_hours=rules.is_quiet_at(now),
-        in_working_hours=rules.is_working_at(now),
+        in_active_hours=rules.is_active_at(now),
         capabilities=tuple(
             CapabilityStatement(
                 capability=capability,

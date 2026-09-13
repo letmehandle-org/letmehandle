@@ -271,8 +271,7 @@ describe('saving a change', () => {
     await act(async () => {
       await view.result.current.save({
         hours: {
-          working: null,
-          quiet: { start: '22:00', end: '07:00', zone: 'Europe/London' },
+          active: { start: '07:00', end: '22:00', zone: 'Europe/London' },
         },
       });
     });
@@ -282,9 +281,9 @@ describe('saving a change', () => {
     // lost update, from the other direction.
     const sent = JSON.parse(calls[0]);
     expect(sent.call_handling).toBeUndefined();
-    expect(sent.hours.quiet).toEqual({
-      start: '22:00',
-      end: '07:00',
+    expect(sent.hours.active).toEqual({
+      start: '07:00',
+      end: '22:00',
       zone: 'Europe/London',
     });
   });
@@ -304,7 +303,7 @@ describe('recording a step', () => {
       const bodies: Record<string, unknown> = {
         '/v1/me': PROFILE,
         '/v1/preferences': DEFAULT_PREFERENCES,
-        '/v1/onboarding': onboardingAt('important_contacts'),
+        '/v1/onboarding': onboardingAt('call_handling'),
       };
       return {
         ok: true,
@@ -315,7 +314,7 @@ describe('recording a step', () => {
 
     const view = await loaded();
     await act(async () => {
-      await view.result.current.recordStep('important_contacts', true);
+      await view.result.current.recordStep('call_handling', false);
     });
 
     expect(view.result.current.onboarding.next_step).toBe('hours');

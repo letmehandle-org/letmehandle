@@ -45,14 +45,14 @@ export const DEFAULT_PREFERENCES: Preferences = {
     escalate_at_or_above: 40,
   },
   important_contacts: [],
-  hours: { working: null, quiet: null },
+  hours: { active: null },
   authority: { capabilities: [] },
   notifications: {
     on_handled_call: false,
     on_blocked_call: false,
     on_missed_escalation: true,
     daily_summary: false,
-    respect_quiet_hours: true,
+    respect_active_hours: true,
   },
   personality: { formality: 'neutral', verbosity: 'normal', topics: [] },
   privacy: { transcript_retention_days: 7 },
@@ -87,13 +87,10 @@ export interface VoiceSetup {
 }
 
 const ORDER: readonly OnboardingStep[] = [
-  'introduction',
   'call_handling',
-  'important_contacts',
   'hours',
   'authority',
   'notifications',
-  'personality',
 ];
 
 /** Progress for somebody whose next question is `step`, with everything before it answered. */

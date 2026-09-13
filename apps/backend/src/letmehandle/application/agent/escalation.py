@@ -9,7 +9,7 @@ The policy decides; this remembers. A decision is taken afresh every time it is 
 call reaches the user at most once for each level of urgency, and only ever upwards:
 
 - A call not yet escalated is escalated when the policy says so.
-- A call escalated "while convenient" — typically inside quiet hours — may be escalated once more,
+- A call escalated "while convenient" may be escalated once more,
   immediately, when the policy later decides it is urgent. The user who would have been woken for
   that call on its first turn should not sleep through it because it became urgent on its third,
   and the upgrade gives a caller nothing they could not have had by being convincing sooner.
@@ -45,7 +45,6 @@ def circumstances_of(call: CallSoFar) -> CallCircumstances:
     return CallCircumstances(
         rules=call.rules,
         authority=call.authority,
-        now=call.now,
         from_important_contact=call.from_important_contact,
     )
 

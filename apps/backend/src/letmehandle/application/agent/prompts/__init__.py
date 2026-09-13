@@ -174,8 +174,7 @@ def preferences_as_data(context: PreferenceContext, authority: AgentAuthority) -
                 category.value for category in context.blocked_categories
             ],
             "reach_the_user_at_or_above": context.escalate_at_or_above.name.lower(),
-            "in_quiet_hours": context.in_quiet_hours,
-            "in_working_hours": context.in_working_hours,
+            "within_the_users_active_hours": context.in_active_hours,
             "you_may": [
                 statement.description
                 for statement in context.capabilities

@@ -2,8 +2,6 @@ package org.letmehandle.app.calls.rules
 
 import java.time.Duration
 import java.time.Instant
-import java.time.LocalTime
-import java.time.ZoneId
 
 /**
  * The user's deterministic call rules, as the handset holds them.
@@ -14,7 +12,9 @@ import java.time.ZoneId
  *
  * Mirrors the backend's `CallRules` and `ImportantContact` in `domain/models/preferences.py`,
  * limited to what a decision before ringing reads. Labels are left behind on purpose: the
- * handset needs a number and what to do with it, not what the user calls the person.
+ * handset needs a number and what to do with it, not what the user calls the person. The user's
+ * hours are left behind too: they decide when the assistant answers (D-030), and nothing on this
+ * path is answered by an assistant, so no decision here reads them.
  */
 data class CallRulesSnapshot(
     val syncedAt: Instant,
@@ -22,7 +22,6 @@ data class CallRulesSnapshot(
     val anonymousPosture: HandlingPosture,
     val postureByCategory: Map<CallerCategory, HandlingPosture>,
     val blockedCategories: Set<CallerCategory>,
-    val quietHours: QuietHours?,
     val importantContacts: List<ImportantContact>,
 ) {
   init {
@@ -94,19 +93,3 @@ enum class CallerCategory(val wire: String) {
 
 /** Somebody the user has told the assistant about, by number. */
 data class ImportantContact(val phoneNumber: String, val posture: HandlingPosture)
-
-/**
- * A daily window in the user's own timezone, to the minute. Mirrors `TimeWindow`.
- *
- * It may wrap past midnight, which is the ordinary case for quiet hours.
- */
-data class QuietHours(val start: LocalTime, val end: LocalTime, val zone: ZoneId) {
-  init {
-    require(start != end) { "a window that starts and ends at the same moment covers nothing" }
-  }
-
-  fun contains(instant: Instant): Boolean {
-    val local = instant.atZone(zone).toLocalTime()
-    return if (end < start) local >= start || local < end else local >= start && local < end
-  }
-}

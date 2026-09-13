@@ -77,7 +77,7 @@ def everything() -> UserPreferences:
             on_blocked_call=True,
             on_missed_escalation=False,
             daily_summary=True,
-            respect_quiet_hours=False,
+            respect_active_hours=False,
         ),
         important_contacts=(
             ImportantContact(number=NUMBER, label="Mum"),
@@ -93,8 +93,7 @@ def everything() -> UserPreferences:
             posture_by_category={CallerCategory.DELIVERY: HandlingPosture.HANDLE_WITH_AGENT},
             blocked_categories=frozenset({CallerCategory.SPAM}),
             escalate_at_or_above=CallImportance.URGENT,
-            working_hours=TimeWindow(time(9, 0), time(17, 30), "Europe/London"),
-            quiet_hours=TimeWindow(time(22, 0), time(7, 0), "Europe/London"),
+            active_hours=TimeWindow(time(7, 0), time(22, 0), "Europe/London"),
         ),
     )
 
@@ -201,6 +200,54 @@ class TestMapping:
         assert rewritten["version"] == PREFERENCES_VERSION
 
 
+class TestReadingHoursWrittenBeforeD027:
+    """Version 2 said when not to be reached; version 4 says when the assistant answers."""
+
+    def older(self, rules: dict[str, object]) -> dict[str, object]:
+        document = preferences_to_document(everything())
+        document["version"] = 2
+        del document["rules"]["active_hours"]
+        document["rules"].update(rules)
+        return document
+
+    def test_quiet_hours_are_read_as_around_the_clock(self) -> None:
+        # Outside the assistant's hours calls ring the user, so turning quiet hours into assistant
+        # hours would ring somebody through the very nights they asked to be left alone.
+        read = document_to_preferences(
+            self.older({"quiet_hours": {"start": "22:00", "end": "07:00", "zone": "Europe/London"}})
+        )
+        assert read.rules.active_hours is None
+
+    def test_no_quiet_hours_is_around_the_clock(self) -> None:
+        assert document_to_preferences(self.older({"quiet_hours": None})).rules.active_hours is None
+
+    def test_working_hours_are_read_as_around_the_clock_too(self) -> None:
+        # They changed no decision, only a phrase, so the design's default applies instead.
+        read = document_to_preferences(
+            self.older(
+                {"working_hours": {"start": "09:00", "end": "17:30", "zone": "Europe/London"}}
+            )
+        )
+        assert read.rules.active_hours is None
+
+    def test_the_older_notification_flag_is_read(self) -> None:
+        document = self.older({})
+        document["notifications"] = {"respect_quiet_hours": False}
+        assert not document_to_preferences(document).notifications.respect_active_hours
+
+    def test_a_document_that_says_active_hours_is_read_by_what_it_says(self) -> None:
+        # Written by this version and left carrying an older key: the newer field wins.
+        document = preferences_to_document(everything())
+        document["rules"]["quiet_hours"] = {"start": "01:00", "end": "02:00", "zone": "UTC"}
+        assert (
+            document_to_preferences(document).rules.active_hours == everything().rules.active_hours
+        )
+
+    def test_broken_quiet_hours_are_still_corruption(self) -> None:
+        with pytest.raises(InvariantError, match="stored hours"):
+            document_to_preferences(self.older({"quiet_hours": {"start": "22:00"}}))
+
+
 class TestPreferencesRepository:
     async def test_nothing_stored_is_nothing(self, session: AsyncSession) -> None:
         await a_user(session, USER, NUMBER)
@@ -263,7 +310,7 @@ class TestOnboardingRepository:
         await a_user(session, USER, NUMBER)
         repository = SqlOnboardingRepository(session, FixedClock(NOW))
         progress = OnboardingProgress(
-            completed=frozenset({OnboardingStep.INTRODUCTION}),
+            completed=frozenset({OnboardingStep.CALL_HANDLING}),
             skipped=frozenset({OnboardingStep.HOURS}),
         )
 
@@ -276,23 +323,23 @@ class TestOnboardingRepository:
         repository = SqlOnboardingRepository(session, FixedClock(NOW))
 
         await repository.save(
-            USER, OnboardingProgress(completed=frozenset({OnboardingStep.INTRODUCTION}))
+            USER, OnboardingProgress(completed=frozenset({OnboardingStep.CALL_HANDLING}))
         )
         await repository.save(
             USER,
             OnboardingProgress(
-                completed=frozenset({OnboardingStep.INTRODUCTION, OnboardingStep.CALL_HANDLING})
+                completed=frozenset({OnboardingStep.CALL_HANDLING, OnboardingStep.HOURS})
             ),
         )
 
         stored = await repository.get(USER)
-        assert stored.next_step is OnboardingStep.IMPORTANT_CONTACTS
+        assert stored.next_step is OnboardingStep.AUTHORITY
 
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
     ) -> None:
-        # A step removed from the flow should not stop somebody signing in, and one added by a
-        # newer deployment means nothing here. The worst outcome is being asked again.
+        # A step removed from the flow should not stop somebody signing in (D-032: introduction
+        # was), and one added by a newer deployment means nothing here.
         from sqlalchemy import insert
 
         from letmehandle.adapters.database.models import OnboardingRow
@@ -301,8 +348,8 @@ class TestOnboardingRepository:
         await session.execute(
             insert(OnboardingRow).values(
                 user_id=USER.value,
-                completed=["introduction", "a_step_from_the_future"],
-                skipped=[],
+                completed=["introduction", "call_handling", "a_step_from_the_future"],
+                skipped=["important_contacts", "personality"],
                 updated_at=NOW,
             )
         )
@@ -310,7 +357,9 @@ class TestOnboardingRepository:
 
         progress = await SqlOnboardingRepository(session, FixedClock(NOW)).get(USER)
 
-        assert progress.completed == frozenset({OnboardingStep.INTRODUCTION})
+        assert progress.completed == frozenset({OnboardingStep.CALL_HANDLING})
+        assert progress.skipped == frozenset()
+        assert progress.next_step is OnboardingStep.HOURS
 
     async def test_progress_is_per_user(self, session: AsyncSession) -> None:
         await a_user(session, USER, NUMBER)
@@ -318,7 +367,7 @@ class TestOnboardingRepository:
         repository = SqlOnboardingRepository(session, FixedClock(NOW))
 
         await repository.save(
-            USER, OnboardingProgress(completed=frozenset({OnboardingStep.INTRODUCTION}))
+            USER, OnboardingProgress(completed=frozenset({OnboardingStep.CALL_HANDLING}))
         )
 
         assert await repository.get(OTHER) == OnboardingProgress()
@@ -327,17 +376,17 @@ class TestOnboardingRepository:
 class TestMalformedDocuments:
     def test_hours_that_cannot_be_read_are_refused(self) -> None:
         # Corruption, not a value from a newer deployment — and the two want opposite handling.
-        # Quiet hours that silently disappear mean a phone ringing at three in the morning with
-        # nothing anywhere to say why.
+        # Hours that silently disappear mean a phone ringing at three in the morning with nothing
+        # anywhere to say why.
         document = preferences_to_document(everything())
-        document["rules"]["quiet_hours"]["start"] = "not a time"
+        document["rules"]["active_hours"]["start"] = "not a time"
 
         with pytest.raises(InvariantError, match="stored hours"):
             document_to_preferences(document)
 
     def test_hours_missing_a_field_are_refused(self) -> None:
         document = preferences_to_document(everything())
-        del document["rules"]["working_hours"]["zone"]
+        del document["rules"]["active_hours"]["zone"]
 
         with pytest.raises(InvariantError, match="stored hours"):
             document_to_preferences(document)
@@ -409,10 +458,10 @@ class TestCorruptEntries:
             document_to_preferences(document)
 
     def test_an_empty_window_document_is_corruption_rather_than_no_window(self) -> None:
-        # `None` is a user who set no quiet hours; `{}` is a row that lost them. Treating the
-        # second as the first is exactly the silent disappearance this module argues against.
+        # `None` is a user who set no hours; `{}` is a row that lost them. Treating the second as
+        # the first is exactly the silent disappearance this module argues against.
         document = preferences_to_document(everything())
-        document["rules"]["quiet_hours"] = {}
+        document["rules"]["active_hours"] = {}
 
         with pytest.raises(InvariantError, match="stored hours"):
             document_to_preferences(document)

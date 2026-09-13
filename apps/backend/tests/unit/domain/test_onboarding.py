@@ -29,10 +29,15 @@ class TestTheOrder:
         # guessing on the user's behalf is the one thing this product must not do.
         assert OnboardingStep.CALL_HANDLING not in SKIPPABLE
 
-    def test_the_introduction_cannot_be_skipped_either(self) -> None:
-        # Not because it is dangerous, but because skipping an explanation nobody read is how
-        # somebody ends up not knowing what the product does.
-        assert OnboardingStep.INTRODUCTION not in SKIPPABLE
+    def test_setup_asks_the_four_things_the_design_draws(self) -> None:
+        # D-032. Contacts and personality are edited from settings, not asked before anything
+        # works; adding a step back is a decision, so it should break a test.
+        assert ORDER == (
+            OnboardingStep.CALL_HANDLING,
+            OnboardingStep.HOURS,
+            OnboardingStep.AUTHORITY,
+            OnboardingStep.NOTIFICATIONS,
+        )
 
     def test_everything_skippable_is_a_real_step(self) -> None:
         assert set(ORDER) >= SKIPPABLE
@@ -46,17 +51,16 @@ class TestProgress:
         assert progress.remaining == ORDER
 
     def test_answering_moves_on(self) -> None:
-        progress = OnboardingProgress().completing(OnboardingStep.INTRODUCTION)
-        assert progress.next_step is OnboardingStep.CALL_HANDLING
+        progress = OnboardingProgress().completing(OnboardingStep.CALL_HANDLING)
+        assert progress.next_step is OnboardingStep.HOURS
 
     def test_skipping_moves_on_too(self) -> None:
         progress = (
             OnboardingProgress()
-            .completing(OnboardingStep.INTRODUCTION)
             .completing(OnboardingStep.CALL_HANDLING)
-            .skipping(OnboardingStep.IMPORTANT_CONTACTS)
+            .skipping(OnboardingStep.HOURS)
         )
-        assert progress.next_step is OnboardingStep.HOURS
+        assert progress.next_step is OnboardingStep.AUTHORITY
 
     def test_a_settled_step_is_never_asked_again(self) -> None:
         progress = OnboardingProgress().completing(OnboardingStep.HOURS)
@@ -112,13 +116,13 @@ class TestProgress:
 
     def test_recording_returns_a_new_value(self) -> None:
         original = OnboardingProgress()
-        original.completing(OnboardingStep.INTRODUCTION)
+        original.completing(OnboardingStep.CALL_HANDLING)
         assert original.completed == frozenset()
 
     def test_inserting_a_step_puts_it_in_front_of_whoever_has_not_reached_it(self) -> None:
         # The reason progress is a set rather than a cursor: a cursor silently means something
         # else the moment the order changes.
         partway = OnboardingProgress(
-            completed=frozenset({OnboardingStep.INTRODUCTION, OnboardingStep.CALL_HANDLING})
+            completed=frozenset({OnboardingStep.CALL_HANDLING, OnboardingStep.HOURS})
         )
         assert partway.next_step is ORDER[2]

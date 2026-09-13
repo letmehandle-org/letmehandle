@@ -99,11 +99,15 @@ export const en = {
   hours: {
     title: 'Hours',
     allTheTime: 'All the time',
+    set: 'Set hours',
     always: '24/7',
     alwaysOn: 'Always on',
-    windows:
-      'You have working or quiet hours set. They still apply to your calls.',
-    useAlways: 'Answer around the clock',
+    figure_one: '{{hours}} hr',
+    figure_other: '{{hours}} hrs',
+    aDay: 'A day',
+    from: 'From',
+    to: 'To',
+    outside: 'Outside these hours, calls ring you',
   },
   tabs: {
     home: 'Home',
@@ -132,7 +136,6 @@ export const en = {
     when: "When you're called",
     whenValue: 'If needed',
     hours: 'Hours',
-    hoursSet: 'Set',
     authority: 'What it may do',
     authorityValue: '{{granted}} of {{total}}',
     say: 'What it may say',

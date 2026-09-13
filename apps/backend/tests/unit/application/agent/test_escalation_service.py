@@ -17,7 +17,7 @@ from letmehandle.domain.models.escalation import EscalationReason, EscalationUrg
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
 from tests.support.recording_call_actions import Escalated, RecordingCallActions
-from tests.unit.application.agent.calls import RULES, THREE_AM, a_call
+from tests.unit.application.agent.calls import RULES, a_call, deferring
 
 URGENT = EscalationProposal(importance=CallImportance.URGENT, intent=CallIntent.PERSONAL)
 NOTABLE = EscalationProposal(importance=CallImportance.NOTABLE, intent=CallIntent.ENQUIRY)
@@ -30,13 +30,12 @@ def service() -> tuple[EscalationService, RecordingCallActions]:
 
 
 def test_the_circumstances_are_the_calls_rules_and_grant() -> None:
-    call = a_call(from_important_contact=True, now=THREE_AM)
+    call = a_call(from_important_contact=True)
 
     circumstances = circumstances_of(call)
 
     assert circumstances.rules is RULES
     assert circumstances.authority is call.authority
-    assert circumstances.now == THREE_AM
     assert circumstances.from_important_contact
 
 
@@ -81,9 +80,12 @@ async def test_each_call_is_escalated_on_its_own() -> None:
     assert [each.call_id.value for each in actions.of_kind(Escalated)] == ["call-1", "call-2"]
 
 
-async def test_a_call_escalated_for_later_rings_once_more_when_it_becomes_urgent() -> None:
+async def test_a_call_escalated_for_later_rings_once_more_when_it_becomes_urgent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     escalation, actions = service()
-    night = a_call(now=THREE_AM)
+    night = a_call()
 
     first = await escalation.consider(night, NOTABLE)
     await escalation.consider(night, NOTABLE)
@@ -96,9 +98,12 @@ async def test_a_call_escalated_for_later_rings_once_more_when_it_becomes_urgent
     assert [each.decision for each in actions.of_kind(Escalated)] == [first, second]
 
 
-async def test_a_call_already_rung_immediately_is_never_downgraded_into_another_ring() -> None:
+async def test_a_call_already_rung_immediately_is_never_downgraded_into_another_ring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     escalation, actions = service()
-    night = a_call(now=THREE_AM)
+    night = a_call()
 
     await escalation.consider(night, URGENT)
     later = await escalation.consider(night, NOTABLE)
@@ -119,9 +124,12 @@ async def test_a_failed_escalation_leaves_the_call_able_to_reach_the_user() -> N
     assert len(actions.actions) == 1
 
 
-async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing() -> None:
+async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     escalation, actions = service()
-    night = a_call(now=THREE_AM)
+    night = a_call()
     await escalation.consider(night, NOTABLE)
     actions.escalation_failures = [ConnectionError("the notification did not send")]
 
@@ -158,14 +166,17 @@ async def test_two_looks_at_the_same_moment_ring_once() -> None:
     assert len(actions.actions) == 1
 
 
-async def test_an_upgrade_that_reached_the_user_survives_an_earlier_look_failing() -> None:
+async def test_an_upgrade_that_reached_the_user_survives_an_earlier_look_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     # The first look is still ringing "while convenient" when the urgent one arrives. The first
     # fails; the urgent one reaches the user. The call has been escalated immediately, and asking
     # again must not ring a third time.
     escalation, actions = service()
     actions.escalation_gate = asyncio.Event()
     actions.escalation_failures = [ConnectionError("the notification did not send")]
-    night = a_call(now=THREE_AM)
+    night = a_call()
 
     earlier = asyncio.create_task(escalation.consider(night, NOTABLE))
     upgrade = asyncio.create_task(escalation.consider(night, URGENT))
@@ -180,11 +191,14 @@ async def test_an_upgrade_that_reached_the_user_survives_an_earlier_look_failing
     assert [each.decision for each in actions.of_kind(Escalated)] == [reached]
 
 
-async def test_two_looks_that_both_fail_leave_the_call_able_to_reach_the_user() -> None:
+async def test_two_looks_that_both_fail_leave_the_call_able_to_reach_the_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deferring(monkeypatch)
     escalation, actions = service()
     actions.escalation_gate = asyncio.Event()
     actions.escalation_failures = [ConnectionError("first"), ConnectionError("second")]
-    night = a_call(now=THREE_AM)
+    night = a_call()
 
     looks = [
         asyncio.create_task(escalation.consider(night, NOTABLE)),

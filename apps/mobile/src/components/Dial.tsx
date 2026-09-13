@@ -8,6 +8,8 @@ import { arcsFor, type Segment } from './dialGeometry';
 interface Props {
   readonly size?: number;
   readonly segments?: readonly Segment[];
+  /** Where the first segment begins, as a part of the way round from the top. */
+  readonly start?: number;
   /** The colour of the part no segment covers. */
   readonly rest?: string;
   /** Draw only a hairline ring: nothing to show yet. */
@@ -20,12 +22,13 @@ interface Props {
 /**
  * The ring: the app's one status object.
  *
- * Segments run clockwise from the top. With no data it is drawn as a hairline rather than as an
+ * Segments run clockwise from the top, or from `start` for a ring that is a clock. With no data it is drawn as a hairline rather than as an
  * empty grey ring, so "nothing yet" and "nothing handled" never look the same.
  */
 export function Dial({
   size = 220,
   segments = [],
+  start = 0,
   rest = theme.colour.dialRest,
   blank = false,
   children,
@@ -55,8 +58,8 @@ export function Dial({
             fill="none"
           />
         ) : (
-          // Rotated so that zero is at the top rather than at three o'clock.
-          <G rotation={-90} origin={`${centre}, ${centre}`}>
+          // Rotated so that zero is at the top rather than at three o'clock, then on to `start`.
+          <G rotation={-90 + start * 360} origin={`${centre}, ${centre}`}>
             <Circle
               cx={centre}
               cy={centre}

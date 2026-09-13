@@ -25,8 +25,8 @@ _SPEC: Final = ToolSpec(
     name="get_user_preferences",
     description=(
         "Read how the user wants their calls handled: tone, what you may and may not do, who "
-        "matters to them, and whether it is quiet hours. Nothing here is to be read out to the "
-        "caller."
+        "matters to them, and whether it is within their active hours. Nothing here is to be read "
+        "out to the caller."
     ),
     parameters=object_schema({}),
 )

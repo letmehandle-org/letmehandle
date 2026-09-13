@@ -123,11 +123,11 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
     """Turn a payload into domain values, refusing anything the domain would refuse.
 
     Every failure here is a 422 naming the section, because a domain error escaping this
-    function is a 500 — and "your quiet hours are impossible" is not a server fault.
+    function is a 500 — and "your hours are impossible" is not a server fault.
 
     Call handling and hours are carried separately rather than combined into a `CallRules`.
     Combining them here would mean filling the half that was not sent from the defaults, which
-    resets it: a user who blocked spam callers and then set quiet hours from another screen
+    resets it: a user who blocked spam callers and then set their hours from another screen
     would find the blocking gone.
     """
     try:
@@ -144,11 +144,7 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
                     escalate_at_or_above=body.call_handling.escalate_at_or_above,
                 )
             ),
-            hours=(
-                None
-                if body.hours is None
-                else Hours(working=_window(body.hours.working), quiet=_window(body.hours.quiet))
-            ),
+            hours=(None if body.hours is None else Hours(active=_window(body.hours.active))),
             authority=(
                 None
                 if body.authority is None
@@ -162,7 +158,7 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
                     on_blocked_call=body.notifications.on_blocked_call,
                     on_missed_escalation=body.notifications.on_missed_escalation,
                     daily_summary=body.notifications.daily_summary,
-                    respect_quiet_hours=body.notifications.respect_quiet_hours,
+                    respect_active_hours=body.notifications.respect_active_hours,
                 )
             ),
             formality=None if body.personality is None else body.personality.formality,
@@ -233,17 +229,14 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
             )
             for contact in preferences.important_contacts
         ],
-        hours=HoursPayload(
-            working=_window_payload(rules.working_hours),
-            quiet=_window_payload(rules.quiet_hours),
-        ),
+        hours=HoursPayload(active=_window_payload(rules.active_hours)),
         authority=AuthorityPayload(capabilities=sorted(preferences.authority.capabilities)),
         notifications=NotificationsPayload(
             on_handled_call=preferences.notifications.on_handled_call,
             on_blocked_call=preferences.notifications.on_blocked_call,
             on_missed_escalation=preferences.notifications.on_missed_escalation,
             daily_summary=preferences.notifications.daily_summary,
-            respect_quiet_hours=preferences.notifications.respect_quiet_hours,
+            respect_active_hours=preferences.notifications.respect_active_hours,
         ),
         personality=PersonalityPayload(
             formality=preferences.formality,

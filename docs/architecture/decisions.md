@@ -281,7 +281,7 @@ the document does not mention and a migration can tell the two apart.
 Reading is forgiving and writing is exact. A value this version does not recognise is dropped —
 it was written by a newer deployment, and refusing to load somebody's settings over a field they
 never set would lock them out of their own account. A value that is *corrupt* is not dropped: a
-malformed time or phone number raises, because quiet hours that silently disappear mean a phone
+malformed time or phone number raises, because hours that silently disappear mean a phone
 ringing at three in the morning with nothing anywhere to say why.
 
 Onboarding progress is separate because it changes on every step while preferences change
@@ -372,7 +372,7 @@ escalation the rules require.
 **Accepted trade: one ring per call, and no limit across calls.** The escalation service reaches
 the user at most once per call for each level of urgency, so the phone rings immediately at most
 once per call. A caller who persuades the model that their call is urgent can have it ring that
-once, even in quiet hours, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
+once, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
 limits across calls — per caller, per number, per night — belong to a later hardening phase, not to
 this one.
 
@@ -464,6 +464,101 @@ transport where that is possible and recorded as failed, never left in an indete
 as teardown's last write, once the call has been let go at its transport; a process that stops
 part-way through a teardown therefore leaves the call unfinished, for the next start to end and
 summarise, rather than ended with no summary that anything would ever write.
+
+## D-030 — Hours are when the assistant answers; none means around the clock
+
+**Accepted. Supersedes the separate working-hours and quiet-hours windows of phase 1.** The design
+asks one question — *when should the assistant work?* — and answers it with one ring on a clock and
+one line underneath: *outside these hours, calls ring you.* Two windows answered two questions
+nobody asks: working hours only ever fed the model a phrase, and quiet hours described when not to
+be disturbed, which the phone's own do-not-disturb already does.
+
+`CallRules.active_hours` is a `TimeWindow` or nothing. Nothing is the default and means always, so a
+user who never opens the hours screen has an assistant that answers 24/7, which is what the product
+promises before anyone configures it.
+
+- **Routing.** Outside the window the assistant answers nothing: a call it would have taken rings
+  the user instead. A call the rules reject is still rejected, and one that would ring still rings.
+  Written once, in `domain/policy/routing.py`, and applied after the order in D-031.
+- **Escalation.** The hours no longer defer anything. A call the assistant is still on after its
+  hours end is one that began inside them, and by then the user's phone rings for calls anyway, so
+  the policy reaches them immediately. `EscalationUrgency.WHILE_CONVENIENT`, and the escalation
+  service's upgrade from it, stay: today's policy does not choose it, and whether anything should is
+  a separate decision.
+- **Notifications.** `respect_active_hours` replaces `respect_quiet_hours`.
+- **Agent context.** `PreferenceContext.in_active_hours` replaces `in_quiet_hours` and
+  `in_working_hours`. The model is given a resolved answer, never a window.
+
+**Reading older documents (D-022).** Preferences move to version 4; version 3 belongs to the privacy
+section. A document written before 4 is read as around the clock, whatever windows it held, and nothing is written back until the user next
+saves. Neither older window meant "the assistant answers now", and turning quiet hours into
+assistant hours would ring somebody through exactly the nights they asked to be left alone. A stored
+window that is present but unreadable still raises: that is corruption, not an older shape.
+`respect_quiet_hours` is read as `respect_active_hours`.
+
+## D-031 — Whether a caller is a contact is decided where the address book is
+
+**Accepted.** The design sorts calls into two lanes: *your contacts ring you; everyone else meets
+the assistant.* Transports differ in where the call is first seen (D-005), so they differ in what
+they can know about a contact, and the rule is stated per transport rather than pretended equal.
+
+**The address book never leaves the device.** Not uploaded, not synced, and not hashed.
+Hashing is rejected explicitly, not overlooked: the space of phone numbers is small enough that a
+hash of one — salted or keyed with anything the server holds — is reversed by enumerating
+numbers, so an uploaded set of hashes is an uploaded address book with an extra step. Presenting
+it as privacy would be the misleading kind of half-built (D-005). A stored contact list would
+also be personal data of people who agreed to nothing (D-021), held for every user (D-012).
+
+What the server may know is what the user marks: **important contacts**, capped at 200, each with
+a label the user wrote. Marking one is a deliberate act on a single person, the same as today.
+
+How each transport decides `known_contact`:
+
+| Transport | Where the call is first seen | A caller is a contact when |
+| --- | --- | --- |
+| Android native (`can_screen_before_ringing`) | on the phone | the platform has already decided: a caller in the device's contacts is never shown to the screening service and rings (D-028), so the lane holds without the app reading the address book at all |
+| Streaming (`can_stream_call_audio_to_ai`) | on the server | the number is an important contact; nothing else is knowable there |
+
+So on the handset "your contacts" is exactly the address book, enforced by the platform, and on a
+streaming transport it means the contacts the user marked. The app says so on the streaming path
+rather than draw the same lane and quietly mean less. A phone may offer "mark
+these contacts as important" as a user action that sends only the numbers chosen; it never sends
+the rest.
+
+**One precedence, evaluated identically on the device and on the server.** It is written once, as
+`domain/policy/routing.py`; the handset's evaluator mirrors it from the versioned rules snapshot
+(D-028), and the server's router calls it. The handset never reaches the first step — the platform
+rings a withheld number without asking — and applies the rest to what it is shown:
+
+1. A withheld number: `anonymous_posture`.
+2. An important contact: that contact's own `posture`.
+3. A blocked category: reject. `known_contact` is never blocked — `CallRules` refuses a category
+   that is both blocked and postured, and the lanes posture it.
+4. The category's posture (`known_contact` included, by the table above), else `default_posture`.
+
+Then the user's hours (D-030): outside them, a call the order sent to the assistant rings the user
+instead. Rejected stays rejected; ringing stays ringing.
+
+**Device events report what was decided, not who was asked about.** A device-side screening event
+carries the category and the posture applied. It does not carry a contact's name from the address
+book; the only labels the server ever holds are the ones the user typed for important contacts,
+and those are never read to a caller.
+
+**The lanes are a preset, not a new default.** Two lanes are written by the client as ordinary
+call-handling rules (`known_contact` passes through, default and anonymous go to the assistant,
+`spam` is blocked). `CallRules` keeps its cautious defaults, because call handling is still the
+one step with no default safe to assume on somebody's behalf.
+
+## D-032 — Onboarding asks four things
+
+**Accepted.** Setup is call handling, hours, what the assistant may do, and when the user is
+told — the four steps the design draws. Introduction, important contacts and personality are no
+longer onboarding steps. They remain preferences, edited from settings: the agent still reads
+formality, verbosity, topics, facts and important contacts.
+
+Progress recorded against a removed step is ignored on read rather than refused (D-022): the
+step no longer exists, so having answered it neither advances nor blocks anybody. Call handling
+stays unskippable.
 
 ## D-033 — Whose call a call is, the transport side says
 

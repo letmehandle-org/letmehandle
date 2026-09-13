@@ -67,7 +67,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
             "on_blocked_call": preferences.notifications.on_blocked_call,
             "on_missed_escalation": preferences.notifications.on_missed_escalation,
             "daily_summary": preferences.notifications.daily_summary,
-            "respect_quiet_hours": preferences.notifications.respect_quiet_hours,
+            "respect_active_hours": preferences.notifications.respect_active_hours,
         },
         "important_contacts": [
             {
@@ -90,8 +90,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
                 category.value for category in preferences.rules.blocked_categories
             ),
             "escalate_at_or_above": preferences.rules.escalate_at_or_above.value,
-            "working_hours": _window_to_document(preferences.rules.working_hours),
-            "quiet_hours": _window_to_document(preferences.rules.quiet_hours),
+            "active_hours": _window_to_document(preferences.rules.active_hours),
         },
     }
 
@@ -160,8 +159,7 @@ def document_to_preferences(document: object) -> UserPreferences:
                 if (category := _enum(CallerCategory, raw, None)) is not None
             ),
             escalate_at_or_above=_importance(rules_document.get("escalate_at_or_above")),
-            working_hours=_window_from_document(rules_document.get("working_hours")),
-            quiet_hours=_window_from_document(rules_document.get("quiet_hours")),
+            active_hours=_active_hours_from_document(rules_document),
         ),
     )
 
@@ -267,7 +265,7 @@ def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
 def _window_from_document(document: object) -> TimeWindow | None:
     """No window at all is `None`; a window that is there and unreadable raises.
 
-    `None` and `{}` are not the same thing. The first is a user who set no quiet hours; the
+    `None` and `{}` are not the same thing. The first is a user who set no hours; the
     second is a row that lost them, and treating it as the first is exactly the silent
     disappearance this module argues against everywhere else.
     """
@@ -287,6 +285,25 @@ def _window_from_document(document: object) -> TimeWindow | None:
         return TimeWindow(start=_parse_time(start), end=_parse_time(end), zone=zone)
     except ValueError as error:
         raise InvariantError(f"stored hours could not be read: {error}") from error
+
+
+def _active_hours_from_document(rules_document: dict[str, Any]) -> TimeWindow | None:
+    """The assistant's hours, including from a document written before there were any (D-030).
+
+    A version 4 document says so directly. An older one has quiet or working hours, and neither
+    meant "the assistant answers now": outside a window of assistant hours calls ring the user,
+    so turning quiet hours into one would ring somebody through exactly the nights they asked to
+    be left alone. Around the clock is the reading that keeps the assistant answering then. An
+    older window that is present but corrupt still raises, because it is corruption either way.
+
+    Keyed on the field being present rather than on the version number, so a document that has
+    both (written by this version, read after a rollback and a save) is read by what it says.
+    """
+    if "active_hours" in rules_document:
+        return _window_from_document(rules_document["active_hours"])
+    for older in ("quiet_hours", "working_hours"):
+        _window_from_document(rules_document.get(older))
+    return None
 
 
 def _parse_time(value: str) -> time:
@@ -340,7 +357,13 @@ def _notifications_from_document(document: dict[str, Any]) -> NotificationPrefer
             document.get("on_missed_escalation", defaults.on_missed_escalation)
         ),
         daily_summary=bool(document.get("daily_summary", defaults.daily_summary)),
-        respect_quiet_hours=bool(document.get("respect_quiet_hours", defaults.respect_quiet_hours)),
+        # The older name for the same boundary (D-030), read when the newer one is absent.
+        respect_active_hours=bool(
+            document.get(
+                "respect_active_hours",
+                document.get("respect_quiet_hours", defaults.respect_active_hours),
+            )
+        ),
     )
 
 

@@ -27,8 +27,7 @@ FULL_CALL_HANDLING: dict[str, Any] = {
 }
 
 LONDON_HOURS: dict[str, Any] = {
-    "working": {"start": "09:00", "end": "17:30", "zone": "Europe/London"},
-    "quiet": {"start": "22:00", "end": "07:00", "zone": "Europe/London"},
+    "active": {"start": "07:00", "end": "22:00", "zone": "Europe/London"},
 }
 
 
@@ -55,7 +54,7 @@ class TestReading:
         # The safest reasonable option everywhere: nothing granted, nothing disclosed.
         assert preferences["authority"]["capabilities"] == []
         assert preferences["important_contacts"] == []
-        assert preferences["hours"]["working"] is None
+        assert preferences["hours"]["active"] is None
         assert preferences["notifications"]["on_handled_call"] is False
 
     async def test_it_needs_a_token(self, api: Api) -> None:
@@ -94,7 +93,7 @@ class TestPartialUpdates:
                     "on_blocked_call": True,
                     "on_missed_escalation": False,
                     "daily_summary": True,
-                    "respect_quiet_hours": False,
+                    "respect_active_hours": False,
                 },
                 "personality": {
                     "formality": "formal",
@@ -108,7 +107,7 @@ class TestPartialUpdates:
 
         after = await read(api, tokens)
         assert after["locale"] == "en-GB"
-        assert after["hours"]["quiet"]["zone"] == "Europe/London"
+        assert after["hours"]["active"]["zone"] == "Europe/London"
         assert sorted(after["authority"]["capabilities"]) == [
             "confirm_appointments",
             "take_a_message",
@@ -119,14 +118,28 @@ class TestPartialUpdates:
         assert after["important_contacts"][0]["label"] == "The school"
 
     async def test_hours_can_be_cleared(self, api: Api) -> None:
-        # Absent leaves alone; explicitly empty clears. Without both, quiet hours once set
-        # could never be removed.
+        # Absent leaves alone; explicitly empty clears. Without both, hours once set could never
+        # go back to around the clock.
         tokens = await sign_in(api)
         await patch(api, tokens, {"hours": LONDON_HOURS})
 
-        await patch(api, tokens, {"hours": {"working": None, "quiet": None}})
+        await patch(api, tokens, {"hours": {"active": None}})
 
-        assert (await read(api, tokens))["hours"]["working"] is None
+        assert (await read(api, tokens))["hours"] == {"active": None}
+
+    async def test_a_new_user_s_assistant_works_around_the_clock(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        assert (await read(api, tokens))["hours"] == {"active": None}
+
+    async def test_the_two_windows_of_the_old_shape_are_refused(self, api: Api) -> None:
+        # D-030. Accepting and ignoring them would tell an old client its quiet hours saved.
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/preferences",
+            headers=bearer(tokens),
+            json={"hours": {"quiet": {"start": "22:00", "end": "07:00", "zone": "UTC"}}},
+        )
+        assert response.status_code == 422
 
     async def test_a_number_is_normalised_before_it_is_stored(self, api: Api) -> None:
         tokens = await sign_in(api)
@@ -171,7 +184,7 @@ class TestTheTwoHalvesOfOneDomainObject:
         assert after["call_handling"]["posture_by_category"] == {"known_contact": "pass_through"}
 
     async def test_saving_call_handling_does_not_reset_hours(self, api: Api) -> None:
-        # A user who sets quiet hours and then changes how unknown callers are treated must not
+        # A user who sets their hours and then changes how unknown callers are treated must not
         # find their phone ringing at three in the morning.
         tokens = await sign_in(api)
         await patch(api, tokens, {"hours": LONDON_HOURS})
@@ -179,8 +192,7 @@ class TestTheTwoHalvesOfOneDomainObject:
         await patch(api, tokens, {"call_handling": FULL_CALL_HANDLING})
 
         after = await read(api, tokens)
-        assert after["hours"]["quiet"] == LONDON_HOURS["quiet"]
-        assert after["hours"]["working"] == LONDON_HOURS["working"]
+        assert after["hours"] == LONDON_HOURS
 
 
 class TestConcurrentSaves:
@@ -419,42 +431,43 @@ class TestOnboarding:
         response = await api.client.get("/v1/onboarding", headers=bearer(tokens))
 
         assert response.status_code == 200
-        assert response.json()["next_step"] == "introduction"
+        assert response.json()["next_step"] == "call_handling"
         assert response.json()["is_complete"] is False
 
     async def test_recording_a_step_moves_to_the_next(self, api: Api) -> None:
         tokens = await sign_in(api)
         response = await api.client.post(
-            "/v1/onboarding", headers=bearer(tokens), json={"step": "introduction"}
+            "/v1/onboarding", headers=bearer(tokens), json={"step": "call_handling"}
         )
-        assert response.json()["next_step"] == "call_handling"
+        assert response.json()["next_step"] == "hours"
 
     async def test_progress_survives_a_new_session(self, api: Api) -> None:
         # Held on the server, so reinstalling or signing in elsewhere resumes rather than
         # starting again. This is the test that would fail if it were kept on the device.
         first = await sign_in(api)
         await api.client.post(
-            "/v1/onboarding", headers=bearer(first), json={"step": "introduction"}
+            "/v1/onboarding", headers=bearer(first), json={"step": "call_handling"}
         )
 
         second = await sign_in(api)
         response = await api.client.get("/v1/onboarding", headers=bearer(second))
 
-        assert response.json()["next_step"] == "call_handling"
+        assert response.json()["next_step"] == "hours"
 
     async def test_a_skippable_step_can_be_skipped(self, api: Api) -> None:
         tokens = await sign_in(api)
-        for step in ("introduction", "call_handling"):
-            await api.client.post("/v1/onboarding", headers=bearer(tokens), json={"step": step})
+        await api.client.post(
+            "/v1/onboarding", headers=bearer(tokens), json={"step": "call_handling"}
+        )
 
         response = await api.client.post(
             "/v1/onboarding",
             headers=bearer(tokens),
-            json={"step": "important_contacts", "skipped": True},
+            json={"step": "hours", "skipped": True},
         )
 
-        assert response.json()["next_step"] == "hours"
-        assert "important_contacts" in response.json()["skipped"]
+        assert response.json()["next_step"] == "authority"
+        assert "hours" in response.json()["skipped"]
 
     async def test_call_handling_cannot_be_skipped(self, api: Api) -> None:
         # There is no safe default for an unknown caller, and guessing on somebody's behalf is
@@ -470,15 +483,7 @@ class TestOnboarding:
 
     async def test_finishing_every_step_completes_it(self, api: Api) -> None:
         tokens = await sign_in(api)
-        steps = [
-            "introduction",
-            "call_handling",
-            "important_contacts",
-            "hours",
-            "authority",
-            "notifications",
-            "personality",
-        ]
+        steps = ["call_handling", "hours", "authority", "notifications"]
         for step in steps:
             response = await api.client.post(
                 "/v1/onboarding", headers=bearer(tokens), json={"step": step}
@@ -492,6 +497,15 @@ class TestOnboarding:
         tokens = await sign_in(api)
         response = await api.client.post(
             "/v1/onboarding", headers=bearer(tokens), json={"step": "invented"}
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("removed", ["introduction", "important_contacts", "personality"])
+    async def test_a_step_setup_no_longer_asks_is_refused(self, api: Api, removed: str) -> None:
+        # D-032: these are settings now, and recording one would be recording nothing.
+        tokens = await sign_in(api)
+        response = await api.client.post(
+            "/v1/onboarding", headers=bearer(tokens), json={"step": removed}
         )
         assert response.status_code == 422
 
@@ -520,10 +534,12 @@ class TestIsolation:
         mine = await sign_in(api)
         theirs = await sign_in(api, ANOTHER_NUMBER)
 
-        await api.client.post("/v1/onboarding", headers=bearer(mine), json={"step": "introduction"})
+        await api.client.post(
+            "/v1/onboarding", headers=bearer(mine), json={"step": "call_handling"}
+        )
 
         response = await api.client.get("/v1/onboarding", headers=bearer(theirs))
-        assert response.json()["next_step"] == "introduction"
+        assert response.json()["next_step"] == "call_handling"
 
 
 class TestTranscriptRetention:

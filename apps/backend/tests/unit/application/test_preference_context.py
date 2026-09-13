@@ -66,8 +66,7 @@ def fully_populated() -> UserPreferences:
             },
             blocked_categories=frozenset({CallerCategory.SPAM, CallerCategory.SALES}),
             anonymous_posture=HandlingPosture.REJECT,
-            quiet_hours=TimeWindow(time(22, 0), time(7, 0), LONDON),
-            working_hours=TimeWindow(time(9, 0), time(17, 0), LONDON),
+            active_hours=TimeWindow(time(7, 0), time(22, 0), LONDON),
             escalate_at_or_above=CallImportance.URGENT,
         ),
         authority=AgentAuthority.granting(
@@ -128,17 +127,12 @@ class TestTheInstant:
         with pytest.raises(InvariantError):
             build_preference_context(fully_populated(), now=datetime(2026, 6, 1, 12, 0))
 
-    def test_quiet_hours_are_resolved_not_handed_over(self) -> None:
-        # The model is told whether it is quiet now, never the window. A window is arithmetic,
-        # and arithmetic in a prompt is a coin toss about whether the user gets woken up.
+    def test_active_hours_are_resolved_not_handed_over(self) -> None:
+        # The model is told whether the assistant is in its hours now, never the window. A window
+        # is arithmetic, and arithmetic in a prompt is a coin toss about whether somebody is woken.
         preferences = fully_populated()
-        assert not build_preference_context(preferences, now=MIDDAY).in_quiet_hours
-        assert build_preference_context(preferences, now=MIDNIGHT).in_quiet_hours
-
-    def test_working_hours_are_resolved_in_the_users_zone(self) -> None:
-        preferences = fully_populated()
-        assert build_preference_context(preferences, now=MIDDAY).in_working_hours
-        assert not build_preference_context(preferences, now=MIDNIGHT).in_working_hours
+        assert build_preference_context(preferences, now=MIDDAY).in_active_hours
+        assert not build_preference_context(preferences, now=MIDNIGHT).in_active_hours
 
     def test_the_zone_the_instant_arrives_in_does_not_change_the_answer(self) -> None:
         preferences = fully_populated()
@@ -146,12 +140,10 @@ class TestTheInstant:
         in_utc = build_preference_context(preferences, now=MIDNIGHT.astimezone(UTC))
         assert in_london == in_utc
 
-    def test_unset_windows_resolve_the_way_the_rules_say(self) -> None:
-        # Not having said when you sleep is not the same as never sleeping, and not having said
-        # when you work cannot mean never working, or the assistant takes every call.
+    def test_no_window_means_the_assistant_is_always_active(self) -> None:
+        # Hours nobody set are around the clock (D-030), including in the middle of the night.
         context = build_preference_context(UserPreferences(), now=MIDNIGHT)
-        assert not context.in_quiet_hours
-        assert context.in_working_hours
+        assert context.in_active_hours
 
 
 class TestWhatIsNotDisclosed:
@@ -268,8 +260,7 @@ def test_the_whole_shape_of_the_context() -> None:
         ),
         blocked_categories=(CallerCategory.SALES, CallerCategory.SPAM),
         escalate_at_or_above=CallImportance.URGENT,
-        in_quiet_hours=False,
-        in_working_hours=True,
+        in_active_hours=True,
         capabilities=(
             CapabilityStatement(
                 Capability.ANSWER_QUESTIONS_ABOUT_AVAILABILITY,

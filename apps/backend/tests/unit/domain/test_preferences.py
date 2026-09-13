@@ -53,13 +53,13 @@ class TestTimeWindow:
         assert not window.contains(at(2026, 6, 1, 17, 0))
 
     def test_a_window_that_wraps_past_midnight_works(self) -> None:
-        # Quiet hours are the ordinary case, and they are the case a naive between gets wrong.
-        quiet = TimeWindow(time(22, 0), time(7, 0), LONDON)
-        assert quiet.wraps_midnight
-        assert quiet.contains(at(2026, 6, 1, 23))
-        assert quiet.contains(at(2026, 6, 1, 2))
-        assert not quiet.contains(at(2026, 6, 1, 12))
-        assert not quiet.contains(at(2026, 6, 1, 7, 0))
+        # An evening that runs into the night is the case a naive between gets wrong.
+        evening = TimeWindow(time(22, 0), time(7, 0), LONDON)
+        assert evening.wraps_midnight
+        assert evening.contains(at(2026, 6, 1, 23))
+        assert evening.contains(at(2026, 6, 1, 2))
+        assert not evening.contains(at(2026, 6, 1, 12))
+        assert not evening.contains(at(2026, 6, 1, 7, 0))
 
     def test_the_window_is_evaluated_in_its_own_zone_not_the_instant_s(self) -> None:
         # The mistake this prevents: a user's nine-to-five compared against a server's clock.
@@ -135,18 +135,15 @@ class TestCallRules:
                 posture_by_category={CallerCategory.SALES: HandlingPosture.PASS_THROUGH},
             )
 
-    def test_quiet_hours_are_absent_until_set(self) -> None:
-        assert not CallRules().is_quiet_at(at(2026, 6, 1, 3))
+    def test_with_no_hours_set_the_assistant_is_always_active(self) -> None:
+        # The product's promise before anyone configures it: around the clock (D-030).
+        assert CallRules().active_hours is None
+        assert CallRules().is_active_at(at(2026, 6, 1, 3))
 
-    def test_quiet_hours_apply_when_set(self) -> None:
-        rules = CallRules(quiet_hours=TimeWindow(time(22, 0), time(7, 0), LONDON))
-        assert rules.is_quiet_at(at(2026, 6, 1, 3))
-        assert not rules.is_quiet_at(at(2026, 6, 1, 12))
-
-    def test_unset_working_hours_mean_unknown_rather_than_never(self) -> None:
-        # A user who has not said when they work cannot be assumed unavailable, or the
-        # assistant answers everything.
-        assert CallRules().is_working_at(at(2026, 6, 1, 3))
+    def test_active_hours_apply_when_set(self) -> None:
+        rules = CallRules(active_hours=TimeWindow(time(7, 0), time(22, 0), LONDON))
+        assert rules.is_active_at(at(2026, 6, 1, 12))
+        assert not rules.is_active_at(at(2026, 6, 1, 3))
 
     def test_the_escalation_threshold_defaults_to_notable(self) -> None:
         assert CallRules().escalate_at_or_above is CallImportance.NOTABLE
@@ -244,8 +241,8 @@ class TestNotificationPreferences:
         # off would leave a phone ringing with no idea why.
         assert NotificationPreferences().on_escalation
 
-    def test_quiet_hours_are_respected_by_default(self) -> None:
-        assert NotificationPreferences().respect_quiet_hours
+    def test_active_hours_are_respected_by_default(self) -> None:
+        assert NotificationPreferences().respect_active_hours
 
     def test_a_missed_escalation_is_worth_knowing_about(self) -> None:
         assert NotificationPreferences().on_missed_escalation

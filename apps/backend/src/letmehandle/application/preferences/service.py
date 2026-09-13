@@ -60,10 +60,9 @@ class CallHandling:
 
 @dataclass(frozen=True, slots=True)
 class Hours:
-    """The scheduling half. Both members are optional, and absent means "no window"."""
+    """The scheduling half: when the assistant works. No window means around the clock (D-030)."""
 
-    working: TimeWindow | None = None
-    quiet: TimeWindow | None = None
+    active: TimeWindow | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +92,7 @@ class PreferenceChanges:
     # Call handling and hours are two screens and one domain object. They are carried
     # separately here, and recombined against what is stored, because building a whole
     # `CallRules` in the HTTP layer means the half that was not sent is filled from the
-    # defaults — which resets it. A user who blocked spam callers and then set quiet hours
+    # defaults — which resets it. A user who blocked spam callers and then set their hours
     # from a different screen would find the blocking silently gone.
     call_handling: CallHandling | None = None
     hours: Hours | None = None
@@ -164,8 +163,7 @@ def _merge_rules(current: CallRules, changes: PreferenceChanges) -> CallRules:
         escalate_at_or_above=(
             current.escalate_at_or_above if handling is None else handling.escalate_at_or_above
         ),
-        working_hours=current.working_hours if hours is None else hours.working,
-        quiet_hours=current.quiet_hours if hours is None else hours.quiet,
+        active_hours=current.active_hours if hours is None else hours.active,
     )
 
 

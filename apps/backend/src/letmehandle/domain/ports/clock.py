@@ -1,7 +1,7 @@
 """Time and identity, injected.
 
 Nothing in the domain calls `datetime.now()` or generates an identifier inline. Both are inputs
-to a decision — quiet hours, escalation timeouts, call identity — and code that reaches for
+to a decision — active hours, escalation timeouts, call identity — and code that reaches for
 them directly cannot be tested without either waiting or patching a module, and patching a
 module is a test that passes because of where a symbol happens to live.
 """

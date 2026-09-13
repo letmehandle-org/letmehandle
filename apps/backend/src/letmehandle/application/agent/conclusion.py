@@ -88,7 +88,7 @@ def _why_not_to_end(ending: CallEnding, decision: EscalationDecision) -> str | N
             return None
         return "the user was not reached for this call, so it was not handed over"
     # Only an immediate escalation holds the caller on the line. One the rules defer — a note for
-    # the user once quiet hours are over — needs nobody to stay, so the call may end.
+    # the user later — needs nobody to stay, so the call may end.
     if decision.is_immediate:
         return "the user's rules call for reaching the user, so the call was not ended"
     return None
