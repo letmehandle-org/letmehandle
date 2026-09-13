@@ -58,7 +58,6 @@ SIMULATED_APP: Final = "application-simulated"
 PUBLIC_BASE_URL: Final = "https://calls.example.com"
 OUR_NUMBER: Final = PhoneNumber.parse("+12025550100")
 CALLER_NUMBER: Final = "+12025550123"
-USER_NUMBER: Final = PhoneNumber.parse("+12025550143")
 IDEMPOTENCY_HEADER: Final = "I-Twilio-Idempotency-Token"
 
 _API_PREFIX: Final = f"/2010-04-01/Accounts/{SIMULATED_ACCOUNT}"
@@ -352,8 +351,7 @@ class SimulatedTwilio:
                 return await self._end_conference(sid, "conference-ended-via-api")
             case ("POST", ["Calls", call_sid]):
                 return await self._update_call(call_sid, fields["Status"])
-            case _:
-                return _error(404, 20404)
+        return _error(404, 20404)
 
     def _create_participant(self, name: str, params: list[tuple[str, str]]) -> httpx.Response:
         fields = dict(params)
@@ -763,7 +761,7 @@ async def simulated_deployment(
             await provider.close()
             collector.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await collector
+                await asyncio.wait_for(collector, timeout=5)
 
 
 @asynccontextmanager
@@ -785,5 +783,5 @@ async def _serving(app: FastAPI) -> AsyncIterator[str]:
         yield f"http://127.0.0.1:{port}"
     finally:
         server.should_exit = True
-        await task
+        await asyncio.wait_for(task, timeout=5)
         listener.close()

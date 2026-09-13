@@ -18,6 +18,7 @@ from letmehandle.application.speech.conversation import Conversation, Conversati
 from letmehandle.domain.errors import IllegalTransitionError
 from letmehandle.domain.models.audio import TELEPHONY_NARROWBAND, AudioFrame
 from letmehandle.domain.models.identifiers import CallId
+from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
     AssistantPresence,
     CallEventKind,
@@ -31,7 +32,6 @@ from tests.contracts.fakes import EchoSpeechProvider, EchoSpeechSession, FixedCl
 from tests.support.recording_metrics import RecordingMetrics
 from tests.support.simulated_twilio import (
     SIMULATED_ACCOUNT,
-    USER_NUMBER,
     Answering,
     Delivery,
     Deployment,
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 CALL = CallId("CAsim-caller")
+USER_NUMBER = PhoneNumber.parse("+12025550143")
 
 
 @pytest.fixture

@@ -266,6 +266,12 @@ class SqlPreferencesRepository(PreferencesRepository):
         self._clock = clock
 
     async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
+        if for_update:
+            # The user's row as well as the preferences row: before a user's first save there is
+            # no preferences row to lock, and two first saves would each compose from the defaults.
+            await self._session.execute(
+                select(UserRow.id).where(UserRow.id == user_id.value).with_for_update()
+            )
         row = await self._session.get(PreferencesRow, user_id.value, with_for_update=for_update)
         if row is None:
             return None

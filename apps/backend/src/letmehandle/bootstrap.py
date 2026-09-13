@@ -362,9 +362,9 @@ def build_call_transport(
     lets a test put a simulated provider where the provider's API would be, without
     constructing the adapter.
     """
+    if settings.telephony_provider is None:
+        return None
     match settings.telephony_provider:
-        case None:
-            return None
         case TelephonyProviderName.ANDROID_NATIVE:
             # The handset reports over the application's own authenticated route, which exists
             # whichever transport is chosen, so this transport brings no routes of its own and

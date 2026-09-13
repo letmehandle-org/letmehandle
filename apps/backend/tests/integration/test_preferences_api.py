@@ -184,37 +184,66 @@ class TestTheTwoHalvesOfOneDomainObject:
 
 
 class TestConcurrentSaves:
-    async def test_two_sections_saved_at_once_both_survive(self, api: Api) -> None:
-        """A phone saving two screens in quick succession.
+    # Rounds of two saves at once. One round loses a change only when the two requests interleave,
+    # so a single round passes by luck; before the fix twenty rounds lost a change in nearly all.
+    ROUNDS = 20
 
-        The service reads, composes and writes; without the read being taken for update, both
-        requests start from the same values and the second overwrites the first. Measured
-        before the fix, the earlier change was lost fourteen times in fifteen.
+    async def test_two_sections_saved_at_once_both_survive(self, api: Api) -> None:
+        """A phone saving two screens in quick succession, before and after a first save.
+
+        The service reads, composes and writes; without that read locking something that exists,
+        both requests start from the same values and the second overwrites the first. Before a
+        user's first save there is no preferences row, so the lock has to be taken elsewhere.
         """
         import asyncio
 
+        from sqlalchemy import delete
+
+        from letmehandle.adapters.database.models import PreferencesRow
+
         tokens = await sign_in(api)
+        lost = 0
+        for round_number in range(self.ROUNDS):
+            if round_number % 2 == 0:
+                # Every other round starts with no stored preferences at all.
+                async with api.app.state.session_factory() as session:
+                    await session.execute(delete(PreferencesRow))
+                    await session.commit()
 
-        first, second = await asyncio.gather(
-            api.client.patch(
-                "/v1/preferences",
-                headers=bearer(tokens),
-                json={"personality": {"formality": "warm", "verbosity": "brief", "topics": ["a"]}},
-            ),
-            api.client.patch(
-                "/v1/preferences",
-                headers=bearer(tokens),
-                json={"notifications": {"on_handled_call": True}},
-            ),
-        )
+            first, second = await asyncio.gather(
+                api.client.patch(
+                    "/v1/preferences",
+                    headers=bearer(tokens),
+                    json={
+                        "personality": {"formality": "warm", "verbosity": "brief", "topics": ["a"]}
+                    },
+                ),
+                api.client.patch(
+                    "/v1/preferences",
+                    headers=bearer(tokens),
+                    json={"notifications": {"on_handled_call": True}},
+                ),
+            )
+            assert first.status_code == 200
+            assert second.status_code == 200
 
-        assert first.status_code == 200
-        assert second.status_code == 200
+            after = await read(api, tokens)
+            kept = (
+                after["personality"]["formality"] == "warm"
+                and after["personality"]["topics"] == ["a"]
+                and after["notifications"]["on_handled_call"] is True
+            )
+            lost += not kept
+            await patch(
+                api,
+                tokens,
+                {
+                    "personality": {"formality": "neutral", "verbosity": "brief", "topics": []},
+                    "notifications": {"on_handled_call": False},
+                },
+            )
 
-        after = await read(api, tokens)
-        assert after["personality"]["formality"] == "warm"
-        assert after["personality"]["topics"] == ["a"]
-        assert after["notifications"]["on_handled_call"] is True
+        assert lost == 0, f"a change was lost in {lost} of {self.ROUNDS} rounds"
 
 
 class TestReplacing:
