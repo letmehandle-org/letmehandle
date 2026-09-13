@@ -248,6 +248,21 @@ async def test_audio_formats_this_adapter_cannot_read_are_a_permanent_failure(
     assert service.open_connections == 0
 
 
+async def test_an_unreadable_event_before_the_conversation_begins_is_counted_not_fatal(
+    provider: ElevenLabsSpeechProvider,
+    service: ScriptedElevenLabsService,
+    metrics: RecordingMetrics,
+) -> None:
+    service.begins = False
+    connecting = asyncio.create_task(connect(provider))
+    await service.wait_for_sent("conversation_initiation_client_data")
+    service.current.emit({"type": "ping", "ping_event": {"ping_ms": 20}})
+    service.current.begin()
+    async with await connecting:
+        assert metrics.counted(telemetry.STREAM_ERRORS, kind="malformed") == 1
+    assert len(service.connections) == 1
+
+
 @pytest.mark.parametrize("retryable", [True, False])
 async def test_a_refused_connection_is_a_typed_error_that_says_whether_to_retry(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService, retryable: bool

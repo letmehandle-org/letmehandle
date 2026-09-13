@@ -109,6 +109,9 @@ class ElevenLabsSpeechSession(StreamingSpeechSession[Inbound]):
         try:
             signal = protocol.parse(event)
         except MalformedEventError as error:
+            if error.event_type != protocol.INITIATION_METADATA:
+                self._telemetry.stream_error(StreamErrorKind.MALFORMED)
+                return None
             # The same agent names the same unreadable formats on the next attempt.
             raise ConnectionFailedError(str(error), retryable=False) from None
         if isinstance(signal, Ping):

@@ -90,6 +90,9 @@ from letmehandle.domain.models.audio import AudioEncoding, AudioFormat
 if TYPE_CHECKING:
     from letmehandle.adapters.speech.session_support.fields import Event
 
+# The event that begins a conversation and names its audio formats.
+INITIATION_METADATA: Final = "conversation_initiation_metadata"
+
 # What an agent speaks and hears unless it has been configured otherwise.
 DEFAULT_WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 16_000)
 
@@ -194,7 +197,7 @@ def parse(event: Event) -> Inbound | None:
     """
     event_type = event.get("type")
     match event_type:
-        case "conversation_initiation_metadata":
+        case str() if event_type == INITIATION_METADATA:
             body = mapping(event, "conversation_initiation_metadata_event", event_type)
             return ConversationBegan(
                 input_format=_format(body, "user_input_audio_format", event_type),
