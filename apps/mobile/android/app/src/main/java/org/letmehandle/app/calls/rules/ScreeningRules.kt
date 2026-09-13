@@ -19,7 +19,6 @@ enum class ScreeningReason {
   BLOCKED_CATEGORY,
   CATEGORY_POSTURE,
   DEFAULT_POSTURE,
-  QUIET_HOURS,
   TIMED_OUT,
   FAILED,
 }
@@ -63,9 +62,8 @@ sealed interface ScreenedCaller {
  *      the future than the clock-skew allowance): the call rings. A caller is never refused on
  *      rules the handset does not have or can no longer vouch for.
  *   2. A withheld number: the anonymous posture. A number that simply did not arrive rings, as a
- *      caller put through would — silenced in quiet hours, never rejected.
- *   3. An important contact: their own posture. A contact the user asked to put through rings
- *      during quiet hours too — that is what naming them was for. A contact is recognised by the
+ *      caller put through would — never rejected.
+ *   3. An important contact: their own posture. A contact is recognised by the
  *      caller's number in international form. When a national number cannot be put in that form,
  *      trailing digits that agree are only a guess, and a guess may let a call ring but never
  *      refuse or hide one: it counts only for a contact the user asked to put through.
@@ -74,7 +72,8 @@ sealed interface ScreenedCaller {
  *
  * Postures become decisions like this. `reject` rejects. `pass_through` rings. `handle_with_agent`
  * also rings, because this path has no assistant to hand the call to, and hiding a call the user
- * did not ask to hide is worse than letting it ring. Either of those is silenced in quiet hours.
+ * did not ask to hide is worse than letting it ring. The user's hours change nothing here: they
+ * decide when the assistant answers, and outside them a call rings (D-029) — as it does here anyway.
  */
 object ScreeningRules {
   fun evaluate(
@@ -93,19 +92,15 @@ object ScreeningRules {
     val presented =
         when (caller) {
           ScreenedCaller.Withheld ->
-              return decide(snapshot, snapshot.anonymousPosture, ScreeningReason.WITHHELD_NUMBER, now)
+              return decide(snapshot.anonymousPosture, ScreeningReason.WITHHELD_NUMBER)
           ScreenedCaller.NotDelivered ->
-              return decide(snapshot, HandlingPosture.PASS_THROUGH, ScreeningReason.NUMBER_NOT_DELIVERED, now)
+              return decide(HandlingPosture.PASS_THROUGH, ScreeningReason.NUMBER_NOT_DELIVERED)
           is ScreenedCaller.Presented -> caller.number
         }
 
     val contact = presented?.let { importantContact(snapshot, it, country) }
     if (contact != null) {
-      return if (contact.posture == HandlingPosture.PASS_THROUGH) {
-        Screening(ScreeningDecision.ALLOW, ScreeningReason.IMPORTANT_CONTACT)
-      } else {
-        decide(snapshot, contact.posture, ScreeningReason.IMPORTANT_CONTACT, now)
-      }
+      return decide(contact.posture, ScreeningReason.IMPORTANT_CONTACT)
     }
 
     if (CallerCategory.UNKNOWN in snapshot.blockedCategories) {
@@ -113,9 +108,9 @@ object ScreeningRules {
     }
     val categoryPosture = snapshot.postureByCategory[CallerCategory.UNKNOWN]
     return if (categoryPosture != null) {
-      decide(snapshot, categoryPosture, ScreeningReason.CATEGORY_POSTURE, now)
+      decide(categoryPosture, ScreeningReason.CATEGORY_POSTURE)
     } else {
-      decide(snapshot, snapshot.defaultPosture, ScreeningReason.DEFAULT_POSTURE, now)
+      decide(snapshot.defaultPosture, ScreeningReason.DEFAULT_POSTURE)
     }
   }
 
@@ -134,16 +129,10 @@ object ScreeningRules {
     }
   }
 
-  private fun decide(
-      snapshot: CallRulesSnapshot,
-      posture: HandlingPosture,
-      reason: ScreeningReason,
-      now: Instant,
-  ): Screening =
-      when {
-        posture == HandlingPosture.REJECT -> Screening(ScreeningDecision.REJECT, reason)
-        snapshot.quietHours?.contains(now) == true ->
-            Screening(ScreeningDecision.SILENCE, ScreeningReason.QUIET_HOURS)
-        else -> Screening(ScreeningDecision.ALLOW, reason)
+  private fun decide(posture: HandlingPosture, reason: ScreeningReason): Screening =
+      if (posture == HandlingPosture.REJECT) {
+        Screening(ScreeningDecision.REJECT, reason)
+      } else {
+        Screening(ScreeningDecision.ALLOW, reason)
       }
 }

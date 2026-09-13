@@ -2,33 +2,21 @@
   "snapshots": {
     "readable": [
       {
-        "version": 1,
+        "version": 2,
         "synced_at": "2026-09-13T11:00:00.000Z",
         "default_posture": "handle_with_agent",
         "anonymous_posture": "reject",
-        "posture_by_category": { "unknown": "pass_through" },
-        "blocked_categories": ["spam"],
-        "quiet_hours": {
-          "start": "22:00",
-          "end": "07:00",
-          "zone": "Europe/London"
+        "posture_by_category": {
+          "unknown": "pass_through"
         },
+        "blocked_categories": ["spam"],
         "important_contacts": [
-          { "phone_number": "+12025550143", "posture": "pass_through" }
+          {
+            "phone_number": "+12025550143",
+            "posture": "pass_through"
+          }
         ]
       },
-      {
-        "version": 1,
-        "synced_at": "2026-09-13T11:00:00.000Z",
-        "default_posture": "pass_through",
-        "anonymous_posture": "pass_through",
-        "posture_by_category": {},
-        "blocked_categories": [],
-        "quiet_hours": null,
-        "important_contacts": []
-      }
-    ],
-    "refused": [
       {
         "version": 2,
         "synced_at": "2026-09-13T11:00:00.000Z",
@@ -36,27 +24,37 @@
         "anonymous_posture": "pass_through",
         "posture_by_category": {},
         "blocked_categories": [],
-        "quiet_hours": null,
+        "important_contacts": []
+      }
+    ],
+    "refused": [
+      {
+        "version": 3,
+        "synced_at": "2026-09-13T11:00:00.000Z",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
         "important_contacts": []
       },
       {
-        "version": 1,
+        "version": 2,
         "synced_at": "2026-09-13T11:00:00.000Z",
         "default_posture": "ring_twice",
         "anonymous_posture": "pass_through",
         "posture_by_category": {},
         "blocked_categories": [],
-        "quiet_hours": null,
         "important_contacts": []
       },
       {
-        "version": 1,
+        "version": 2,
         "synced_at": "2026-09-13T11:00:00.000Z",
         "default_posture": "pass_through",
         "anonymous_posture": "pass_through",
-        "posture_by_category": { "spam": "reject" },
+        "posture_by_category": {
+          "spam": "reject"
+        },
         "blocked_categories": ["spam"],
-        "quiet_hours": null,
         "important_contacts": []
       },
       {
@@ -69,8 +67,17 @@
         "quiet_hours": {
           "start": "22:00",
           "end": "07:00",
-          "zone": "Nowhere/Atlantis"
+          "zone": "Europe/London"
         },
+        "important_contacts": []
+      },
+      {
+        "version": 2,
+        "synced_at": "yesterday",
+        "default_posture": "pass_through",
+        "anonymous_posture": "pass_through",
+        "posture_by_category": {},
+        "blocked_categories": [],
         "important_contacts": []
       }
     ]

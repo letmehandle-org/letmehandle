@@ -1,8 +1,6 @@
 package org.letmehandle.app.calls.rules
 
 import java.time.Instant
-import java.time.LocalTime
-import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -17,7 +15,9 @@ import org.json.JSONObject
  * The example documents both sides are tested against live in `src/calls/wire-examples.json`.
  */
 object CallRulesSnapshotCodec {
-  const val VERSION = 1
+  // 2 dropped quiet hours (D-029). A version 1 snapshot is refused like any other unknown format,
+  // so the call rings until the app, on its next open, writes the rules again.
+  const val VERSION = 2
 
   class InvalidSnapshot(message: String, cause: Throwable? = null) :
       IllegalArgumentException(message, cause)
@@ -51,9 +51,6 @@ object CallRulesSnapshotCodec {
             },
         blockedCategories =
             document.getJSONArray("blocked_categories").strings().map(CallerCategory::fromWire).toSet(),
-        quietHours =
-            if (document.isNull("quiet_hours")) null
-            else quietHours(document.getJSONObject("quiet_hours")),
         importantContacts =
             document.getJSONArray("important_contacts").objects().map { contact ->
               ImportantContact(
@@ -63,13 +60,6 @@ object CallRulesSnapshotCodec {
             },
     )
   }
-
-  private fun quietHours(window: JSONObject): QuietHours =
-      QuietHours(
-          start = LocalTime.parse(window.getString("start")),
-          end = LocalTime.parse(window.getString("end")),
-          zone = ZoneId.of(window.getString("zone")),
-      )
 
   private fun JSONArray.strings(): List<String> = (0 until length()).map(::getString)
 
