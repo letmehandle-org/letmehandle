@@ -460,3 +460,29 @@ the final state, and mark the escalation context ended.
 restart the audio stream and the speech session are gone, so a call found unfinished is ended at its
 transport where that is possible and recorded as failed, never left in an indeterminate state.
 
+*Amended:* an ending is the one move not stored the moment it is made. It is stored with the summary,
+as teardown's last write, once the call has been let go at its transport; a process that stops
+part-way through a teardown therefore leaves the call unfinished, for the next start to end and
+summarise, rather than ended with no summary that anything would ever write.
+
+## D-033 — Whose call a call is, the transport side says
+
+**Accepted.** Every call is recorded for, routed by and escalated to one user, and the transport's
+events do not say which. How a call reached the product is the transport's business (D-004), so
+each transport's side answers it through an application port, `CallOwnership`, chosen in bootstrap
+with the transport, and the orchestrator asks without knowing which answered.
+
+A handset reports on behalf of the account it signed in as, and its reports are scoped to that
+account when they are accepted, so a reported call is the reporting account's. A streaming call is
+the caller dialling the user's own number and the user's carrier forwarding it to the account's
+number, which every user shares and which therefore names nobody; the carrier's `ForwardedFrom`
+names the user's line, and the call is the call of the user who signed in with that number.
+
+A call nobody owns — dialled at the account's number directly, forwarded from a line no user has, or
+arriving while storage cannot say — is let go at its transport and recorded nowhere: there is nobody
+to record it for and nobody to put it through to.
+
+Whether a carrier sends `ForwardedFrom` on a conditionally forwarded call is verified on the first
+real call, like the other provider behaviours phase 7 left to it. Assigning numbers to users, which
+would make it unnecessary, is a provisioning feature and not decided here.
+

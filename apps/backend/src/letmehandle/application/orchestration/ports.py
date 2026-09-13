@@ -3,7 +3,7 @@
 `CallOwnership` says whose call an arriving call is. That is how the call reached the product, which
 D-004 makes the transport's business: a handset reports on behalf of the account it signed in as,
 and a telephony number is reached through the user's own line forwarding to it. So each transport's
-side answers, chosen in bootstrap, and orchestration asks without knowing which answered.
+side answers, chosen in bootstrap, and orchestration asks without knowing which answered (D-033).
 """
 
 from __future__ import annotations

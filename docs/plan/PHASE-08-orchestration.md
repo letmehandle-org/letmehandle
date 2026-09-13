@@ -18,6 +18,8 @@ RECEIVED → ROUTING → REJECTED
 RECEIVED → ROUTING → AGENT_HANDLING → COMPLETED
                    → AGENT_HANDLING → ESCALATION_REQUESTED → HUMAN_RINGING
                                                            → HUMAN_JOINED → COMPLETED
+                                                           → AGENT_HANDLING (not reached)
+                   → AGENT_HANDLING ← ESCALATION_REQUESTED (the dial refused)
 any → FAILED
 ```
 
