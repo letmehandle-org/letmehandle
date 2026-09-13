@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallActions
@@ -112,12 +111,7 @@ class CallOrchestrator:
                     "a transport the assistant can take calls on needs a speech service and an "
                     "agent"
                 )
-        # What every run shares, built on the first line; each line's runs are given a copy of it
-        # with that line's transport and owners, and nothing reads a transport from this one.
-        first = lines[0]
         self._context = RunContext(
-            transport=first.transport,
-            ownership=first.ownership,
             stores=stores,
             dispatcher=dispatcher,
             clock=clock,
@@ -128,13 +122,7 @@ class CallOrchestrator:
             summariser=summariser,
             admits=self._admits,
         )
-        # What a run on each line is given: everything shared, and that line's transport and owners.
-        self._contexts = {
-            line.transport: replace(
-                self._context, transport=line.transport, ownership=line.ownership
-            )
-            for line in lines
-        }
+        self._lines = {line.transport: line for line in lines}
         self._assistance = (
             None
             if assistant is None
@@ -166,7 +154,7 @@ class CallOrchestrator:
         """End what a previous process left unfinished, then take calls."""
         context = self._context
         await Recovery(
-            transports=tuple(self._contexts),
+            transports=tuple(self._lines),
             stores=context.stores,
             dispatcher=context.dispatcher,
             clock=context.clock,
@@ -174,7 +162,7 @@ class CallOrchestrator:
             bounds=context.bounds,
         ).end_unfinished()
         loop = asyncio.get_running_loop()
-        self._consumers = [loop.create_task(self._consume(line)) for line in self._contexts]
+        self._consumers = [loop.create_task(self._consume(line)) for line in self._lines]
 
     async def stop(self) -> None:
         """Stop taking calls, tear every live one down, and wait for every run to finish."""
@@ -234,7 +222,8 @@ class CallOrchestrator:
         run = CallRun(
             event,
             plan_for(transport, event, assistance),
-            self._contexts[transport],
+            self._lines[transport],
+            self._context,
             degraded=degraded,
         )
         task = asyncio.get_running_loop().create_task(run.run())

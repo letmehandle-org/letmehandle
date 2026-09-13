@@ -86,7 +86,7 @@ if TYPE_CHECKING:
     from letmehandle.application.orchestration.plan import CallPlan, Converse
     from letmehandle.application.orchestration.ports import (
         Bounds,
-        CallOwnership,
+        CallLine,
         CallStores,
         OpenCallStores,
     )
@@ -96,7 +96,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import CallId, EventId, UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.summary import CallSummary
-    from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
+    from letmehandle.domain.ports.call_transport import CallEvent
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.tracing import Tracer
@@ -169,8 +169,6 @@ class DialRefusedError(DomainError):
 class RunContext:
     """What every run shares, for the life of the orchestrator."""
 
-    transport: CallTransport
-    ownership: CallOwnership
     stores: OpenCallStores
     dispatcher: EscalationDispatcher
     clock: Clock
@@ -208,6 +206,7 @@ class CallRun:
         self,
         incoming: CallEvent,
         plan: CallPlan,
+        line: CallLine,
         context: RunContext,
         *,
         degraded: tuple[Dependency, ...] = (),
@@ -216,6 +215,7 @@ class CallRun:
         # What the plan was made without, because its circuit was open when the call arrived.
         self._degraded = degraded
         self._plan = plan
+        self._line = line
         self._context = context
         self._inbox: asyncio.Queue[Input] = asyncio.Queue()
         self._seen: set[EventId] = {incoming.event_id}
@@ -337,7 +337,7 @@ class CallRun:
     async def _find_owner(self) -> Owner | None:
         try:
             async with asyncio.timeout(self._context.bounds.storage.total_seconds()):
-                user_id = await self._context.ownership.owner_of(self._incoming)
+                user_id = await self._line.ownership.owner_of(self._incoming)
                 if user_id is None:
                     return None
                 async with self._context.stores() as stores:
@@ -819,7 +819,7 @@ class CallRun:
 
     async def _terminate(self) -> bool:
         return await self._provider(
-            "terminate", lambda: self._context.transport.terminate(self.call_id), repeatable=True
+            "terminate", lambda: self._line.transport.terminate(self.call_id), repeatable=True
         )
 
     async def _provider(
