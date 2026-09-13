@@ -12,6 +12,7 @@ domain's default — while writing is exact.
 from __future__ import annotations
 
 from datetime import time
+from enum import Enum
 from typing import Any
 
 from letmehandle.domain.errors import InvariantError
@@ -125,7 +126,7 @@ def document_to_preferences(document: object) -> UserPreferences:
             frozenset(
                 capability
                 for value in _items(document, "authority")
-                if (capability := _enum(Capability, value, None)) is not None
+                if (capability := _known(Capability, value)) is not None
             )
         ),
         notifications=_notifications_from_document(_section(document, "notifications")),
@@ -150,13 +151,13 @@ def document_to_preferences(document: object) -> UserPreferences:
                 for raw_category, raw_posture in _section(
                     rules_document, "posture_by_category"
                 ).items()
-                if (category := _enum(CallerCategory, raw_category, None)) is not None
-                and (posture := _enum(HandlingPosture, raw_posture, None)) is not None
+                if (category := _known(CallerCategory, raw_category)) is not None
+                and (posture := _known(HandlingPosture, raw_posture)) is not None
             },
             blocked_categories=frozenset(
                 category
                 for raw in _items(rules_document, "blocked_categories")
-                if (category := _enum(CallerCategory, raw, None)) is not None
+                if (category := _known(CallerCategory, raw)) is not None
             ),
             escalate_at_or_above=_importance(rules_document.get("escalate_at_or_above")),
             active_hours=_active_hours_from_document(rules_document),
@@ -224,10 +225,10 @@ def document_to_progress(completed: list[str], skipped: list[str]) -> Onboarding
     """
     return OnboardingProgress(
         completed=frozenset(
-            step for raw in completed if (step := _enum(OnboardingStep, raw, None)) is not None
+            step for raw in completed if (step := _known(OnboardingStep, raw)) is not None
         ),
         skipped=frozenset(
-            step for raw in skipped if (step := _enum(OnboardingStep, raw, None)) is not None
+            step for raw in skipped if (step := _known(OnboardingStep, raw)) is not None
         ),
     )
 
@@ -377,15 +378,15 @@ def _importance(raw: object) -> CallImportance:
         return CallImportance.NOTABLE
 
 
-def _enum[E](kind: type[E], raw: object, fallback: E | None) -> E:
-    """Read a value this version understands, or fall back.
-
-    A value written by a newer deployment means nothing here, and refusing to load somebody's
-    settings because of one unrecognised string would lock them out of their own account over a
-    field they never set. Where there is no sensible fallback the caller passes `None` and drops
-    the entry instead.
-    """
+def _known[E: Enum](kind: type[E], raw: object) -> E | None:
+    """The member of `kind` that `raw` is, or None for a value this version does not know."""
     try:
-        return kind(raw)  # type: ignore[call-arg]
-    except (ValueError, KeyError):
-        return fallback  # type: ignore[return-value]
+        return kind(raw)
+    except ValueError:
+        return None
+
+
+def _enum[E: Enum](kind: type[E], raw: object, fallback: E) -> E:
+    """The member of `kind` that `raw` is, or `fallback` for a value this version does not know."""
+    known = _known(kind, raw)
+    return fallback if known is None else known
