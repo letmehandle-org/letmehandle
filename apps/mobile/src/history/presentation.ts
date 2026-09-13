@@ -187,3 +187,21 @@ export function offsetFrom(start: string, instant: string): string {
     '0',
   )}`;
 }
+
+/** The kinds the backend files a call's details under, each of which has its own words. */
+export const DETAIL_KINDS = [
+  'time',
+  'name',
+  'reference_number',
+  'address',
+  'amount',
+  'commitment_made',
+  'commitment_declined',
+  'message',
+] as const;
+
+export type DetailKind = (typeof DETAIL_KINDS)[number];
+
+export function isDetailKind(label: string): label is DetailKind {
+  return (DETAIL_KINDS as readonly string[]).includes(label);
+}

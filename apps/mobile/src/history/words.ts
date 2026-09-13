@@ -8,7 +8,7 @@ import type { TFunction } from 'i18next';
 
 import type { Caller, CallSummary } from '@letmehandle/api-client';
 
-import { durationParts } from './presentation';
+import { durationParts, isDetailKind } from './presentation';
 
 /** Who called, as the user would name them: the name if known, else the kind of call. */
 export function callerName(caller: Caller, t: TFunction): string {
@@ -19,6 +19,11 @@ export function callerName(caller: Caller, t: TFunction): string {
     return t('call.withheld');
   }
   return t(`call.category.${caller.category}`);
+}
+
+/** A detail's label in words; one of a kind this app does not know yet is shown as sent. */
+export function detailLabel(label: string, t: TFunction): string {
+  return isDetailKind(label) ? t(`call.detail.${label}`) : label;
 }
 
 export function durationWords(

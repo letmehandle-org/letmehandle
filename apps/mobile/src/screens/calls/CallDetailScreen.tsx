@@ -24,7 +24,7 @@ import {
   toneOf,
 } from '../../history/presentation';
 import { useLoaded } from '../../history/useLoaded';
-import { callerName, durationWords } from '../../history/words';
+import { callerName, detailLabel, durationWords } from '../../history/words';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
 
@@ -237,7 +237,7 @@ function Summary({
             <Row
               key={`${detail.label}-${index}`}
               title={detail.value}
-              subtitle={detail.label}
+              subtitle={detailLabel(detail.label, t)}
               last={
                 index === call.details.length - 1 &&
                 call.escalation_reason === null

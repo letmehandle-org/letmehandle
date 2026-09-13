@@ -186,6 +186,7 @@ describe('one call', () => {
       view.getAllByText(en.call.intent.delivery_in_progress).length,
     ).toBeGreaterThan(0);
     expect(view.getByText('Gate, with the guard')).toBeOnTheScreen();
+    expect(view.getByText(en.call.detail.address)).toBeOnTheScreen();
     expect(view.getByTestId('call-open-transcript')).toHaveTextContent(
       /Kept until 19 September/,
     );
@@ -296,6 +297,32 @@ describe('one call', () => {
     expect(view.getByTestId('escalation-answer')).toHaveTextContent(
       en.escalation.answerToJoin,
     );
+  });
+
+  it('names each detail in words, not as the key the backend files it under', async () => {
+    const { view } = await openActivity({
+      calls: [
+        aCall({
+          details: [
+            {
+              label: 'commitment_declined',
+              value: 'No refund',
+              evidence: null,
+            },
+            { label: 'reference_number', value: 'A-1234', evidence: null },
+            { label: 'something_new', value: 'Kept as sent', evidence: null },
+          ],
+        }),
+      ],
+    });
+    await openCall(view, 'call-1');
+
+    expect(
+      view.getByText(en.call.detail.commitment_declined),
+    ).toBeOnTheScreen();
+    expect(view.getByText(en.call.detail.reference_number)).toBeOnTheScreen();
+    expect(view.queryByText('commitment_declined')).toBeNull();
+    expect(view.getByText('something_new')).toBeOnTheScreen();
   });
 
   it('says a deleted call is gone rather than failing', async () => {

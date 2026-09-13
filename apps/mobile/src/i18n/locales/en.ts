@@ -237,6 +237,17 @@ export const en = {
     keptUntil: 'Kept until {{date}}',
     notKept: 'Nothing to keep',
     whyItCalled: 'Why it called you',
+    // One for each of `DETAIL_KINDS`, the keys the backend files a call's details under.
+    detail: {
+      time: 'When',
+      name: 'Who',
+      reference_number: 'Reference',
+      address: 'Where',
+      amount: 'Amount',
+      commitment_made: 'Agreed',
+      commitment_declined: 'Declined',
+      message: 'Message',
+    },
     needsYou: 'It needs you',
     timeline: {
       answered: 'Answered',
