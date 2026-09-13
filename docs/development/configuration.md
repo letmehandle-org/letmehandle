@@ -37,8 +37,12 @@ every paid provider unset.
 | --- | --- | --- | --- | --- | --- |
 | `AUTH_SIGNING_KEY` | when the API starts | — |  | yes | Signs access tokens and keys the refresh-token hash. At least 32 characters, fresh for every deployment; changing it signs everybody out. |
 | `AUTH_ACCESS_TOKEN_TTL_SECONDS` | no | `900` | ≥ 60, ≤ 3600 |  | How long an access token lives. Short, because it cannot be revoked. |
-| `AUTH_REFRESH_TOKEN_TTL_SECONDS` | no | `2592000` | ≥ 3600 |  | How long a refresh token lives. Refresh tokens rotate on every use. |
+| `AUTH_REFRESH_TOKEN_TTL_SECONDS` | no | `7776000` | ≥ 3600 |  | How long a refresh token lives: ninety days, sliding, so a phone that opens the app within that long of the last time is never asked for its number again. Refresh tokens rotate on every use. |
 | `OTP_PROVIDER` | no | `mock` | `mock` |  | Who delivers sign-in codes. `mock` delivers nowhere, accepts the development code, and refuses to start in production. |
+| `OTP_ALLOWED_CALLING_CODES` | no | — |  |  | Country calling codes sign-in codes may be sent to, comma-separated without the plus, such as 91,1,44. Blank sends anywhere; a production deployment should list only the countries it serves (D-036). |
+| `OTP_CHALLENGES_PER_HOUR` | no | `500` | ≥ 1 |  | The most sign-in codes the deployment sends in an hour. Past it, codes stop for everybody until the hour rolls on (D-036). |
+| `OTP_CHALLENGES_PER_HOUR_PER_CALLING_CODE` | no | `100` | ≥ 1 |  | The most sign-in codes sent in an hour to numbers with any one calling code. |
+| `TRUSTED_PROXY_CIDRS` | no | — |  |  | The proxies in front of the backend, as comma-separated CIDRs. Only their X-Forwarded-For is believed when counting what one client asks for. |
 
 ## Realtime speech and voices
 
