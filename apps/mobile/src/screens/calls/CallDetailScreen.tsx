@@ -23,7 +23,7 @@ import {
   timeOfDay,
   toneOf,
 } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { callerName, detailLabel, durationWords } from '../../history/words';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';

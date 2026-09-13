@@ -5,7 +5,7 @@ import type { CallSummary } from '@letmehandle/api-client';
 
 import type { ApiClient } from '../api/client';
 import { queryFor, type Filter } from './presentation';
-import type { Loaded } from './useLoaded';
+import type { Loaded } from '../api/useLoaded';
 
 export interface CallList {
   readonly calls: readonly CallSummary[];

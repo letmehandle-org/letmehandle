@@ -13,7 +13,6 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +28,7 @@ import type {
 } from '@letmehandle/api-client';
 
 import type { ApiClient } from '../api/client';
+import { useLoaded } from '../api/useLoaded';
 import { useSession } from '../auth/SessionProvider';
 import { Button } from '../components/Button';
 import { Notice } from '../components/Notice';
@@ -74,56 +74,29 @@ export function PreferencesProvider({
   const { t } = useTranslation();
   const { api } = useSession();
 
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
-  // Bumped to ask for another go. A boolean would not fire the effect a second time after a
-  // failure, which is the only moment anybody presses the button.
-  const [attempt, setAttempt] = useState(0);
+  const load = useCallback(async (): Promise<Loaded> => {
+    const [preferences, onboarding] = await Promise.all([
+      api.preferences(),
+      api.onboarding(),
+    ]);
+    return { preferences, onboarding };
+  }, [api]);
+  const { loaded, retry } = useLoaded(load);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async (): Promise<void> => {
-      try {
-        const [preferences, onboarding] = await Promise.all([
-          api.preferences(),
-          api.onboarding(),
-        ]);
-        if (!cancelled) {
-          setLoaded({ preferences, onboarding });
-        }
-      } catch {
-        // Which failure it was does not change what can be offered, and the application below
-        // cannot render without these. Retrying is the only useful answer.
-        if (!cancelled) {
-          setUnavailable(true);
-        }
-      }
-    };
-
-    load().catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [api, attempt]);
-
-  if (unavailable) {
+  if (loaded.state === 'failed') {
     return (
       <Screen title={t('common.appName')} testID="preferences-unavailable">
         <Notice tone="problem" message={t('setup.loadFailed')} />
         <Button
           label={t('common.tryAgain')}
-          onPress={() => {
-            setUnavailable(false);
-            setAttempt(current => current + 1);
-          }}
+          onPress={retry}
           testID="preferences-retry"
         />
       </Screen>
     );
   }
 
-  if (loaded === null) {
+  if (loaded.state === 'loading') {
     return (
       <View style={styles.loading} testID="preferences-loading">
         <ActivityIndicator color={theme.colour.accent} />
@@ -132,7 +105,7 @@ export function PreferencesProvider({
   }
 
   return (
-    <LoadedPreferences api={api} initial={loaded}>
+    <LoadedPreferences api={api} initial={loaded.value}>
       {children}
     </LoadedPreferences>
   );

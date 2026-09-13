@@ -13,7 +13,7 @@ import { Icon } from '../../components/icon/Icon';
 import { Notice } from '../../components/Notice';
 import { Screen } from '../../components/Screen';
 import { dayAndMonth } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { usePreferences } from '../../preferences/PreferencesProvider';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';

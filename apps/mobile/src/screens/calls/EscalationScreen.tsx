@@ -13,7 +13,7 @@ import { Notice } from '../../components/Notice';
 import { Row } from '../../components/Row';
 import { Screen } from '../../components/Screen';
 import { timeOfDay } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
 
