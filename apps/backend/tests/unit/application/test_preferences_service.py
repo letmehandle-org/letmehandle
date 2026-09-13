@@ -17,12 +17,12 @@ from letmehandle.application.preferences.service import (
     PreferenceChanges,
     PreferencesService,
 )
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import InvariantError, StepNotAskedError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.intent import CallImportance
-from letmehandle.domain.models.onboarding import ORDER, OnboardingStep
+from letmehandle.domain.models.onboarding import OnboardingFlow, OnboardingProgress, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
@@ -44,6 +44,9 @@ from tests.contracts.preference_fakes import (
 USER = UserId("user-1")
 SOMEBODY_ELSE = UserId("user-2")
 NUMBER = PhoneNumber.parse("+12025550143")
+
+NOT_FORWARDED = OnboardingFlow(calls_are_forwarded=False)
+FORWARDED = OnboardingFlow(calls_are_forwarded=True)
 
 ACTIVE_HOURS = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
@@ -72,7 +75,19 @@ def onboarding() -> InMemoryOnboardingRepository:
 def service(
     preferences: InMemoryPreferencesRepository, onboarding: InMemoryOnboardingRepository
 ) -> PreferencesService:
-    return PreferencesService(preferences=preferences, onboarding=onboarding)
+    return PreferencesService(
+        preferences=preferences, onboarding=onboarding, onboarding_flow=NOT_FORWARDED
+    )
+
+
+@pytest.fixture
+def forwarded(
+    preferences: InMemoryPreferencesRepository, onboarding: InMemoryOnboardingRepository
+) -> PreferencesService:
+    """The same storage, on a deployment whose calls arrive forwarded."""
+    return PreferencesService(
+        preferences=preferences, onboarding=onboarding, onboarding_flow=FORWARDED
+    )
 
 
 class TestReading:
@@ -296,7 +311,7 @@ class TestOnboarding:
         self, service: PreferencesService
     ) -> None:
         progress = await service.progress(USER)
-        assert progress.next_step is ORDER[0]
+        assert progress.next_step is OnboardingStep.CALL_HANDLING
         assert not progress.is_complete
 
     async def test_answering_a_step_moves_to_the_next(self, service: PreferencesService) -> None:
@@ -329,14 +344,41 @@ class TestOnboarding:
             await service.record_step(USER, OnboardingStep.CALL_HANDLING, skipped=True)
 
     async def test_finishing_every_step_completes_it(self, service: PreferencesService) -> None:
-        for step in ORDER:
+        for step in NOT_FORWARDED.steps:
             progress = await service.record_step(USER, step)
         assert progress.is_complete
         assert progress.next_step is None
 
     async def test_progress_is_per_user(self, service: PreferencesService) -> None:
         await service.record_step(USER, OnboardingStep.CALL_HANDLING)
-        assert (await service.progress(SOMEBODY_ELSE)).next_step is ORDER[0]
+        assert (await service.progress(SOMEBODY_ELSE)).next_step is OnboardingStep.CALL_HANDLING
+
+
+class TestForwardingStep:
+    async def test_where_calls_are_forwarded_it_follows_call_handling(
+        self, forwarded: PreferencesService
+    ) -> None:
+        progress = await forwarded.record_step(USER, OnboardingStep.CALL_HANDLING)
+        assert progress.next_step is OnboardingStep.CALL_FORWARDING
+
+    async def test_where_it_is_not_asked_recording_it_is_refused_and_nothing_is_stored(
+        self, service: PreferencesService, onboarding: InMemoryOnboardingRepository
+    ) -> None:
+        with pytest.raises(StepNotAskedError):
+            await service.record_step(USER, OnboardingStep.CALL_FORWARDING)
+        assert await onboarding.get(USER) == OnboardingProgress()
+
+    async def test_an_answer_given_where_it_was_asked_is_kept_but_not_shown_elsewhere(
+        self,
+        service: PreferencesService,
+        forwarded: PreferencesService,
+        onboarding: InMemoryOnboardingRepository,
+    ) -> None:
+        # The row outlives the deployment's configuration; reading it must not break or lie.
+        await forwarded.record_step(USER, OnboardingStep.CALL_FORWARDING)
+
+        assert (await service.progress(USER)).completed == ()
+        assert (await forwarded.progress(USER)).completed == (OnboardingStep.CALL_FORWARDING,)
 
 
 class TestTranscriptRetention:

@@ -173,6 +173,21 @@
         "title": "CallEnding",
         "type": "string"
       },
+      "CallForwardingResponse": {
+        "description": "Where the user's phone should forward the calls it does not take.",
+        "properties": {
+          "number": {
+            "description": "The number, in E.164 form, to set the phone's conditional call forwarding to: calls that go unanswered and calls that arrive while the line is busy.",
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "title": "CallForwardingResponse",
+        "type": "object"
+      },
       "CallHandling": {
         "description": "Whom routing gave the call to, which its final state no longer says.\n\nA completed call was either put straight through to the user or taken by the assistant, and\nhistory tells the two apart. Read from the moves themselves rather than set beside them, so it\ncannot disagree with the path the call took. A rejected call was given to nobody.",
         "enum": [
@@ -967,7 +982,7 @@
         "type": "object"
       },
       "OnboardingResponse": {
-        "description": "Where somebody is in the flow, and what is left.",
+        "description": "Where somebody is in the flow, and what is left.\n\nEvery list holds only the steps this deployment asks, in the order they are asked.\n`call_forwarding` is among them only where the profile's `call_forwarding` names a number,\nand an answer recorded to it elsewhere is not listed.",
         "properties": {
           "completed": {
             "items": {
@@ -1019,6 +1034,7 @@
         "description": "One thing to ask about.\n\nOne step per group of preferences, because a step is a screen and a screen that asks about\ntwo unrelated things is one people abandon.",
         "enum": [
           "call_handling",
+          "call_forwarding",
           "hours",
           "authority",
           "notifications"
@@ -1258,6 +1274,17 @@
       },
       "ProfileResponse": {
         "properties": {
+          "call_forwarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallForwardingResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present when calls reach the assistant only by being forwarded: until the user's phone forwards unanswered and busy calls to this number, no call reaches it. Null when nothing needs forwarding."
+          },
           "display_name": {
             "anyOf": [
               {
@@ -1286,7 +1313,8 @@
           "id",
           "phone_number",
           "display_name",
-          "locale"
+          "locale",
+          "call_forwarding"
         ],
         "title": "ProfileResponse",
         "type": "object"
@@ -2626,7 +2654,7 @@
         ]
       },
       "post": {
-        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.",
+        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.\n\nA step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this\ndeployment does not ask \u2014 `call_forwarding` where nothing needs forwarding \u2014 is a 422\n`step_not_asked`, and nothing is recorded.",
         "operationId": "record_onboarding_step_v1_onboarding_post",
         "requestBody": {
           "content": {

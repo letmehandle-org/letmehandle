@@ -346,6 +346,10 @@ export interface paths {
          *
          *     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
          *     where somebody was instead of asking them everything again.
+         *
+         *     A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
+         *     deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
+         *     `step_not_asked`, and nothing is recorded.
          */
         post: operations["record_onboarding_step_v1_onboarding_post"];
         delete?: never;
@@ -497,6 +501,17 @@ export interface components {
          * @enum {string}
          */
         CallEnding: "screened_out" | "missed" | "completed";
+        /**
+         * CallForwardingResponse
+         * @description Where the user's phone should forward the calls it does not take.
+         */
+        CallForwardingResponse: {
+            /**
+             * Number
+             * @description The number, in E.164 form, to set the phone's conditional call forwarding to: calls that go unanswered and calls that arrive while the line is busy.
+             */
+            number: string;
+        };
         /**
          * CallHandling
          * @description Whom routing gave the call to, which its final state no longer says.
@@ -852,6 +867,10 @@ export interface components {
         /**
          * OnboardingResponse
          * @description Where somebody is in the flow, and what is left.
+         *
+         *     Every list holds only the steps this deployment asks, in the order they are asked.
+         *     `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
+         *     and an answer recorded to it elsewhere is not listed.
          */
         OnboardingResponse: {
             /** Completed */
@@ -872,7 +891,7 @@ export interface components {
          *     two unrelated things is one people abandon.
          * @enum {string}
          */
-        OnboardingStep: "call_handling" | "hours" | "authority" | "notifications";
+        OnboardingStep: "call_handling" | "call_forwarding" | "hours" | "authority" | "notifications";
         /** OnboardingUpdate */
         OnboardingUpdate: {
             /**
@@ -951,6 +970,8 @@ export interface components {
         };
         /** ProfileResponse */
         ProfileResponse: {
+            /** @description Present when calls reach the assistant only by being forwarded: until the user's phone forwards unanswered and busy calls to this number, no call reaches it. Null when nothing needs forwarding. */
+            call_forwarding: components["schemas"]["CallForwardingResponse"] | null;
             /** Display Name */
             display_name: string | null;
             /** Id */

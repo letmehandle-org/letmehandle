@@ -595,3 +595,32 @@ Whether a carrier sends `ForwardedFrom` on a conditionally forwarded call is ver
 real call, like the other provider behaviours phase 7 left to it. Assigning numbers to users, which
 would make it unnecessary, is a provisioning feature and not decided here.
 
+
+## D-034 — Setup asks for call forwarding only where calls arrive forwarded
+
+**Accepted.** A streaming call reaches the product only when the user's carrier forwards it
+(D-033), and the product cannot set that up: it is a setting on the user's line. So the backend
+says where to forward, and setup asks for it — on the deployments that need it and nowhere else.
+
+**The number.** Bootstrap decides it once: on the streaming transport, the first configured
+telephony number; on the handset transport or none, nothing. It reaches the rest of the
+application as a capability, `CallForwarding`, never as a transport's name. `GET /v1/me` carries
+it as `call_forwarding: {"number": "+E164"}`, meaning forward unanswered and busy calls there, or
+`null` where nothing needs forwarding.
+
+**The step.** `call_forwarding` is declared in the one order, right after `call_handling`: where
+calls go is settled before the hours they are handled in. Which declared steps a deployment asks
+is an `OnboardingFlow` built from that capability, so the domain reads no configuration and no
+screen decides a step's position. The step cannot be skipped. Skipped, no call ever arrives, and a
+setup that then reports itself complete tells somebody the product works when it cannot.
+Answering it is the user's word that forwarding is on; the backend cannot see a carrier setting,
+and whether a forwarded call arrives is verified by the call.
+
+**Progress stays valid across deployments.** It is stored as the steps recorded, and read against
+the flow. An answer to `call_forwarding` recorded where it was asked is ignored where it is not,
+as a removed step's is (D-032). A deployment that starts forwarding asks it of everybody,
+including those who had finished: finished meant finished for calls that no longer arrive.
+
+**Recording it where it is not asked is a 422, `step_not_asked`,** and nothing is stored. Not a
+409: nothing about the user's state would make it succeed on another try. It is the same answer a
+removed or invented step gets — the request names something that does not exist here.

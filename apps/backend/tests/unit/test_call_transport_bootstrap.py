@@ -7,8 +7,14 @@ from typing import TYPE_CHECKING
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from letmehandle.bootstrap import build_call_transport, build_reported_calls
+from letmehandle.bootstrap import (
+    build_call_transport,
+    build_container,
+    build_reported_calls,
+    build_voice_provider,
+)
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
+from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
@@ -54,7 +60,7 @@ def telephony_settings() -> Settings:
         telephony_provider=TelephonyProviderName.TWILIO,
         telephony_account_id="account-for-tests",
         telephony_auth_token="token-for-tests",
-        telephony_numbers=(PhoneNumber.parse("+12025550100"),),
+        telephony_numbers=(PhoneNumber.parse("+12025550100"), PhoneNumber.parse("+12025550101")),
         telephony_app_id="app-for-tests",
         telephony_webhook_base_url="https://calls.example.com",
     )
@@ -164,3 +170,26 @@ def test_main_refuses_to_carry_calls_with_nowhere_to_record_them(
         main()
     assert "DATABASE_URL, TRANSCRIPT_ENCRYPTION_KEYS" in str(exit_info.value)
     assert recorded_uvicorn == {}
+
+
+def forwarding_for(settings: Settings) -> CallForwarding | None:
+    container = build_container(
+        settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
+    )
+    return container.forwarding
+
+
+def test_a_streaming_deployment_asks_users_to_forward_to_its_first_number() -> None:
+    # A streaming call reaches the product only by the user's carrier forwarding it, and the
+    # first configured number is the one every user is told, so two screens never disagree.
+    assert forwarding_for(telephony_settings()) == CallForwarding(PhoneNumber.parse("+12025550100"))
+
+
+def test_a_handset_deployment_needs_nothing_forwarded() -> None:
+    # The handset screens its own calls; there is nowhere to forward them to.
+    settings = make_settings(telephony_provider=TelephonyProviderName.ANDROID_NATIVE)
+    assert forwarding_for(settings) is None
+
+
+def test_a_deployment_carrying_no_calls_needs_nothing_forwarded() -> None:
+    assert forwarding_for(make_settings()) is None

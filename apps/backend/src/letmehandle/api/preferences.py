@@ -34,9 +34,9 @@ from letmehandle.application.preferences.service import (
     Hours,
     PreferenceChanges,
 )
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import InvariantError, StepNotAskedError
 from letmehandle.domain.models.authority import AgentAuthority
-from letmehandle.domain.models.onboarding import ORDER, OnboardingProgress
+from letmehandle.domain.models.onboarding import Onboarding
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     DisclosableFact,
@@ -109,9 +109,18 @@ async def record_onboarding_step(
 
     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
     where somebody was instead of asking them everything again.
+
+    A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
+    deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
+    `step_not_asked`, and nothing is recorded.
     """
     try:
         progress = await service.record_step(user.id, body.step, skipped=body.skipped)
+    except StepNotAskedError as error:
+        # A 422 like any other step this deployment has no screen for, removed or invented:
+        # the request names something that does not exist here, rather than conflicting with
+        # a state somebody could change by trying again.
+        raise ApiError(UNPROCESSABLE, "step_not_asked", str(error)) from error
     except InvariantError as error:
         # The only way to reach this is skipping a step that has no safe default, which the
         # client should not have offered — so it is a request problem rather than a fault.
@@ -263,10 +272,10 @@ def _window_payload(window: TimeWindow | None) -> TimeWindowPayload | None:
     )
 
 
-def _progress_response(progress: OnboardingProgress) -> OnboardingResponse:
+def _progress_response(progress: Onboarding) -> OnboardingResponse:
     return OnboardingResponse(
-        completed=[step for step in ORDER if step in progress.completed],
-        skipped=[step for step in ORDER if step in progress.skipped],
+        completed=list(progress.completed),
+        skipped=list(progress.skipped),
         remaining=list(progress.remaining),
         next_step=progress.next_step,
         is_complete=progress.is_complete,

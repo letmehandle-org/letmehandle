@@ -7,9 +7,17 @@ from dataclasses import replace
 from fastapi import APIRouter, Request, Response, status
 
 from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
-from letmehandle.api.dependencies import AuthService, CurrentUser, Deletion, Devices, Users
+from letmehandle.api.dependencies import (
+    AuthService,
+    CurrentUser,
+    Deletion,
+    Devices,
+    Forwarding,
+    Users,
+)
 from letmehandle.api.errors import ApiError
 from letmehandle.api.schemas import (
+    CallForwardingResponse,
     ChallengeRequest,
     ChallengeResponse,
     ProfileResponse,
@@ -21,6 +29,7 @@ from letmehandle.api.schemas import (
 )
 from letmehandle.application.auth.service import AuthenticationError, RateLimitedError
 from letmehandle.domain.models.auth import TokenPair
+from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.notification import DeviceToken
@@ -60,12 +69,15 @@ def _tokens(pair: TokenPair) -> TokenResponse:
     )
 
 
-def _profile(user: User) -> ProfileResponse:
+def _profile(user: User, forwarding: CallForwarding | None) -> ProfileResponse:
     return ProfileResponse(
         id=user.id.value,
         phone_number=user.phone_number.value,
         display_name=user.display_name,
         locale=user.preferences.locale,
+        call_forwarding=(
+            None if forwarding is None else CallForwardingResponse(number=forwarding.number.value)
+        ),
     )
 
 
@@ -144,12 +156,14 @@ async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices)
 
 
 @router.get("/me", response_model=ProfileResponse, summary="The signed-in user")
-async def read_me(user: CurrentUser) -> ProfileResponse:
-    return _profile(user)
+async def read_me(user: CurrentUser, forwarding: Forwarding) -> ProfileResponse:
+    return _profile(user, forwarding)
 
 
 @router.patch("/me", response_model=ProfileResponse, summary="Update the profile")
-async def update_me(body: UpdateProfileRequest, user: CurrentUser, users: Users) -> ProfileResponse:
+async def update_me(
+    body: UpdateProfileRequest, user: CurrentUser, users: Users, forwarding: Forwarding
+) -> ProfileResponse:
     """Change what the assistant knows about the person it represents.
 
     A field that is absent is left alone rather than cleared. A client sending only what it
@@ -165,7 +179,7 @@ async def update_me(body: UpdateProfileRequest, user: CurrentUser, users: Users)
     if updated != user:
         await users.update(updated)
 
-    return _profile(updated)
+    return _profile(updated, forwarding)
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")

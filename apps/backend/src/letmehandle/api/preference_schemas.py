@@ -181,7 +181,12 @@ class PreferencesUpdate(Request):
 
 
 class OnboardingResponse(Response):
-    """Where somebody is in the flow, and what is left."""
+    """Where somebody is in the flow, and what is left.
+
+    Every list holds only the steps this deployment asks, in the order they are asked.
+    `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
+    and an answer recorded to it elsewhere is not listed.
+    """
 
     completed: list[OnboardingStep]
     skipped: list[OnboardingStep]
