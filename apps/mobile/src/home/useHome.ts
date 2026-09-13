@@ -6,7 +6,7 @@
  * ring and a lost connection shows what was there, said to be old, rather than nothing. It is kept
  * against the account it was loaded for, so the next person to sign in never sees it.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import type { CallSummary, Escalation } from '@letmehandle/api-client';
@@ -103,6 +103,7 @@ export function useHome(
   );
   const [failure, setFailure] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
+  const loading = useRef(false);
 
   const refresh = useCallback(() => {
     setAttempt(value => value + 1);
@@ -110,6 +111,7 @@ export function useHome(
 
   useEffect(() => {
     let current = true;
+    loading.current = true;
     load(api, screening, new Date())
       .then(loaded => {
         if (current) {
@@ -124,6 +126,11 @@ export function useHome(
         if (current) {
           setFailure(error);
         }
+      })
+      .finally(() => {
+        if (current) {
+          loading.current = false;
+        }
       });
     return () => {
       current = false;
@@ -131,10 +138,16 @@ export function useHome(
   }, [api, screening, owner, attempt]);
 
   useEffect(() => {
-    const timer = setInterval(refresh, REFRESH_EVERY_MS);
+    // A load still under way is left to finish rather than started again.
+    const whenIdle = (): void => {
+      if (!loading.current) {
+        refresh();
+      }
+    };
+    const timer = setInterval(whenIdle, REFRESH_EVERY_MS);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') {
-        refresh();
+        whenIdle();
       }
     });
     return () => {

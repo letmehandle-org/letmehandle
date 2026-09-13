@@ -2,6 +2,7 @@
  * Home: every state the design draws, each reached only by the facts that make it true.
  */
 import {
+  act,
   fireEvent,
   render,
   renderHook,
@@ -12,7 +13,7 @@ import React from 'react';
 import { ApiClient } from '../api/client';
 import { SessionProvider } from '../auth/SessionProvider';
 import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
-import { forgetHome, useHome } from '../home/useHome';
+import { forgetHome, REFRESH_EVERY_MS, useHome } from '../home/useHome';
 import {
   elapsed,
   homeState,
@@ -25,6 +26,7 @@ import { en } from '../i18n/locales/en';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { aCall, runningBackend, type HistorySetup } from './support/backend';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -300,6 +302,41 @@ describe('what Home says', () => {
         en.home.waiting,
       );
     });
+  });
+});
+
+describe('refreshing Home', () => {
+  it('lets a slow load finish rather than starting it again every interval', async () => {
+    fakeOnly('setInterval', 'clearInterval');
+    try {
+      const release: (() => void)[] = [];
+      const api = {
+        calls: jest.fn(
+          () =>
+            new Promise(resolve => {
+              release.push(() => {
+                resolve({ calls: [], next_cursor: null });
+              });
+            }),
+        ),
+      } as unknown as ApiClient;
+      const view = await renderHook(() => useHome(api, null, 'u1'));
+
+      await act(async () => {
+        jest.advanceTimersByTime(REFRESH_EVERY_MS * 2);
+      });
+      await act(async () => {
+        release.forEach(finish => finish());
+      });
+      await act(async () => {
+        release.forEach(finish => finish());
+      });
+
+      expect(view.result.current.snapshot).not.toBeNull();
+      expect(api.calls).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
