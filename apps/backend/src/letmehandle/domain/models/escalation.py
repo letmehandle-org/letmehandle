@@ -33,8 +33,9 @@ class EscalationUrgency(StrEnum):
     """How hard to try to reach the user.
 
     `WHILE_CONVENIENT` exists so that "the user would want to know" does not have to mean
-    "ring their phone now". Without it every escalation is an interruption, and an assistant
-    that always interrupts is one people turn off.
+    "ring their phone now". Today's policy never chooses it: the user's hours used to, and since
+    D-027 a call outside them rings the user rather than meeting the assistant. It stays in the
+    model for a notification setting that defers without the hours, not for the policy.
     """
 
     IMMEDIATE = "immediate"

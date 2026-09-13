@@ -8,7 +8,7 @@ up as the rows whose answers moved.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, time
+from datetime import time
 from typing import Final
 
 import pytest
@@ -29,13 +29,11 @@ from letmehandle.domain.policy.escalation import (
     most_pressing,
 )
 
-# Quiet from ten at night to seven in the morning, London time. Noon is plainly outside it and
-# three in the morning plainly inside, both in winter so the zone's offset is zero.
-QUIET: Final = TimeWindow(time(22, 0), time(7, 0), "Europe/London")
-NOON: Final = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
-THREE_AM: Final = datetime(2026, 1, 15, 3, 0, tzinfo=UTC)
+# The assistant answers from seven in the morning to ten at night. The policy is never told the
+# time: outside those hours calls ring the user, so the hours cannot defer an escalation (D-027).
+ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
-RULES: Final = CallRules(quiet_hours=QUIET, escalate_at_or_above=CallImportance.NOTABLE)
+RULES: Final = CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.NOTABLE)
 MAY_TAKE_A_MESSAGE: Final = AgentAuthority.granting(Capability.TAKE_A_MESSAGE)
 
 NOTABLE_ENQUIRY: Final = EscalationProposal(
@@ -43,18 +41,16 @@ NOTABLE_ENQUIRY: Final = EscalationProposal(
 )
 
 IMMEDIATE: Final = EscalationUrgency.IMMEDIATE
-LATER: Final = EscalationUrgency.WHILE_CONVENIENT
 
 
 def circumstances(
     *,
     rules: CallRules = RULES,
     authority: AgentAuthority = MAY_TAKE_A_MESSAGE,
-    now: datetime = NOON,
     important_contact: bool = False,
 ) -> CallCircumstances:
     return CallCircumstances(
-        rules=rules, authority=authority, now=now, from_important_contact=important_contact
+        rules=rules, authority=authority, from_important_contact=important_contact
     )
 
 
@@ -118,17 +114,10 @@ ESCALATED: Final = [
     ),
     pytest.param(
         call(),
-        circumstances(now=THREE_AM),
-        EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT,
-        LATER,
-        id="in quiet hours a notable call waits",
-    ),
-    pytest.param(
-        call(importance=CallImportance.URGENT),
-        circumstances(now=THREE_AM),
+        circumstances(rules=replace(RULES, active_hours=None)),
         EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT,
         IMMEDIATE,
-        id="in quiet hours an urgent call still rings",
+        id="around the clock escalates exactly as set hours do",
     ),
     pytest.param(
         call(importance=CallImportance.ROUTINE),
@@ -206,7 +195,7 @@ def test_the_threshold_boundary_holds_for_every_pair(
 ) -> None:
     # Every importance against every threshold, because an off-by-one here is a phone that rings
     # for the wrong calls and nothing else would notice.
-    rules = replace(RULES, quiet_hours=None, escalate_at_or_above=threshold)
+    rules = replace(RULES, active_hours=None, escalate_at_or_above=threshold)
     decision = decide_escalation(call(importance=importance), circumstances(rules=rules))
     assert decision.required is (importance >= threshold)
 
@@ -218,7 +207,7 @@ def test_the_callers_summary_travels_with_the_decision() -> None:
 
 
 def test_the_same_call_always_gets_the_same_answer() -> None:
-    situation = circumstances(now=THREE_AM)
+    situation = circumstances()
     proposal = call(needs_the_users_decision=True, importance=CallImportance.URGENT)
     assert len({decide_escalation(proposal, situation) for _ in range(20)}) == 1
 
@@ -253,10 +242,7 @@ ROUTINE_ENQUIRY: Final = call(importance=CallImportance.ROUTINE)
         pytest.param(
             (ROUTINE_ENQUIRY, URGENT_PERSONAL), URGENT_PERSONAL, id="a later alarm is heard"
         ),
-        pytest.param(
-            (call(), URGENT_PERSONAL), URGENT_PERSONAL, id="ringing now beats a note for later"
-        ),
-        pytest.param((ROUTINE_ENQUIRY, call()), call(), id="a note for later beats nothing"),
+        pytest.param((ROUTINE_ENQUIRY, call()), call(), id="reaching the user beats nothing"),
         pytest.param(
             (call(caller_summary="first"), call(caller_summary="last")),
             call(caller_summary="last"),
@@ -267,8 +253,7 @@ ROUTINE_ENQUIRY: Final = call(importance=CallImportance.ROUTINE)
 def test_the_most_pressing_reading_is_the_one_acted_on(
     readings: tuple[EscalationProposal, ...], expected: EscalationProposal
 ) -> None:
-    # At three in the morning, so a notable call is a note for later and an urgent one rings.
-    assert most_pressing(readings, circumstances(now=THREE_AM)) == expected
+    assert most_pressing(readings, circumstances()) == expected
 
 
 def test_no_readings_have_no_most_pressing_one() -> None:

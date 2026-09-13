@@ -16,7 +16,7 @@ from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.policy.escalation import EscalationProposal
 from tests.support.recording_call_actions import Ended, Escalated
-from tests.unit.application.agent.calls import NOON, THREE_AM, a_call
+from tests.unit.application.agent.calls import a_call
 from tests.unit.application.agent.kit import Kit
 
 MAY_DECLINE: Final = AgentAuthority.granting(Capability.DECLINE_ON_THE_USERS_BEHALF)
@@ -32,34 +32,27 @@ NOT_HANDED_OVER: Final = "the user was not reached for this call, so it was not 
 
 
 @pytest.mark.parametrize(
-    ("ending", "assessment", "at_three_am", "refused_because"),
+    ("ending", "assessment", "refused_because"),
     [
-        pytest.param(CallEnding.RESOLVED, ROUTINE, False, None, id="resolved, nobody needed"),
-        pytest.param(CallEnding.DECLINED, ROUTINE, False, None, id="declined, nobody needed"),
+        pytest.param(CallEnding.RESOLVED, ROUTINE, None, id="resolved, nobody needed"),
+        pytest.param(CallEnding.DECLINED, ROUTINE, None, id="declined, nobody needed"),
         pytest.param(
-            CallEnding.RESOLVED, URGENT, False, NOT_ENDED_FOR_THE_RULES, id="resolved, user needed"
-        ),
-        pytest.param(CallEnding.DECLINED, NOTABLE, True, None, id="declined, a note for later"),
-        pytest.param(
-            CallEnding.DECLINED, URGENT, True, NOT_ENDED_FOR_THE_RULES, id="declined, urgent at 3am"
-        ),
-        pytest.param(CallEnding.HANDED_OVER, URGENT, False, None, id="handed over, user reached"),
-        pytest.param(
-            CallEnding.HANDED_OVER, NOTABLE, True, NOT_HANDED_OVER, id="handed over, a note due"
+            CallEnding.RESOLVED, URGENT, NOT_ENDED_FOR_THE_RULES, id="resolved, user needed"
         ),
         pytest.param(
-            CallEnding.HANDED_OVER, ROUTINE, False, NOT_HANDED_OVER, id="handed over, nobody"
+            CallEnding.DECLINED, NOTABLE, NOT_ENDED_FOR_THE_RULES, id="declined, user needed"
         ),
+        pytest.param(CallEnding.HANDED_OVER, URGENT, None, id="handed over, user reached"),
+        pytest.param(CallEnding.HANDED_OVER, ROUTINE, NOT_HANDED_OVER, id="handed over, nobody"),
     ],
 )
 async def test_an_ending_is_applied_only_where_the_escalation_allows_it(
     ending: CallEnding,
     assessment: EscalationProposal,
-    at_three_am: bool,
     refused_because: str | None,
 ) -> None:
     kit = Kit()
-    call = a_call(authority=MAY_DECLINE, now=THREE_AM if at_three_am else NOON)
+    call = a_call(authority=MAY_DECLINE)
     kit.notes.ending_requested(ending)
 
     judgement = await kit.conclusion.conclude(call, kit.notes, assessment)

@@ -23,11 +23,12 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.models.authority import AgentAuthority
 
-# Winter, so London is on UTC and the quiet window reads the same in both.
+# Winter, so London is on UTC and the active window reads the same in both. Noon is inside it and
+# three in the morning outside.
 NOON: Final = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 THREE_AM: Final = datetime(2026, 1, 15, 3, 0, tzinfo=UTC)
-QUIET: Final = TimeWindow(time(22, 0), time(7, 0), "Europe/London")
-RULES: Final = CallRules(quiet_hours=QUIET, escalate_at_or_above=CallImportance.NOTABLE)
+ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
+RULES: Final = CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.NOTABLE)
 
 # Reserved for fiction, never routable.
 STRANGER_NUMBER: Final = PhoneNumber("+12025550101")

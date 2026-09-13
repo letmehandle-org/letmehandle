@@ -36,7 +36,12 @@ if TYPE_CHECKING:
 # 2 added the chosen voice. A document written at 1 has none, which reads as "has not chosen"
 # rather than "chose nothing" — and the difference matters, because the first resolves to the
 # provider's default and the second would mean silence.
-PREFERENCES_VERSION: Final = 2
+#
+# 3 replaced working hours and quiet hours with one window of hours the assistant answers in
+# (D-027). A document written earlier is read as around the clock: neither older window meant
+# "the assistant answers now", and the one that is closest to the user's intent at night is the
+# assistant still answering rather than their phone ringing.
+PREFERENCES_VERSION: Final = 3
 
 
 class HandlingPosture(StrEnum):
@@ -187,7 +192,9 @@ class NotificationPreferences:
     on_blocked_call: bool = False
     on_missed_escalation: bool = True
     daily_summary: bool = False
-    respect_quiet_hours: bool = True
+    # Outside the assistant's hours calls ring the user directly, so a note about a call the
+    # assistant handled can wait until the hours begin rather than arriving on top of them.
+    respect_active_hours: bool = True
 
     @property
     def on_escalation(self) -> bool:
@@ -203,8 +210,8 @@ class TimeWindow:
     wrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of
     day rather than as anything that looks like a bug.
 
-    A window may wrap past midnight — twenty-two hundred to seven is the ordinary case for
-    quiet hours — so containment is not a simple between.
+    A window may wrap past midnight — seven in the evening to two in the morning is an ordinary
+    evening shift — so containment is not a simple between.
     """
 
     start: time
@@ -268,8 +275,10 @@ class CallRules:
     posture_by_category: dict[CallerCategory, HandlingPosture] = field(default_factory=dict)
     blocked_categories: frozenset[CallerCategory] = field(default_factory=frozenset)
     anonymous_posture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT
-    quiet_hours: TimeWindow | None = None
-    working_hours: TimeWindow | None = None
+    # When the assistant answers. Outside it, calls ring the user as if there were no assistant.
+    # Nothing means always (D-027): a user who never set hours has an assistant that answers
+    # around the clock, which is what the product promises by default.
+    active_hours: TimeWindow | None = None
     escalate_at_or_above: CallImportance = CallImportance.NOTABLE
 
     def __post_init__(self) -> None:
@@ -286,16 +295,13 @@ class CallRules:
             return HandlingPosture.REJECT
         return self.posture_by_category.get(category, self.default_posture)
 
-    def is_quiet_at(self, instant: datetime) -> bool:
-        return self.quiet_hours is not None and self.quiet_hours.contains(instant)
+    def is_active_at(self, instant: datetime) -> bool:
+        """Whether this instant is inside the hours the user asked the assistant to answer in.
 
-    def is_working_at(self, instant: datetime) -> bool:
-        """Whether the user is at work.
-
-        Absent working hours means unknown rather than never: a user who has not said cannot be
-        assumed to be unavailable, or the assistant would take every call.
+        No window is every instant. Outside the window the assistant answers nothing and calls
+        ring the user; what was rejected is still rejected (D-027, D-028).
         """
-        return self.working_hours is None or self.working_hours.contains(instant)
+        return self.active_hours is None or self.active_hours.contains(instant)
 
 
 @dataclass(frozen=True, slots=True)

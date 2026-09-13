@@ -24,13 +24,10 @@ class OnboardingStep(StrEnum):
     two unrelated things is one people abandon.
     """
 
-    INTRODUCTION = "introduction"
     CALL_HANDLING = "call_handling"
-    IMPORTANT_CONTACTS = "important_contacts"
     HOURS = "hours"
     AUTHORITY = "authority"
     NOTIFICATIONS = "notifications"
-    PERSONALITY = "personality"
 
 
 # The order they are asked in, declared once.
@@ -39,14 +36,14 @@ class OnboardingStep(StrEnum):
 # said what should happen to an unknown caller, the assistant cannot do anything at all. The
 # rest descend by how much the answer changes, so somebody who stops halfway has still answered
 # the questions that mattered most.
+#
+# Four, as the design draws them (D-029). Important contacts and personality are preferences
+# edited from settings rather than questions somebody must get through before the product works.
 ORDER: Final[tuple[OnboardingStep, ...]] = (
-    OnboardingStep.INTRODUCTION,
     OnboardingStep.CALL_HANDLING,
-    OnboardingStep.IMPORTANT_CONTACTS,
     OnboardingStep.HOURS,
     OnboardingStep.AUTHORITY,
     OnboardingStep.NOTIFICATIONS,
-    OnboardingStep.PERSONALITY,
 )
 
 # Steps whose default is safe to keep. Skipping one of these leaves the assistant more cautious
@@ -57,11 +54,9 @@ ORDER: Final[tuple[OnboardingStep, ...]] = (
 # not do.
 SKIPPABLE: Final[frozenset[OnboardingStep]] = frozenset(
     {
-        OnboardingStep.IMPORTANT_CONTACTS,
         OnboardingStep.HOURS,
         OnboardingStep.AUTHORITY,
         OnboardingStep.NOTIFICATIONS,
-        OnboardingStep.PERSONALITY,
     }
 )
 

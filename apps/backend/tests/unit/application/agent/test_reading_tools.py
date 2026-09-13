@@ -43,7 +43,7 @@ def populated() -> UserPreferences:
             posture_by_category={CallerCategory.DELIVERY: HandlingPosture.HANDLE_WITH_AGENT},
             blocked_categories=frozenset({CallerCategory.SPAM, CallerCategory.SALES}),
             anonymous_posture=HandlingPosture.REJECT,
-            quiet_hours=TimeWindow(time(22, 0), time(7, 0), "Europe/London"),
+            active_hours=TimeWindow(time(7, 0), time(22, 0), "Europe/London"),
             escalate_at_or_above=CallImportance.URGENT,
         ),
         authority=AgentAuthority.granting(
@@ -76,8 +76,7 @@ async def test_the_preferences_render_exactly_as_the_model_reads_them() -> None:
         "handling_by_caller_category": {"delivery": "handle_with_agent"},
         "blocked_caller_categories": ["sales", "spam"],
         "reach_the_user_at_or_above": "urgent",
-        "in_quiet_hours": True,
-        "in_working_hours": True,
+        "within_the_users_active_hours": False,
         "you_may": ["tell a courier where to leave a parcel", "take a message"],
         "you_may_not": [
             "say whether the user is free",

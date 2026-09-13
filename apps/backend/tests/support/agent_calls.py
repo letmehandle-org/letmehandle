@@ -9,7 +9,7 @@ behaviour every real tool must share.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.notes import JudgementNotes
@@ -24,7 +24,6 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     CallRules,
     ImportantContact,
-    TimeWindow,
     UserPreferences,
 )
 
@@ -34,9 +33,8 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
 
-# Midday on a weekday, in no quiet hours anybody has set unless a call asks for `QUIET_AT_MIDDAY`.
+# Midday on a weekday. The user sets no hours, so the assistant is answering (D-027).
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
-QUIET_AT_MIDDAY: Final = TimeWindow(time(11, 0), time(13, 0), "UTC")
 
 # Reserved for fiction, never routable.
 STRANGER: Final = Caller(number=PhoneNumber("+12025550101"))
@@ -48,7 +46,6 @@ def a_call(
     authority: AgentAuthority | None = None,
     escalate_at_or_above: CallImportance = CallImportance.NOTABLE,
     from_important_contact: bool = False,
-    quiet_hours: TimeWindow | None = None,
     locale: str = "en",
 ) -> CallSoFar:
     """A call in which the caller has said each of `said`, in turn.
@@ -57,7 +54,7 @@ def a_call(
     one important contact; `from_important_contact` decides whether that is who is calling.
     """
     preferences = UserPreferences(
-        rules=CallRules(quiet_hours=quiet_hours, escalate_at_or_above=escalate_at_or_above),
+        rules=CallRules(escalate_at_or_above=escalate_at_or_above),
         authority=authority or AgentAuthority.none(),
         locale=locale,
         important_contacts=(MUM,),

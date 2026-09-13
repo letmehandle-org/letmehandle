@@ -22,8 +22,9 @@ The decision runs in three steps, each written once:
    as important always clears it. Below the threshold the user is not reached at all: a note in
    the call history is how they hear about a call that did not matter enough.
 
-Urgency comes last. Inside quiet hours only an urgent call rings; anything else waits until it is
-convenient, because an assistant that interrupts sleep for a routine call is one people turn off.
+Urgency is immediate. The user's hours do not defer it (D-027): outside them the assistant answers
+nothing and calls ring the user, so the only call it is still on then is one that ran past the
+end of its hours — and by then the user is somebody whose phone rings anyway.
 """
 
 from __future__ import annotations
@@ -41,7 +42,6 @@ from letmehandle.domain.models.intent import CallImportance, CallIntent
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
 
     from letmehandle.domain.models.authority import AgentAuthority, Capability
     from letmehandle.domain.models.preferences import CallRules
@@ -75,7 +75,6 @@ class CallCircumstances:
 
     rules: CallRules
     authority: AgentAuthority
-    now: datetime
     from_important_contact: bool = False
 
 
@@ -92,7 +91,7 @@ def decide_escalation(
 
     return EscalationDecision.needed(
         reason,
-        _urgency(proposal, circumstances),
+        EscalationUrgency.IMMEDIATE,
         caller_summary=proposal.caller_summary,
     )
 
@@ -104,9 +103,8 @@ def most_pressing(
 
     A model may ask for the user part way through and assess the call differently at the end, and
     either reading can be the one that matters: a caller who calmed down is still the caller who
-    said somebody collapsed. So each is decided, and the strongest decision wins — an immediate
-    escalation over a later note, any escalation over none. Of readings the rules treat alike, the
-    last is taken, because it was made knowing the most.
+    said somebody collapsed. So each is decided, and any escalation wins over none. Of readings the
+    rules treat alike, the last is taken, because it was made knowing the most.
     """
     if not proposals:
         raise InvariantError("there is no most pressing reading of no readings")
@@ -117,9 +115,7 @@ def most_pressing(
 
 
 def _pressure(decision: EscalationDecision) -> int:
-    if not decision.required:
-        return 0
-    return 2 if decision.is_immediate else 1
+    return 1 if decision.required else 0
 
 
 def _reason(
@@ -156,12 +152,3 @@ def _worth_reaching(proposal: EscalationProposal, circumstances: CallCircumstanc
         circumstances.from_important_contact
         or proposal.importance >= circumstances.rules.escalate_at_or_above
     )
-
-
-def _urgency(proposal: EscalationProposal, circumstances: CallCircumstances) -> EscalationUrgency:
-    if (
-        circumstances.rules.is_quiet_at(circumstances.now)
-        and proposal.importance < CallImportance.URGENT
-    ):
-        return EscalationUrgency.WHILE_CONVENIENT
-    return EscalationUrgency.IMMEDIATE
