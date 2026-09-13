@@ -1,11 +1,4 @@
-"""A write the application has answered for is one it has stored.
-
-Every signed-in route commits its unit of work when the request's session dependency exits, and
-that exit runs after the response has been sent. So a client told `200` can ask again at once and
-find nothing — and a commit that then fails has already been reported as a success. Over loopback
-the window is milliseconds and shows up as an occasional flake; this scenario widens it
-deterministically, by making the database take a moment to commit a new account.
-"""
+"""A write the application has answered for is readable at once, even when its commit is slow."""
 
 from __future__ import annotations
 

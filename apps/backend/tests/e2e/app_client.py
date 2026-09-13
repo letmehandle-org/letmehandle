@@ -7,7 +7,6 @@ the mock one-time-password provider recorded, which is reading the text message.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -18,14 +17,9 @@ from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from fastapi import FastAPI
 
 type Json = dict[str, Any]
-
-# How long a write's read-back may take to show it. A commit over loopback takes milliseconds.
-READ_BACK_SECONDS = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +58,6 @@ class AppClient:
     """Requests to one running application, as the app on a user's phone makes them."""
 
     def __init__(self, app: FastAPI, base_url: str) -> None:
-        # Public for a scenario that has to make a request the way no helper here would.
         self._app = app
         self.http = httpx.AsyncClient(base_url=base_url, timeout=10.0)
 
@@ -82,7 +75,9 @@ class AppClient:
         )
         assert verified.status_code == 200, verified.text
         headers = {"Authorization": f"Bearer {verified.json()['access_token']}"}
-        profile = await self._committed(lambda: self.http.get("/v1/me", headers=headers))
+        me = await self.http.get("/v1/me", headers=headers)
+        assert me.status_code == 200, me.text
+        profile: Json = me.json()
         return Account(UserId(profile["id"]), PhoneNumber.parse(profile["phone_number"]), headers)
 
     async def configure(self, account: Account, preferences: Json) -> Json:
@@ -91,12 +86,10 @@ class AppClient:
             "/v1/preferences", json=preferences, headers=account.headers
         )
         assert response.status_code == 200, response.text
-        body: Json = response.json()
-        stored = await self._committed(
-            lambda: self.http.get("/v1/preferences", headers=account.headers),
-            until=lambda read: read == body,
-        )
-        return stored
+        stored = await self.http.get("/v1/preferences", headers=account.headers)
+        assert stored.json() == response.json(), stored.text
+        body: Json = stored.json()
+        return body
 
     async def register_device(self, account: Account, platform: str, token: str) -> None:
         response = await self.http.put(
@@ -126,26 +119,6 @@ class AppClient:
         assert response.status_code == 200, response.text
         receipt: Json = response.json()
         return receipt
-
-    async def _committed(
-        self,
-        read: Callable[[], Awaitable[httpx.Response]],
-        *,
-        until: Callable[[Json], bool] = lambda _: True,
-    ) -> Json:
-        """Read back what a write just answered for, until the read shows it.
-
-        A write's response is sent before its transaction commits (see the scenario on
-        acknowledged writes), so a request made the moment one returns can find it missing.
-        Waiting here keeps that defect from being every scenario's flake; it has its own.
-        """
-        async with asyncio.timeout(READ_BACK_SECONDS):
-            while True:
-                response = await read()
-                if response.status_code == 200 and until(response.json()):
-                    body: Json = response.json()
-                    return body
-                await asyncio.sleep(0.01)
 
     async def _read(self, account: Account, path: str) -> Json | None:
         response = await self.http.get(path, headers=account.headers)
