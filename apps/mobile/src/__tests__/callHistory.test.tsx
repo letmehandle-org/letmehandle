@@ -4,12 +4,20 @@
  * The whole tree against a backend that remembers, because what matters here happens across
  * requests — a filter asking the server rather than hiding rows, a deleted call leaving the list.
  */
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
+
+import type { Escalation } from '@letmehandle/api-client';
 
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
-import { aCall, runningBackend, type HistorySetup } from './support/backend';
+import { ESCALATION_REFRESH_MS } from '../screens/calls/EscalationScreen';
+import {
+  aCall,
+  runningBackend,
+  type Held,
+  type HistorySetup,
+} from './support/backend';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -397,6 +405,34 @@ describe('an escalation opened after its call', () => {
     expect(view.getByText('It asked you about a payment.')).toBeOnTheScreen();
     await fireEvent.press(view.getByTestId('escalation-open-summary'));
     expect(await view.findByTestId('call-detail')).toBeOnTheScreen();
+  });
+
+  it('follows a live escalation to its end without being opened again', async () => {
+    // Fake timers, so the wait before reading it again passes without the test waiting through it.
+    jest.useFakeTimers();
+    try {
+      const escalations: Record<string, Held<Escalation>> = {
+        'call-1': { ...ended, status: 'live', ended_at: null },
+      };
+      const { view } = await openEscalation(escalations);
+      expect(await view.findByTestId('escalation-status')).toHaveTextContent(
+        en.escalation.live,
+      );
+
+      escalations['call-1'] = ended;
+      await act(() => {
+        jest.advanceTimersByTime(ESCALATION_REFRESH_MS);
+      });
+
+      await waitFor(() => {
+        expect(view.getByTestId('escalation-status')).toHaveTextContent(
+          en.escalation.ended,
+        );
+      });
+      expect(view.queryByTestId('escalation-answer')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('still leads to the summary where escalations cannot be read', async () => {

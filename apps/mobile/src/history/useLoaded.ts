@@ -15,13 +15,17 @@ export type Loaded<T> =
 export function useLoaded<T>(load: () => Promise<T>): {
   loaded: Loaded<T>;
   retry: () => void;
+  refresh: () => void;
 } {
   const [loaded, setLoaded] = useState<Loaded<T>>({ state: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+  // A refresh reads again behind what is shown: no spinner, and a failure leaves it in place.
+  const [attempt, setAttempt] = useState({ count: 0, quietly: false });
 
   useEffect(() => {
     let current = true;
-    setLoaded({ state: 'loading' });
+    if (!attempt.quietly) {
+      setLoaded({ state: 'loading' });
+    }
     load()
       .then(value => {
         if (current) {
@@ -29,7 +33,7 @@ export function useLoaded<T>(load: () => Promise<T>): {
         }
       })
       .catch((error: unknown) => {
-        if (current) {
+        if (current && !attempt.quietly) {
           setLoaded({ state: 'failed', error });
         }
       });
@@ -39,8 +43,11 @@ export function useLoaded<T>(load: () => Promise<T>): {
   }, [load, attempt]);
 
   const retry = useCallback(() => {
-    setAttempt(value => value + 1);
+    setAttempt(value => ({ count: value.count + 1, quietly: false }));
+  }, []);
+  const refresh = useCallback(() => {
+    setAttempt(value => ({ count: value.count + 1, quietly: true }));
   }, []);
 
-  return { loaded, retry };
+  return { loaded, retry, refresh };
 }
