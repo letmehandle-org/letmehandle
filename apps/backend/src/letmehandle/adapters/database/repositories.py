@@ -1,11 +1,4 @@
-"""Storage, implemented against PostgreSQL.
-
-Every method that reads something belonging to a person filters by that person. The interfaces
-make it impossible to ask otherwise; this is where that promise is kept.
-
-Mapping between rows and domain types happens here and only here. A domain object never learns
-what a column is called, and a row never carries a rule.
-"""
+"""Storage against PostgreSQL; every read of personal data filters by its owner."""
 
 from __future__ import annotations
 
@@ -99,14 +92,11 @@ class SqlUserRepository(UserRepository):
         )
 
     async def delete(self, user_id: UserId) -> None:
-        # One statement: everything else stored for the account references the user row and goes
-        # with it, which the schema's cascades say once rather than a list here saying again.
+        # One statement: the schema's cascades remove everything that references the user.
         await self._session.execute(delete(UserRow).where(UserRow.id == user_id.value))
 
     def _to_user(self, row: UserRow) -> User:
-        # Only the preferences this phase stores. The rest of `UserPreferences` arrives in
-        # phase 3 with its own tables; defaulting them here keeps the domain type whole
-        # without inventing storage that does not exist yet.
+        # Only the locale is stored; the rest of `UserPreferences` takes its defaults.
         return User(
             id=UserId(row.id),
             phone_number=PhoneNumber(row.phone_number),
@@ -135,9 +125,7 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         await self._session.flush()
 
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        # Locked, because the attempt count is read, checked and written back. Two guesses that
-        # both read it before either writes it back are counted as one, and a burst of them
-        # makes the attempt limit no limit at all.
+        # Row lock, so concurrent guesses each count against the attempt limit.
         row = await self._session.get(OTPChallengeRow, challenge_id, with_for_update=True)
         if row is None:
             return None
@@ -245,9 +233,7 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         await self._session.flush()
 
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
-        # Locked, because whether the token was already used is read and then acted on. Two
-        # exchanges that both read it before either rotates it would both succeed, and reuse
-        # detection would miss a replay that arrives at the same moment as the real use.
+        # Row lock, so two concurrent exchanges of one token cannot both succeed.
         result = await self._session.execute(
             select(RefreshTokenRow)
             .where(RefreshTokenRow.token_hash == token_hash)
@@ -276,8 +262,7 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         await self._session.flush()
 
     async def revoke_family(self, family_id: str, at_instant: datetime) -> int:
-        # One statement, because this runs on a path that has just detected a stolen token and
-        # the window between detecting and closing is the window an attacker has.
+        # One statement, so a detected reuse closes the whole family at once.
         result = await self._session.execute(
             update(RefreshTokenRow)
             .where(
@@ -311,8 +296,7 @@ class SqlPreferencesRepository(PreferencesRepository):
 
     async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences | None:
         if for_update:
-            # The user's row as well as the preferences row: before a user's first save there is
-            # no preferences row to lock, and two first saves would each compose from the defaults.
+            # Locks the user row too, since a first save has no preferences row to lock.
             await self._session.execute(
                 select(UserRow.id).where(UserRow.id == user_id.value).with_for_update()
             )
@@ -322,13 +306,7 @@ class SqlPreferencesRepository(PreferencesRepository):
         return document_to_preferences(row.document)
 
     async def save(self, user_id: UserId, preferences: UserPreferences) -> None:
-        """Insert or replace, in one statement.
-
-        One statement rather than read-then-write: two requests saving different sections at the
-        same time would otherwise race, and the loser's change would disappear with nothing to
-        show for it. The application composes a whole set before calling this, so replacing is
-        the correct operation.
-        """
+        """Insert or replace the whole document in one statement, so saves never race."""
         document = preferences_to_document(preferences)
         now = self._clock.now()
         statement = insert(PreferencesRow).values(
@@ -356,8 +334,7 @@ class SqlOnboardingRepository(OnboardingRepository):
     async def get(self, user_id: UserId) -> OnboardingProgress:
         row = await self._session.get(OnboardingRow, user_id.value)
         if row is None:
-            # Never started is a position in the flow, not an absence. Returning empty progress
-            # rather than nothing means no caller has to remember to handle the first visit.
+            # Never started returns empty progress rather than nothing.
             return OnboardingProgress()
         return document_to_progress(row.completed, row.skipped)
 
@@ -389,11 +366,7 @@ class SqlDeviceRepository(DeviceRepository):
         self._clock = clock
 
     async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # One statement that moves the token to this account if another holds it. A handset
-        # changes hands, and two accounts sharing a token would send one person's call context to
-        # the other's phone. Not a delete and then an insert: an app registers on every launch,
-        # and two launches racing through a delete-then-insert both insert, and one fails on the
-        # unique constraint.
+        # One upsert moves the token to this account; concurrent registrations do not collide.
         now = self._clock.now()
         statement = insert(DeviceRow).values(
             user_id=user_id.value,
@@ -435,8 +408,7 @@ class SqlCallReportRepository(CallReportRepository):
         self._clock = clock
 
     async def record(self, user_id: UserId, report: CallReport) -> bool:
-        # One statement that either inserts or does nothing, so two deliveries of the same report
-        # racing each other cannot both be counted.
+        # Insert or do nothing, so a redelivered report counts once.
         result = await self._session.execute(
             insert(CallReportRow)
             .values(

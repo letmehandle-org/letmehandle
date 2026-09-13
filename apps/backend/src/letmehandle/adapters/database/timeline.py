@@ -1,8 +1,4 @@
-"""Call timelines, and the outline diagnostics reads of a call, implemented against PostgreSQL.
-
-Apart from the other call repositories because it holds no cipher and needs none: it reads only the
-columns that are structure, and never the sealed caller, transcript or summary beside them.
-"""
+"""Call timelines and diagnostic outlines, reading only structural columns, nothing sealed."""
 
 from __future__ import annotations
 

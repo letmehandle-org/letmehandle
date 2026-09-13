@@ -1,9 +1,4 @@
-"""What a span may be called and carry, checked for every tracer, and the tracer that sends nowhere.
-
-The default is `NoTracer`. A deployment with no tracing backend runs with it, and it checks what it
-is given exactly as the exporting tracer does, so a span attribute that would carry content fails
-the test that first reaches it whichever tracer that test runs with.
-"""
+"""Span name and attribute checks shared by every tracer, and `NoTracer`, the default."""
 
 from __future__ import annotations
 
@@ -18,8 +13,7 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.ports.tracing import AttributeValue
 
-# Every attribute a span may carry. The call's identifier is how one call's spans are found
-# together, and it is the provider's or the handset's opaque id, never a number.
+# Every attribute a span may carry; the call id is an opaque id, never a number.
 CALL_ID: Final = "call.id"
 SPAN_ATTRIBUTES: Final = frozenset(
     {
@@ -39,24 +33,16 @@ UNTRACEABLE_CALL: Final = "untraceable"
 
 _SPAN_NAME: Final = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
 _TOKEN: Final = re.compile(r"[a-z][a-z0-9_]{0,31}")
-# What providers' and handsets' call ids are made of. A handset chooses its own, so one is only
-# carried when it has a letter in it too: digits and separators alone could be a phone number.
+# Allowed call id characters; an id needs a letter so it cannot be a phone number.
 _CALL_ID: Final = re.compile(r"(?=.*[A-Za-z])[A-Za-z0-9_\-:.]{1,64}")
 
 
 class SpanAttributeError(ValueError):
-    """A span was given a name or an attribute that could carry content.
-
-    The value is never repeated in the message, for the reason `MetricLabelError` gives.
-    """
+    """A span was given a name or an attribute that could carry content, never repeating it."""
 
 
 def traceable_call_id(value: str) -> str:
-    """A call's identifier as observability output may carry it.
-
-    Replaced rather than refused when it could be something other than an opaque id: the id arrives
-    from outside, and a call is not failed for the shape of the identifier somebody else gave it.
-    """
+    """A call's identifier as observability output may carry it, replaced when not opaque."""
     return value if _CALL_ID.fullmatch(value) else UNTRACEABLE_CALL
 
 

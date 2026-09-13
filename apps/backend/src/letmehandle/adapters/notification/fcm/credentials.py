@@ -1,12 +1,4 @@
-"""The OAuth access token FCM's HTTP v1 API is called with.
-
-Obtained the way a service account obtains one without a vendor SDK: a JWT naming the account,
-the messaging scope and the token endpoint, signed RS256 with the account's key and exchanged at
-that endpoint for a bearer token that lives about an hour. It is cached and replaced five minutes
-before it expires, and one refresh runs at a time however many deliveries are waiting on it.
-
-The key, the assertion and the access token are credentials: none is logged or put in an error.
-"""
+"""FCM's OAuth access token: a service-account RS256 JWT exchanged, cached and never logged."""
 
 from __future__ import annotations
 
@@ -130,8 +122,7 @@ class AccessTokenSource:
             raise AccessTokenError(f"transport: {type(error).__name__}", retryable=True) from None
 
         if response.status_code != 200:
-            # A 4xx is the account or its key being refused, which will not fix itself; the error
-            # code Google returns (`invalid_grant`, say) is kept and its description is not.
+            # A 4xx will not fix itself; Google's error code is kept and its description dropped.
             raise AccessTokenError(
                 f"token endpoint {response.status_code} {_oauth_error(response)}".rstrip(),
                 retryable=response.status_code == 429 or response.status_code >= 500,

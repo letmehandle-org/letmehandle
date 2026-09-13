@@ -1,21 +1,8 @@
-"""The database schema.
-
-These are adapter types. They never cross into the domain: a repository maps between them and
-the domain's own types at its edge, so a change of column never reaches the rules.
-
-Two conventions worth stating, because they are decisions rather than style:
-
-  Times are stored with their timezone. A naive column means whatever the server was set to
-  when the row was written, and a service moved between regions cannot tell what that was.
-
-  Nothing here has a `deleted` flag. Deletion deletes. A product that promises to forget
-  things and keeps a hidden copy has not forgotten them.
-"""
+"""The database schema: adapter types, with timezone-aware times and no soft deletes."""
 
 from __future__ import annotations
 
-# Not moved into a type-checking block, whatever the linter says: SQLAlchemy's
-# declarative mapper evaluates these annotations at run time to build the columns.
+# Kept out of a type-checking block: SQLAlchemy evaluates these annotations at run time.
 from datetime import datetime
 from typing import Any
 
@@ -37,9 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql.expression import false, text
 
-# A call's identifier is longer than a user's. A call a handset reports is stored as the account's
-# identifier and the handset's joined together (`scoped_call_id`), so it must hold both at once:
-# 64 for the account, one separator, and the 48 the reporting route accepts.
+# Holds an account id, a separator and a handset's call id together (`scoped_call_id`).
 CALL_ID_LENGTH = 128
 
 
@@ -51,12 +36,10 @@ class UserRow(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    # The identity, and therefore unique. Stored in E.164 and only in E.164: normalisation
-    # happens before anything reaches here, so two spellings cannot become two accounts.
+    # The identity, unique, stored only in E.164.
     phone_number: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # server_default as well as a Python default, so the column is correct even for a row
-    # written by something that is not this application — a migration, or a fix by hand.
+    # A server default too, so rows written outside this application get the value.
     locale: Mapped[str] = mapped_column(
         String(16), nullable=False, default="en", server_default="en"
     )
@@ -69,8 +52,7 @@ class OTPChallengeRow(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     phone_number: Mapped[str] = mapped_column(String(16), nullable=False)
-    # The hash, never the code. Nothing in this system can say what the code was. Null where the
-    # provider made the code and checks it itself (D-042).
+    # The hash, never the code; null when the provider makes and checks the code (D-042).
     code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -80,8 +62,7 @@ class OTPChallengeRow(Base):
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        # The rate limit counts challenges per number within a window, which is this index.
-        # Without it the limit gets slower as the table grows, which is exactly backwards.
+        # Counts challenges per number within the rate-limit window.
         Index("ix_otp_challenges_number_issued", "phone_number", "issued_at"),
         Index("ix_otp_challenges_expires_at", "expires_at"),
         # The deployment's own sending budget counts every challenge in the last hour.
@@ -93,14 +74,12 @@ class RefreshTokenRow(Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    # Every token descended from one sign-in shares this. Revoking a family is one statement
-    # against this column, which is what makes reuse detection cheap enough to always do.
+    # Shared by every token from one sign-in, so a family is revoked in one statement.
     family_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    # Unique, and the only way a token is found. A keyed hash rather than a salted one, so the
-    # lookup is an index rather than a scan of every row.
+    # The unique lookup key: a keyed hash, so a token is found through an index.
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -114,17 +93,7 @@ class RefreshTokenRow(Base):
 
 
 class PreferencesRow(Base):
-    """How one user wants their calls handled.
-
-    Stored as a document rather than as a table per section. The shape is read and written whole
-    — the application composes a complete set and saves it — and it is never queried across
-    users, so a dozen joined tables would buy nothing and cost a migration every time a
-    preference is added.
-
-    `version` is what makes that safe: it records the shape the document was written in, so a
-    later change can migrate what is there instead of guessing whether an absent field means
-    the user declined or the field did not exist when they answered.
-    """
+    """How one user wants their calls handled, stored as one versioned document (D-022)."""
 
     __tablename__ = "user_preferences"
 
@@ -137,12 +106,7 @@ class PreferencesRow(Base):
 
 
 class OnboardingRow(Base):
-    """How far through setting up a user is.
-
-    Its own table rather than a field on the preferences document: progress changes on every
-    step while preferences change rarely, and a user who skips a step has no preferences to
-    write for it. Keeping them together would mean writing a whole document to record a tap.
-    """
+    """How far through setting up a user is, kept apart from the preferences document."""
 
     __tablename__ = "user_onboarding"
 
@@ -166,21 +130,14 @@ class DeviceRow(Base):
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        # A token belongs to one account at a time. A handset that changes hands would
-        # otherwise deliver one person's call context to another's phone.
+        # A token belongs to one account at a time.
         UniqueConstraint("platform", "token", name="uq_user_devices_platform_token"),
         Index("ix_user_devices_user", "user_id"),
     )
 
 
 class CallRow(Base):
-    """One call: its state, its caller and its timing.
-
-    Relational rather than a document, unlike preferences (D-022). A call is queried across time
-    — a user's history, newest first, a page at a time — so what is filtered and sorted on is a
-    column with an index behind it. Nothing anybody said is here, and who called is sealed like
-    a transcript (D-014): a dump of this table says a user had a call, never with whom.
-    """
+    """One call: its state, its sealed caller (D-014) and its timing, as indexed columns."""
 
     __tablename__ = "calls"
 
@@ -189,29 +146,23 @@ class CallRow(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     state: Mapped[str] = mapped_column(String(32), nullable=False)
-    # Which key sealed the caller, and the caller's number and name, sealed together with the
-    # owner and the call as context. Sealed even when the number was withheld.
+    # The key id, and the caller's number and name sealed with owner and call as context.
     key_id: Mapped[str] = mapped_column(String(16), nullable=False)
     caller_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     caller_category: Mapped[str] = mapped_column(String(32), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Whom routing gave the call to, and when the assistant first asked for the user: what
-    # history shows of a call's path once its final state no longer says.
+    # Whom routing gave the call to, and when the assistant first asked for the user.
     handling: Mapped[str | None] = mapped_column(String(16), nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Set by the first line written, and never cleared, least of all by the purge: once every
-    # line has expired this is the only thing that tells a purged transcript from a call nothing
-    # was said on. It records that words existed, never any of them.
+    # Set by the first transcript line and never cleared: tells a purged transcript from none.
     transcript_recorded: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
 
     __table_args__ = (
-        # The target of every foreign key below. A transcript or summary names the call *and*
-        # its owner, so the database itself refuses a row attached to somebody else's call —
-        # isolation that holds even for a query that forgot to filter.
+        # The target of the composite foreign keys: a child row cannot name another user's call.
         UniqueConstraint("id", "user_id", name="uq_calls_id_user"),
         # History: one user's calls, newest first, continued from a cursor on both columns.
         Index("ix_calls_user_started", "user_id", "started_at", "id"),
@@ -226,11 +177,7 @@ class CallRow(Base):
 
 
 class CallParticipantRow(Base):
-    """Who was on a call, in the order they joined.
-
-    Read and written whole with its call. `position` is the order of joining, which is what a
-    role that leaves and rejoins needs to stay two entries rather than one.
-    """
+    """Who was on a call, in joining order; a role that rejoins is a second entry."""
 
     __tablename__ = "call_participants"
 
@@ -244,11 +191,7 @@ class CallParticipantRow(Base):
 
 
 class CallTimelineMarkRow(Base):
-    """One mark in a call's timeline: a state it entered, or a stage that failed, and when.
-
-    Nothing here is content. The kind and the name come from a closed vocabulary the domain checks,
-    and the row belongs to its call, going with it by the foreign key's cascade.
-    """
+    """One mark in a call's timeline: a state it entered or a stage that failed, and when."""
 
     __tablename__ = "call_timeline_marks"
 
@@ -264,14 +207,7 @@ class CallTimelineMarkRow(Base):
 
 
 class TranscriptEntryRow(Base):
-    """One thing somebody said, encrypted (D-014).
-
-    `ciphertext` is the only column derived from the words, and it is sealed at the application
-    layer with the user, call, place in the call, speaker and moment as authenticated context —
-    so a database dump is not a transcript dump, and a row copied onto another call, or to
-    another place in its own, does not open. No column, index
-    or constraint here is computed from the text.
-    """
+    """One thing somebody said, sealed with user, call, position, speaker and moment (D-014)."""
 
     __tablename__ = "call_transcript_entries"
 
@@ -302,12 +238,7 @@ class TranscriptEntryRow(Base):
 
 
 class CallSummaryRow(Base):
-    """The structured record of a call, written once, which outlives its transcript.
-
-    What is filtered on is a column: outcome, intent, importance and timing, all enumerations or
-    instants. What was said about the call — headline, extracted details and the evidence
-    quoting the transcript, and who the caller was taken to be — is sealed like a transcript.
-    """
+    """The structured record of a call, which outlives its transcript; its content is sealed."""
 
     __tablename__ = "call_summaries"
 
@@ -335,17 +266,7 @@ class CallSummaryRow(Base):
 
 
 class EscalationContextRow(Base):
-    """What a user was told about one escalation, kept so the app can fetch it without a push.
-
-    Keyed by the user and the call together. The call id alone would let one user's escalation
-    stand in the way of another's, and every read filters by both anyway.
-
-    The label for the caller and the two sentences are sealed together, under the transcript keys
-    and bound to the user, the call, the reason and the moment it was raised (D-014): the sentences
-    are the model's account of what the caller said. A context with none of the three seals
-    nothing, and holds no key id either. The reason, the status and the delivery stay readable,
-    being what happened rather than what was said.
-    """
+    """What a user was told about one escalation, keyed by user and call, words sealed (D-014)."""
 
     __tablename__ = "escalation_contexts"
 
@@ -370,14 +291,7 @@ class EscalationContextRow(Base):
 
 
 class CallReportRow(Base):
-    """One thing a user's handset reported about one of its calls.
-
-    Unique by the handset's event identifier within the user, which is what makes a resent
-    report count once and keeps two accounts' identifiers from ever colliding.
-
-    Not who called. The number travels on to the call it describes, whose record seals it; a
-    plain copy here would be the one place a database dump still said who called whom.
-    """
+    """One event a user's handset reported about a call, unique per user; never the caller."""
 
     __tablename__ = "call_reports"
 

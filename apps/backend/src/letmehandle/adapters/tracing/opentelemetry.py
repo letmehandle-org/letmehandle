@@ -1,12 +1,4 @@
-"""Spans exported through OpenTelemetry, to whatever collector a deployment points it at.
-
-The SDK's own exception handling is switched off on every span. It records an exception's message
-and stack as span events, and a message is exactly what must not leave: a failure is recorded here
-as its kind, in an attribute, with an error status that carries no description.
-
-The tracer provider is this adapter's own rather than the process-wide one, so nothing else in the
-process — a library instrumenting itself — exports through it by accident.
-"""
+"""Spans exported via OpenTelemetry on a private provider, recording failures by kind only."""
 
 from __future__ import annotations
 

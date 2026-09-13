@@ -13,8 +13,7 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.models.identifiers import CallId
 
-# The largest collapse identifier APNs accepts. FCM documents no limit, and one rule for both
-# means a call collapses the same way on either platform.
+# The largest collapse identifier APNs accepts, applied to both platforms.
 MAX_COLLAPSE_ID_BYTES: Final = 64
 
 
@@ -23,12 +22,7 @@ class CredentialError(ValueError):
 
 
 def collapse_id_for(call_id: CallId) -> str:
-    """The identifier repeated notifications for one call are merged under.
-
-    The call id itself when it fits, so a delivery can be matched to its call by eye; a digest of
-    it when it does not, which is still one value per call and never a truncation that could
-    merge two calls sharing a prefix.
-    """
+    """The collapse identifier for a call: the id when it fits, otherwise a digest of it."""
     raw = call_id.value
     if len(raw.encode()) <= MAX_COLLAPSE_ID_BYTES and raw.isascii():
         return raw
@@ -36,11 +30,7 @@ def collapse_id_for(call_id: CallId) -> str:
 
 
 def compact_json(document: dict[str, Any]) -> bytes:
-    """JSON as it goes on the wire: no padding, and text as UTF-8 rather than escapes.
-
-    Escaping every non-ASCII character as `\\uXXXX` would make a notification in another script
-    up to three times its real size against a byte limit.
-    """
+    """JSON as it goes on the wire: no padding, and text as UTF-8 rather than escapes."""
     return json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
 
 

@@ -1,12 +1,4 @@
-"""A provider that delivers nowhere.
-
-So that the project can be run, developed against and tested without a paid account. Every
-contributor can sign in on their own machine, and the test suite needs no credentials.
-
-It refuses to exist in a production configuration. That guard is the whole reason this class is
-safe to ship: the failure it prevents is silent and total — everybody can sign in as anybody,
-and nothing about the running service looks wrong.
-"""
+"""A provider that delivers nowhere and refuses to start in a production configuration."""
 
 from __future__ import annotations
 
@@ -21,10 +13,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# FOR TESTING ONLY — remove before launch. The code every challenge accepts while this mock is
-# configured. Fixed and published on purpose: somebody running the app has to be able to sign in
-# without reading a log, and pretending this is a secret would invite somebody to treat it as
-# one. It cannot reach production, because this provider refuses to start there.
+# The code every challenge accepts while this mock is configured.
 DEVELOPMENT_CODE: Final = "123456"
 
 
@@ -53,7 +42,5 @@ class MockOTPProvider(OTPProvider):
 
     async def send(self, number: PhoneNumber, code: str) -> None:
         self.sent.append((number, code))
-        # The number is masked even here. A development log is still a log, and it is the one
-        # people paste into issues. Named as masked, so the scrubber, which removes any field
-        # called a number, leaves the two digits somebody recognises their own number by.
+        # Logged as a masked number, which the scrubber leaves in place.
         logger.info("otp_code_not_sent", provider=self.name, masked_number=number.masked, code=code)

@@ -1,15 +1,4 @@
-"""Sign-in codes sent by the provider that serves the country each number is in.
-
-A deployment serving several countries rarely has one text-message provider that delivers well, or
-lawfully, to all of them: some countries require messages from a registered sender through a
-provider licensed there. So each calling code may have a provider of its own, and every other
-number is sent its code by the default one (D-041).
-
-The application's sign-in rules are unchanged by it: which countries codes may go to, and how many
-are sent, are decided before any provider is asked. This only chooses who carries the message, and,
-for a provider that makes its own codes (D-042), who is asked whether a code is right — always the
-provider that sent it, since both are chosen by the same number.
-"""
+"""Sign-in codes sent and checked by the provider for each number's calling code (D-041)."""
 
 from __future__ import annotations
 
@@ -45,12 +34,7 @@ class OTPProviderByCallingCode(OTPProvider):
 
     @property
     def fixed_code(self) -> str | None:
-        """A fixed code only when every provider fixes the same one.
-
-        Never one from a testing provider serving some countries while a real one serves others:
-        the code is chosen before the number's provider is, so a fixed code would be the code every
-        real text message carried too.
-        """
+        """A fixed code only when every provider fixes the same one."""
         codes = {provider.fixed_code for provider in self._providers()}
         return next(iter(codes)) if len(codes) == 1 else None
 

@@ -1,17 +1,4 @@
-"""Every metric the product records, declared where it is recorded, with every value of its labels.
-
-A label is a dimension a metric is broken down by, and every distinct value is another series kept
-for as long as the metrics are. An unbounded label is an outage in the metrics backend waiting for
-enough traffic; a label carrying a number or somebody's words is a disclosure kept longer and shared
-more widely than anything else a service writes. Reviewing call sites by eye catches neither
-reliably, so each metric is declared once, beside the code that records it, naming the values each
-of its labels may take. The recorder refuses anything else, and a test over this registry proves
-every declared label is bounded and none is personal.
-
-Most labels list their values outright, usually as the enum they come from. A provider's or a
-platform's name is the exception: it is written in code, by an adapter, and bounded by how many
-adapters exist, so it is declared as named in code and checked for shape instead.
-"""
+"""Every metric the product records, declared beside its call site with bounded label values."""
 
 from __future__ import annotations
 
@@ -24,8 +11,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-# Every dimension a metric may be broken down by. Adding one is a deliberate edit to this line,
-# which is the review moment at which somebody asks whether its values are bounded.
+# Every dimension a metric may be broken down by.
 LABEL_KEYS: Final = frozenset({"kind", "outcome", "platform", "provider", "retryable", "stage"})
 
 # The dimensions whose values may be names written in code rather than a listed set.
@@ -39,11 +25,7 @@ _METRIC_NAME: Final = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
 
 
 class MetricLabelError(ValueError):
-    """A metric was declared or recorded with a name or a label that could carry content.
-
-    Raised rather than stripped. A label quietly dropped is a breakdown that silently stops
-    existing, and the call site that caused it is never told.
-    """
+    """A metric was declared or recorded with a name or a label that could carry content."""
 
 
 class Instrument(StrEnum):

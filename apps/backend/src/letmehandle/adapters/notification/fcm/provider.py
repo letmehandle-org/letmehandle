@@ -1,16 +1,4 @@
-"""Delivery to Android devices, directly through FCM's HTTP v1 API (D-015).
-
-One `messages:send` per notification. The message is shaped for an escalation: a notification
-the system shows even when the app is not running, Android priority `HIGH` so it is delivered at
-once and may wake a dozing device, a short TTL so a notification for a long-finished call is not
-delivered later, and the call as collapse key and notification tag so a repeat replaces rather
-than stacks. The notification names a channel the app creates with high importance; on Android 8
-and later that channel, not anything in the message, decides whether it makes a sound.
-
-Every documented error maps to an outcome. `UNREGISTERED`, and `INVALID_ARGUMENT` when Google
-names the token as the invalid field, mean the token is dead. `INVALID_ARGUMENT` about anything
-else is this message being wrong, which removing a user's device would not fix.
-"""
+"""Escalation notifications to Android devices through FCM's HTTP v1 API (D-015)."""
 
 from __future__ import annotations
 
@@ -45,8 +33,7 @@ PAYLOAD_LIMIT_BYTES: Final = 4096
 DEFAULT_TTL: Final = timedelta(minutes=10)
 DEFAULT_REQUEST_TIMEOUT: Final = 10.0
 
-# The notification channel the app creates for escalations. A contract with the app: a channel it
-# has not created falls back to the default channel declared in its manifest.
+# The high-importance channel the app creates for escalations.
 ESCALATION_CHANNEL: Final = "escalation"
 
 _FCM_ERROR_TYPE: Final = "type.googleapis.com/google.firebase.fcm.v1.FcmError"
@@ -172,11 +159,7 @@ def outcome_for(response: httpx.Response) -> tuple[DeliveryOutcome, str | None]:
 
 
 def _error_of(response: httpx.Response) -> tuple[str | None, frozenset[str]]:
-    """The most specific error code in a Google error body, and the fields it names as invalid.
-
-    FCM's own code, from its `FcmError` detail, wins over the generic status: a missing token and
-    a dead one are both `NOT_FOUND`, and only the detail says `UNREGISTERED`.
-    """
+    """The most specific error code in a Google error body, and the fields it names as invalid."""
     try:
         body = response.json()
     except ValueError:

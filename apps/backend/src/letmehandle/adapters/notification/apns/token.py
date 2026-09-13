@@ -1,13 +1,4 @@
-"""The provider token APNs authenticates every request with.
-
-A JWT signed with the team's `.p8` key, ES256 only. Apple's rules, which this enforces:
-refresh no more often than once every 20 minutes (more often is `TooManyProviderTokenUpdates`)
-and no less often than once every 60 (older is `ExpiredProviderToken`). So one token is made and
-reused until it is 50 minutes old, and a rejected one is replaced early only if it is at least 20
-minutes old.
-
-The token is a credential. It is never logged and never part of an error message.
-"""
+"""The APNs provider token: an ES256 JWT reused until 50 minutes old, never logged."""
 
 from __future__ import annotations
 
@@ -36,8 +27,7 @@ class APNsProviderToken:
             raise CredentialError("an APNs key needs both its key id and its team id")
         key = load_private_key(private_key, what="the APNs signing key")
         if not isinstance(key, EllipticCurvePrivateKey) or not isinstance(key.curve, SECP256R1):
-            # APNs verifies ES256 and nothing else, so any other key would sign tokens that every
-            # request then fails with.
+            # APNs accepts only ES256 keys.
             raise CredentialError("the APNs signing key must be a P-256 elliptic-curve key")
         self._key = key
         self._key_id = key_id

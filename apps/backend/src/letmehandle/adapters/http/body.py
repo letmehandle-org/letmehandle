@@ -1,11 +1,4 @@
-"""Reading a request body no larger than the route can have a use for.
-
-A body is read before anything in it can be checked — a signature is computed over it, a schema
-is applied to it — so a route that simply reads what it is sent holds whatever an unauthenticated
-client chooses to send. The declared length is refused first, because it costs nothing to check;
-the body is then counted as it arrives, because a length is only declared when the client
-chooses to declare one.
-"""
+"""Reading a request body, refused by declared length and counted as it arrives."""
 
 from __future__ import annotations
 

@@ -10,10 +10,7 @@ from typing import Final
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.ports.security import SecretGenerator, SecretHasher
 
-# scrypt, from the standard library, because a dependency for this is a dependency that has to
-# be trusted with every credential in the system. The parameters are the ones RFC 7914 gives as
-# interactive: expensive enough that a leaked table is not a list of codes, cheap enough that
-# signing in does not feel broken.
+# scrypt from the standard library, with RFC 7914's interactive parameters.
 _COST: Final = 2**14
 _BLOCK_SIZE: Final = 8
 _PARALLELISM: Final = 1
@@ -25,11 +22,7 @@ MIN_KEY_LENGTH: Final = 32
 
 
 class ScryptHasher(SecretHasher):
-    """Salted scrypt, with the salt stored alongside the hash.
-
-    Each secret gets its own salt, so two users with the same code produce different rows and a
-    precomputed table is worth nothing.
-    """
+    """Salted scrypt, with a per-secret salt stored alongside the hash."""
 
     def hash(self, secret: str) -> str:
         salt = secrets.token_bytes(_SALT_BYTES)
@@ -48,8 +41,7 @@ class ScryptHasher(SecretHasher):
             expected = bytes.fromhex(expected_hex)
         except ValueError:
             return False
-        # compare_digest, not ==. A comparison that returns on the first wrong byte tells an
-        # attacker how much of the secret they have right.
+        # compare_digest: a constant-time comparison.
         return hmac.compare_digest(self._derive(secret, salt), expected)
 
     def _derive(self, secret: str, salt: bytes) -> bytes:
@@ -64,16 +56,7 @@ class ScryptHasher(SecretHasher):
 
 
 class DeterministicHasher(SecretHasher):
-    """A keyed hash, for values that have to be looked up rather than checked.
-
-    A refresh token is found by its hash, which a salted hash makes impossible: every row would
-    have to be derived and compared. This uses HMAC with a server-held key instead — so the
-    stored value is still useless without the key, but identical inputs still produce identical
-    output and the lookup is an index rather than a scan.
-
-    Not for one-time codes. A six-digit space is small enough that an attacker holding both the
-    key and the table could enumerate it.
-    """
+    """A keyed HMAC for values looked up by hash, such as refresh tokens; not for short codes."""
 
     def __init__(self, key: str) -> None:
         if len(key) < MIN_KEY_LENGTH:
@@ -96,8 +79,7 @@ class SystemSecretGenerator(SecretGenerator):
     def numeric_code(self, length: int) -> str:
         if length <= 0:
             raise InvariantError("a code of no digits is not a code")
-        # randbelow per digit rather than a range: it avoids the modulo bias that makes some
-        # codes marginally likelier than others, which is small and free to avoid.
+        # randbelow per digit, which has no modulo bias.
         return "".join(str(secrets.randbelow(10)) for _ in range(length))
 
     def token(self) -> str:

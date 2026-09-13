@@ -1,15 +1,4 @@
-"""Delivery to iOS devices, directly through Apple's push service (D-015).
-
-One POST per notification to `/3/device/<token>` over HTTP/2, authenticated with a provider
-token. The request is shaped for an escalation: an alert, priority 10 (immediately), the
-time-sensitive interruption level so it breaks through a Focus on iOS 15 and later, a short
-expiration so a notification for a long-finished call is not delivered hours later, and the call
-as the collapse id so a repeat replaces rather than stacks.
-
-Every documented response is mapped to an outcome. Three reasons mean the token is dead and must
-be removed; the rest are either worth trying again (`FAILED`) or will fail identically until
-something is fixed (`REJECTED`). Nothing here raises for a delivery that did not happen.
-"""
+"""Escalation alerts to iOS devices through APNs, every response mapped to an outcome (D-015)."""
 
 from __future__ import annotations
 
@@ -42,8 +31,7 @@ PROVIDER_NAME: Final = "apns"
 # The payload limit for an alert. VoIP pushes may be larger; these are not VoIP pushes.
 PAYLOAD_LIMIT_BYTES: Final = 4096
 
-# Long enough to ride out a phone briefly without signal, short enough that a notification for a
-# call that has ended is not delivered after the user has moved on.
+# How long APNs keeps trying, short enough that an ended call's alert is not delivered.
 DEFAULT_EXPIRY: Final = timedelta(minutes=10)
 DEFAULT_REQUEST_TIMEOUT: Final = 10.0
 
@@ -157,11 +145,7 @@ class APNsNotificationProvider(NotificationProvider):
 
 
 def encode(notification: EscalationNotification) -> bytes:
-    """The JSON body.
-
-    The call's identifiers sit beside `aps` rather than inside it, which is where Apple puts an
-    app's own keys. They are written first so that nothing in them can replace `aps`.
-    """
+    """The JSON body, with the call's keys written before `aps` so they cannot replace it."""
     return compact_json(
         {
             **notification.data,

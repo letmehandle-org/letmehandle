@@ -1,9 +1,4 @@
-"""Sessions, scoped to one unit of work.
-
-A session is created per request and committed once, at the end, if nothing raised. That is
-what makes a handler atomic without every handler remembering to be: a failure halfway through
-leaves the database as it was rather than half-changed.
-"""
+"""Sessions scoped to one unit of work: committed once at the end, rolled back on any error."""
 
 from __future__ import annotations
 
@@ -25,9 +20,7 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
     """Build the factory the application uses for the life of the process."""
     return async_sessionmaker(
         engine,
-        # Objects stay usable after a commit. Without this, reading an attribute of something
-        # just written triggers a refresh against a closed transaction, which surfaces as an
-        # error in the response serialiser rather than anywhere near the cause.
+        # Keeps objects readable after a commit instead of refreshing on a closed transaction.
         expire_on_commit=False,
         autoflush=False,
     )
@@ -37,16 +30,7 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
 async def unit_of_work(
     factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
-    """One session, committed on success and rolled back on anything else.
-
-    The rollback is not belt and braces: an exception on the way out of a handler must not
-    leave a half-written sign-in behind, and relying on the session's own cleanup leaves that
-    to whether the garbage collector gets there first.
-
-    A database that could not be reached, or that dropped the connection, is raised as
-    `StorageUnavailableError`, with the driver's exception as its cause: this is storage's edge,
-    and above it what is worth trying again is decided from the kind of failure, not the driver.
-    """
+    """Commit on success, roll back otherwise; a lost database raises `StorageUnavailableError`."""
     async with factory() as session:
         try:
             try:

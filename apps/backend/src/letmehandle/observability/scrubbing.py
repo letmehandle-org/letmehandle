@@ -1,16 +1,4 @@
-"""What a log line may not carry, removed from every line on its way out.
-
-Each log call in the backend was read for a number, a token or somebody's words, and none passed
-one. That review holds until the next log call is written. This is the part that holds after it:
-a processor every line passes through, structlog's and the standard library's alike, that removes
-a field by its name wherever it is nested, and anything shaped like a number or a credential from
-whatever text is left.
-
-Exceptions are the hard case. Their messages are written by whoever raised them, a database driver
-repeats the parameters it refused, and a traceback's text is the message again. So an exception is
-logged as what it was and where it happened — its type, the types behind it and its frames — and
-never as what it said.
-"""
+"""Removes sensitive fields, numbers and credentials from every log line; outlines exceptions."""
 
 from __future__ import annotations
 
@@ -26,8 +14,7 @@ if TYPE_CHECKING:
 
 REDACTED: Final = "[redacted]"
 
-# Field names whose value is personal or secret whatever it holds, compared without case and
-# without the separators people vary. A name here is removed wherever it appears, however deep.
+# Sensitive field names, matched without case or separators at any depth.
 SENSITIVE_FIELDS: Final = frozenset(
     {
         "accesstoken",
@@ -58,15 +45,13 @@ SENSITIVE_FIELDS: Final = frozenset(
     }
 )
 
-# Anything shaped like a number in international form. A masked number keeps its country code and
-# last two digits with stars between, which this does not match, and which identifies nobody.
+# Anything shaped like an international number; a masked number does not match.
 _PHONE_NUMBER: Final = re.compile(r"\+[1-9][0-9]{6,14}\b")
 # A signed token: three base64url segments, the first a JSON header.
 _SIGNED_TOKEN: Final = re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+")
 _BEARER: Final = re.compile(r"(?i)\bbearer\s+\S+")
 
-# How deep a nested value is followed. Deeper than any line this application writes; the bound is
-# there so a structure that refers to itself cannot hang the process that logs it.
+# The deepest nesting followed, so a self-referencing value cannot hang logging.
 _MAX_DEPTH: Final = 8
 
 
@@ -92,8 +77,7 @@ def _scrub(value: object, depth: int) -> object:
         return [_scrub(item, depth + 1) for item in value]
     if isinstance(value, bool | int | float) or value is None:
         return value
-    # Anything else is rendered by whatever writes the line, through its own `str`, which is the
-    # one place a value object's own masking lives. Rendered here instead, so the text is checked.
+    # Other values are rendered here, so their text is scrubbed too.
     return scrub_text(str(value))
 
 
