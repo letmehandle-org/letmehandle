@@ -277,6 +277,66 @@ async def test_a_slow_sink_holds_the_source_back_rather_than_buffering(
     assert other_tasks() == before
 
 
+class TestQuiet:
+    """Waiting until the session has stopped playing for a pause."""
+
+    PAUSE = 0.05
+
+    async def test_nothing_playing_is_quiet_after_the_pause(
+        self, session: EchoSpeechSession
+    ) -> None:
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        running = asyncio.create_task(conversation.run())
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+
+        await conversation.quiet(self.PAUSE)
+
+        assert loop.time() - started >= self.PAUSE
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+    async def test_a_frame_still_playing_is_waited_for(self, session: EchoSpeechSession) -> None:
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        parts.sink.hold()
+        running = asyncio.create_task(conversation.run())
+        await session.emit(AudioProduced(tone_frame(0)))
+        await parts.sink.held.wait()
+
+        quiet = asyncio.create_task(conversation.quiet(self.PAUSE))
+        await asyncio.sleep(self.PAUSE * 2)
+        assert not quiet.done()
+
+        loop = asyncio.get_running_loop()
+        parts.sink.release()
+        released = loop.time()
+        await quiet
+        assert loop.time() - released >= self.PAUSE
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+    async def test_a_frame_played_during_the_pause_starts_it_again(
+        self, session: EchoSpeechSession
+    ) -> None:
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        running = asyncio.create_task(conversation.run())
+        loop = asyncio.get_running_loop()
+
+        quiet = asyncio.create_task(conversation.quiet(self.PAUSE * 2))
+        await asyncio.sleep(self.PAUSE)
+        await session.emit(AudioProduced(tone_frame(0)))
+        await parts.sink.until_written(1)
+        played = loop.time()
+        await quiet
+
+        assert loop.time() - played >= self.PAUSE * 2
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+
 @dataclass(frozen=True, slots=True)
 class Point:
     """Somewhere a conversation can be cancelled: how to set it up, and how to know it is there."""
