@@ -15,6 +15,7 @@ from letmehandle.config.settings import (
     get_settings,
     parse_calling_codes,
     parse_proxy_networks,
+    parse_speech_languages,
     parse_voice_catalogue,
 )
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -292,6 +293,33 @@ def test_a_repeated_voice_id_is_refused() -> None:
 def test_a_default_voice_outside_the_catalogue_is_refused() -> None:
     with pytest.raises(ValidationError, match="SPEECH_DEFAULT_VOICE 'absent' is not one of"):
         make_settings(speech_default_voice="absent")
+
+
+# -- The languages the speech service speaks ----------------------------------------------------
+
+
+def test_the_speech_service_speaks_english_unless_told_otherwise() -> None:
+    assert get_settings().speech_languages == ("en",)
+
+
+def test_the_speech_languages_are_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SPEECH_LANGUAGES", " en , hi ")
+    assert get_settings().speech_languages == ("en", "hi")
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        (" , ", "SPEECH_LANGUAGES lists no languages"),
+        ("en,Hindi", "SPEECH_LANGUAGES entry 2 is not a language code"),
+        ("en,en", "SPEECH_LANGUAGES lists the same language more than once"),
+    ],
+)
+def test_speech_languages_that_cannot_be_used_are_refused(text: str, problem: str) -> None:
+    with pytest.raises(ValueError, match=problem):
+        parse_speech_languages(text)
 
 
 # --------------------------------------------------------------------------- streaming telephony

@@ -78,3 +78,15 @@ async def test_a_configured_transcription_model_is_asked_for() -> None:
 async def test_without_one_no_transcription_is_requested() -> None:
     configuration = await configuration_sent(None)
     assert "transcription" not in configuration["session"]["audio"]["input"]
+
+
+def test_the_speech_service_is_offered_the_languages_the_settings_list() -> None:
+    settings = make_settings(
+        speech_provider=SpeechProviderName.ELEVENLABS,
+        speech_endpoint_url="wss://speech.example.com/v1/convai/conversation",
+        speech_agent_id="an-agent",
+        speech_languages=("en", "hi"),
+    )
+    provider = build_speech_provider(settings, metrics=RecordingMetrics())
+    assert provider.capabilities.languages == ("en", "hi")
+    assert provider.capabilities.speaks("hi-IN")

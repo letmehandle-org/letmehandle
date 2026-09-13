@@ -52,6 +52,7 @@ every paid provider unset.
 | Variable | Required | Default | Accepts | Secret | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `SPEECH_PROVIDER` | no | `realtime` | `realtime` or `elevenlabs` |  | Which protocol the speech service speaks. |
+| `SPEECH_LANGUAGES` | no | `('en',)` |  |  | The languages the speech service speaks, comma-separated, such as `en,hi`. A call opens in the user's language when it is one of them (D-039). |
 | `SPEECH_ENDPOINT_URL` | when the assistant takes calls | — |  |  | The speech service's `ws://` or `wss://` URL. |
 | `SPEECH_MODEL` | when the assistant takes calls over `realtime` | — |  |  | The model a `realtime` service runs. |
 | `SPEECH_AGENT_ID` | when the assistant takes calls over `elevenlabs` | — |  |  | The agent an `elevenlabs` service talks as. |
