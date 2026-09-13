@@ -116,11 +116,11 @@ sequenceDiagram
     P-->>A: decision: reach the user now
     A->>R: escalate(decision)
     R->>R: agent_handling → escalation_requested
+    R->>S: tell the assistant: user being reached
+    S->>C: "I'll check whether they can take the call"
     R-)D: start: notify the user (not awaited)
     R->>T: add_participant(user's number)
     R->>R: escalation_requested → human_ringing, ring timer armed
-    R->>S: tell the assistant: user being reached
-    S->>C: "I'm getting them for you"
     T->>U: rings
     D-)U: push: why the phone is ringing
     alt the user answers
@@ -150,8 +150,12 @@ What the sequence guarantees:
 - **An unreachable user is not a dropped call.** The call returns to the assistant, which is told the
   outcome and carries on with the caller. A call ending because its owner was busy is the failure the
   product exists to prevent.
-- **A dial the transport refuses** returns the call to `agent_handling` at once, and the agent is told
-  the request failed.
+- **The assistant knows before the phone rings.** It is told the user is being reached before the dial
+  is asked for, because it is answering the caller meanwhile, and a reply written without knowing
+  can tell the caller the user cannot be called while their phone is ringing. Its own instructions
+  never let it say it cannot reach the user: asked for them, it offers to check.
+- **A dial the transport refuses** returns the call to `agent_handling` at once, and the agent and the
+  assistant are both told the request failed.
 - **Handed over, not hung up.** When the agent ends its part by handing over while the user is still
   being reached, the assistant stays with the caller until the user answers, and takes the call back
   if they do not. Handed over to a user who is already there, the assistant stops speaking and the

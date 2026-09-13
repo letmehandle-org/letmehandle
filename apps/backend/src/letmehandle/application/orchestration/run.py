@@ -586,6 +586,10 @@ class CallRun:
             return
         with self._context.tracer.span("call.escalation", outcome=reason.value):
             await ledger.move(CallState.ESCALATION_REQUESTED)
+            # Told before the dial, not after it: the assistant is answering the caller while the
+            # dial is on its way, and a reply written without knowing has told a caller the user
+            # could not be called while their phone was already ringing.
+            await self._tell(Situation(UserReach.BEING_REACHED))
             # Started, never awaited: the ring is the escalation and the notification only context
             # for it, so nothing about delivering it may hold the dial back (D-016).
             self._notify(live, decision, reason)
@@ -596,7 +600,6 @@ class CallRun:
                 raise DialRefusedError
             await ledger.move(CallState.HUMAN_RINGING)
             self._ring_for(step)
-            await self._tell(Situation(UserReach.BEING_REACHED))
 
     async def _end_for_agent(self, live: _Live, ending: CallEnding) -> None:
         handed_over = ending is CallEnding.HANDED_OVER
