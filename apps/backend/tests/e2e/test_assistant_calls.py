@@ -102,13 +102,6 @@ async def test_a_routine_call_is_handled_by_the_assistant(
         assert emitted.mentions(DENTIST_SAYS, *identifying(CALLER)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "an ending the assistant asks for tears the call down before its judgement is posted, so "
-        "the assessment is lost and the summary records the intent as undetermined"
-    ),
-)
 async def test_a_the_summary_keeps_the_intent_the_assistant_assessed(
     database: str, pushes: Pushes
 ) -> None:
@@ -157,14 +150,6 @@ async def test_c_an_important_caller_is_put_straight_through_without_the_model(
         assert emitted.mentions(*identifying(IMPORTANT_CALLER), "Sister") == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "a call from an important contact is recorded as from an unknown caller: nothing gives "
-        "the stored caller the label the user wrote, so history names nobody and the headline "
-        "says 'an unknown caller'"
-    ),
-)
 async def test_c_history_names_the_important_caller_the_user_labelled(
     database: str, pushes: Pushes
 ) -> None:

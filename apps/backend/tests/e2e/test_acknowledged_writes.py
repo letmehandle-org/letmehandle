@@ -41,13 +41,6 @@ async def _run(engine: AsyncEngine, statements: tuple[str, ...]) -> None:
             await connection.execute(text(statement))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "a request's unit of work commits after its response is sent: a sign-in answered 200 "
-        "is not yet stored, so the access token it returned is refused as not_authenticated"
-    ),
-)
 async def test_a_signed_in_account_can_be_used_as_soon_as_sign_in_answers(database: str) -> None:
     engine = create_async_engine(database)
     await _run(engine, SLOW_COMMIT)
