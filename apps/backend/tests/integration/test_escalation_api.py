@@ -338,6 +338,21 @@ class TestEscalationContext:
             "delivery": "delivered",
         }
 
+    async def test_it_is_in_the_language_the_notification_was_sent_in(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await api.client.patch("/v1/preferences", headers=bearer(tokens), json={"locale": "hi"})
+        await register(api, tokens, {"platform": "ios", "token": HEX_DEVICE_TOKEN})
+        apns = SimulatedAPNs()
+        await dispatcher_for(api, apns, SimulatedFCM(), RecordingMetrics()).dispatch(
+            await user_id_of(api, tokens), a_context(), locale="hi"
+        )
+        alert = json.loads(apns.requests[0].content)["aps"]["alert"]
+
+        body = (await api.client.get("/v1/escalations/call-1", headers=bearer(tokens))).json()
+
+        assert body["title"] == alert["title"]
+        assert body["title"] != "There is a decision only you can make"
+
     async def test_it_is_there_when_no_push_could_be_sent(self, api: Api) -> None:
         # The context is stored before sending, so a user with no registered device — or one
         # whose every push failed — still has the escalation to open.
