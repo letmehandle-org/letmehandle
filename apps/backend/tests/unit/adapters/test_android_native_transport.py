@@ -18,8 +18,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _unfiltered_logging() -> Iterator[None]:
-    # Another test may have configured logging at a level that drops these events before they
-    # could be captured. Whatever was configured is put back afterwards.
+    # Logging is set to capture these events and restored afterwards.
     configured = structlog.get_config()
     structlog.reset_defaults()
     yield
@@ -59,8 +58,7 @@ async def test_reported_events_arrive_in_the_order_they_were_published() -> None
 
 
 async def test_a_released_call_is_not_handed_on_again() -> None:
-    # Terminating cannot hang up a handset's call; it releases the transport's interest in it,
-    # so a late report about it does not reappear to whoever consumes these events.
+    # Terminating releases interest in the call, so a later report is not handed on.
     transport = AndroidNativeCallTransport()
     await transport.terminate(CallId("a"))
     with structlog.testing.capture_logs() as logs:
@@ -75,8 +73,7 @@ async def test_a_released_call_is_not_handed_on_again() -> None:
 
 
 async def test_only_the_most_recent_releases_are_remembered() -> None:
-    # Bounded, and wrong in the safe direction when it forgets: an old call's report is handed
-    # on rather than a current call's being lost.
+    # Bounded: a forgotten old call's report is handed on.
     transport = AndroidNativeCallTransport(released_limit=1)
     await transport.terminate(CallId("old"))
     await transport.terminate(CallId("new"))

@@ -1,10 +1,4 @@
-"""The media stream's messages, as typed values in and JSON text out.
-
-The provider writes every number in these messages as a string — sequence numbers, chunk
-numbers, timestamps — and audio as base64 μ-law at eight thousand samples a second. That is
-settled here, once, so nothing above this module parses a number out of a string or decodes a
-payload.
-"""
+"""The media stream's messages: JSON text with string numbers and base64 μ-law, as typed values."""
 
 from __future__ import annotations
 
@@ -27,16 +21,7 @@ INBOUND_TRACK: Final = "inbound"
 
 
 class MediaProtocolError(Exception):
-    """A message that is not the media stream protocol.
-
-    Adapter-internal. It names which part was wrong and never repeats the message, which may
-    carry somebody's voice.
-    """
-
-
-@dataclass(frozen=True, slots=True)
-class Connected:
-    """The socket is open; nothing is known about the call yet."""
+    """A message that is not the media stream protocol; names the part, never the content."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +30,6 @@ class StreamStarted:
 
     stream_sid: str
     call_sid: str
-    tracks: tuple[str, ...]
     parameters: Mapping[str, str]
 
 
@@ -54,23 +38,7 @@ class MediaReceived:
     """A piece of the call's audio, as the provider's μ-law bytes."""
 
     track: str
-    chunk: int
-    timestamp_ms: int
     payload: bytes
-
-
-@dataclass(frozen=True, slots=True)
-class MarkReached:
-    """Audio sent before a named mark has finished playing, or was cleared."""
-
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class DigitPressed:
-    """A key pressed on the keypad of a phone on the call."""
-
-    digit: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,15 +53,7 @@ class UnknownMessage:
     event: str
 
 
-type MediaMessage = (
-    Connected
-    | StreamStarted
-    | MediaReceived
-    | MarkReached
-    | DigitPressed
-    | StreamStopped
-    | UnknownMessage
-)
+type MediaMessage = StreamStarted | MediaReceived | StreamStopped | UnknownMessage
 
 
 def parse_message(text: str) -> MediaMessage:
@@ -106,16 +66,10 @@ def parse_message(text: str) -> MediaMessage:
         raise MediaProtocolError("a frame is not a JSON object")
     event = message.get("event")
     match event:
-        case "connected":
-            return Connected()
         case "start":
             return _started(_section(message, "start"), message)
         case "media":
             return _media(_section(message, "media"))
-        case "mark":
-            return MarkReached(_text(_section(message, "mark"), "name"))
-        case "dtmf":
-            return DigitPressed(_text(_section(message, "dtmf"), "digit"))
         case "stop":
             return StreamStopped()
         case str():
@@ -139,11 +93,6 @@ def clear_message(stream_sid: str) -> str:
     return _encode({"event": "clear", "streamSid": stream_sid})
 
 
-def mark_message(stream_sid: str, name: str) -> str:
-    """Ask to be told when everything sent so far has played."""
-    return _encode({"event": "mark", "streamSid": stream_sid, "mark": {"name": name}})
-
-
 def _started(start: Mapping[str, Any], message: Mapping[str, Any]) -> StreamStarted:
     media_format = start.get("mediaFormat")
     if not isinstance(media_format, dict):
@@ -157,10 +106,7 @@ def _started(start: Mapping[str, Any], message: Mapping[str, Any]) -> StreamStar
         TELEPHONY_NARROWBAND.channels,
     ):
         raise MediaProtocolError("the stream's audio format is not mono μ-law at 8 kHz")
-    tracks = start.get("tracks", [])
     parameters = start.get("customParameters", {})
-    if not isinstance(tracks, list) or not all(isinstance(each, str) for each in tracks):
-        raise MediaProtocolError("the stream's tracks are not a list of names")
     if not isinstance(parameters, dict) or not all(
         isinstance(value, str) for value in parameters.values()
     ):
@@ -171,7 +117,6 @@ def _started(start: Mapping[str, Any], message: Mapping[str, Any]) -> StreamStar
     return StreamStarted(
         stream_sid=stream_sid,
         call_sid=_text(start, "callSid"),
-        tracks=tuple(tracks),
         parameters=dict(parameters),
     )
 
@@ -181,12 +126,7 @@ def _media(media: Mapping[str, Any]) -> MediaReceived:
         payload = base64.b64decode(_text(media, "payload"), validate=True)
     except binascii.Error:
         raise MediaProtocolError("a media payload is not base64") from None
-    return MediaReceived(
-        track=_text(media, "track"),
-        chunk=_integer(media.get("chunk"), "chunk"),
-        timestamp_ms=_integer(media.get("timestamp"), "timestamp"),
-        payload=payload,
-    )
+    return MediaReceived(track=_text(media, "track"), payload=payload)
 
 
 def _section(message: Mapping[str, Any], name: str) -> Mapping[str, Any]:

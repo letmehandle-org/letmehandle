@@ -1,17 +1,4 @@
-"""One assistant leg's media stream, and the source and sink a conversation runs over.
-
-The stream belongs to a leg, not to a call: the assistant can leave and be brought back, and
-each time it is a new leg with a new websocket. A source or sink handed out for a call follows
-whichever assistant leg is current when it is used, so a conversation started after the
-assistant rejoins needs nothing new from anybody.
-
-Two directions, each with its own bound. Arriving audio waits in a short queue, and when that
-fills the oldest is dropped: a live call cannot be told to slow down, and audio a listener was
-too slow to hear is audio nobody wants late. Departing audio is paced against the clock, so the
-sink holds no more than a few hundred milliseconds ahead of what the call has played — which is
-what the sink contract asks, because audio handed over is audio the speech session counts as
-heard.
-"""
+"""An assistant leg's media stream, and a call's source and sink that follow the current leg."""
 
 from __future__ import annotations
 
@@ -131,9 +118,7 @@ class MediaStream:
             return
         now = self._monotonic()
         self._play_until = max(now, self._play_until) + len(audio) / _BYTES_PER_SECOND
-        # Listening only: the conference already stops anyone hearing this leg, and sending
-        # audio nobody will hear is load for nothing. It is still paced as if it were played,
-        # because the speech session counts what the sink takes as heard.
+        # A muted leg is heard by nobody, so nothing is sent, but the audio is still paced.
         if not self._is_muted():
             await self._send(socket, media_message(stream_sid, audio))
         ahead = self._play_until - self._monotonic() - PLAYBACK_LEAD_SECONDS

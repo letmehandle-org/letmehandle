@@ -152,8 +152,7 @@ async def test_a_listening_only_leg_sends_nothing() -> None:
 
 
 async def test_a_listening_only_leg_is_paced_as_if_it_were_heard() -> None:
-    # The speech session counts what the sink takes as heard. Taken all at once, ten seconds
-    # of speech would be over in an instant, and the assistant would think it had finished.
+    # The speech session counts what the sink takes as heard, so the sink paces to playback.
     sleeps = Sleeps()
     stream = MediaStream(monotonic=Clock(), sleep=sleeps, is_muted=lambda: True)
     stream.attach(MemoryMediaSocket(), "MZsim-1")

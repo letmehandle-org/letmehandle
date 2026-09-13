@@ -1,9 +1,4 @@
-"""The streaming transport's call handling, callback by callback, against a recording API.
-
-Callbacks are handed to the transport directly, in whatever order and multiplicity a test
-chooses, so every mapping from what the provider says to what the orchestrator hears is pinned
-here. The simulator's end-to-end tests prove the same behaviour over real HTTP and websockets.
-"""
+"""The streaming transport's call handling, callback by callback, against a recording API."""
 
 from __future__ import annotations
 
@@ -382,13 +377,13 @@ async def test_the_assistant_leg_is_told_to_stream_when_it_is_the_one_expected(
     assert '<Parameter name="leg" value="assistant-1" />' in document
 
 
-async def test_the_assistant_leg_is_recognised_by_its_call_when_its_parameters_are_missing(
+async def test_an_application_call_that_names_no_leg_of_ours_is_hung_up(
     transport: TwilioCallTransport,
 ) -> None:
     transport.incoming_call(incoming())
     await transport.answer(CALL)
-    assert "<Stream" in transport.assistant_joining({}, "CAsim-assistant-1")
-    assert "<Stream" in transport.assistant_joining({"call": "CAsim-gone"}, "CAsim-assistant-1")
+    assert "<Hangup" in transport.assistant_joining({}, "CAsim-assistant-1")
+    assert "<Hangup" in transport.assistant_joining({"call": "CAsim-gone"}, "CAsim-assistant-1")
 
 
 async def test_a_leg_nobody_expects_is_hung_up(transport: TwilioCallTransport) -> None:
@@ -1094,9 +1089,7 @@ async def test_a_socket_that_is_not_the_expected_stream_is_closed(
 async def test_a_stream_token_is_its_own_legs_and_is_good_for_one_start_only(
     transport: TwilioCallTransport,
 ) -> None:
-    # The handshake's signature is the same for every call, and a leg's identifier is no
-    # secret, so neither says which leg a socket may carry. Only the token its instructions
-    # carried does, and only once.
+    # Only the token a leg's instructions carried names that leg's socket, and only once.
     await answered_call(transport)
     other = CallId("CAsim-2")
     transport.incoming_call(incoming(other.value))
@@ -1268,3 +1261,55 @@ async def test_failing_to_cancel_a_ringing_leg_after_the_call_ended_is_logged_no
     # The call is over and released; there is nobody left to tell but the log.
     assert shapes(await drain(transport)) == [("ended", None, None)]
     assert transport.active_calls == 0
+
+
+async def test_the_application_call_asking_for_the_stream_never_stands_for_the_participant(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    transport.incoming_call(incoming())
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 1, "caller"))
+    placing = asyncio.Event()
+    finish = asyncio.Event()
+    original = api.create_participant
+
+    async def slow_create(conference_name: str, request: ParticipantRequest) -> str:
+        placing.set()
+        await finish.wait()
+        return await original(conference_name, request)
+
+    api.create_participant = slow_create  # type: ignore[method-assign]
+    answering = asyncio.create_task(transport.answer(CALL))
+    await placing.wait()
+    document = transport.assistant_joining(
+        {"call": CALL.value, "leg": "assistant-1"}, "CAsim-application"
+    )
+    finish.set()
+    await asyncio.wait_for(answering, timeout=5)
+    token = next(
+        each.attrib["value"]
+        for each in fromstring(document).iter("Parameter")  # noqa: S314 - the transport wrote it
+        if each.attrib["name"] == "token"
+    )
+    socket = MemoryMediaSocket()
+    socket.provider_sends(start_message(call_sid="CAsim-application", token=token))
+    running = asyncio.create_task(transport.media_connected(socket))
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 2, "assistant-1"))
+    await with_user(transport)
+    await transport.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)
+    assert api.updates == [(CONFERENCE, "CAsim-assistant-1", True, None)]
+    assert not socket.closed
+    await transport.set_assistant_presence(CALL, AssistantPresence.LEAVE)
+    assert api.removed == [(CONFERENCE, "CAsim-assistant-1")]
+    socket.provider_closes()
+    await asyncio.wait_for(running, timeout=5)
+
+
+async def test_a_second_application_call_for_one_assistant_leg_is_hung_up(
+    transport: TwilioCallTransport,
+) -> None:
+    transport.incoming_call(incoming())
+    await transport.answer(CALL)
+    identifiers = {"call": CALL.value, "leg": "assistant-1"}
+    first = transport.assistant_joining(identifiers, "CAsim-application")
+    assert transport.assistant_joining(identifiers, "CAsim-application") == first
+    assert "<Hangup" in transport.assistant_joining(identifiers, "CAsim-another-application")

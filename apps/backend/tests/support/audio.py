@@ -1,8 +1,4 @@
-"""Audio that is not a call: a tone generated on the spot, and a speaker that only takes notes.
-
-Nothing is read from or written to disk. The tone is computed when a frame is asked for, which
-keeps recorded audio out of the repository and means a test's audio is exactly what it says.
-"""
+"""Generated tones, a humming audio source and a note-taking audio sink, with nothing on disk."""
 
 from __future__ import annotations
 
@@ -22,11 +18,7 @@ _FREQUENCY_HZ: Final = 440.0
 
 
 def tone_frame(index: int) -> AudioFrame:
-    """The `index`th frame of a continuous wideband sine tone.
-
-    The phase carries on from the previous frame, so consecutive frames join without a click; a
-    test comparing what went in with what came out is comparing a real signal.
-    """
+    """The `index`th frame of a continuous wideband sine tone, phase-continuous across frames."""
     first = index * SAMPLES_PER_FRAME
     rate = SPEECH_WIDEBAND.sample_rate_hz
     samples = [
@@ -37,12 +29,7 @@ def tone_frame(index: int) -> AudioFrame:
 
 
 class ToneSource(AudioSource, AsyncIterator[AudioFrame]):
-    """A speaker who hums.
-
-    `frames` is how many frames to say, or `None` to go on until hung up. With `stays_open`, the
-    speaker stays on the line after the last frame until `hang_up`, so a test can decide when
-    the source ends rather than racing it.
-    """
+    """A humming source of `frames` frames, or endless; with `stays_open`, open until `hang_up`."""
 
     def __init__(self, *, frames: int | None, stays_open: bool = False) -> None:
         self._limit = frames
@@ -65,9 +52,8 @@ class ToneSource(AudioSource, AsyncIterator[AudioFrame]):
         """Every frame taken so far, regenerated, for comparing with what came back."""
         return [tone_frame(index) for index in range(self.taken)]
 
-    # The source is its own iterator rather than a generator. A transport reading a socket is
-    # usually shaped this way, and a consumer that only cleaned up after generators would pass
-    # every test written with one.
+        # Its own iterator rather than a generator, as a transport reading a socket is.
+
     def __aiter__(self) -> AsyncIterator[AudioFrame]:
         return self
 
@@ -77,8 +63,7 @@ class ToneSource(AudioSource, AsyncIterator[AudioFrame]):
             if self._stays_open:
                 await self._gone.wait()
             raise StopAsyncIteration
-        # A real source waits between frames for the next one to arrive. Without this a source
-        # that never ends would never let anything else run.
+            # Yields between frames, as a real source waiting for audio does.
         await asyncio.sleep(0)
         frame = tone_frame(self.taken)
         self.taken += 1
@@ -86,11 +71,7 @@ class ToneSource(AudioSource, AsyncIterator[AudioFrame]):
 
 
 class RecordingSink(AudioSink):
-    """Plays nothing, and remembers everything it was asked to play and when it was cleared.
-
-    `hold` makes playback slow in the way that matters: a write does not return until `release`,
-    exactly like a speaker whose buffer is full.
-    """
+    """Remembers what it played and when it was cleared; `hold` blocks writes until `release`."""
 
     def __init__(self) -> None:
         self._flowing = asyncio.Event()

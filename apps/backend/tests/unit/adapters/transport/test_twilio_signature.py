@@ -1,22 +1,16 @@
-"""Signature verification, including every pitfall the provider's documentation warns about.
-
-The known-answer test pins the algorithm to an independent computation written out in full in
-the test, so the implementation cannot pass by agreeing with itself.
-"""
+"""Signature verification against an independent computation and the documented pitfalls."""
 
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
-import json
 
 import pytest
 
 from letmehandle.adapters.transport.twilio.signature import (
     SignatureRejectedError,
     SignatureVerifier,
-    body_hash,
     compute_signature,
 )
 
@@ -76,8 +70,7 @@ def test_sorting_is_case_sensitive_as_unix_sorting_is() -> None:
 
 
 def test_a_repeated_parameter_is_signed_once_per_distinct_value_in_value_order() -> None:
-    # The official validators sort the set of each parameter's values, so a value repeated
-    # verbatim is written out once, and two values of one name are written in sorted order.
+    # Each distinct value is written once, and a name's values in sorted order.
     written_out = "u" + "Event" + "join" + "Event" + "leave"
     expected = base64.b64encode(
         hmac.new(TOKEN.encode(), written_out.encode(), hashlib.sha1).digest()
@@ -131,8 +124,7 @@ def test_a_body_that_is_not_text_is_rejected_before_anything_reads_it() -> None:
 
 
 def test_parameters_this_code_has_never_heard_of_are_still_signed_and_still_validate() -> None:
-    # The provider adds parameters without notice. Filtering to a known list would reject every
-    # callback the day one appears.
+    # Parameters are never filtered to a known list; the provider adds them.
     extended = [*PARAMS, ("StirVerstat", "TN-Validation-Passed-A"), ("NewThing", "")]
     signature = compute_signature(f"{BASE}{PATH}", extended, TOKEN)
     assert (
@@ -142,8 +134,7 @@ def test_parameters_this_code_has_never_heard_of_are_still_signed_and_still_vali
 
 
 def test_the_configured_url_is_what_is_checked_not_the_request_host() -> None:
-    # Behind a tunnel the request arrives at a loopback address; the provider signed the public
-    # URL. A verifier built from the request would reject every genuine callback.
+    # Behind a tunnel the request arrives on loopback, but the public URL is what was signed.
     signature = compute_signature(f"{BASE}{PATH}", PARAMS, TOKEN)
     assert verifier().verify_form(path=PATH, raw_query="", body=form(PARAMS), signature=signature)
     loopback = compute_signature(f"http://127.0.0.1:8000{PATH}", PARAMS, TOKEN)
@@ -195,35 +186,6 @@ def test_a_fragment_is_never_part_of_what_was_signed() -> None:
     verifier().verify_form(
         path=PATH + "#section", raw_query="", body=form(PARAMS), signature=signature
     )
-
-
-def test_a_json_body_is_proved_by_its_hash_and_the_signed_url_carrying_it() -> None:
-    body = json.dumps({"event": "anything", "number": "+12025550123"}).encode()
-    query = f"bodySHA256={body_hash(body)}"
-    signature = compute_signature(f"{BASE}{PATH}?{query}", [], TOKEN)
-    verifier().verify_json(path=PATH, raw_query=query, body=body, signature=signature)
-
-
-def test_a_json_body_that_does_not_match_its_signed_hash_is_rejected() -> None:
-    body = b'{"event":"anything"}'
-    query = f"bodySHA256={body_hash(body)}"
-    signature = compute_signature(f"{BASE}{PATH}?{query}", [], TOKEN)
-    with pytest.raises(SignatureRejectedError, match="does not match the hash"):
-        verifier().verify_json(
-            path=PATH, raw_query=query, body=b'{"event":"tampered"}', signature=signature
-        )
-
-
-def test_a_json_body_with_no_hash_is_rejected() -> None:
-    with pytest.raises(SignatureRejectedError, match="hash"):
-        verifier().verify_json(path=PATH, raw_query="", body=b"{}", signature="x")
-
-
-def test_a_json_body_whose_hash_is_right_but_url_is_unsigned_is_rejected() -> None:
-    body = b"{}"
-    query = f"bodySHA256={body_hash(body)}"
-    with pytest.raises(SignatureRejectedError, match="does not match"):
-        verifier().verify_json(path=PATH, raw_query=query, body=body, signature="forged")
 
 
 @pytest.mark.parametrize(

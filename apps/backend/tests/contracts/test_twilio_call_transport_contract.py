@@ -1,10 +1,4 @@
-"""The call transport contract, against the streaming transport and a simulated provider.
-
-The same suite the in-memory transports pass. The call the suite names is placed with the
-simulated provider first — answered into its conference, with the assistant's leg streaming and
-a frame of the caller's audio already on its way — because this transport, unlike a fake, only
-knows about calls that have actually arrived.
-"""
+"""The call transport contract, against the streaming transport and a simulated provider."""
 
 from __future__ import annotations
 

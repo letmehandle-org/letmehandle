@@ -1,9 +1,4 @@
-"""The provider's HTTP callbacks, read into typed values once they are proved genuine.
-
-Only what this transport acts on is read; every other parameter was still signed and is simply
-not looked at. A callback missing something this code needs is malformed, and is refused
-rather than guessed at.
-"""
+"""The provider's verified HTTP callbacks as typed values; one missing a needed field is refused."""
 
 from __future__ import annotations
 
@@ -14,12 +9,15 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-# Query parameters this transport puts on its own callback URLs, so a callback says which call
-# and which leg it is about before any provider identifier is known.
+# Query parameters on this transport's own callback URLs, naming the call and the leg.
 CALL_PARAMETER: Final = "call"
 LEG_PARAMETER: Final = "leg"
 # A stream parameter only: the secret an assistant leg's stream must present to be attached.
 TOKEN_PARAMETER: Final = "token"  # noqa: S105 - the name of a parameter, not its value
+
+
+# The conference events every conference callback is requested for: the ones this transport reads.
+CONFERENCE_EVENTS: Final = ("start", "end", "join", "leave")
 
 
 class CallbackMalformedError(Exception):
@@ -66,13 +64,7 @@ _FINAL: Final = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class Parameters:
-    """A callback's parameters, looked up by name.
-
-    A parameter this transport reads must appear once. The signature covers a repeated
-    parameter's values in sorted order rather than the order they arrived in, so a callback
-    carrying two could be reordered in transit without breaking its signature, and whichever
-    came first would decide what it meant.
-    """
+    """A callback's parameters by name; a repeated one is refused, as signing does not fix order."""
 
     pairs: Sequence[tuple[str, str]]
 
@@ -103,8 +95,7 @@ class IncomingCall:
     account_sid: str
     caller: str | None
     called: str | None
-    # The line the call was forwarded from, when the carrier says: the user's own number, reached by
-    # the caller and forwarded to the account's. Absent for a call dialled at the account directly.
+    # The user's own line the carrier forwarded the call from; absent for a direct call.
     forwarded_from: str | None = None
 
 

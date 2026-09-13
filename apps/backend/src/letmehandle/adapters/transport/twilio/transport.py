@@ -1,20 +1,4 @@
-"""Streaming calls over programmable telephony, each a conference from the moment it is answered.
-
-The call shape is D-027's. The caller is answered into a conference of their own and their leg is
-never touched again. The assistant joins as a second participant, a leg dialled to an
-application whose only instruction is to stream its audio to this service. The user, when the
-policy calls for them, is dialled into the same conference. Everything the assistant can do
-once the user is there — stay, fall silent while listening, speak only to the user, leave — is
-one change to one participant.
-
-What the provider tells this transport arrives as HTTP callbacks and websocket messages, and
-the provider duplicates, reorders and drops them. So nothing here trusts arrival order: every
-callback is recognised as a repeat by the identifiers the provider gave it, and resolved against
-the state it describes by the provider's own sequence numbers. Callback handlers change state
-and queue events; they never wait on the network, because the provider waits on them. Work that
-needs the network — muting the assistant when the user joins, hanging up a voicemail — is
-started as a task this transport owns, and every such task is gone when the call is.
-"""
+"""Streaming calls, each a conference of caller, assistant leg and user leg (D-027)."""
 
 from __future__ import annotations
 
@@ -79,8 +63,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Paths the provider calls. The adapter's router serves them; configuration in the provider's
-# console points at the first two.
+# Paths the provider calls; the provider's console points at the first two.
 INCOMING_PATH: Final = "/telephony/voice/incoming"
 ASSISTANT_PATH: Final = "/telephony/voice/assistant"
 CONFERENCE_PATH: Final = "/telephony/conference/status"
@@ -92,27 +75,20 @@ CALLER_LABEL: Final = "caller"
 _ASSISTANT_PREFIX: Final = "assistant-"
 _USER_PREFIX: Final = "user-"
 
-# Long enough for a person to find their phone; short enough that a caller is not left waiting
-# on a voicemail the detection would have caught.
+# How long a dialled leg rings: long enough to find a phone, short of a voicemail pickup.
 USER_DIAL_TIMEOUT_SECONDS: Final = 30
 ASSISTANT_DIAL_TIMEOUT_SECONDS: Final = 15
 
-# How many finished calls and delivery tokens are remembered, so a redelivered callback for a
-# call that is over cannot start it again. Bounded: a process runs for weeks.
+# How many finished calls and delivery tokens are remembered against redelivered callbacks.
 REMEMBERED_DELIVERIES: Final = 10_000
 
-# A leg reported completed without ever joining may simply have had its conference callbacks
-# delayed: they are separate requests, and a join and a leave can arrive after the completion.
-# The leg is reported unreachable only if nothing about it arrives for this long.
+# How long a leg completed without joining waits for its late conference callbacks.
 LATE_CALLBACK_GRACE_SECONDS: Final = 2.0
 
-# How long an accepted media websocket has to name the stream it carries. A socket that never
-# does is refused, rather than held open for as long as whoever opened it likes.
+# How long an accepted media websocket has to start its stream before it is closed.
 MEDIA_START_SECONDS: Final = 5.0
 
-# How long shutdown waits for the provider to end the calls still in progress. Bounded, because a
-# deployment waiting on an API that does not answer is not shutting down; long enough for a
-# handful of requests per call when the API is well.
+# How long shutdown waits for the provider to end the calls still in progress.
 SHUTDOWN_SECONDS: Final = 5.0
 
 _OUTCOMES: Final = {
@@ -125,12 +101,7 @@ _OUTCOMES: Final = {
 
 @dataclass(frozen=True, slots=True)
 class TwilioConfig:
-    """The account this transport is, and where the provider reaches it.
-
-    `path_prefix` is put in front of every path the provider calls, so that two transports on one
-    service — a line for each country, say — each have routes of their own. Empty mounts them at
-    the root, where a deployment with one line has always had them.
-    """
+    """One line's account, its numbers, and the prefix every path its provider calls begins with."""
 
     account_id: str
     app_id: str
@@ -147,9 +118,43 @@ class TwilioConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class Forwarding:
+    """Whether the carrier said a call was forwarded, and the line it named if that is a number."""
+
+    forwarded: bool
+    line: PhoneNumber | None
+
+
+@dataclass(frozen=True, slots=True)
 class _Applied:
     muted: bool = False
     coach_call_sid: str | None = None
+
+
+@dataclass(eq=False)
+class _AssistantMedia:
+    """An assistant leg's stream, and what a websocket must present to carry it."""
+
+    stream: MediaStream
+    token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    token_spent: bool = False
+    # The application's own call, which asks for the stream and starts it; never the participant.
+    application_sid: str | None = None
+
+    def bind_application(self, call_sid: str) -> bool:
+        """Bind the application call asking for the stream; False when another call is bound."""
+        if self.application_sid is None:
+            self.application_sid = call_sid
+        return self.application_sid == call_sid
+
+    def admit(self, call_sid: str, presented: str | None) -> bool:
+        """Whether a stream start may attach, spending the token it presents: one start only."""
+        if self.token_spent or presented is None:
+            return False
+        if not hmac.compare_digest(presented.encode(), self.token.encode()):
+            return False
+        self.token_spent = True
+        return call_sid == self.application_sid
 
 
 @dataclass(eq=False)
@@ -159,8 +164,9 @@ class _Leg:
     label: str
     role: ParticipantRole
     number: PhoneNumber | None = None
-    stream: MediaStream | None = None
-    call_sid: str | None = None
+    media: _AssistantMedia | None = None
+    # The participant's call, named by leg and conference callbacks and by every request about it.
+    participant_sid: str | None = None
     answered: bool = False
     joined: bool = False
     finished: bool = False
@@ -170,15 +176,6 @@ class _Leg:
     last_progress: int = -1
     last_conference: int = -1
     applied: _Applied = field(default_factory=_Applied)
-    # What this leg's stream must present to be attached, and whether anything has presented it.
-    # The handshake's signature is the same for every call and a leg's identifier is no secret,
-    # so without this any signed socket could name any leg.
-    media_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
-    media_token_spent: bool = False
-    # The call that asked for this leg's stream. Dialling an application makes a call of its own on
-    # the provider's side, so this is not the participant's identifier, and it is the one a stream
-    # presents when it starts.
-    stream_call_sid: str | None = None
 
 
 @dataclass(eq=False)
@@ -188,7 +185,7 @@ class _Call:
     call_id: CallId
     caller: Caller
     from_number: PhoneNumber
-    forwarded_from: PhoneNumber | None = None
+    forwarding: Forwarding
     conference_sid: str | None = None
     legs: dict[str, _Leg] = field(default_factory=dict)
     presence: AssistantPresence = AssistantPresence.STAY
@@ -220,7 +217,8 @@ class _Call:
 
     def current_stream(self) -> MediaStream | None:
         assistant = self.assistant()
-        return assistant.stream if assistant is not None else None
+        media = assistant.media if assistant is not None else None
+        return media.stream if media is not None else None
 
 
 class _Remembered:
@@ -309,21 +307,16 @@ class TwilioCallTransport(CallTransport):
     def pending_tasks(self) -> int:
         return len(self._tasks)
 
-    def holds(self, call_id: CallId) -> bool:
-        """Whether a call is in progress on this transport."""
-        return call_id in self._calls
-
-    def forwarded_from(self, call_id: CallId) -> PhoneNumber | None:
-        """The line a call in progress was forwarded from, if the carrier said and it is one."""
+    def forwarding(self, call_id: CallId) -> Forwarding | None:
+        """How a call in progress reached the account; None when no such call is in progress."""
         call = self._calls.get(call_id)
-        return None if call is None else call.forwarded_from
+        return None if call is None else call.forwarding
 
     async def settled(self) -> None:
         """Wait until every task this transport started has finished."""
         while self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
-            # Gathering tasks already finished does not yield, and a finished task leaves the
-            # set only when its done callback runs on a later turn of the loop.
+            # Lets done callbacks run, which is when finished tasks leave the set.
             await asyncio.sleep(0)
 
     # -------------------------------------------------------------- the port
@@ -336,22 +329,17 @@ class TwilioCallTransport(CallTransport):
             yield event
 
     async def answer(self, call_id: CallId) -> None:
-        """Bring the assistant into the call's conference.
-
-        The caller was answered into the conference when the call arrived. Answering in the
-        port's sense is the assistant picking up, so that is what this does. Once is enough:
-        while an assistant is dialling or present, answering again changes nothing. After the
-        assistant has left, it brings a new one.
-        """
+        """Dial the assistant into the conference unless one is already dialling or present."""
         call = self._require_call(call_id)
         async with call.lock:
             if call.assistant() is not None:
                 return
             label = call.next_label(_ASSISTANT_PREFIX)
             leg = _Leg(label, ParticipantRole.ASSISTANT)
-            # Listening only is the conference muting this leg; the stream asks the leg so that
-            # it stops sending audio nobody will hear, without being told separately.
-            leg.stream = MediaStream(monotonic=self._monotonic, is_muted=lambda: leg.applied.muted)
+            # The stream reads the leg's mute so a listening-only assistant sends no audio.
+            leg.media = _AssistantMedia(
+                MediaStream(monotonic=self._monotonic, is_muted=lambda: leg.applied.muted)
+            )
             call.legs[label] = leg
             call.presence = AssistantPresence.STAY
             target = (
@@ -370,14 +358,12 @@ class TwilioCallTransport(CallTransport):
             if call_id.value not in self._finished:
                 await self._end_unheld(call_id)
             return
-        # Under the call's lock, so a dial still being placed finishes first and its leg has an
-        # identifier to be ended by. Otherwise the leg is released unnamed and rings on.
+            # Under the call's lock, so a dial being placed has an identifier to be ended by.
         async with call.lock:
             try:
                 await self._end_remotely(call)
             finally:
-                # Released whether or not the provider did as asked. A call held here after a
-                # refusal could never be ended by trying again: nothing new would be asked.
+                # Released even when the provider refused, so the call is never held forever.
                 await self._release(call, "the call was ended")
 
     def audio_format(self) -> AudioFormat:
@@ -429,13 +415,7 @@ class TwilioCallTransport(CallTransport):
             await self._apply_presence(call)
 
     async def close(self) -> None:
-        """End every call in progress, then release every call and every task.
-
-        A caller must not be left alone in a conference because the service went away, so each
-        call is ended on the provider's side first — for as long as `SHUTDOWN_SECONDS` allows.
-        What could not be ended in that time is released here regardless, and left to the
-        conference's own end when the caller hangs up.
-        """
+        """End every call at the provider within `SHUTDOWN_SECONDS`, then release calls, tasks."""
         if self._closed:
             return
         self._closed = True
@@ -476,7 +456,10 @@ class TwilioCallTransport(CallTransport):
                 call_id=call_id,
                 caller=Caller(number=_number_or_none(incoming.caller)),
                 from_number=self._number_to_call_from(incoming.called),
-                forwarded_from=_number_or_none(incoming.forwarded_from),
+                forwarding=Forwarding(
+                    forwarded=incoming.forwarded_from is not None,
+                    line=_number_or_none(incoming.forwarded_from),
+                ),
             )
             self._calls[call_id] = call
             self._emit(CallEventKind.INCOMING, call, "incoming", caller=call.caller)
@@ -488,11 +471,7 @@ class TwilioCallTransport(CallTransport):
         )
 
     def caller_left(self, call_value: str | None, call_sid: str) -> str:
-        """The caller's dial into their conference is over, so their call is.
-
-        The provider asks this of the caller's own leg whether they hung up or the conference
-        ended around them. The answer is to hang up: there is nothing left to put them in.
-        """
+        """The caller's dial into their conference is over, so their call is: hang up."""
         call = self._calls.get(CallId(call_value)) if call_value else None
         if call is not None and call.call_id.value == call_sid and not call.ended:
             self._ended_by_provider(call, "the caller hung up")
@@ -504,25 +483,22 @@ class TwilioCallTransport(CallTransport):
             self._calls.get(CallId(params[CALL_PARAMETER])) if params.get(CALL_PARAMETER) else None
         )
         leg = call.legs.get(params.get(LEG_PARAMETER, "")) if call is not None else None
-        if call is None or leg is None:
-            call, leg = self._leg_by_call_sid(call_sid)
+        media = leg.media if leg is not None else None
         if (
             call is None
             or leg is None
-            or leg.role is not ParticipantRole.ASSISTANT
+            or media is None
             or leg.finished
-            or leg.stream is None
-            or leg.stream.has_ended
+            or media.stream.has_ended
+            or not media.bind_application(call_sid)
         ):
             return twiml.hang_up()
-        leg.call_sid = leg.call_sid or call_sid
-        leg.stream_call_sid = call_sid
         return twiml.assistant_stream(
             stream_url=self._verifier.websocket_url(self._config.path_prefix + MEDIA_PATH),
             parameters={
                 CALL_PARAMETER: call.call_id.value,
                 LEG_PARAMETER: leg.label,
-                TOKEN_PARAMETER: leg.media_token,
+                TOKEN_PARAMETER: media.token,
             },
         )
 
@@ -554,7 +530,7 @@ class TwilioCallTransport(CallTransport):
         key = f"leg:{progress.call_sid}:{progress.sequence}:{progress.status}"
         if not self._deliveries.add(key) or progress.status is None:
             return
-        leg.call_sid = leg.call_sid or progress.call_sid
+        leg.participant_sid = leg.participant_sid or progress.call_sid
         if progress.sequence is not None:
             if progress.sequence <= leg.last_progress:
                 return
@@ -570,8 +546,7 @@ class TwilioCallTransport(CallTransport):
         if not progress.status.is_final:
             return
         if leg.joined:
-            # The leg's own call is over, so it has left the conference, whether or not the
-            # conference's leave for it ever arrives.
+            # A joined leg whose call is over has left, whether or not the leave arrives.
             self._left(call, leg)
             return
         if leg.removed:
@@ -625,32 +600,20 @@ class TwilioCallTransport(CallTransport):
                 continue
             call = self._calls.get(CallId(message.parameters.get(CALL_PARAMETER) or "-"))
             leg = call.legs.get(message.parameters.get(LEG_PARAMETER, "")) if call else None
-            stream = leg.stream if leg is not None else None
+            media = leg.media if leg is not None else None
             if (
                 leg is None
-                or not self._spend_token(leg, message.parameters.get(TOKEN_PARAMETER))
-                or stream is None
+                or media is None
+                or not media.admit(message.call_sid, message.parameters.get(TOKEN_PARAMETER))
                 or leg.finished
-                or stream.has_ended
-                or stream.is_connected
-                or (leg.stream_call_sid is not None and leg.stream_call_sid != message.call_sid)
+                or media.stream.has_ended
+                or media.stream.is_connected
             ):
                 logger.warning("telephony.media.unexpected_stream")
                 return None
-            leg.call_sid = leg.call_sid or message.call_sid
-            stream.attach(socket, message.stream_sid)
-            return stream
+            media.stream.attach(socket, message.stream_sid)
+            return media.stream
         return None
-
-    @staticmethod
-    def _spend_token(leg: _Leg, presented: str | None) -> bool:
-        """Whether the leg's token was presented, spending it if so: it is good for one start."""
-        if leg.media_token_spent or presented is None:
-            return False
-        if not hmac.compare_digest(presented.encode(), leg.media_token.encode()):
-            return False
-        leg.media_token_spent = True
-        return True
 
     async def _dial(
         self, call: _Call, leg: _Leg, target: str, ring_seconds: int, *, detect_machine: bool
@@ -667,16 +630,13 @@ class TwilioCallTransport(CallTransport):
         try:
             call_sid = await self._api.create_participant(call.conference_name, request)
         except (ProviderError, asyncio.CancelledError):
-            # Cancelled counts as failed: a leg left unfinished with no identifier could never be
-            # hung up, and would stop the same person being dialled again.
+            # Cancelled counts as failed: a leg with no identifier can never be hung up.
             leg.finished = True
             self._end_stream(call, leg)
             raise
-        leg.call_sid = leg.call_sid or call_sid
+        leg.participant_sid = call_sid
         if call.released:
-            # Released while the dial was being placed, which only a shutdown that could not wait
-            # for it does. Nothing is left to hear this leg's callbacks, so it is ended now rather
-            # than left to ring into a call that is gone.
+            # Released during the dial by a shutdown: nothing will hear this leg, so it is ended.
             leg.finished = True
             await self._api.end_call(call_sid, "canceled")
             raise ProviderError(
@@ -694,11 +654,11 @@ class TwilioCallTransport(CallTransport):
         leg = call.legs.get(update.label or "")
         if leg is None and update.call_sid is not None:
             leg = next(
-                (each for each in call.legs.values() if each.call_sid == update.call_sid), None
+                (each for each in call.legs.values() if each.participant_sid == update.call_sid),
+                None,
             )
         if leg is not None and leg.given_up_on:
-            # It was on the call after all. Being on it and having left is what happened, and
-            # the leg's call is already over, so both are reported at once.
+            # A leg given up on was on the call after all, and its call is over: joined and left.
             leg.given_up_on = False
             self._joined(call, leg)
             self._left(call, leg)
@@ -706,7 +666,7 @@ class TwilioCallTransport(CallTransport):
         if leg is None or update.sequence <= leg.last_conference or leg.finished:
             return
         leg.last_conference = update.sequence
-        leg.call_sid = leg.call_sid or update.call_sid
+        leg.participant_sid = leg.participant_sid or update.call_sid
         if update.event is ConferenceEvent.JOIN:
             if leg.joined:
                 return
@@ -749,9 +709,7 @@ class TwilioCallTransport(CallTransport):
         if leg.joined or leg.finished:
             return
         if leg.answered and leg.role is ParticipantRole.USER:
-            # A person picked up, and a person who picks up is put in the conference. Only the
-            # callbacks saying so were lost. The assistant's leg is not read this way: its
-            # application answers it before it has been asked to join anything.
+            # A user who answered was put in the conference; only its callbacks were lost.
             self._joined(call, leg)
             self._left(call, leg)
             return
@@ -770,7 +728,7 @@ class TwilioCallTransport(CallTransport):
         if call.presence is AssistantPresence.LEAVE:
             await self._hang_up_leg(call, assistant)
             return
-        if not assistant.joined or call.conference_sid is None or assistant.call_sid is None:
+        if not assistant.joined or call.conference_sid is None or assistant.participant_sid is None:
             return
         users = call.present_users()
         if not users or call.presence is AssistantPresence.STAY:
@@ -778,12 +736,12 @@ class TwilioCallTransport(CallTransport):
         elif call.presence is AssistantPresence.LISTEN_ONLY:
             target = _Applied(muted=True)
         else:
-            target = _Applied(coach_call_sid=users[-1].call_sid)
+            target = _Applied(coach_call_sid=users[-1].participant_sid)
         if target == assistant.applied:
             return
         await self._api.update_participant(
             call.conference_sid,
-            assistant.call_sid,
+            assistant.participant_sid,
             muted=target.muted,
             coach_call_sid=target.coach_call_sid,
         )
@@ -791,21 +749,18 @@ class TwilioCallTransport(CallTransport):
 
     async def _hang_up_leg(self, call: _Call, leg: _Leg) -> None:
         leg.removed = True
-        # A leg is only reachable here once its dial has returned, under the call's lock, and a
-        # dial that did not return an identifier finished the leg. Narrowed for the type.
-        if leg.call_sid is None:  # pragma: no cover - unreachable while dials hold the lock
+        # Every caller holds the call's lock or has bound the identifier; narrowed for the type.
+        if leg.participant_sid is None:  # pragma: no cover - unreachable while dials hold the lock
             return
         if leg.joined and call.conference_sid is not None:
-            await self._api.remove_participant(call.conference_sid, leg.call_sid)
+            await self._api.remove_participant(call.conference_sid, leg.participant_sid)
         else:
-            await self._api.end_call(leg.call_sid, "completed" if leg.answered else "canceled")
+            await self._api.end_call(
+                leg.participant_sid, "completed" if leg.answered else "canceled"
+            )
 
     async def _end_remotely(self, call: _Call) -> None:
-        """End the call on the provider's side, whatever state it has reached.
-
-        Every step is tried even when one fails: a refusal to end the conference is no reason to
-        leave a user's phone ringing. The first failure is raised once every step has been tried.
-        """
+        """End the call at the provider, trying every step and raising the first failure after."""
         failures: list[ProviderError] = []
 
         async def attempt(step: Awaitable[object]) -> None:
@@ -817,8 +772,7 @@ class TwilioCallTransport(CallTransport):
         conference_sid = call.conference_sid
         if conference_sid is not None:
             await attempt(self._api.end_conference(conference_sid))
-        # The conference may never have started, so the caller's own leg is ended too; and a
-        # leg still ringing is not in any conference to be ended with it.
+            # The caller's leg and ringing legs are ended apart: neither need be in the conference.
         await attempt(self._api.end_call(call.call_id.value, "completed"))
         for leg in list(call.legs.values()):
             if not leg.joined and not leg.finished and not leg.removed:
@@ -827,13 +781,7 @@ class TwilioCallTransport(CallTransport):
             raise failures[0]
 
     async def _end_unheld(self, call_id: CallId) -> None:
-        """End a call this process never held, such as one a stopped process left up.
-
-        Nothing is known of it here but its identifier, which is the caller's leg, and the name
-        its conference was given. The caller's leg, the conference and whoever was dialled for the
-        call are each ended, each tried whatever became of the others. Already ended is done, not
-        a failure, so asking twice is safe.
-        """
+        """End a call a stopped process left: the caller's leg, its conference and dialled user."""
         failures: list[ProviderError] = []
         steps: tuple[Callable[[], Awaitable[object]], ...] = (
             lambda: self._api.end_call(call_id.value, "completed"),
@@ -849,16 +797,7 @@ class TwilioCallTransport(CallTransport):
             raise failures[0]
 
     async def _end_dialled_for(self, call_id: CallId) -> None:
-        """End the user's leg a stopped process dialled for this call and left unfinished.
-
-        A leg still ringing is not yet in the conference, so ending the conference leaves it
-        ringing, and answering it puts the user in a conference nobody else is in. Nothing records
-        its identifier, so it is found by its numbers: dialled from the number this call reached,
-        as every leg for a call is, to the line the call was forwarded from, which is the number of
-        the only user it could be for (D-033). A call not forwarded was nobody's and dialled no one.
-        Any other leg between those two numbers is one a stopped process left too: this runs before
-        a process takes calls, and only one process runs against an account.
-        """
+        """End legs from the number the call reached to the line that forwarded it (D-033)."""
         found = await self._api.find_call(call_id.value)
         line = None if found is None else _number_or_none(found.forwarded_from)
         if found is None or line is None:
@@ -873,8 +812,7 @@ class TwilioCallTransport(CallTransport):
         async with call.lock:
             try:
                 for leg in list(call.legs.values()):
-                    # Still ringing when the call ended: answering would join a conference nobody
-                    # is in.
+                    # A leg still ringing would join an empty conference if answered.
                     if not leg.joined and not leg.finished and not leg.removed:
                         await self._hang_up_leg(call, leg)
             finally:
@@ -891,12 +829,12 @@ class TwilioCallTransport(CallTransport):
         for task in list(call.tasks):
             task.cancel()
         for leg in call.legs.values():
-            if leg.stream is not None:
-                await leg.stream.end()
+            if leg.media is not None:
+                await leg.media.stream.end()
 
     def _end_stream(self, call: _Call, leg: _Leg) -> None:
-        if leg.stream is not None and not leg.stream.has_ended:
-            self._spawn(call, leg.stream.end())
+        if leg.media is not None and not leg.media.stream.has_ended:
+            self._spawn(call, leg.media.stream.end())
 
     def _emit(
         self,
@@ -944,8 +882,7 @@ class TwilioCallTransport(CallTransport):
         if task.cancelled() or task.exception() is None:
             return
         failure = task.exception()
-        # Work a callback started failed where nobody was waiting on it. It is reported as an
-        # event, because the orchestrator is the one that can do something about it.
+        # Background work failed with nobody awaiting it, so the orchestrator hears of it.
         logger.warning("telephony.background_failed", error=type(failure).__name__)
         if call is not None and not call.released:
             self._events.put_nowait(
@@ -963,13 +900,6 @@ class TwilioCallTransport(CallTransport):
         if call is None:
             raise ProviderError(PROVIDER, "no such call is in progress", retryable=False)
         return call
-
-    def _leg_by_call_sid(self, call_sid: str) -> tuple[_Call | None, _Leg | None]:
-        for call in self._calls.values():
-            for leg in call.legs.values():
-                if leg.call_sid == call_sid:
-                    return call, leg
-        return None, None
 
     def _number_to_call_from(self, called: str | None) -> PhoneNumber:
         dialled = _number_or_none(called)

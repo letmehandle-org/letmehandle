@@ -1,9 +1,4 @@
-"""Whose streaming call a call is.
-
-A caller dials the user's own number, and the user's carrier forwards it to the account's. The
-account's number is shared by everybody the deployment serves, so it names nobody; the line the
-call was forwarded from is the user's, and the user is found by it, as they signed in with it.
-"""
+"""Whose streaming call a call is: the user whose own line forwarded it (D-033)."""
 
 from __future__ import annotations
 
@@ -21,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class ForwardedCallOwnership(CallOwnership):
-    """The owner of the number a call was forwarded from; nobody's, when it was not forwarded."""
+    """The owner of the line that forwarded a call, or of `unforwarded_line` for a direct call."""
 
     def __init__(
         self,
@@ -32,12 +27,11 @@ class ForwardedCallOwnership(CallOwnership):
     ) -> None:
         self._transport = transport
         self._find_user = find_user
-        # Whose line a call dialled straight at the account's number counts as, where a development
-        # deployment says so; otherwise such a call is nobody's.
         self._unforwarded_line = unforwarded_line
 
     async def owner_of(self, incoming: CallEvent) -> UserId | None:
-        if not self._transport.holds(incoming.call_id):
+        forwarding = self._transport.forwarding(incoming.call_id)
+        if forwarding is None:
             return None
-        line = self._transport.forwarded_from(incoming.call_id) or self._unforwarded_line
+        line = forwarding.line if forwarding.forwarded else self._unforwarded_line
         return None if line is None else await self._find_user(line)
