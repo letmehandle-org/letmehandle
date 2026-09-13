@@ -63,7 +63,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
     daily_summary: false,
     respect_active_hours: true,
   },
-  personality: { formality: 'neutral', verbosity: 'normal', topics: [] },
+  personality: {
+    formality: 'neutral',
+    verbosity: 'normal',
+    topics: [],
+    disclosable_facts: [],
+  },
   privacy: { transcript_retention_days: 7 },
 };
 
@@ -201,6 +206,28 @@ export function aCall(changes: Partial<CallDetail> = {}): CallDetail {
   };
 }
 
+/** Preferences as the backend serialises them: every list present and sorted. */
+function served(preferences: Preferences): Preferences {
+  const handling = preferences.call_handling;
+  const personality = preferences.personality;
+  return {
+    ...preferences,
+    call_handling: {
+      ...handling,
+      posture_by_category: { ...(handling.posture_by_category ?? {}) },
+      blocked_categories: [...(handling.blocked_categories ?? [])].sort(),
+    },
+    authority: {
+      capabilities: [...(preferences.authority.capabilities ?? [])].sort(),
+    },
+    personality: {
+      ...personality,
+      topics: [...(personality.topics ?? [])].sort(),
+      disclosable_facts: [...(personality.disclosable_facts ?? [])].sort(),
+    },
+  };
+}
+
 function summaryOf(call: CallDetail): CallSummary {
   return {
     id: call.id,
@@ -234,9 +261,12 @@ export function runningBackend(options?: {
   const pageSize = options?.history?.pageSize ?? 20;
   let deleted = false;
   const failures: { prefix: string; reply: Reply }[] = [];
-  const heldReply = (value: Held<unknown> | undefined): Response =>
+  const heldReply = (
+    value: Held<unknown> | undefined,
+    missing: string,
+  ): Response =>
     value === undefined
-      ? answer(404, { error: 'not_found', message: 'no' })
+      ? answer(404, { error: missing, message: 'no' })
       : typeof value === 'object' &&
         value !== null &&
         'error' in value &&
@@ -254,7 +284,7 @@ export function runningBackend(options?: {
   const settled = new Set<OnboardingStep>(
     start === null ? steps : steps.slice(0, steps.indexOf(start)),
   );
-  let stored = options?.preferences ?? DEFAULT_PREFERENCES;
+  let stored = served(options?.preferences ?? DEFAULT_PREFERENCES);
   let refusal: Reply | null = null;
   const patches: PreferencesUpdate[] = [];
   const reports: CallReport[] = [];
@@ -323,18 +353,26 @@ export function runningBackend(options?: {
           (!query.has('human_joined') ||
             String(call.human_joined) === query.get('human_joined')),
       );
+      const since = query.get('from');
+      const listed =
+        since === null
+          ? matching
+          : matching.filter(
+              call => Date.parse(call.started_at) >= Date.parse(since),
+            );
+      const limit = Number(query.get('limit') ?? pageSize);
       const from = Number(query.get('cursor') ?? '0');
-      const page = matching.slice(from, from + pageSize);
+      const page = listed.slice(from, from + limit);
       return answer(200, {
         calls: page.map(summaryOf),
-        next_cursor:
-          from + pageSize < matching.length ? String(from + pageSize) : null,
+        next_cursor: from + limit < listed.length ? String(from + limit) : null,
       });
     }
     const transcript = /^\/v1\/calls\/([^/]+)\/transcript$/.exec(path);
     if (transcript !== null) {
       return heldReply(
         options?.history?.transcripts?.[decodeURIComponent(transcript[1])],
+        'call_not_found',
       );
     }
     const oneCall = /^\/v1\/calls\/([^/]+)$/.exec(path);
@@ -353,6 +391,7 @@ export function runningBackend(options?: {
     if (escalation !== null) {
       return heldReply(
         options?.history?.escalations?.[decodeURIComponent(escalation[1])],
+        'escalation_not_found',
       );
     }
     if (path === '/v1/me' && method === 'DELETE') {
@@ -379,7 +418,7 @@ export function runningBackend(options?: {
         refusal = null;
         return answer(reply.status, reply.body ?? {});
       }
-      stored = applyChanges(stored, changes);
+      stored = served(applyChanges(stored, changes));
       return answer(200, stored);
     }
     if (path === '/v1/voices' && method === 'GET') {
