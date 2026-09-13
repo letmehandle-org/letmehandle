@@ -100,7 +100,8 @@ curl localhost:8000/health
 ```
 
 `make up` builds the backend image the first time, which takes a few minutes. When port 8000 or
-5432 is taken, run every `make` command with `BACKEND_PORT=8100 POSTGRES_PORT=5433` in front.
+5432 is taken, run every `make` command with `BACKEND_PORT=8100 POSTGRES_PORT=5433` in front, and
+`curl localhost:8100/health`.
 
 Then sign in and look around, or run whole simulated calls with `make e2e`:
 [`docs/development/demo.md`](docs/development/demo.md). The mobile toolchain and everything else
