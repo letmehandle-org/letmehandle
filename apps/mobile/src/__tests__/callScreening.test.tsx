@@ -17,6 +17,7 @@ import { en } from '../i18n/locales/en';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { runningBackend, type RunningBackend } from './support/backend';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -294,8 +295,7 @@ describe('keeping the handset in step', () => {
   });
 
   it('keeps what could not be reported, and tries again shortly', async () => {
-    // Fake timers, so the wait before trying again passes without the test waiting through it.
-    jest.useFakeTimers();
+    fakeOnly('setTimeout', 'clearTimeout');
     try {
       const native = new FakeNativeCallScreening();
       native.pending = [SCREENED];

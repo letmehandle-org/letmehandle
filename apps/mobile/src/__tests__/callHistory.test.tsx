@@ -18,6 +18,7 @@ import {
   type Held,
   type HistorySetup,
 } from './support/backend';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -408,24 +409,7 @@ describe('an escalation opened after its call', () => {
   });
 
   it('follows a live escalation to its end without being opened again', async () => {
-    // Only the refresh interval is faked; promises and the test's own waits run on real timers.
-    jest.useFakeTimers({
-      doNotFake: [
-        'Date',
-        'hrtime',
-        'nextTick',
-        'performance',
-        'queueMicrotask',
-        'requestAnimationFrame',
-        'cancelAnimationFrame',
-        'requestIdleCallback',
-        'cancelIdleCallback',
-        'setImmediate',
-        'clearImmediate',
-        'setTimeout',
-        'clearTimeout',
-      ],
-    });
+    fakeOnly('setInterval', 'clearInterval');
     try {
       const escalations: Record<string, Held<Escalation>> = {
         'call-1': { ...ended, status: 'live', ended_at: null },
