@@ -200,8 +200,11 @@ class ElevenLabsSpeechSession(SpeechSession):
         """Tell the agent something new, as background rather than as new instructions.
 
         The protocol has no way to replace an agent's prompt mid-conversation. What it has is a
-        non-interrupting update the agent takes into account from then on, which is enough to
-        say that the user has joined. It is kept, so that a replacement conversation is told it
+        non-interrupting update the agent takes into account from its next reply on, which is
+        enough to say that the user is being reached or has joined. Not a user message, which
+        would be the caller's words and answered as them. A reply already on its way was written
+        without it, which is why the run tells the agent before it acts rather than after. It is
+        kept, so that a replacement conversation is told it
         too; and one made while a replacement is being opened is sent once it has begun, since
         the prompt it was opened with was written before the update existed.
         """

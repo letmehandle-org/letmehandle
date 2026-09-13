@@ -577,6 +577,24 @@ async def test_interrupting_before_a_reply_is_read_drops_it_too(
 # ---------------------------------------------------------------------------------- context
 
 
+async def test_context_is_sent_as_background_the_next_reply_uses_never_as_the_callers_words(
+    provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService
+) -> None:
+    # A contextual update is what the service's model reads before its next reply, and does not
+    # itself make a reply. A user message would, and would put the words in the caller's mouth:
+    # the assistant is told everything the caller says is unverified, so it would be discounted.
+    async with await connect(provider) as session:
+        service.current.reply()
+        await service.wait_until_delivered()
+        await session.update_context("the user is being reached")
+        await service.wait_for_sent("contextual_update")
+
+        sent = service.current.sent_types()
+        assert sent.count("contextual_update") == 1
+        assert "user_message" not in sent
+        assert "user_activity" not in sent
+
+
 async def test_context_is_added_without_a_new_connection(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService
 ) -> None:
