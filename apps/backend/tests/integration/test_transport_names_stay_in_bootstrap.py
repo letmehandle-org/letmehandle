@@ -19,10 +19,14 @@ TRANSPORT_NAMES = ("twilio", "telnyx", "plivo", "vonage", "android", "android_na
 
 # Each transport's own package, the one place besides bootstrap and configuration it may be named.
 # A name with no package here has no adapter yet, so it belongs nowhere else at all. The streaming
-# provider's account also delivers sign-in codes, and that adapter speaks through the transport's
-# API client, so it names the provider too; it is a provider of codes, not a transport choice.
+# provider's account also delivers sign-in codes, and those adapters speak through the transport's
+# API client, so they name the provider too; they are providers of codes, not a transport choice.
 ADAPTERS = {
-    "twilio": ("adapters/transport/twilio/", "adapters/otp/twilio_sms.py"),
+    "twilio": (
+        "adapters/transport/twilio/",
+        "adapters/otp/twilio_sms.py",
+        "adapters/otp/twilio_verify.py",
+    ),
     "android": ("adapters/transport/android_native/",),
     "android_native": ("adapters/transport/android_native/",),
 }

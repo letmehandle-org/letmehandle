@@ -9,9 +9,11 @@ import pytest
 from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
+from letmehandle.adapters.otp.twilio_verify import VerifyOTPProvider
 from tests.contracts.fakes import CheckingOTPProvider
 from tests.contracts.other_ports import OTPProviderContract
 from tests.support.simulated_sms import SMS_ACCOUNT, SMS_SENDER, SMS_TOKEN, SimulatedSms
+from tests.support.simulated_verify import VERIFY_SERVICE, SimulatedVerify
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -33,6 +35,21 @@ class TestSmsOTPProvider(OTPProviderContract):
             auth_token=SMS_TOKEN,
             sender=SMS_SENDER,
             transport=SimulatedSms().transport,
+        )
+        yield provider
+        await provider.aclose()
+
+
+class TestVerifyOTPProvider(OTPProviderContract):
+    """The provider whose verification service makes its codes, talking to a simulated service."""
+
+    @pytest.fixture
+    async def otp(self) -> AsyncIterator[VerifyOTPProvider]:
+        provider = VerifyOTPProvider(
+            account_id=SMS_ACCOUNT,
+            auth_token=SMS_TOKEN,
+            service_id=VERIFY_SERVICE,
+            transport=SimulatedVerify().transport,
         )
         yield provider
         await provider.aclose()
