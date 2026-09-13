@@ -34,11 +34,20 @@ pytestmark = pytest.mark.integration
 STARTED = datetime(2026, 6, 1, 9, 30, tzinfo=UTC)
 
 
+def handset_id(serial: str) -> str:
+    """An identifier in the handset's own form: a random UUID, as `CallScreeningGraph` makes one.
+
+    Not a short label, because the product stores the call under the account's identifier and
+    this one together, and only the handset's real length shows whether that still fits.
+    """
+    return f"00000000-0000-4000-8000-{serial:0>12}"
+
+
 def report(call: str, event: str, kind: str, *, after_seconds: int = 0, **fields: str) -> Json:
     """One report, as the handset writes it."""
     return {
-        "event_id": f"handset-event-{event}",
-        "call_id": f"handset-call-{call}",
+        "event_id": handset_id(f"e{event}"),
+        "call_id": handset_id(call),
         "kind": kind,
         "occurred_at": (STARTED + timedelta(seconds=after_seconds)).isoformat(),
         **fields,
@@ -47,7 +56,7 @@ def report(call: str, event: str, kind: str, *, after_seconds: int = 0, **fields
 
 def recorded_as(account: Account, call: str) -> str:
     """How the product names a handset's call: the account's own, and nobody else's."""
-    return f"{account.user_id.value}:handset-call-{call}"
+    return f"{account.user_id.value}:{handset_id(call)}"
 
 
 async def reported_twice(system: HandsetSystem, account: Account, *reports: Json) -> None:
