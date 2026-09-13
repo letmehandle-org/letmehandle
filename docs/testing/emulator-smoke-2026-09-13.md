@@ -35,12 +35,12 @@ covered here: an emulator has neither.
 | 4a | Unknown caller, rules allow | **fail, fixed** | The handset decided before ringing (`screened: ALLOW (DEFAULT_POSTURE)`, telecom `FILTERING_COMPLETED [Allow]`, then `RINGING`) and both reports were accepted, but no call was stored and Activity stayed empty: every write failed with `value too long for type character varying(64)`. Fixed in `fix(calls): store handset-reported calls whose ids exceed 64 chars`; re-run below. |
 | 4a′ | Unknown caller, allowed, answered and ended (re-run) | pass | Reports incoming/allow, answered, ended/completed; call stored `completed`, handling `passed_through`, a human participant; Activity listed it under Straight through. |
 | 4b | Caller the rules reject | pass | With `<caller 3>` set as an important contact with posture reject: `screened: REJECT (IMPORTANT_CONTACT)`, telecom `FILTERING_COMPLETED [Reject]`, the call never rang; reports incoming/reject and ended/screened_out; call stored `rejected`; Activity listed it under Turned away with "ended by your rules". |
-| 4c | Reports sent after the backend was unreachable | pass, with a defect held | Placed while the backend was stopped; the reports were kept on the handset and delivered when the app came to the front, once each. The stored call carries the moment the reports arrived, not when the call happened (see held defect 1). |
+| 4c | Reports sent after the backend was unreachable | pass, with a defect held | Placed while the backend was stopped; the reports were kept on the handset and delivered when the app came to the front, once each. The stored call carried the moment the reports arrived, not when the call happened (held defect 1, since fixed). |
 | 5a | Call detail, allowed call | pass | Outcome Straight through, intent Not determined, importance Routine, "Nothing to keep"; no transcript row. `GET /v1/calls/{id}/transcript` answered `transcript_not_recorded`. |
 | 5b | Call detail, rejected call | pass | Turned away, "Nothing was said, so nothing is kept." |
 | 5c | Delete a call | pass | Confirmation sheet, Delete now; `DELETE /v1/calls/{id}` 204; the call left Activity and the database. |
 | 6 | Delete account | pass | Confirmation sheet, Delete everything; `DELETE /v1/me` 204 then sign-out; welcome screen shown. The database held no row for the user in `users`, `user_preferences`, `user_onboarding`, `refresh_tokens`, `user_devices`, `call_reports`, `calls`, `call_participants`, `call_transcript_entries`, `call_summaries` or `escalation_contexts`. The handset's rules were forgotten too: the next call from the rejected number screened `ALLOW (NO_RULES)`. |
-| 7 | Sign in again with the same number | pass, with a defect held | A new user was created and setup started again at step 1 of 4. The call screened while nobody was signed in was reported to the new account (see held defect 2). |
+| 7 | Sign in again with the same number | pass, with a defect held | A new user was created and setup started again at step 1 of 4. The call screened while nobody was signed in was reported to the new account (held defect 2, since fixed). |
 
 ## Defects
 
@@ -54,17 +54,20 @@ Fixed on this branch:
    quiet hours were removed (D-030) and the handset never silences a call. The sentence no longer
    says so.
 
-Held, not fixed here, because each needs a decision rather than a local change:
+Held after the run for a decision, and since fixed:
 
-1. **Reported calls are timed by arrival, not by when they happened.** `CallEvent` carries no time,
-   so the orchestrator stamps the call's start, answer and end with the backend's clock. A call
-   rung at 12:11:33 and missed at 12:11:37, reported at 12:12:00, is stored as starting at 12:12:00
-   and lasting 0 s. A handset offline for hours would put its calls at the wrong time in history.
-   The reports already carry `occurred_at`; using it means the event and the ledger taking a time.
-2. **Calls screened while signed out reach the next account.** Sign-out clears the handset's ledger,
-   but the screening service and the phone-state receiver keep recording while nobody is signed in,
-   and the next sign-in reports those calls to whoever signed in, including a different account on
-   the same phone.
+1. **Reported calls were timed by arrival, not by when they happened.** `CallEvent` carried no time,
+   so the orchestrator stamped the call's start, answer and end with the backend's clock. A call
+   rung at 12:11:33 and missed at 12:11:37, reported at 12:12:00, was stored as starting at 12:12:00
+   and lasting 0 s. Fixed in `5217626` (`feat(transport): let a call event say when it happened`)
+   and `422542d` (`fix(orchestration): time a reported call by when it happened`): the event carries
+   the report's `occurred_at`, and what it causes is stamped with it, clamped to now when more than
+   five minutes ahead and never earlier than the call's last move (D-029, amended).
+2. **Calls screened while signed out reached the next account.** Sign-out cleared the handset's
+   ledger, but the screening service and the phone-state receiver kept recording while nobody was
+   signed in, and the next sign-in reported those calls to whoever signed in. Fixed in `fc534c9`
+   (`fix(mobile): record calls only while an account is signed in`): the handset records only
+   between a signed-in session starting and sign-out (D-028, amended).
 
 ## Limitations
 
