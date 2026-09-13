@@ -10,9 +10,13 @@ name: Release
 #      empty one;
 #   3. builds the backend image and publishes it to this repository's container registry;
 #   4. writes the notes onto the release, creating it when only the tag was pushed;
-#   5. runs code scanning on the tagged commit.
+#   5. builds the Android app signed with the release key, pointed at the production backend, and
+#      attaches it to the release with the manifest installed apps update themselves from (D-043);
+#   6. runs code scanning on the tagged commit.
 #
-# No secret but the token GitHub issues to every run.
+# The Android job alone reads secrets: the release keystore and its passwords, and the repository
+# variable naming the production backend. Every other job has only the token GitHub issues to
+# every run.
 on:
   release:
     types: [published]
@@ -137,12 +141,164 @@ jobs:
           IMAGE: ${{ needs.prepare.outputs.image }}
         run: |
           printf '\n---\n\nBackend image: `%s:%s`\n' "$IMAGE" "$VERSION" >> notes.md
+          printf '\nAndroid app: %s, attached below once built\n' "\`letmehandle-android.apk\`" >> notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes-file notes.md
           else
             # Only the tag was pushed. The release is created from it, never a new tag.
             gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
           fi
+
+  # Runs after the notes because the release it uploads to may only exist once they are written.
+  # Attaches two files under names that never change, so the latest release's download address is
+  # stable: the APK, and the manifest an installed app reads to find it (update/SelfUpdater.kt).
+  android:
+    name: Android APK
+    needs: [prepare, notes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      APK: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The version code for this version
+        run: |
+          # YYYY*1000000 + M*10000 + D*100 + N, where N is the same-day counter (0 when absent), so
+          # a later release always has a larger code. N stops at 99, the most two digits hold.
+          version_code() {
+            if ! [[ "$1" =~ ^(20[0-9]{2})\.(1[0-2]|[1-9])\.(3[01]|[12][0-9]|[1-9])(-([2-9]|[1-9][0-9]))?$ ]]; then
+              echo "::error::$1 has no Android version code: expected YYYY.M.D or YYYY.M.D-N with N from 2 to 99" >&2
+              return 1
+            fi
+            echo $(( 10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 10000 + 10#${BASH_REMATCH[3]} * 100 + 10#${BASH_REMATCH[5]:-0} ))
+          }
+          # The formula is checked on known answers before it is trusted with this release.
+          for expected in 2026.9.14=2026091400 2026.9.14-2=2026091402 2026.12.31-99=2026123199; do
+            got=$(version_code "${expected%%=*}")
+            if [[ "$got" != "${expected##*=}" ]]; then
+              echo "::error::version code of ${expected%%=*} is $got, expected ${expected##*=}"
+              exit 1
+            fi
+          done
+          code=$(version_code "$VERSION")
+          echo "VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "$VERSION is version code $code"
+
+      - name: The app's production environment
+        env:
+          API_BASE_URL: ${{ vars.ANDROID_API_BASE_URL }}
+        run: |
+          if [[ -z "$API_BASE_URL" ]]; then
+            echo "::error::the repository variable ANDROID_API_BASE_URL is not set; it names the backend the released app talks to"
+            exit 1
+          fi
+          if ! [[ "$API_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::the repository variable ANDROID_API_BASE_URL must be an https URL"
+            exit 1
+          fi
+          printf 'APP_ENV=production\nAPI_BASE_URL=%s\nDEFAULT_LOCALE=en\n' "${API_BASE_URL%/}" > apps/mobile/.env
+
+      - name: The release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=()
+          [[ -n "$KEYSTORE_BASE64" ]] || missing+=(ANDROID_RELEASE_KEYSTORE_BASE64)
+          [[ -n "$KEYSTORE_PASSWORD" ]] || missing+=(ANDROID_RELEASE_KEYSTORE_PASSWORD)
+          [[ -n "$KEY_ALIAS" ]] || missing+=(ANDROID_RELEASE_KEY_ALIAS)
+          [[ -n "$KEY_PASSWORD" ]] || missing+=(ANDROID_RELEASE_KEY_PASSWORD)
+          if (( ${#missing[@]} )); then
+            echo "::error::the Android release APK needs these repository secrets, which are not set: ${missing[*]}"
+            exit 1
+          fi
+          if ! printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks" || [[ ! -s "$RUNNER_TEMP/release.jks" ]]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_BASE64 is not a base64-encoded keystore"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build
+        working-directory: apps/mobile/android
+        env:
+          LMH_ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          LMH_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          LMH_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          LMH_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          MANIFEST_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/letmehandle-android.json
+        # lmhRequireReleaseSigning fails the build rather than fall back to the debug key.
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PlmhRequireReleaseSigning=true \
+            -PlmhVersionName="$VERSION" \
+            -PlmhVersionCode="$VERSION_CODE" \
+            -PlmhUpdateManifestUrl="$MANIFEST_URL"
+
+      - name: The APK is signed with the release key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+        run: |
+          apksigner=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)/apksigner
+          signers=$("$apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p')
+          if [[ $(printf '%s\n' "$signers" | grep -c .) -ne 1 ]]; then
+            echo "::error::the APK does not have exactly one signer"
+            exit 1
+          fi
+          expected=$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" \
+            | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          if [[ -z "$expected" || "$signers" != "$expected" ]]; then
+            echo "::error::the APK is not signed with the release key"
+            exit 1
+          fi
+          echo "Signing certificate SHA-256: $signers"
+
+      - name: Attach the APK and its manifest to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_DOWNLOADS: ${{ github.server_url }}/${{ github.repository }}/releases/download
+        run: |
+          cp "$APK" letmehandle-android.apk
+          # Pinned to this release's own copy rather than the latest, so the digest always describes
+          # the file at the address beside it.
+          jq -n \
+            --argjson versionCode "$VERSION_CODE" \
+            --arg versionName "$VERSION" \
+            --arg apkUrl "$RELEASE_DOWNLOADS/$TAG/letmehandle-android.apk" \
+            --arg sha256 "$(sha256sum letmehandle-android.apk | cut -d' ' -f1)" \
+            '{versionCode: $versionCode, versionName: $versionName, apkUrl: $apkUrl, sha256: $sha256}' \
+            > letmehandle-android.json
+          cat letmehandle-android.json
+          # The APK first: a manifest published before its APK would send apps to a missing file.
+          gh release upload "$TAG" letmehandle-android.apk --clobber
+          gh release upload "$TAG" letmehandle-android.json --clobber
+
+      - name: Remove the release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" apps/mobile/.env
 
   # A release published by a maintainer starts code scanning itself (codeql.yml). One created by
   # this workflow does not, because events caused by the run's own token start no workflows, so
