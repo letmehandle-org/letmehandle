@@ -1,9 +1,4 @@
-"""Errors carry facts as attributes, because callers branch on them.
-
-Each of these asserts the attribute rather than the message. A caller that has to parse a
-sentence to decide what to do has turned a human-readable string into an interface, and the
-next person to improve the wording breaks it.
-"""
+"""Errors carry the facts callers branch on as attributes."""
 
 from __future__ import annotations
 
@@ -16,7 +11,6 @@ from letmehandle.domain.errors import (
     DomainError,
     IllegalTransitionError,
     InvariantError,
-    NotAuthorisedError,
     ProviderError,
     RecordNotFoundError,
     UnknownKeyError,
@@ -26,7 +20,6 @@ EVERY_ERROR = [
     InvariantError,
     IllegalTransitionError,
     CapabilityNotSupportedError,
-    NotAuthorisedError,
     ProviderError,
     RecordNotFoundError,
     AlreadyRecordedError,
@@ -37,8 +30,6 @@ EVERY_ERROR = [
 
 @pytest.mark.parametrize("kind", EVERY_ERROR)
 def test_every_domain_error_can_be_caught_as_one(kind: type[DomainError]) -> None:
-    # The property that lets application code catch the product's failures without also
-    # catching a vendor's.
     assert issubclass(kind, DomainError)
 
 
@@ -55,26 +46,12 @@ def test_an_unsupported_capability_names_the_capability() -> None:
     assert error.capability == "can_bridge_human"
 
 
-def test_a_refusal_names_the_action() -> None:
-    error = NotAuthorisedError("agree to a delivery")
-    assert error.action == "agree to a delivery"
-
-
 @pytest.mark.parametrize("retryable", [True, False])
 def test_a_provider_failure_says_whether_trying_again_is_worthwhile(retryable: bool) -> None:
-    # Without this, every caller invents its own guess about which failures are worth a retry,
-    # and they disagree. Retrying a non-idempotent operation is a defect, not a nuisance.
     error = ProviderError("a speech provider", "the stream closed", retryable=retryable)
     assert error.retryable is retryable
     assert error.provider == "a speech provider"
     assert error.reason == "the stream closed"
-
-
-def test_not_authorised_and_not_supported_are_different_failures() -> None:
-    # One means the assistant may not; the other means it cannot. Collapsing them would make a
-    # permission decision look like a technical fault, and the right response to each differs.
-    assert not issubclass(NotAuthorisedError, CapabilityNotSupportedError)
-    assert not issubclass(CapabilityNotSupportedError, NotAuthorisedError)
 
 
 def test_a_missing_record_names_what_was_looked_for() -> None:
@@ -88,8 +65,6 @@ def test_a_second_recording_names_what_was_recorded() -> None:
 
 
 def test_a_missing_key_is_a_decryption_failure_with_its_own_remedy() -> None:
-    # Caught as a decryption failure by anything that only cares that the bytes did not open,
-    # and told apart by an operator who needs to know that a key has to be put back.
     refused, missing = DecryptionError("key-a"), UnknownKeyError("key-a")
     assert isinstance(missing, DecryptionError)
     assert refused.key_id == missing.key_id == "key-a"

@@ -1,10 +1,4 @@
-"""Time and identity, injected.
-
-Nothing in the domain calls `datetime.now()` or generates an identifier inline. Both are inputs
-to a decision — active hours, escalation timeouts, call identity — and code that reaches for
-them directly cannot be tested without either waiting or patching a module, and patching a
-module is a test that passes because of where a symbol happens to live.
-"""
+"""Time and identifiers, injected so that nothing in the domain reads either directly."""
 
 from __future__ import annotations
 
@@ -16,23 +10,15 @@ if TYPE_CHECKING:
 
 
 class Clock(ABC):
-    """The current moment.
-
-    Always timezone-aware. A naive instant means whatever the machine is set to, which is how
-    a service that behaves in one region misbehaves in another.
-    """
+    """The current moment."""
 
     @abstractmethod
     def now(self) -> datetime:
-        """The current instant, with a timezone."""
+        """The current instant, always timezone-aware."""
 
 
 class IdGenerator(ABC):
-    """New identifiers.
-
-    A port so that a test can make them predictable. A test that has to read an identifier out
-    of the output in order to assert on it is a test that is describing the implementation.
-    """
+    """New identifiers."""
 
     @abstractmethod
     def generate(self) -> str:

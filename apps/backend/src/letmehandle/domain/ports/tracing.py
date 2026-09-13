@@ -1,14 +1,4 @@
-"""Following one call through everything it touches, as a tree of timed spans.
-
-A port, so that where spans begin and end is decided where the work is, and where they go is
-decided once, in bootstrap: a tracing backend when a deployment has one, and nowhere when it does
-not. Nothing that opens a span can tell which.
-
-Attributes are for structure and never for content, for the reason metrics labels are: a span is
-exported to a system kept longer and read more widely than the call it describes. So they are keyed
-from a short, fixed list, and a value is a token, a number or a call's own identifier — never what
-anybody said and never a number anybody dialled.
-"""
+"""Timed spans following one call, with attributes carrying structure, never content (D-038)."""
 
 from __future__ import annotations
 
@@ -38,7 +28,4 @@ class Tracer(ABC):
 
     @abstractmethod
     def span(self, name: str, **attributes: AttributeValue) -> AbstractContextManager[Span]:
-        """A span for the work inside the `with` block, ended when the block is left.
-
-        An exception leaving the block marks the span failed and is raised on unchanged.
-        """
+        """A span for the `with` block, failed by an exception leaving it, which is re-raised."""

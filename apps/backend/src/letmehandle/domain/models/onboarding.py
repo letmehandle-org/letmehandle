@@ -1,12 +1,4 @@
-"""How far through setting up somebody is.
-
-Held on the server rather than on the device, so that reinstalling, changing phone or signing
-in somewhere else resumes where they were instead of starting again. Somebody who has answered
-nine questions should never be asked them a second time because their phone broke.
-
-The order is declared once. A step's position is not something each screen decides for itself,
-because then two screens disagree about what comes next and the flow loops.
-"""
+"""How far through setup somebody is, held on the server, against steps declared in one order."""
 
 from __future__ import annotations
 
@@ -18,11 +10,7 @@ from letmehandle.domain.errors import InvariantError, StepNotAskedError
 
 
 class OnboardingStep(StrEnum):
-    """One thing to ask about.
-
-    One step per group of preferences, because a step is a screen and a screen that asks about
-    two unrelated things is one people abandon.
-    """
+    """One screen of setup, asking about one group of preferences."""
 
     CALL_HANDLING = "call_handling"
     CALL_FORWARDING = "call_forwarding"
@@ -31,18 +19,7 @@ class OnboardingStep(StrEnum):
     NOTIFICATIONS = "notifications"
 
 
-# The order they are asked in, declared once.
-#
-# Call handling comes first because it is the only one with no safe default: until the user has
-# said what should happen to an unknown caller, the assistant cannot do anything at all. The
-# rest descend by how much the answer changes, so somebody who stops halfway has still answered
-# the questions that mattered most.
-#
-# Forwarding follows it, on the deployments that ask it at all (D-034): where calls arrive only
-# by being forwarded, nothing after it matters until they do.
-#
-# The four the design draws (D-032), and that one. Important contacts and personality are
-# preferences edited from settings rather than questions somebody must get through first.
+# The order steps are asked in, most consequential first (D-032, D-034).
 ORDER: Final[tuple[OnboardingStep, ...]] = (
     OnboardingStep.CALL_HANDLING,
     OnboardingStep.CALL_FORWARDING,
@@ -51,13 +28,7 @@ ORDER: Final[tuple[OnboardingStep, ...]] = (
     OnboardingStep.NOTIFICATIONS,
 )
 
-# Steps whose default is safe to keep. Skipping one of these leaves the assistant more cautious
-# rather than less, so a user in a hurry loses convenience and never safety.
-#
-# `CALL_HANDLING` is deliberately absent: there is no safe default for what to do with a call
-# from somebody unknown, and guessing on the user's behalf is the one thing this product must
-# not do. `CALL_FORWARDING` is absent for a plainer reason: skipped, no call ever arrives, and a
-# setup that finishes anyway tells somebody the product works when it cannot.
+# Steps whose default is safe to keep; call handling and forwarding have none.
 SKIPPABLE: Final[frozenset[OnboardingStep]] = frozenset(
     {
         OnboardingStep.HOURS,
@@ -69,12 +40,7 @@ SKIPPABLE: Final[frozenset[OnboardingStep]] = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class OnboardingProgress:
-    """Which steps have been answered or deliberately skipped.
-
-    A set rather than a cursor. A cursor says where somebody is and forgets how they got there,
-    so it cannot tell a step that was answered from one that was skipped — and it breaks the
-    moment a step is inserted, because everybody's position silently means something else.
-    """
+    """Which steps have been answered and which deliberately skipped, as sets, not a cursor."""
 
     completed: frozenset[OnboardingStep] = field(default_factory=frozenset)
     skipped: frozenset[OnboardingStep] = field(default_factory=frozenset)
@@ -99,11 +65,7 @@ class OnboardingProgress:
         return self.completed | self.skipped
 
     def completing(self, step: OnboardingStep) -> OnboardingProgress:
-        """Record a step as answered.
-
-        Answering a step that was skipped moves it: somebody who came back to fill in what they
-        skipped has answered it, and the record should say so.
-        """
+        """Record a step as answered, moving it out of the skipped steps."""
         return OnboardingProgress(completed=self.completed | {step}, skipped=self.skipped - {step})
 
     def skipping(self, step: OnboardingStep) -> OnboardingProgress:
@@ -118,11 +80,7 @@ class OnboardingProgress:
 
 @dataclass(frozen=True, slots=True)
 class OnboardingFlow:
-    """Which of the declared steps one deployment asks.
-
-    Built from what the deployment can do rather than from which deployment it is, so the order
-    stays declared once above and a step a deployment does not ask is simply absent from it.
-    """
+    """Which of the declared steps one deployment asks, from what the deployment can do."""
 
     # Whether calls reach the assistant only by the user's phone forwarding them.
     calls_are_forwarded: bool
@@ -138,12 +96,7 @@ class OnboardingFlow:
 
 @dataclass(frozen=True, slots=True)
 class Onboarding:
-    """Somebody's progress, read against the steps this deployment asks.
-
-    The progress is stored; the flow is not, because it belongs to the deployment. A step
-    recorded where it was asked and read where it is not is ignored rather than refused (as
-    D-032 does for a removed step), so the same row stays valid wherever it is read.
-    """
+    """Stored progress read against this deployment's flow, ignoring steps the flow does not ask."""
 
     flow: OnboardingFlow
     progress: OnboardingProgress
@@ -162,11 +115,7 @@ class Onboarding:
 
     @property
     def next_step(self) -> OnboardingStep | None:
-        """What to ask next, or nothing when there is no more to ask.
-
-        The first unsettled step in the declared order, so inserting a step later puts it in
-        front of everybody who has not reached it and in front of nobody who has passed it.
-        """
+        """The first unsettled step in the declared order, or None when nothing is left to ask."""
         return next(iter(self.remaining), None)
 
     @property

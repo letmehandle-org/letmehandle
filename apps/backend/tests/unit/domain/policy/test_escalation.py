@@ -1,9 +1,4 @@
-"""The escalation policy, as a table.
-
-Each row is a call somebody could actually receive, and the answer the user would expect. Rows
-rather than a test per case, so that the rules read as a whole and a change to one of them shows
-up as the rows whose answers moved.
-"""
+"""The escalation policy, as a table of calls and expected decisions."""
 
 from __future__ import annotations
 
@@ -29,8 +24,7 @@ from letmehandle.domain.policy.escalation import (
     most_pressing,
 )
 
-# The assistant answers from seven in the morning to ten at night. The policy is never told the
-# time: outside those hours calls ring the user, so the hours cannot defer an escalation (D-030).
+# The assistant answers from seven in the morning to ten at night.
 ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
 RULES: Final = CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.NOTABLE)
@@ -193,8 +187,6 @@ def test_calls_that_do_not(proposal: EscalationProposal, situation: CallCircumst
 def test_the_threshold_boundary_holds_for_every_pair(
     importance: CallImportance, threshold: CallImportance
 ) -> None:
-    # Every importance against every threshold, because an off-by-one here is a phone that rings
-    # for the wrong calls and nothing else would notice.
     rules = replace(RULES, active_hours=None, escalate_at_or_above=threshold)
     decision = decide_escalation(call(importance=importance), circumstances(rules=rules))
     assert decision.required is (importance >= threshold)
@@ -218,7 +210,6 @@ def test_a_blank_summary_is_refused() -> None:
 
 
 def test_changing_what_the_user_granted_changes_the_decision_for_the_same_call() -> None:
-    # The plan's requirement, stated directly: identical input, different grant, different answer.
     proposal = call(requested_capability=Capability.CONFIRM_APPOINTMENTS)
     without = decide_escalation(proposal, circumstances())
     granted = decide_escalation(

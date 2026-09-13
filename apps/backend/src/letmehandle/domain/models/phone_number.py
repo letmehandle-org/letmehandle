@@ -1,11 +1,4 @@
-"""A telephone number, in one form.
-
-The product's identity is a phone number, and a number that is stored in two formats is two
-numbers as far as any comparison is concerned. Normalisation happens once, here, at the edge
-where a number enters the domain; nothing downstream compares raw input.
-
-E.164 is the only form: a plus sign, a country code, and up to fifteen digits in total.
-"""
+"""A telephone number, normalised once to E.164 where it enters the domain."""
 
 from __future__ import annotations
 
@@ -14,13 +7,10 @@ from dataclasses import dataclass
 
 from letmehandle.domain.errors import InvariantError
 
-# E.164 allows at most fifteen digits including the country code, and a country code never
-# starts with zero. Punctuation is stripped before this is applied, so it describes the stored
-# form rather than what a person may type.
+# The stored form: a plus, a country code that does not start with zero, and at most fifteen digits.
 _E164 = re.compile(r"\+[1-9][0-9]{1,14}")
 
-# The two-digit country calling codes ITU-T E.164 assigns. Zones 1 and 7 are one digit; anything
-# not listed here is three.
+# The two-digit calling codes E.164 assigns; zones 1 and 7 are one digit and every other code three.
 _TWO_DIGIT_CODES = frozenset(
     {
         "20",
@@ -70,6 +60,9 @@ _TWO_DIGIT_CODES = frozenset(
     }
 )
 
+# The fewest digits a mask hides before it keeps a number's first and last digits visible.
+_MIN_HIDDEN_DIGITS = 4
+
 # Everything people put in a phone number that is not part of it.
 _DECORATION = re.compile(r"[\s\-().]")
 
@@ -86,16 +79,7 @@ class PhoneNumber:
 
     @classmethod
     def parse(cls, raw: str) -> PhoneNumber:
-        """Normalise what a person or a provider supplied.
-
-        Accepts the decoration people type — spaces, hyphens, brackets, dots — and the `00`
-        international prefix used in much of the world. Rejects anything else rather than
-        guessing: a number this cannot parse is one a human should look at, and silently
-        accepting a malformed one means calls that never arrive.
-        """
-        if not isinstance(raw, str):  # pragma: no cover - defensive, the type says otherwise
-            raise InvariantError("a phone number must be text")
-
+        """Normalise spaces, hyphens, brackets, dots and a `00` prefix, and refuse anything else."""
         candidate = _DECORATION.sub("", raw.strip())
         if candidate.startswith("00"):
             candidate = "+" + candidate[2:]
@@ -109,12 +93,7 @@ class PhoneNumber:
 
     @property
     def calling_code(self) -> str:
-        """The country calling code, without the plus: "1", "44", "971".
-
-        Read from E.164's own zone structure rather than a table of countries: codes in zones 1 and
-        7 are one digit, a fixed set are two, and every other code is three. The structure has not
-        changed since it was assigned, so this cannot fall out of date the way a country list does.
-        """
+        """The country calling code without the plus, read from E.164's zone structure."""
         digits = self.value[1:]
         if digits[0] in "17":
             return digits[0]
@@ -124,19 +103,12 @@ class PhoneNumber:
 
     @property
     def masked(self) -> str:
-        """The number with its subscriber digits hidden.
-
-        For anything a person other than the owner might read — a log line, a metric label, an
-        error. The last two digits are kept because they are what someone uses to recognise
-        their own number, and two digits identify nobody.
-        """
-        return f"{self.value[:3]}{'*' * (len(self.value) - 5)}{self.value[-2:]}"
+        """The number with its subscriber digits hidden, keeping the last two when enough hide."""
+        hidden = len(self.value) - 5
+        if hidden < _MIN_HIDDEN_DIGITS:
+            return "+" + "*" * (len(self.value) - 1)
+        return f"{self.value[:3]}{'*' * hidden}{self.value[-2:]}"
 
     def __str__(self) -> str:
-        """Masked on purpose.
-
-        Every accidental disclosure of a number this project has to worry about arrives through
-        an f-string in a log line. The readable form is available, but only by asking for
-        `.value` explicitly, which is a thing a reviewer can see.
-        """
+        """The masked form; the readable one is only `.value`."""
         return self.masked

@@ -1,9 +1,4 @@
-"""The value objects the ports pass around, and the states they refuse to be in.
-
-These guards are the contract as much as the method signatures are. A transport that declares
-an impossible combination, or a notification with nothing in it, are both failures that would
-otherwise surface while somebody is on the phone.
-"""
+"""The value objects the ports pass around, and the states they refuse."""
 
 from __future__ import annotations
 
@@ -33,14 +28,10 @@ from letmehandle.domain.ports.voice import Voice, VoiceSample
 
 class TestTransportCapabilities:
     def test_everything_defaults_to_false(self) -> None:
-        # A transport that forgets to declare something offers less than it could, which is
-        # recoverable. One that inherits a true it did not mean promises a caller something
-        # that fails while they are on the line.
         capabilities = TransportCapabilities()
         assert not any(capabilities.has(name) for name in capabilities.names())
 
     def test_injecting_audio_without_hearing_the_caller_is_refused(self) -> None:
-        # It would be an announcement, not a conversation.
         with pytest.raises(InvariantError, match="without listening"):
             TransportCapabilities(can_inject_ai_audio=True)
 
@@ -49,8 +40,6 @@ class TestTransportCapabilities:
             TransportCapabilities(supports_three_way_call=True)
 
     def test_agent_conversation_needs_both_directions(self) -> None:
-        # Asked as one question so that two flags cannot be checked together in some places
-        # and separately in others.
         assert not TransportCapabilities(
             can_stream_call_audio_to_ai=True
         ).supports_agent_conversation
@@ -59,8 +48,6 @@ class TestTransportCapabilities:
         ).supports_agent_conversation
 
     def test_asking_about_a_capability_that_does_not_exist_is_an_error(self) -> None:
-        # A typo would otherwise read as "not supported", and the feature would quietly
-        # disappear from the product.
         with pytest.raises(InvariantError, match="not a transport capability"):
             TransportCapabilities().has("can_read_minds")
 
@@ -77,7 +64,7 @@ class TestTransportCapabilities:
 
 
 class TestCallEvents:
-    """The shapes an event may take, so every consumer reads one the same way."""
+    """The shapes an event may take."""
 
     @staticmethod
     def event(
@@ -88,7 +75,6 @@ class TestCallEvents:
         return CallEvent(kind, CallId("c"), EventId("e"), participant=participant, outcome=outcome)
 
     def test_a_participant_event_says_whom_it_is_about(self) -> None:
-        # The assistant's leg dropping and the user hanging up call for opposite responses.
         with pytest.raises(InvariantError, match="which participant"):
             self.event(CallEventKind.PARTICIPANT_LEFT)
 
@@ -98,7 +84,6 @@ class TestCallEvents:
 
     @pytest.mark.parametrize("outcome", [None, ParticipantOutcome.ANSWERED])
     def test_an_unreachable_participant_says_why(self, outcome: ParticipantOutcome | None) -> None:
-        # A caller is waiting for somebody who is not coming, and what to do depends on why.
         with pytest.raises(InvariantError, match="outcome other than answered"):
             self.event(CallEventKind.PARTICIPANT_UNREACHABLE, ParticipantRole.USER, outcome)
 
@@ -145,8 +130,6 @@ class TestCallEvents:
         "kind", [kind for kind in CallEventKind if kind is not CallEventKind.INCOMING]
     )
     def test_no_later_event_carries_one(self, kind: CallEventKind) -> None:
-        # There is one decision per call, taken before it rang. On a later event it would read
-        # as a second one.
         with pytest.raises(InvariantError, match="incoming event only"):
             CallEvent(kind, CallId("c"), EventId("e"), screening=ScreeningDecision.ALLOW)
 
@@ -157,7 +140,6 @@ class TestCallEvents:
         assert CallEvent(CallEventKind.ENDED, CallId("c"), EventId("e")).occurred_at is None
 
     def test_a_moment_without_a_timezone_is_refused(self) -> None:
-        # A naive moment is read as whatever zone the reading host is in: hours out, silently.
         with pytest.raises(InvariantError, match="timezone"):
             CallEvent(
                 CallEventKind.ENDED,
@@ -173,14 +155,12 @@ class TestNotificationValues:
             DeviceToken(DevicePlatform.IOS, "  ")
 
     def test_a_token_is_truncated_when_rendered(self) -> None:
-        # A device token identifies somebody's handset.
         rendered = str(DeviceToken(DevicePlatform.IOS, "abcdefghijklmnop"))
         assert "abcdef" in rendered
         assert "ghijklmnop" not in rendered
 
     @pytest.mark.parametrize(("title", "body"), [("", "b"), ("t", ""), ("  ", "b")])
     def test_a_notification_with_nothing_in_it_is_refused(self, title: str, body: str) -> None:
-        # Worse than sending none: it interrupts and explains nothing.
         with pytest.raises(InvariantError):
             EscalationNotification(
                 call_id=CallId("c"), title=title, body=body, caller_label="someone"
@@ -189,8 +169,6 @@ class TestNotificationValues:
 
 class TestSpeechValues:
     def test_a_fragment_says_who_spoke_and_whether_it_is_settled(self) -> None:
-        # Acting on a partial recognition is how an assistant answers a question the caller
-        # had not finished asking.
         partial = TranscriptProduced(text="I have a", speaker_is_caller=True, is_final=False)
         assert partial.speaker_is_caller
         assert not partial.is_final
@@ -213,8 +191,6 @@ class TestVoiceValues:
             Voice(id=voice_id, name=name, locales=("en",))
 
     def test_a_voice_that_speaks_nothing_is_refused(self) -> None:
-        # It could never be selected for any user, so it is a catalogue entry that does
-        # nothing but confuse the person reading the list.
         with pytest.raises(InvariantError, match="no language"):
             Voice(id="calm", name="Calm", locales=())
 
@@ -226,14 +202,10 @@ class TestVoiceValues:
         assert not voice.speaks("english")
 
     def test_a_sample_with_no_audio_is_refused(self) -> None:
-        # A preview control that plays nothing is worse than no control: it reads as the
-        # product being broken rather than as a feature this deployment does not have.
         with pytest.raises(InvariantError, match="silence"):
             VoiceSample(audio=b"", media_type="audio/mpeg")
 
     def test_a_sample_must_say_what_format_it_is_in(self) -> None:
-        # A caller that has to guess gets it wrong the first time a provider returns anything
-        # other than the format that was assumed, and the symptom is silence again.
         with pytest.raises(InvariantError, match="what format"):
             VoiceSample(audio=b"audio", media_type="  ")
 
@@ -256,7 +228,6 @@ class TestCallFilter:
         assert CallFilter(started_before=start).started_from is None
 
     def test_a_bound_with_no_timezone_is_refused(self) -> None:
-        # It would mean whatever the server is set to, and "yesterday" would move with it.
         naive = datetime(2026, 6, 1, 12, 0)
         with pytest.raises(InvariantError, match="timezone"):
             CallFilter(started_from=naive)

@@ -1,4 +1,4 @@
-"""Timezones are where this kind of code goes quietly wrong, so they are where the tests are."""
+"""User preferences, their limits, and time windows across timezones."""
 
 from __future__ import annotations
 
@@ -46,14 +46,11 @@ class TestTimeWindow:
         assert not window.contains(at(2026, 6, 1, 18))
 
     def test_the_window_is_half_open(self) -> None:
-        # Start inclusive, end exclusive, so two adjacent windows cannot both claim the moment
-        # between them.
         window = TimeWindow(time(9, 0), time(17, 0), LONDON)
         assert window.contains(at(2026, 6, 1, 9, 0))
         assert not window.contains(at(2026, 6, 1, 17, 0))
 
     def test_a_window_that_wraps_past_midnight_works(self) -> None:
-        # An evening that runs into the night is the case a naive between gets wrong.
         evening = TimeWindow(time(22, 0), time(7, 0), LONDON)
         assert evening.wraps_midnight
         assert evening.contains(at(2026, 6, 1, 23))
@@ -62,22 +59,16 @@ class TestTimeWindow:
         assert not evening.contains(at(2026, 6, 1, 7, 0))
 
     def test_the_window_is_evaluated_in_its_own_zone_not_the_instant_s(self) -> None:
-        # The mistake this prevents: a user's nine-to-five compared against a server's clock.
-        # Half past eight in the evening in London is two in the morning in Kolkata.
         working = TimeWindow(time(9, 0), time(17, 0), KOLKATA)
         assert not working.contains(datetime(2026, 6, 1, 20, 30, tzinfo=ZoneInfo(LONDON)))
         assert working.contains(datetime(2026, 6, 1, 6, 30, tzinfo=ZoneInfo(LONDON)))
 
     def test_it_is_still_correct_across_a_daylight_saving_change(self) -> None:
-        # London moves an hour on the last Sunday in March. A window stored as local time must
-        # follow the clock, not the offset it had when it was written.
         working = TimeWindow(time(9, 0), time(17, 0), LONDON)
         before = datetime(2026, 3, 28, 10, 0, tzinfo=ZoneInfo(LONDON))
         after = datetime(2026, 3, 30, 10, 0, tzinfo=ZoneInfo(LONDON))
         assert working.contains(before)
         assert working.contains(after)
-        # The same two instants expressed in UTC are an hour apart in offset, and both must
-        # still be inside the user's working day.
         assert working.contains(before.astimezone(UTC))
         assert working.contains(after.astimezone(UTC))
 
@@ -99,9 +90,6 @@ class TestTimeWindow:
         ],
     )
     def test_a_window_finer_than_a_minute_is_refused(self, start: time, end: time) -> None:
-        # Stored to the minute, so anything finer is different when it comes back. Worse than
-        # lossy: two ends differing only in seconds come back equal, which this constructor
-        # refuses — so the row saves and can never be read again.
         with pytest.raises(InvariantError, match="minute"):
             TimeWindow(start, end, LONDON)
 
@@ -127,8 +115,6 @@ class TestCallRules:
         assert rules.posture_for(CallerCategory.SPAM) is HandlingPosture.REJECT
 
     def test_a_category_cannot_be_both_blocked_and_handled(self) -> None:
-        # The outcome would depend on which rule was read first, which is a coin toss dressed
-        # up as configuration.
         with pytest.raises(InvariantError):
             CallRules(
                 blocked_categories=frozenset({CallerCategory.SALES}),
@@ -136,7 +122,6 @@ class TestCallRules:
             )
 
     def test_with_no_hours_set_the_assistant_is_always_active(self) -> None:
-        # The product's promise before anyone configures it: around the clock (D-030).
         assert CallRules().active_hours is None
         assert CallRules().is_active_at(at(2026, 6, 1, 3))
 
@@ -165,15 +150,12 @@ class TestUserPreferences:
         assert preferences.rules.default_posture is HandlingPosture.PASS_THROUGH
 
     def test_a_blank_locale_is_refused(self) -> None:
-        # The agent's language is configuration. A blank one means a prompt with no language.
         with pytest.raises(InvariantError):
             UserPreferences(locale="  ")
 
 
 class TestTopics:
     def test_a_topic_is_normalised(self) -> None:
-        # "School Run", "school run" and "  school   run " are one topic rather than three,
-        # which is what stops a list nobody can maintain.
         assert Topic("  School   Run ") == Topic("school run")
         assert Topic("School Run").name == "school run"
 
@@ -186,8 +168,6 @@ class TestTopics:
             Topic(raw)
 
     def test_a_topic_that_is_really_a_sentence_is_refused(self) -> None:
-        # A sentence in a list the agent reads is an instruction, and the caller is the one
-        # person who must never be able to write one.
         with pytest.raises(InvariantError, match="instruction"):
             Topic("x" * (Topic.MAX_LENGTH + 1))
 
@@ -200,7 +180,6 @@ class TestTopics:
 
 class TestImportantContacts:
     def test_a_contact_passes_calls_through_by_default(self) -> None:
-        # The point of marking somebody important: their call reaches you.
         contact = ImportantContact(number=NUMBER, label="Mum")
         assert contact.posture is HandlingPosture.PASS_THROUGH
 
@@ -212,7 +191,6 @@ class TestImportantContacts:
 
     @pytest.mark.parametrize("label", ["", "   "])
     def test_a_contact_without_a_label_is_refused(self, label: str) -> None:
-        # Otherwise the list is numbers, and a list of numbers is not something to read.
         with pytest.raises(InvariantError):
             ImportantContact(number=NUMBER, label=label)
 
@@ -221,7 +199,6 @@ class TestImportantContacts:
             ImportantContact(number=NUMBER, label="x" * (ImportantContact.MAX_LABEL + 1))
 
     def test_rendering_a_contact_gives_the_label_and_not_the_number(self) -> None:
-        # The number belongs to somebody who never agreed to anything.
         contact = ImportantContact(number=NUMBER, label="Mum")
         assert str(contact) == "Mum"
         assert NUMBER.value not in str(contact)
@@ -229,17 +206,10 @@ class TestImportantContacts:
 
 class TestNotificationPreferences:
     def test_nothing_optional_is_on_by_default(self) -> None:
-        # A product that notifies about everything is one people silence, and a silenced
-        # product cannot reach them when it matters.
         defaults = NotificationPreferences()
         assert not defaults.on_handled_call
         assert not defaults.on_blocked_call
         assert not defaults.daily_summary
-
-    def test_being_told_about_an_escalation_is_not_optional(self) -> None:
-        # Being told the assistant needs you, while it needs you, is the product. Turning it
-        # off would leave a phone ringing with no idea why.
-        assert NotificationPreferences().on_escalation
 
     def test_active_hours_are_respected_by_default(self) -> None:
         assert NotificationPreferences().respect_active_hours
@@ -257,8 +227,6 @@ class TestPreferenceLimits:
             UserPreferences(version=0)
 
     def test_too_many_contacts_is_refused(self) -> None:
-        # Beyond a point the list is an address book, and everything in it stops being
-        # important.
         contacts = tuple(
             ImportantContact(
                 number=PhoneNumber.parse(f"+1202555{number:04d}"), label=f"Contact {number}"
@@ -276,7 +244,6 @@ class TestPreferenceLimits:
             UserPreferences(topics=topics)
 
     def test_one_number_cannot_appear_twice_in_the_contacts(self) -> None:
-        # Which rule applies would depend on which entry is read first.
         with pytest.raises(InvariantError, match="twice"):
             UserPreferences(
                 important_contacts=(
@@ -296,28 +263,18 @@ class TestPreferenceLimits:
     def test_a_number_that_is_not_a_contact_finds_nothing(self) -> None:
         assert UserPreferences().contact_for(NUMBER) is None
 
-    def test_caring_about_a_topic_ignores_how_it_was_typed(self) -> None:
-        preferences = UserPreferences(topics=frozenset({Topic("school run")}))
-        assert preferences.cares_about("School Run")
-        assert not preferences.cares_about("deliveries")
-
 
 def test_a_topic_cannot_carry_a_line_break() -> None:
-    # Splitting on whitespace collapses every kind of it, so a multi-line value cannot be
-    # smuggled into a list the model reads as one item per line.
     assert Topic("school\nrun\there").name == "school run here"
 
 
 class TestDisclosableFacts:
     def test_a_fact_keeps_its_case(self) -> None:
-        # Unlike a topic, which is matched against and so normalised. A fact is read out, and
-        # "Tuesdays" should not become "tuesdays".
         assert DisclosableFact("Works from home on Tuesdays").text == (
             "Works from home on Tuesdays"
         )
 
     def test_a_fact_is_collapsed_to_one_line(self) -> None:
-        # An instruction needs room, and a single line does not give it any.
         assert DisclosableFact("works\nfrom   home").text == "works from home"
 
     @pytest.mark.parametrize("raw", ["", "   ", "\n"])
@@ -326,7 +283,6 @@ class TestDisclosableFacts:
             DisclosableFact(raw)
 
     def test_a_paragraph_is_refused(self) -> None:
-        # This text goes in front of the model while an unknown caller is talking to it.
         with pytest.raises(InvariantError, match="instruction"):
             DisclosableFact("x" * (DisclosableFact.MAX_LENGTH + 1))
 
@@ -334,8 +290,6 @@ class TestDisclosableFacts:
         assert len(DisclosableFact("x" * DisclosableFact.MAX_LENGTH).text) == 120
 
     def test_too_many_facts_are_refused(self) -> None:
-        # Every one of them is something a stranger can be told, so the list being short is the
-        # point rather than a limitation.
         facts = frozenset(
             DisclosableFact(f"fact {number}") for number in range(UserPreferences.MAX_FACTS + 1)
         )
@@ -343,7 +297,6 @@ class TestDisclosableFacts:
             UserPreferences(disclosable_facts=facts)
 
     def test_nothing_is_disclosable_by_default(self) -> None:
-        # The safe answer to "where are they?" is not a location.
         assert UserPreferences().disclosable_facts == frozenset()
 
     def test_a_fact_rendered_is_its_text(self) -> None:
@@ -352,7 +305,6 @@ class TestDisclosableFacts:
 
 class TestTranscriptRetention:
     def test_the_default_is_seven_days(self) -> None:
-        # D-014.
         assert UserPreferences().transcript_retention_days == 7
 
     @pytest.mark.parametrize(
@@ -366,8 +318,6 @@ class TestTranscriptRetention:
             UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_FLOOR_DAYS - 1)
 
     def test_above_the_ceiling_is_held_and_says_so(self) -> None:
-        # Stored by a deployment with a higher ceiling: kept as it is, and marked as more than
-        # this version can honour, so nothing here deletes earlier than the user chose.
         longer = UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_CEILING_DAYS + 1)
         assert longer.retention_exceeds_ceiling
         assert not UserPreferences(

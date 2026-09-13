@@ -1,4 +1,4 @@
-"""A frame that does not know what it is becomes a frame somebody converts twice."""
+"""Audio formats and frames, which always say what they are."""
 
 from __future__ import annotations
 
@@ -28,8 +28,6 @@ def test_a_format_that_describes_nothing_is_rejected(rate: int, channels: int) -
 
 
 def test_the_two_named_formats_are_the_ones_at_the_edges() -> None:
-    # Named so that adapters agree rather than each writing the numbers out, and so that a
-    # mismatch between them is visible here rather than as silence on a call.
     assert TELEPHONY_NARROWBAND.sample_rate_hz == 8_000
     assert TELEPHONY_NARROWBAND.encoding is AudioEncoding.MULAW
     assert SPEECH_WIDEBAND.sample_rate_hz == 16_000
@@ -48,15 +46,11 @@ def test_a_frame_knows_its_length_and_format() -> None:
 
 
 def test_an_empty_frame_is_rejected() -> None:
-    # An empty frame is either a bug upstream or a silent gap presented as audio. Neither is
-    # something to pass along.
     with pytest.raises(InvariantError):
         AudioFrame(b"", SPEECH_WIDEBAND)
 
 
 def test_a_frame_never_shows_its_samples() -> None:
-    # The samples are somebody's voice. A frame's repr turns up in test output and in exception
-    # context, and this project promises that voice is not written down.
     frame = AudioFrame(b"secret-sounding-audio", SPEECH_WIDEBAND)
     rendered = repr(frame)
     assert "secret-sounding-audio" not in rendered

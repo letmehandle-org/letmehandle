@@ -1,4 +1,4 @@
-"""A timeline mark is named in a closed vocabulary, so it cannot carry content."""
+"""A timeline mark is named in a closed vocabulary, never in content."""
 
 from __future__ import annotations
 

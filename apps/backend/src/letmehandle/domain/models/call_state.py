@@ -1,13 +1,4 @@
-"""Where a call can be, and where it can go from there.
-
-The transitions live in one table. Not spread across the code that performs them, because then
-the answer to "can this happen?" is a search rather than a read, and two places eventually
-disagree.
-
-The table is also the reason a new state cannot be added quietly: `ALLOWED` must name every
-member, and a test asserts it, so adding a state without deciding its transitions fails the
-build rather than producing a state nothing can leave.
-"""
+"""Where a call can be, and every move it may make from there, in one table."""
 
 from __future__ import annotations
 
@@ -19,13 +10,7 @@ from letmehandle.domain.errors import IllegalTransitionError
 
 
 class CallState(StrEnum):
-    """The life of a call.
-
-    `REJECTED` and `COMPLETED` and `FAILED` are endings, and they are different endings:
-    rejected means the rules refused it, completed means it ran its course, failed means the
-    product broke. Collapsing them would make the difference invisible in history and in
-    metrics, which is exactly where it matters.
-    """
+    """The life of a call, with rejected, completed and failed as three distinct endings."""
 
     RECEIVED = "received"
     ROUTING = "routing"
@@ -39,56 +24,38 @@ class CallState(StrEnum):
     FAILED = "failed"
 
 
-# Every state maps to the complete set it may move to. An empty set is terminal, and is written
-# out rather than omitted so that a missing entry is a mistake rather than an ending.
-#
-# FAILED is reachable from every non-terminal state and is not listed in each one: it is added
-# below, because writing it ten times invites the eleventh to be forgotten.
-_TRANSITIONS: dict[CallState, set[CallState]] = {
-    CallState.RECEIVED: {CallState.ROUTING},
-    # Routing decides among three outcomes and nothing else. In particular it cannot reach
-    # escalation: a call must be handled before there is anything to escalate about.
-    CallState.ROUTING: {
-        CallState.PASSTHROUGH,
-        CallState.AGENT_HANDLING,
-        CallState.REJECTED,
-    },
-    CallState.PASSTHROUGH: {CallState.COMPLETED},
-    CallState.AGENT_HANDLING: {
-        CallState.ESCALATION_REQUESTED,
-        CallState.COMPLETED,
-    },
-    # Back to AGENT_HANDLING because an escalation can be abandoned before anyone is dialled —
-    # the caller answers their own question, or the agent decides it can finish after all.
-    CallState.ESCALATION_REQUESTED: {
-        CallState.HUMAN_RINGING,
-        CallState.AGENT_HANDLING,
-        CallState.COMPLETED,
-    },
-    # Likewise: an unanswered or declined ring returns the call to the agent rather than ending
-    # it. A call that dies because its owner was busy is the failure this product exists to
-    # prevent.
-    CallState.HUMAN_RINGING: {
-        CallState.HUMAN_JOINED,
-        CallState.AGENT_HANDLING,
-        CallState.COMPLETED,
-    },
-    CallState.HUMAN_JOINED: {CallState.COMPLETED},
-    CallState.REJECTED: set(),
-    CallState.COMPLETED: set(),
-    CallState.FAILED: set(),
-}
-
 TERMINAL: Final[frozenset[CallState]] = frozenset(
     {CallState.REJECTED, CallState.COMPLETED, CallState.FAILED}
 )
 
-for _state, _destinations in _TRANSITIONS.items():
-    if _state not in TERMINAL:
-        _destinations.add(CallState.FAILED)
+# Where each state may move, before FAILED is added to every state that is not terminal.
+_ORDINARY_MOVES: Final[dict[CallState, frozenset[CallState]]] = {
+    CallState.RECEIVED: frozenset({CallState.ROUTING}),
+    # Routing cannot reach escalation: a call is handled before there is anything to escalate.
+    CallState.ROUTING: frozenset(
+        {CallState.PASSTHROUGH, CallState.AGENT_HANDLING, CallState.REJECTED}
+    ),
+    CallState.PASSTHROUGH: frozenset({CallState.COMPLETED}),
+    CallState.AGENT_HANDLING: frozenset({CallState.ESCALATION_REQUESTED, CallState.COMPLETED}),
+    # An escalation abandoned before anyone is dialled returns the call to the agent.
+    CallState.ESCALATION_REQUESTED: frozenset(
+        {CallState.HUMAN_RINGING, CallState.AGENT_HANDLING, CallState.COMPLETED}
+    ),
+    # An unanswered or declined ring returns the call to the agent.
+    CallState.HUMAN_RINGING: frozenset(
+        {CallState.HUMAN_JOINED, CallState.AGENT_HANDLING, CallState.COMPLETED}
+    ),
+    CallState.HUMAN_JOINED: frozenset({CallState.COMPLETED}),
+    CallState.REJECTED: frozenset(),
+    CallState.COMPLETED: frozenset(),
+    CallState.FAILED: frozenset(),
+}
 
 ALLOWED: Final[MappingProxyType[CallState, frozenset[CallState]]] = MappingProxyType(
-    {state: frozenset(destinations) for state, destinations in _TRANSITIONS.items()}
+    {
+        state: moves if state in TERMINAL else moves | {CallState.FAILED}
+        for state, moves in _ORDINARY_MOVES.items()
+    }
 )
 
 
@@ -103,12 +70,7 @@ def can_move(current: CallState, requested: CallState) -> bool:
 
 
 def move(current: CallState, requested: CallState) -> CallState:
-    """Perform the move, or raise naming both states.
-
-    Raising rather than returning the current state unchanged. A no-op would let a caller
-    believe a transition happened, and the bug would surface as a call stuck in a state with no
-    indication of why.
-    """
+    """Perform the move, or raise naming both states."""
     if not can_move(current, requested):
         raise IllegalTransitionError(current, requested)
     return requested

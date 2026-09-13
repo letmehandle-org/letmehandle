@@ -1,12 +1,4 @@
-"""What the user reads afterwards.
-
-Structured, and short. A summary that restates the conversation is a transcript with extra
-steps, and the reason this type exists is that nobody reads those.
-
-It outlives the transcript by design: the transcript is deleted on a schedule, and the summary
-has to still make sense on its own after that. That is why every fact the user might need is a
-field here rather than a reference into the conversation.
-"""
+"""The short, structured record of a call, which stands on its own after the transcript is gone."""
 
 from __future__ import annotations
 
@@ -26,12 +18,7 @@ if TYPE_CHECKING:
 
 
 class CallOutcome(StrEnum):
-    """How it ended, in the terms a person would use.
-
-    Distinct from `CallState`: the state machine's endings are about the mechanism, and these
-    are about what happened. A call that reached COMPLETED could have been resolved, handed
-    over, or abandoned, and a user reading their history wants to know which.
-    """
+    """How a call ended in the terms a person would use, unlike the mechanism of `CallState`."""
 
     RESOLVED_BY_AGENT = "resolved_by_agent"
     HANDED_TO_USER = "handed_to_user"
@@ -44,12 +31,7 @@ class CallOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExtractedDetail:
-    """A fact worth keeping, with the words it came from.
-
-    `evidence` is what makes an extraction checkable. A reference number with no source is
-    something the user has to verify themselves, which is most of the value gone; and an
-    extraction that cannot be traced is one nobody can tell apart from an invention.
-    """
+    """A fact worth keeping, with the words it came from as its evidence."""
 
     label: str
     value: str
@@ -60,8 +42,7 @@ class ExtractedDetail:
             raise InvariantError("an extracted detail needs both a label and a value")
 
 
-# Longer than this and it is not a summary. The number is enforced rather than suggested,
-# because "keep it short" in a prompt is a preference and a limit here is a guarantee.
+# The longest headline a summary may have.
 MAX_HEADLINE_CHARACTERS = 280
 
 
@@ -74,7 +55,7 @@ class CallSummary:
     intent: CallIntent
     importance: CallImportance
     outcome: CallOutcome
-    # Out of the repr: they quote the call, and a repr is what a log line or an assertion prints.
+    # Out of the repr, since they quote the call.
     headline: str = field(repr=False)
     started_at: datetime
     ended_at: datetime

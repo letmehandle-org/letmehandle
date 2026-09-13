@@ -1,13 +1,4 @@
-"""Audio, as the domain sees it.
-
-A frame carries its own encoding and sample rate. That is the whole point: a call transport
-typically speaks narrowband telephony audio, a speech model typically wants wideband linear
-audio, and if a frame did not say which it was, every function touching one would have to be
-told separately — and one of them would be told wrong.
-
-Conversion is an adapter's job, at its own edge. The domain never resamples; it only insists
-that a frame knows what it is.
-"""
+"""Audio frames that carry their own format; converting between formats is an adapter's job."""
 
 from __future__ import annotations
 
@@ -28,11 +19,7 @@ class AudioEncoding(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class AudioFormat:
-    """An encoding, a sample rate and a channel count, together.
-
-    Together because they are only meaningful together: eight thousand samples per second says
-    nothing without knowing what a sample is.
-    """
+    """An encoding, a sample rate and a channel count, together."""
 
     encoding: AudioEncoding
     sample_rate_hz: int
@@ -48,8 +35,7 @@ class AudioFormat:
         return f"{self.encoding} {self.sample_rate_hz}Hz {self.channels}ch"
 
 
-# The two that appear at the edges of this product, named so that adapters agree on them
-# rather than each writing the numbers out.
+# The formats at the product's two edges: a telephone line, and a speech model.
 TELEPHONY_NARROWBAND = AudioFormat(AudioEncoding.MULAW, 8_000)
 SPEECH_WIDEBAND = AudioFormat(AudioEncoding.PCM_S16LE, 16_000)
 
@@ -69,10 +55,5 @@ class AudioFrame:
         return len(self.data)
 
     def __repr__(self) -> str:
-        """Length and format, never the samples.
-
-        A frame's repr appears in test failures and in exception context. The samples are
-        somebody's voice, and a few kilobytes of it in a log is exactly the disclosure this
-        project promises not to make.
-        """
+        """Length and format, never the samples."""
         return f"AudioFrame({len(self.data)} bytes, {self.format})"

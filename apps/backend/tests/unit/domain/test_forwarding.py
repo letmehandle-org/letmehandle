@@ -10,7 +10,7 @@ US_LINE = PhoneNumber.parse("+12025550100")
 IN_LINE = PhoneNumber.parse("+91555010")
 ELSEWHERE_LINE = PhoneNumber.parse("+12025550199")
 US_USER = PhoneNumber.parse("+12025550143")
-# Shorter than any number in India's plan, so it can reach nobody.
+# Shorter than any number in India's plan, so it reaches nobody.
 IN_USER = PhoneNumber.parse("+91555001")
 UK_USER = PhoneNumber.parse("+447700900123")
 
