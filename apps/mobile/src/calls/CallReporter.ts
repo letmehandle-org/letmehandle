@@ -35,24 +35,8 @@ export const SEND_ATTEMPTS = 3;
 /** The wait before the first retry. Each one after waits twice as long as the last. */
 export const FIRST_RETRY_DELAY_MS = 1_000;
 
-/** A report the backend will not store, and why. */
-export interface RejectedReport {
-  readonly event_id: string;
-  readonly reason: string;
-}
-
-/**
- * The backend's answer for a batch.
- *
- * `rejected` is optional until the generated client carries it: a backend that predates it
- * refuses a batch whole instead, which reaches here as an error and keeps every report.
- */
-export interface CallReportOutcome extends CallReportReceipt {
-  readonly rejected?: readonly RejectedReport[];
-}
-
 export interface CallReportSender {
-  reportCalls(batch: CallReportBatch): Promise<CallReportOutcome>;
+  reportCalls(batch: CallReportBatch): Promise<CallReportReceipt>;
 }
 
 export type Wait = (milliseconds: number) => Promise<void>;
@@ -128,7 +112,12 @@ export class CallReporter {
       await this.screening.acknowledgeCallEvents([
         ...outcome.accepted,
         ...outcome.duplicates,
-        ...(outcome.rejected ?? []).map(rejection => rejection.event_id),
+        // A rejection without a readable id is found by its place in the batch.
+        ...outcome.rejected
+          .map(
+            rejection => rejection.event_id ?? batch[rejection.index]?.event_id,
+          )
+          .filter((eventId): eventId is string => eventId !== undefined),
       ]);
     }
   }
@@ -152,7 +141,7 @@ export class CallReporter {
     }
   }
 
-  private async send(batch: CallReportBatch): Promise<CallReportOutcome> {
+  private async send(batch: CallReportBatch): Promise<CallReportReceipt> {
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await this.sender.reportCalls(batch);

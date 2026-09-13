@@ -3,7 +3,10 @@
  * sent twice at once, nothing lost when the backend is away, and no one report the backend refuses
  * holding back the ones behind it.
  */
-import type { CallReportBatch } from '@letmehandle/api-client';
+import type {
+  CallReportBatch,
+  CallReportReceipt,
+} from '@letmehandle/api-client';
 
 import { ApiError, NetworkError } from '../api/errors';
 import {
@@ -11,7 +14,6 @@ import {
   FIRST_RETRY_DELAY_MS,
   REPORTS_PER_REQUEST,
   SEND_ATTEMPTS,
-  type CallReportOutcome,
 } from '../calls/CallReporter';
 import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
@@ -38,6 +40,8 @@ class RecordingSender {
   readonly known = new Set<string>();
   /** Event ids the backend will never store, and says so. */
   readonly refused = new Set<string>();
+  /** Event ids the backend refuses without being able to read the id back. */
+  readonly unreadableIds = new Set<string>();
   private release: (() => void) | null = null;
 
   hold(): void {
@@ -54,7 +58,7 @@ class RecordingSender {
     this.held = null;
   }
 
-  async reportCalls(batch: CallReportBatch): Promise<CallReportOutcome> {
+  async reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
     this.batches.push(batch);
     if (this.held !== null) {
       await this.held;
@@ -64,13 +68,23 @@ class RecordingSender {
       throw failure;
     }
     const ids = batch.reports.map(report => report.event_id);
-    const stored = ids.filter(id => !this.refused.has(id));
+    const refused = (id: string): boolean =>
+      this.refused.has(id) || this.unreadableIds.has(id);
+    const stored = ids.filter(id => !refused(id));
     return {
       accepted: stored.filter(id => !this.known.has(id)),
       duplicates: stored.filter(id => this.known.has(id)),
-      rejected: ids
-        .filter(id => this.refused.has(id))
-        .map(id => ({ event_id: id, reason: 'caller_number is not E.164' })),
+      rejected: ids.flatMap((id, index) =>
+        refused(id)
+          ? [
+              {
+                index,
+                event_id: this.unreadableIds.has(id) ? null : id,
+                reason: 'caller_number is not E.164',
+              },
+            ]
+          : [],
+      ),
     };
   }
 }
@@ -136,6 +150,17 @@ describe('reporting what the handset observed', () => {
 
     await reporter.drain();
     expect(sender.batches).toHaveLength(1);
+  });
+
+  it('forgets a refused report whose id the backend could not read, by its place', async () => {
+    const { native, sender, reporter } = setUp();
+    native.pending = [event(1), event(2)];
+    sender.unreadableIds.add('event-0002');
+
+    await reporter.drain();
+
+    expect(sender.batches).toHaveLength(1);
+    expect(native.pending).toEqual([]);
   });
 
   it('does not let a refused report hold back the ones behind it', async () => {

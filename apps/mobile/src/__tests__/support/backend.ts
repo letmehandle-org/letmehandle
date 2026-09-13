@@ -268,7 +268,7 @@ export function runningBackend(options?: {
           accepted.push(report.event_id);
         }
       }
-      return answer(200, { accepted, duplicates });
+      return answer(200, { accepted, duplicates, rejected: [] });
     }
     if (path === '/v1/onboarding' && method === 'GET') {
       return answer(200, progress());
