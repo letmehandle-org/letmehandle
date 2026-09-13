@@ -19,6 +19,57 @@ from letmehandle.domain.errors import InvariantError
 # form rather than what a person may type.
 _E164 = re.compile(r"\+[1-9][0-9]{1,14}")
 
+# The two-digit country calling codes ITU-T E.164 assigns. Zones 1 and 7 are one digit; anything
+# not listed here is three.
+_TWO_DIGIT_CODES = frozenset(
+    {
+        "20",
+        "27",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "36",
+        "39",
+        "40",
+        "41",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "60",
+        "61",
+        "62",
+        "63",
+        "64",
+        "65",
+        "66",
+        "81",
+        "82",
+        "84",
+        "86",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "98",
+    }
+)
+
 # Everything people put in a phone number that is not part of it.
 _DECORATION = re.compile(r"[\s\-().]")
 
@@ -55,6 +106,21 @@ class PhoneNumber:
                 "which country it is national to"
             )
         return cls(candidate)
+
+    @property
+    def calling_code(self) -> str:
+        """The country calling code, without the plus: "1", "44", "971".
+
+        Read from E.164's own zone structure rather than a table of countries: codes in zones 1 and
+        7 are one digit, a fixed set are two, and every other code is three. The structure has not
+        changed since it was assigned, so this cannot fall out of date the way a country list does.
+        """
+        digits = self.value[1:]
+        if digits[0] in "17":
+            return digits[0]
+        if digits[:2] in _TWO_DIGIT_CODES:
+            return digits[:2]
+        return digits[:3]
 
     @property
     def masked(self) -> str:

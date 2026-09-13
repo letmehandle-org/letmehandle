@@ -70,12 +70,16 @@ class OTPChallengeRow(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When a newer code to the same number closed this one.
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         # The rate limit counts challenges per number within a window, which is this index.
         # Without it the limit gets slower as the table grows, which is exactly backwards.
         Index("ix_otp_challenges_number_issued", "phone_number", "issued_at"),
         Index("ix_otp_challenges_expires_at", "expires_at"),
+        # The deployment's own sending budget counts every challenge in the last hour.
+        Index("ix_otp_challenges_issued_at", "issued_at"),
     )
 
 

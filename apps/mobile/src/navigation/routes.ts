@@ -12,7 +12,12 @@
 export type AuthStackParamList = {
   Welcome: undefined;
   PhoneNumber: undefined;
-  VerifyCode: { challengeId: string; phoneNumber: string };
+  VerifyCode: {
+    challengeId: string;
+    phoneNumber: string;
+    /** Seconds until another code may be asked for, as the server said when this one was sent. */
+    resendAfterSeconds: number;
+  };
 };
 
 export type OnboardingStackParamList = {
