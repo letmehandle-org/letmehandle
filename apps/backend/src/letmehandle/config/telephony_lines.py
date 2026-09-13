@@ -1,14 +1,4 @@
-"""How the telephony lines a deployment carries calls on are written in its environment.
-
-A line is one account with a streaming provider, the numbers on it, and the regions whose users
-forward their calls to it. A deployment serving two countries has a line for each, so that every
-user forwards to a local number and is rung from one when they are brought into a call.
-
-Written as compact text, for the reason the voice catalogue gives: JSON inside an environment
-variable is where configuration gets silently truncated. The auth tokens are a variable of their
-own, so the one holding secrets is never the one somebody pastes into a ticket to ask why a line
-does not start.
-"""
+"""How TELEPHONY_LINES and TELEPHONY_LINE_AUTH_TOKENS describe the lines calls arrive on (D-041)."""
 
 from __future__ import annotations
 
@@ -30,7 +20,7 @@ class LineProviderName(StrEnum):
     TWILIO = "twilio"
 
 
-# How TELEPHONY_LINES is written, quoted in every error about it so the fix is in the message.
+# How TELEPHONY_LINES is written, quoted in every error about it.
 TELEPHONY_LINES_FORMAT: Final = (
     "name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
     "webhook=https://host,name:..."
@@ -40,20 +30,14 @@ LINE_TOKENS_FORMAT: Final = "name:token,name:token"
 # What `regions=` says for a line that serves whoever no other line does.
 EVERY_REGION: Final = "*"
 
-# A line's name becomes a path segment, so it is kept to what needs no escaping anywhere.
+# A line's name is a path segment, so it needs no escaping anywhere.
 _LINE_NAME: Final = re.compile(r"[a-z][a-z0-9-]{0,15}")
 _KEYS: Final = frozenset({"provider", "regions", "numbers", "account", "app", "webhook"})
 
 
 @dataclass(frozen=True, slots=True)
 class TelephonyLine:
-    """One line, present and checked: everything a streaming transport for it needs.
-
-    `name` is None for the one line `TELEPHONY_PROVIDER` configures, whose routes have always been
-    at the root. `regions` is None for a line that serves every region no other line serves.
-    `webhook_base_url` has no trailing slash, so a path can be appended to it without producing a
-    URL that differs by one character from the one the provider signed.
-    """
+    """One checked line: no `name` for TELEPHONY_PROVIDER's line, no `regions` for the rest."""
 
     name: str | None
     provider: LineProviderName
@@ -92,11 +76,7 @@ class LineDescription:
 
 
 def parse_telephony_lines(text: str) -> tuple[LineDescription, ...]:
-    """The lines TELEPHONY_LINES lists, in its order.
-
-    Every error names the line and the key, never a value: a number or an account id pasted into
-    an issue is still a number or an account id.
-    """
+    """The lines TELEPHONY_LINES lists, in its order; errors name a line and key, never a value."""
     listed = entries(text)
     if not listed:
         raise ValueError(f"TELEPHONY_LINES lists no lines; expected {TELEPHONY_LINES_FORMAT!r}")
