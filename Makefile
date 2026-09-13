@@ -93,7 +93,7 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 
