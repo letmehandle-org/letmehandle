@@ -17,7 +17,9 @@ import {
   type CountryCode,
   type DeviceHints,
 } from '../auth/countries';
-import { useSession } from '../auth/SessionProvider';
+import { useSession, type CodeSent } from '../auth/SessionProvider';
+import { waitWords } from '../auth/wait';
+import { ApiError } from '../api/errors';
 import NativeDeviceCountry from '../calls/native/NativeDeviceCountry';
 import { Button } from '../components/Button';
 import { CountrySheet } from '../components/CountrySheet';
@@ -28,7 +30,7 @@ import { Screen } from '../components/Screen';
 import { theme } from '../theme';
 
 interface Props {
-  readonly onCodeSent: (challengeId: string, phoneNumber: string) => void;
+  readonly onCodeSent: (sent: CodeSent, phoneNumber: string) => void;
   readonly onBack: () => void;
   /** Where the phone is, for choosing the country to start from. Read from the device by default. */
   readonly hints?: DeviceHints;
@@ -98,14 +100,23 @@ export function PhoneNumberScreen({
     setProblem(null);
     setBusy(true);
     requestCode(number)
-      .then(challengeId => {
-        onCodeSent(challengeId, number);
+      .then(sent => {
+        onCodeSent(sent, number);
       })
       .catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === 'unserved_country') {
+          setProblem(t('phone.unserved'));
+          return;
+        }
         setProblem(
           describeFailure(error, t, {
             refused: t('phone.invalid'),
-            rateLimited: t('phone.rateLimited'),
+            rateLimited:
+              error instanceof ApiError && error.retryAfterSeconds !== undefined
+                ? t('phone.rateLimitedFor', {
+                    wait: waitWords(error.retryAfterSeconds, t),
+                  })
+                : t('phone.rateLimited'),
           }),
         );
       })

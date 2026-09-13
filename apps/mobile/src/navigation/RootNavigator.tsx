@@ -153,10 +153,11 @@ function SignedOut(): React.JSX.Element {
             onBack={() => {
               navigation.goBack();
             }}
-            onCodeSent={(challengeId, phoneNumber) => {
+            onCodeSent={(sent, phoneNumber) => {
               navigation.navigate(AUTH_ROUTES.verifyCode, {
-                challengeId,
+                challengeId: sent.challengeId,
                 phoneNumber,
+                resendAfterSeconds: sent.resendAfterSeconds,
               });
             }}
           />
@@ -168,6 +169,7 @@ function SignedOut(): React.JSX.Element {
           <VerifyCodeScreen
             challengeId={route.params.challengeId}
             phoneNumber={route.params.phoneNumber}
+            resendAfterSeconds={route.params.resendAfterSeconds}
             onBack={() => {
               navigation.goBack();
             }}
