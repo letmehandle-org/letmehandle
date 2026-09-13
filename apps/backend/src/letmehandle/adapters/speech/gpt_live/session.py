@@ -21,6 +21,7 @@ from letmehandle.adapters.speech.gpt_live.protocol import (
     TranscriptFragment,
 )
 from letmehandle.adapters.speech.gpt_live.turns import TurnAssembler
+from letmehandle.adapters.speech.session_support.audio import duration_ms as wire_duration_ms
 from letmehandle.adapters.speech.session_support.history import Speaker
 from letmehandle.adapters.speech.session_support.streaming import StreamingSpeechSession
 from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
@@ -227,7 +228,7 @@ class GptLiveSpeechSession(StreamingSpeechSession[Inbound]):
 
     async def _play(self, audio: bytes) -> None:
         await self._outbox.room_for_audio()
-        duration_ms = _duration_ms(audio, self._options.wire_format)
+        duration_ms = wire_duration_ms(audio, self._options.wire_format)
         self._timeline_ms += duration_ms
         await self._settle(self._turns.advance(self._timeline_ms))
         loud = self._is_speech(audio)
@@ -307,9 +308,3 @@ class GptLiveSpeechSession(StreamingSpeechSession[Inbound]):
         self._outbox.discard_speech()
         self._outbound.reset()
         self._speaking = False
-
-
-def _duration_ms(audio: bytes, audio_format: AudioFormat) -> float:
-    """How long audio in one of the protocol's formats lasts: two bytes a sample, or one."""
-    width = 2 if audio_format.encoding is AudioEncoding.PCM_S16LE else 1
-    return len(audio) / width / audio_format.sample_rate_hz * 1000

@@ -20,12 +20,13 @@ from letmehandle.adapters.speech.elevenlabs.protocol import (
     ServiceError,
     ToolRequested,
 )
+from letmehandle.adapters.speech.session_support.audio import duration_ms
 from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.adapters.speech.session_support.streaming import StreamingSpeechSession
 from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
 from letmehandle.adapters.speech.websocket.connection import ConnectionFailedError
-from letmehandle.domain.models.audio import AudioEncoding, AudioFormat, AudioFrame
+from letmehandle.domain.models.audio import AudioFrame
 from letmehandle.domain.ports.speech import (
     AudioProduced,
     SpeechStarted,
@@ -173,7 +174,7 @@ class ElevenLabsSpeechSession(StreamingSpeechSession[Inbound]):
             self._outbox.put(
                 AudioProduced(AudioFrame(converted, self._setup.output_format)),
                 spoken=True,
-                audio_seconds=_duration_seconds(audio.audio, self._wire_output),
+                audio_seconds=duration_ms(audio.audio, self._wire_output) / 1000,
             )
 
     def _correct(self, correction: AgentCorrected) -> None:
@@ -188,9 +189,3 @@ class ElevenLabsSpeechSession(StreamingSpeechSession[Inbound]):
     def _discard_speech(self) -> None:
         self._outbox.discard_speech()
         self._outbound.reset()
-
-
-def _duration_seconds(audio: bytes, audio_format: AudioFormat) -> float:
-    """How long audio in one of the protocol's formats lasts: two bytes a sample, or one."""
-    width = 2 if audio_format.encoding is AudioEncoding.PCM_S16LE else 1
-    return len(audio) / width / audio_format.sample_rate_hz
