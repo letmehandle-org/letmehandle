@@ -198,6 +198,7 @@ async def recover(
     metrics: RecordingMetrics,
     budget: ReconnectBudget | None = None,
 ) -> object:
+    budget = budget or ReconnectBudget()
     return await replace_connection(
         open_connection=opener.open,
         abandon=opener.abandon,
@@ -228,14 +229,6 @@ async def test_a_budget_carries_attempts_across_recoveries_until_one_is_proven(
 
     budget.proven()
     assert isinstance(await recover(opener, sleep, metrics, budget), ScriptedRealtimeConnection)
-
-
-async def test_without_a_budget_every_recovery_starts_afresh(
-    sleep: RecordedSleep, metrics: RecordingMetrics
-) -> None:
-    opener = Opener()
-    for _ in range(4):
-        assert isinstance(await recover(opener, sleep, metrics), ScriptedRealtimeConnection)
 
 
 async def test_a_replacement_closed_while_being_set_up_is_tried_again(

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
 from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
@@ -21,7 +20,10 @@ from letmehandle.adapters.speech.websocket.connection import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+    from letmehandle.adapters.speech.session_support.reconnect import (
+        ReconnectBudget,
+        ReconnectPolicy,
+    )
     from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
     from letmehandle.adapters.speech.session_support.timing import Timekeeping
     from letmehandle.adapters.speech.websocket.connection import EventConnection
@@ -52,7 +54,7 @@ async def replace_connection(
     policy: ReconnectPolicy,
     timekeeping: Timekeeping,
     telemetry: SessionTelemetry,
-    budget: ReconnectBudget | None = None,
+    budget: ReconnectBudget,
 ) -> EventConnection | str:
     """A new connection, or the reason none could be had.
 
@@ -60,12 +62,9 @@ async def replace_connection(
     it opens where `abandon` will find it. A refusal that cannot change ends the attempts at once
     rather than spending the rest of them on it.
 
-    `budget` carries attempts from one recovery to the next. A session that passes one resets it
-    only once a replacement has shown it works, so a service that accepts every connection and
-    drops it at once runs out of attempts instead of being reconnected to forever. Without one,
-    every recovery starts with all its attempts.
+    `budget` carries attempts from one recovery to the next, so it resets only once a replacement
+    has shown it works.
     """
-    budget = budget or ReconnectBudget()
     telemetry.reconnecting()
     while budget.spent < policy.max_attempts:
         attempt = budget.spent
