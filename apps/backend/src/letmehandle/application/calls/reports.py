@@ -1,19 +1,4 @@
-"""Accepting what a handset reports about its own calls.
-
-Three rules, each the reason this is a service rather than a route writing rows:
-
-  A report is scoped to the user it arrived from. The handset's identifiers are only unique
-  within that account, so the event the product sees carries identifiers that name the user as
-  well — otherwise one account's handset could speak for another account's call by guessing an
-  identifier.
-
-  A repeat is inert. Handsets resend what they have not seen acknowledged, and a report stored
-  once is acknowledged every time it arrives without being handed on again.
-
-  A late report is stored and not replayed. A call already reported as over does not come back
-  to life because its "answered" arrived after its "ended"; order is resolved by state, not by
-  arrival.
-"""
+"""Accepting a handset's reports: scoped to its user, repeats inert, late reports stored only."""
 
 from __future__ import annotations
 
@@ -41,10 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ReportOutcome:
-    """What became of a batch, by the handset's own event identifiers.
-
-    Both lists are safe for the handset to forget: a duplicate was already stored.
-    """
+    """What became of a batch, by the handset's own event identifiers."""
 
     accepted: tuple[EventId, ...]
     duplicates: tuple[EventId, ...]
@@ -60,12 +42,7 @@ class ReportingRateLimitedError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class ReportingPolicy:
-    """How often one account's handset may report.
-
-    A handset reports when a call happens and when it comes back online with a backlog, a
-    hundred reports a request. Thirty requests a minute is far more than either; what it stops is
-    a handset stuck resending in a loop, which would otherwise fill the database and the live feed.
-    """
+    """How often one account's handset may report."""
 
     requests_per_window: int = 30
     window: timedelta = timedelta(minutes=1)
@@ -82,11 +59,7 @@ def scoped_event_id(user_id: UserId, event_id: EventId) -> EventId:
 
 
 class ReportedCallOwnership(CallOwnership):
-    """A reported call is the call of the account whose handset reported it.
-
-    Read back from the identifier the call was scoped to when its report was accepted, which is
-    the only place the account is carried: the event handed on names nobody else.
-    """
+    """A reported call belongs to the account named in its scoped identifier."""
 
     async def owner_of(self, incoming: CallEvent) -> UserId | None:
         owner, separator, _ = incoming.call_id.value.partition(":")
@@ -124,7 +97,7 @@ class CallReporting:
         accepted: list[EventId] = []
         duplicates: list[EventId] = []
         for report in batch:
-            # Asked before recording, so that the report being recorded is not what answers it.
+            # Asked before recording, so this report does not answer it.
             superseded = report.kind is not CallEventKind.ENDED and await self._reports.has_ended(
                 user_id, report.call_id
             )
@@ -142,8 +115,7 @@ def _to_event(user_id: UserId, report: CallReport) -> CallEvent:
         kind=report.kind,
         call_id=scoped_call_id(user_id, report.call_id),
         event_id=scoped_event_id(user_id, report.event_id),
-        # Only the number. A handset that is not the phone app is not given the caller's
-        # contact name, and a category would be a guess: the handset does not classify.
+        # Only the number: the handset has no contact name or category.
         caller=None if report.caller_number is None else Caller(number=report.caller_number),
         detail=None if report.ending is None else report.ending.value,
         screening=report.screening,

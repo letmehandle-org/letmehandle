@@ -1,11 +1,4 @@
-"""Deleting an account: the person, and everything the product holds because of them.
-
-Nearly all of it goes with the user's row, because every table holding something of theirs
-references it. Two things do not. The sign-in challenges are kept by number, not by account, since
-anybody may ask for a code; the ones sent to this number are the user's all the same. And a call
-still going holds the user in memory and writes as it goes, so it is ended first and waited for:
-deleting the rows under a live call would leave it to write a few more beneath nobody.
-"""
+"""Deleting an account: its live calls, the codes sent to its number, and its rows."""
 
 from __future__ import annotations
 
@@ -39,10 +32,7 @@ class AccountDeletion:
         self._calls = calls
 
     async def delete(self, user: User) -> None:
-        """End the user's calls, then remove the challenges sent to their number and the account.
-
-        `calls` is None in a deployment that carries no calls, where none can be in progress.
-        """
+        """End the user's calls, then remove the challenges sent to their number and the account."""
         if self._calls is not None:
             await self._calls.end_calls_of(user.id)
         await self._challenges.delete_for_number(user.phone_number)

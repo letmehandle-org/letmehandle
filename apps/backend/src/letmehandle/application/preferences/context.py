@@ -1,24 +1,4 @@
-"""The one place a user's preferences become input for the model.
-
-Everything the agent is told about the person it represents comes through here, so that the
-question "could a caller learn this?" has a single file to read rather than a prompt template
-to audit. Nothing else assembles preference text.
-
-Three properties are the whole point, and each of them is a bug that has a way of arriving
-quietly:
-
-  The output is deterministic. Sets are iterated in sorted order, never in hash order, because
-  a context whose field order changes between processes makes two identical calls produce two
-  different model responses and nothing in a log will say why.
-
-  Time is resolved here, not there. A window handed to a model is a window the model has to
-  reason about, at which point whether the user is asleep depends on how well it did arithmetic
-  on a timezone. What crosses the boundary is a resolved answer.
-
-  Numbers do not cross. An important contact contributes a label and a posture; their number
-  stays behind. A number in model context is a number one crafted question away from being read
-  out to whoever is on the line.
-"""
+"""The one place preferences become model input: deterministic, time resolved, no numbers."""
 
 from __future__ import annotations
 
@@ -45,12 +25,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Phrasebook:
-    """Every phrase this module can put in front of a model, for one locale.
-
-    The phrases live in a structure keyed by locale rather than inline at the point of use, so
-    that adding a language is a new entry rather than a hunt through the code for string
-    literals. Only English exists today; the shape is what stops that from being permanent.
-    """
+    """Every phrase this module can put in front of a model, for one locale (D-017)."""
 
     tone: Mapping[Formality, str]
     length: Mapping[Verbosity, str]
@@ -79,10 +54,7 @@ _ENGLISH: Final = Phrasebook(
     },
 )
 
-# The locale whose phrasing is used when the user's own has none written yet. The user's locale
-# still reaches the model unchanged: which language to speak and which phrasebook happened to
-# be available are different questions, and answering the first with the second is how a French
-# user gets answered in English.
+# The phrasing used when the user's locale has none; the user's locale still reaches the model.
 DEFAULT_LOCALE: Final = "en"
 
 PHRASEBOOKS: Final[Mapping[str, Phrasebook]] = {DEFAULT_LOCALE: _ENGLISH}
@@ -129,16 +101,7 @@ REFUSALS: Final[Mapping[str, Mapping[Capability, str]]] = {
 
 
 def _every_phrasebook_is_complete() -> None:
-    """Fail at import if a phrasebook is missing a phrase.
-
-    Checked here rather than where the phrase is read. A lookup that raises at read time raises
-    while somebody is on a call, and only for the user whose formality happens to be the
-    missing one — so the gap could sit unnoticed until the worst moment. A process that will
-    not start is a gap somebody finds immediately.
-
-    This is what makes adding a language safe: a new entry that forgets a member cannot be
-    deployed.
-    """
+    """Fail at import if a phrasebook or the refusals miss a phrase."""
     for locale, book in PHRASEBOOKS.items():
         for kind, phrases in (
             (Formality, book.tone),
@@ -165,11 +128,7 @@ _every_phrasebook_is_complete()
 
 @dataclass(frozen=True, slots=True)
 class CapabilityStatement:
-    """One thing the assistant may or may not do, said either way.
-
-    Refusals are listed as explicitly as permissions. A model told only what it may do infers
-    the rest from silence, and silence is the input a caller gets to shape.
-    """
+    """One thing the assistant may or may not do, stated either way."""
 
     capability: Capability
     granted: bool
@@ -178,11 +137,7 @@ class CapabilityStatement:
 
 @dataclass(frozen=True, slots=True)
 class ContactStatement:
-    """An important contact, with the personal data removed.
-
-    A label and a posture are what the agent needs to behave differently towards somebody. The
-    number is how the caller was recognised, which happened before the model was involved.
-    """
+    """An important contact as a label and a posture, without the number."""
 
     label: str
     posture: HandlingPosture
@@ -190,16 +145,7 @@ class ContactStatement:
 
 @dataclass(frozen=True, slots=True)
 class PreferenceContext:
-    """What the model is told about the person it is answering for.
-
-    Carries the preferences version it was built from, so that a stored transcript can be read
-    against the rules that actually applied rather than against today's. Without it, a change
-    to this module silently rewrites the history of every call already made.
-
-    Notification preferences are deliberately absent. They govern how the user is told about a
-    call afterwards, which is nothing the assistant does while a caller is listening, and every
-    field here is a field somebody may try to talk their way into.
-    """
+    """What the model is told about the person it answers for, and the version it came from."""
 
     preferences_version: int
     locale: str
@@ -212,8 +158,7 @@ class PreferenceContext:
     posture_by_category: tuple[tuple[CallerCategory, HandlingPosture], ...]
     blocked_categories: tuple[CallerCategory, ...]
     escalate_at_or_above: CallImportance
-    # Whether the user asked the assistant to be working right now (D-030). Resolved here, so the
-    # model is told an answer rather than handed a window to do timezone arithmetic on.
+    # Whether the assistant is working right now, resolved here (D-030).
     in_active_hours: bool
     capabilities: tuple[CapabilityStatement, ...]
     important_contacts: tuple[ContactStatement, ...]
@@ -232,21 +177,12 @@ class PreferenceContext:
 
 
 def normalise_locale(locale: str) -> str:
-    """One spelling for one locale.
-
-    `en_GB`, `EN-gb` and ` en-GB ` are the same language to a speaker and three different
-    strings to a dictionary, which would be three different contexts for one user.
-    """
+    """One spelling for one locale: trimmed, lower case, hyphenated."""
     return locale.strip().lower().replace("_", "-")
 
 
 def closest_phrasebook[Book](locale: str, books: Mapping[str, Book]) -> Book:
-    """The closest phrasing in `books`, narrowing from the full locale to its language.
-
-    Generic because more than one kind of phrasing is written per locale, and every kind has to
-    fall back the same way: two lookups that narrow differently would put one user's summary in
-    one language and their assistant's instructions in another.
-    """
+    """The closest phrasing in `books`, narrowing from the full locale to its language."""
     normalised = normalise_locale(locale)
     language = normalised.split("-", 1)[0]
     for key in (normalised, language):
@@ -267,12 +203,7 @@ def refusal_for(locale: str, capability: Capability) -> str:
 
 
 def build_preference_context(preferences: UserPreferences, *, now: datetime) -> PreferenceContext:
-    """Assemble everything the model may know, from preferences and one instant.
-
-    `now` is passed rather than read from the clock so that a context is a pure function of its
-    inputs: the same call replayed for a bug report has to produce the same context, and a
-    context that consults the wall clock never does.
-    """
+    """Assemble everything the model may know, as a pure function of preferences and `now`."""
     if now.tzinfo is None:
         raise InvariantError(
             "preference context is built against an instant that knows its own timezone; "

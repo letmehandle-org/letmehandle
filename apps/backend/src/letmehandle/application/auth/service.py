@@ -1,32 +1,4 @@
-"""Signing in.
-
-The use case, composed from ports. It contains no SQL, no HTTP and no vendor, and every
-decision it makes is one the domain model already knows how to express.
-
-Two properties are worth stating plainly because they are easy to lose in a refactor:
-
-  A failure never says which part was wrong. "No such account" and "wrong code" are the same
-  response, because the difference tells an attacker which numbers are worth attacking.
-
-  Verifying a code consumes an attempt whether or not the code was right, and whether or not
-  the challenge existed. Otherwise the attempt limit is advisory.
-
-Every code sent costs money and reaches a phone, so sending is defended in layers, each against a
-different attack, and each counted where that attack cannot reset it (D-036):
-
-  1. Which countries codes go to at all — premium-rate and unserved destinations never get one.
-  2. How many one source may ask for — one place asking for codes to many numbers.
-  3. Whether the number is locked after too many wrong codes — guessing, across new codes.
-  4. How soon, and how often, one number may be sent another — bombing somebody's phone.
-  5. How many the whole deployment, and each country, sends in an hour — the budget an attack
-     that spreads across numbers and sources to earn from the messages eventually meets.
-
-Only the latest code to a number works, so asking for more codes never opens more to guess at.
-
-Where a provider makes and checks a number's code itself (D-042), only the comparison moves to it.
-Every layer above, the expiry, the attempt limits and single use are still decided here, and a
-provider that cannot say whether a code is right never signs anybody in.
-"""
+"""Signing in: codes sent behind layered limits, verified, and sessions rotated (D-036, D-042)."""
 
 from __future__ import annotations
 
@@ -52,7 +24,7 @@ from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.user import User
 from letmehandle.observability import catalogue
 
-# A sign-in code sent, and one refused before it was: the counts to alert on when codes are pumped.
+# Codes sent, and codes refused before sending, by why.
 CHALLENGE_SENT: Final = catalogue.count("auth.challenge.sent")
 CHALLENGE_REFUSED: Final = catalogue.count(
     "auth.challenge.refused",
@@ -76,31 +48,19 @@ if TYPE_CHECKING:
 
 
 class AuthenticationError(DomainError):
-    """Sign-in failed.
-
-    Deliberately one type. Distinguishing "no such account" from "wrong code" in the response
-    tells an attacker which numbers have accounts, and that is the expensive half of attacking
-    a phone-number identity.
-    """
+    """Sign-in failed, without saying which part was wrong."""
 
     failure_kind = FailureKind.NOT_PERMITTED
 
 
 class UnservedNumberError(DomainError):
-    """Codes are not sent to numbers in this country from this deployment.
-
-    Not a sign-in failure: the number was never tried, and saying so tells nobody anything about
-    an account, since it is true of every number with that calling code.
-    """
+    """Codes are not sent to numbers in this country from this deployment."""
 
     failure_kind = FailureKind.INVALID
 
 
 class CodeMayHaveBeenSentError(DomainError):
-    """The provider never said whether the code went out, so it is counted as if it did.
-
-    Carries when another code may be asked for: the same wait a code that did go out imposes.
-    """
+    """The provider never said whether the code went out, so it counts; carries the resend wait."""
 
     failure_kind = FailureKind.UNAVAILABLE
 
@@ -112,17 +72,12 @@ class CodeMayHaveBeenSentError(DomainError):
 # How long the deployment's budget refuses codes once it is spent.
 BUDGET_RETRY_AFTER_SECONDS: Final = int(timedelta(minutes=10).total_seconds())
 
-# How long to wait before offering the same code again when its provider could not check it. Short,
-# because the challenge expires in minutes; not zero, so a client does not hammer a failing one.
+# How long to wait before offering the same code again when its provider could not check it.
 CHECK_RETRY_AFTER_SECONDS: Final = 5
 
 
 class CodeNotCheckedError(DomainError):
-    """The provider that holds the code could not say whether it was right.
-
-    Neither a right code nor a wrong one: no attempt is counted and nobody is signed in. Carries
-    when to try the same code again, since the challenge is still open.
-    """
+    """The provider holding the code could not check it; no attempt counts and it stays open."""
 
     failure_kind = FailureKind.UNAVAILABLE
 
@@ -145,19 +100,12 @@ class RateLimitedError(AuthenticationError):
 
 @dataclass(frozen=True, slots=True)
 class AuthenticationPolicy:
-    """The numbers that govern signing in.
+    """The configurable limits that govern signing in (D-036)."""
 
-    Configuration rather than constants in the code, so that a deployment under attack can be
-    tightened without a release. The defaults are what a small deployment can live with and an
-    attacker cannot profit from; each is explained where it is applied.
-    """
-
-    # Sliding: every renewal starts it again, so somebody who opens the app within this long of the
-    # last time is never asked for their number again.
+    # Sliding: every renewal starts it again.
     refresh_token_lifetime: timedelta = timedelta(days=90)
 
-    # How long one number waits before another code, by how many it has had today: the first
-    # resend is quick, because codes do go astray, and each after that waits longer.
+    # How long one number waits before another code, by how many it has had today.
     resend_cooldowns: tuple[timedelta, ...] = (
         timedelta(seconds=30),
         timedelta(seconds=60),
@@ -168,8 +116,7 @@ class AuthenticationPolicy:
     challenges_per_number_window: timedelta = timedelta(hours=1)
     challenges_per_number_per_day: int = 10
 
-    # Wrong codes one number may have, across every code sent to it, before signing in to it
-    # waits. Five tries per code times ten codes a day is still one chance in twenty thousand.
+    # Wrong codes one number may have, across every code sent to it, before it is locked.
     failed_codes_per_number: int = 10
     failed_codes_window: timedelta = timedelta(hours=24)
 
@@ -178,8 +125,7 @@ class AuthenticationPolicy:
     verifications_per_source: int = 60
     verifications_per_source_window: timedelta = timedelta(hours=1)
 
-    # Calling codes a code may be sent to, without the plus. `None` sends anywhere, which is what a
-    # development deployment wants and what a production one should not.
+    # Calling codes a code may be sent to, without the plus; `None` sends anywhere.
     allowed_calling_codes: frozenset[str] | None = None
     # The deployment's hourly budget, overall and for any one calling code. `None` is unbounded.
     challenges_per_hour: int | None = 500
@@ -198,15 +144,11 @@ class AuthenticationPolicy:
 
 @dataclass(frozen=True, slots=True)
 class ChallengeIssued:
-    """What the caller gets back when a code has been sent.
-
-    The identifier and nothing else. In particular not the code, not whether the number already
-    has an account, and not how many attempts remain before one was made.
-    """
+    """What the caller gets back when a code has been sent, and nothing about the account."""
 
     challenge_id: str
     expires_in_seconds: int
-    # When this number may be sent another code, so an app can count down rather than guess.
+    # Seconds until this number may be sent another code.
     resend_after_seconds: int
 
 
@@ -234,11 +176,7 @@ class AuthenticationService:
         self._challenges = challenges
         self._refresh_tokens = refresh_tokens
         self._otp = otp
-        # Two hashers, and the difference matters. A one-time code is *verified* against one
-        # known row, so it is salted and deliberately slow. A refresh token has to be *found*,
-        # so it is hashed deterministically with a server-held key — a salted hash would make
-        # the lookup a scan of every row, and using one here means no token is ever found at
-        # all, which is a bug that unit tests with a single hasher cannot see.
+        # Codes are verified with a salted slow hash; tokens are found by a keyed deterministic one.
         self._code_hasher = code_hasher
         self._token_hasher = token_hasher
         self._secrets = secrets
@@ -254,13 +192,7 @@ class AuthenticationService:
     async def request_challenge(
         self, number: PhoneNumber, *, source: str | None = None
     ) -> ChallengeIssued:
-        """Send a code to the number, once every layer in the module's docstring allows it.
-
-        The per-source limit is counted by the limiter, because it is about bursts from one place
-        and an approximate answer within a window is enough. Everything about a number or the
-        deployment is counted in the repository, so it survives a restart and cannot be reset by
-        an attacker waiting for a deployment.
-        """
+        """Send a code to the number once every sending limit allows it (D-036)."""
         now = self._clock.now()
         policy = self._policy
 
@@ -289,7 +221,7 @@ class AuthenticationService:
 
         await self._refuse_over_budget(number, now)
 
-        # None where the provider makes the code: then nothing about it is known here to hash.
+        # None where the provider makes the code (D-042).
         code = None if self._otp.issues_its_own_codes(number) else self._challenge_code()
         challenge = OTPChallenge(
             id=self._ids.generate(),
@@ -298,20 +230,18 @@ class AuthenticationService:
             issued_at=now,
             expires_at=now + CHALLENGE_LIFETIME,
         )
-        # Before the new one is stored: only the latest code works.
+        # Only the latest code works.
         await self._challenges.supersede_open(number, now)
         await self._challenges.add(challenge)
 
-        # Sent after the challenge is stored. The other order can deliver a code that nothing
-        # will accept, which looks to the user exactly like the product being broken.
+        # Sent after the challenge is stored, so a delivered code is always acceptable.
         try:
             if code is None:
                 await self._otp.send_own_code(number)
             else:
                 await self._otp.send(number, code)
         except DeliveryUncertainError as error:
-            # Kept, and counted: a slow provider may have delivered it, and an uncounted delivery
-            # is a way past the cooldown and the budgets while the bill still arrives.
+            # Kept and counted, since it may have been delivered (D-037).
             raise CodeMayHaveBeenSentError(self._wait_for_another([*issued, now], now)) from error
         if self._metrics is not None:
             self._metrics.increment(CHALLENGE_SENT)
@@ -323,12 +253,7 @@ class AuthenticationService:
         )
 
     def _wait_for_another(self, issued: list[datetime], now: datetime) -> int:
-        """Seconds until this number may be sent another code, given when it was sent each today.
-
-        Zero when it may be sent one now. The longest of three answers: the cooldown after the
-        last code, the hourly limit and the daily limit, each saying when its oldest counted code
-        leaves its window.
-        """
+        """Seconds until another code: the longest of the cooldown, hourly and daily waits."""
         policy = self._policy
         if not issued:
             return 0
@@ -358,15 +283,11 @@ class AuthenticationService:
         )
         if failed >= policy.failed_codes_per_number:
             self._refused("locked")
-            # The whole window: an exact release time would say how the failures are spread.
+            # The whole window, which says nothing about how the failures are spread.
             raise RateLimitedError(int(policy.failed_codes_window.total_seconds()))
 
     async def _refuse_over_budget(self, number: PhoneNumber, now: datetime) -> None:
-        """The deployment has sent as many codes this hour as it will, overall or to this country.
-
-        Deliberately a circuit breaker that also stops genuine sign-ins, because the alternative
-        is a bill. The metric it records is the alarm somebody should be woken by.
-        """
+        """Refuse once the deployment's hourly budget, overall or for this country, is spent."""
         policy = self._policy
         hour_ago = now - timedelta(hours=1)
         if (
@@ -389,13 +310,7 @@ class AuthenticationService:
             self._metrics.increment(CHALLENGE_REFUSED, {"outcome": reason})
 
     def _challenge_code(self) -> str:
-        """The code for a new challenge: random, unless a testing provider fixes it.
-
-        A fixed code is accepted only from a provider that admits it is not safe for production,
-        which is the same provider the application refuses to start with there. Anything else
-        offering one is a mistake that would give every account the same code, so it is refused
-        loudly rather than used.
-        """
+        """A new challenge's code: random, or fixed only by a provider unsafe for production."""
         fixed = self._otp.fixed_code
         if fixed is None:
             return self._secrets.numeric_code(CODE_LENGTH)
@@ -411,13 +326,7 @@ class AuthenticationService:
     # -------------------------------------------------------------- verifying
 
     async def verify(self, challenge_id: str, code: str, *, source: str | None = None) -> TokenPair:
-        """Exchange a correct code for a session, creating the account if there is not one.
-
-        Limited per source, so one place cannot guess at many numbers' codes at once, and per
-        number across every code it has been sent, so asking for a new code does not reset the
-        guesses. A locked number refuses even the right code: accepting it would make the lock a
-        suggestion to guess more slowly.
-        """
+        """Exchange a correct code for a session, creating the account if there is none."""
         now = self._clock.now()
         if source is not None:
             decision = await self._rate_limiter.check(
@@ -436,7 +345,7 @@ class AuthenticationService:
         await self._refuse_if_locked(challenge.phone_number, now)
 
         if not await self._is_the_code(challenge, code):
-            # The attempt is consumed on failure, or the limit is advisory.
+            # A wrong code consumes an attempt.
             await self._challenges.update(challenge.with_failed_attempt())
             raise AuthenticationError("that code is not valid")
 
@@ -450,18 +359,12 @@ class AuthenticationService:
         return await self._issue_pair(user.id, family_id=self._ids.generate(), now=now)
 
     async def _is_the_code(self, challenge: OTPChallenge, code: str) -> bool:
-        """Whether `code` is the challenge's: by its hash, or by asking the provider that made it.
-
-        Asked while the challenge's row is held, as the hash is compared, so two guesses at one
-        challenge are still counted one after the other. A provider that could not answer is
-        `CodeNotCheckedError`, never a yes: the caller counts no attempt and signs nobody in.
-        """
+        """Whether `code` is the challenge's, by its hash or by its provider, under the row lock."""
         if challenge.code_hash is not None:
             return self._code_hasher.verify(code, challenge.code_hash)
         number = challenge.phone_number
         if not self._otp.issues_its_own_codes(number):
-            # The provider serving this number changed since the code was sent, and none that is
-            # configured now can check it. The challenge can never be satisfied.
+            # No provider configured now holds this code, so it can never be satisfied.
             return False
         try:
             return await self._otp.check(number, code)
@@ -471,12 +374,7 @@ class AuthenticationService:
     # -------------------------------------------------------------- refreshing
 
     async def refresh(self, refresh_token: str) -> TokenPair:
-        """Exchange a refresh token for a new pair, retiring the old one.
-
-        A token that has already been exchanged means a copy exists somewhere it should not.
-        There is no way to tell whether the copy is the user's or a thief's, so the whole family
-        is revoked: the legitimate user signs in again, and the thief gets nothing.
-        """
+        """Exchange a refresh token for a new pair; reuse outside the leeway revokes its family."""
         now = self._clock.now()
         stored = await self._refresh_tokens.find_by_hash(self._token_hasher.hash(refresh_token))
 
@@ -485,8 +383,7 @@ class AuthenticationService:
 
         if stored.was_already_used:
             if stored.is_within_reuse_leeway_at(now):
-                # The phone asked, the answer never reached its keychain, and it asked again. A new
-                # pair, and nothing revoked: see REFRESH_REUSE_LEEWAY.
+                # Within REFRESH_REUSE_LEEWAY: a new pair, and nothing revoked.
                 return await self._issue_pair(stored.user_id, family_id=stored.family_id, now=now)
             await self._refresh_tokens.revoke_family(stored.family_id, now)
             raise AuthenticationError("that session is not valid")
@@ -500,13 +397,7 @@ class AuthenticationService:
     # --------------------------------------------------------------- ending it
 
     async def sign_out(self, refresh_token: str) -> UserId | None:
-        """End this session, returning whose it was, or nothing for a token nobody holds.
-
-        Silent to the client when the token is unknown. A caller signing out has nothing to gain
-        from being told their token was already invalid, and saying so tells an attacker whether
-        a token they hold is real. The owner is returned for the server's own use: the device
-        signing out stops receiving that account's notifications.
-        """
+        """End this session's family, returning whose it was, or nothing for an unknown token."""
         stored = await self._refresh_tokens.find_by_hash(self._token_hasher.hash(refresh_token))
         if stored is None:
             return None
@@ -540,12 +431,6 @@ class AuthenticationService:
 async def forget_spent_challenges(
     challenges: OTPChallengeRepository, clock: Clock, policy: AuthenticationPolicy | None = None
 ) -> int:
-    """Delete the challenges nothing can use or count any more, returning how many went.
-
-    Each holds the number a code was sent to, for anybody who typed one in, account or not. One
-    that has expired can never be verified, but it is still counted against its number until the
-    longest window that reads it has passed it — the daily limits and the lock on wrong codes — so
-    that is when it goes: sooner would hand a number its limits back as each code expired.
-    """
+    """Delete the challenges no limit counts any more, returning how many went."""
     window = (policy or AuthenticationPolicy()).retention
     return await challenges.delete_expired(clock.now() - window)
