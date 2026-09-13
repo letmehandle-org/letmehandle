@@ -53,8 +53,9 @@ beforeEach(() => {
 async function home(
   history: HistorySetup,
   screening: CallScreening | null = null,
+  forwarded = false,
 ): Promise<{ view: View; backend: ReturnType<typeof runningBackend> }> {
-  const backend = runningBackend({ startAt: null, history });
+  const backend = runningBackend({ startAt: null, history, forwarded });
   const view = await render(
     <SessionProvider>
       <RootNavigator screening={screening} />
@@ -238,6 +239,22 @@ describe('what Home says', () => {
     );
   });
 
+  it('is on duty on a screening phone whose calls also reach the assistant forwarded', async () => {
+    const native = new FakeNativeCallScreening();
+    native.role = 'held';
+    const { view } = await home(
+      { calls: [aCall({ id: 'courier', started_at: EARLIER })] },
+      callScreeningFrom(native),
+      true,
+    );
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.onDuty,
+    );
+    expect(view.getByTestId('home-figure')).toHaveTextContent('1');
+    expect(view.queryByTestId('home-screening-only')).toBeNull();
+  });
+
   it('keeps what it last showed, said to be old, when the connection goes', async () => {
     const { view, backend } = await home({
       calls: [aCall({ started_at: EARLIER })],
@@ -287,6 +304,7 @@ describe('the facts behind it', () => {
         escalatedCallId: 'x',
         screeningRole: 'available',
         anyCalls: false,
+        callsForwarded: false,
       }),
     ).toBe('needs-you');
     expect(
@@ -294,6 +312,7 @@ describe('the facts behind it', () => {
         escalatedCallId: null,
         screeningRole: 'failed',
         anyCalls: true,
+        callsForwarded: false,
       }),
     ).toBe('not-on-duty');
     expect(
@@ -301,16 +320,31 @@ describe('the facts behind it', () => {
         escalatedCallId: null,
         screeningRole: 'held',
         anyCalls: false,
+        callsForwarded: false,
       }),
     ).toBe('screening');
     expect(
-      homeState({ escalatedCallId: null, screeningRole: null, anyCalls: true }),
+      homeState({
+        escalatedCallId: null,
+        screeningRole: 'failed',
+        anyCalls: false,
+        callsForwarded: true,
+      }),
+    ).toBe('first-day');
+    expect(
+      homeState({
+        escalatedCallId: null,
+        screeningRole: null,
+        anyCalls: true,
+        callsForwarded: false,
+      }),
     ).toBe('on-duty');
     expect(
       homeState({
         escalatedCallId: null,
         screeningRole: null,
         anyCalls: false,
+        callsForwarded: false,
       }),
     ).toBe('first-day');
   });
