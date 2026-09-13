@@ -1,7 +1,14 @@
 # Local development only. There is no deployment target yet, and this file is not one.
 #
-# Two services, because two is what is needed. Anything added here that no code uses is a
-# dependency contributors have to run for no reason.
+# Two long-running services, because two is what is needed, and a one-shot migration between
+# them. Anything added here that no code uses is a dependency contributors have to run for no
+# reason.
+
+# One image for the backend and its migration, so the schema a stack migrates to is the schema
+# the code it runs expects.
+x-backend-build: &backend-build
+  context: .
+  dockerfile: infra/docker/backend.Dockerfile
 
 services:
   postgres:
@@ -23,15 +30,31 @@ services:
       retries: 10
       start_period: 5s
 
+  # Brings the schema to the latest migration and exits. The backend starts only once it has
+  # succeeded, so a fresh stack answers a sign-in rather than a missing table.
+  migrate:
+    build: *backend-build
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@postgres:5432/letmehandle
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
-    build:
-      context: .
-      dockerfile: infra/docker/backend.Dockerfile
+    build: *backend-build
     environment:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-console}
       DATABASE_URL: postgresql+asyncpg://letmehandle:letmehandle@postgres:5432/letmehandle
+      # No default for either key: a default key is one every copy of this file shares.
+      # `make sample-env` writes fresh ones into .env.
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY:-}
+      AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-900}
+      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      OTP_PROVIDER: ${OTP_PROVIDER:-mock}
+      TRANSCRIPT_ENCRYPTION_KEYS: ${TRANSCRIPT_ENCRYPTION_KEYS:-}
       SPEECH_PROVIDER: ${SPEECH_PROVIDER:-realtime}
       SPEECH_ENDPOINT_URL: ${SPEECH_ENDPOINT_URL:-}
       SPEECH_MODEL: ${SPEECH_MODEL:-}
@@ -66,8 +89,8 @@ services:
       # contributor's machine should not need a file to be edited.
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

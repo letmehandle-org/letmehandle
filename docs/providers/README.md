@@ -31,18 +31,21 @@ something their configuration cannot do.
 
 ## The ports
 
-Each gets a page here as it is implemented. Until then the interface itself, in
-`apps/backend/src/letmehandle/domain/ports/`, is the specification.
+Each has a page here: the interface, what it declares, how it is configured, and how to add an
+implementation and prove it against the contract suite. The page for
+[`OTPProvider`](otp.md#adding-one) walks through a whole new provider, from adapter to settings to
+bootstrap, and is the shortest place to see the pattern every port follows. Every variable a
+provider reads is in the [configuration reference](../development/configuration.md).
 
 | Port | Interface | Contract suite | First implementation |
 | --- | --- | --- | --- |
 | `CallTransport` | `ports/call_transport.py` | `tests/contracts/call_transport.py` | phase 7, two of them, [documented](call-transport.md) |
 | `SpeechProvider` | `ports/speech.py` | `tests/contracts/speech.py` | phase 5, [documented](speech.md) |
-| `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, `adapters/agent/strands` |
+| `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, [documented](agent.md) |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
 | `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10, [documented](notifications.md) |
-| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 |
-| `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2 |
+| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2, [documented](otp.md) |
+| `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2, [documented](clock.md) |
 
 Interface paths are relative to `apps/backend/src/letmehandle/domain/` — except `CallAgent`, an
 application port (D-026), relative to `apps/backend/src/letmehandle/` — and suites to `apps/backend/`.
@@ -51,8 +54,9 @@ application port (D-026), relative to `apps/backend/src/letmehandle/` — and su
 
 Transports differ in kind, not only in supplier, which is why the core asks what a transport can
 do rather than which one it is. The flags are `TransportCapabilities` in
-`ports/call_transport.py`, and a transport declares only what it genuinely provides — the full
-matrix is written up in phase 15.
+`ports/call_transport.py`, and a transport declares only what it genuinely provides. The full
+matrix, checked against the declarations by a test, is in
+[`docs/architecture/call-transport.md`](../architecture/call-transport.md#capability-matrix).
 
 An operation that depends on a capability is not on `CallTransport` itself. It is reached by
 narrowing — `answering(transport)`, `screening(transport)`, `audio_streaming(transport)`,
