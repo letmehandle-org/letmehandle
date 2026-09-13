@@ -109,7 +109,7 @@ async def test_the_model_unavailable_at_a_judgement_leaves_the_caller_with_the_a
         await system.caller_says("Hello, is anybody there?")
         await eventually(lambda: bool(system.model.requests))
         # Still answered and still heard: a model that fails is not a reason to hang up.
-        assistant = system.provider.assistant_of(call_id)
+        assistant = await system.provider.assistant_of(call_id)
         await system.provider.send_caller_audio(call_id, b"\x66" * 160, frames=2)
         await eventually(lambda: len(assistant.sent_to_call) >= 2)
         still = await system.stored(account, call_id)

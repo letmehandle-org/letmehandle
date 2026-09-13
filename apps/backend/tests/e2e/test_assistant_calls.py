@@ -65,7 +65,7 @@ async def a_routine_call(system: StreamingSystem, account: Account) -> Json:
     await system.assistant_is_streaming(ROUTINE_CALL)
     # The caller is heard by the assistant and hears it back: nobody waits in silence.
     await system.provider.send_caller_audio(ROUTINE_CALL, b"\x11" * 160, frames=3)
-    assistant = system.provider.assistant_of(ROUTINE_CALL)
+    assistant = await system.provider.assistant_of(ROUTINE_CALL)
     await eventually(lambda: len(assistant.sent_to_call) >= 3)
     await system.caller_says(DENTIST_SAYS)
     return await system.ended(account, ROUTINE_CALL)
@@ -182,7 +182,7 @@ async def test_d_an_instruction_from_the_caller_is_refused_before_it_is_carried_
         # A second look starts only once the first has been acted on, whatever it asked for.
         await eventually(lambda: system.model.unused_steps == 0)
         await system.provider.send_caller_audio(call_id, b"\x44" * 160, frames=1)
-        assistant = system.provider.assistant_of(call_id)
+        assistant = await system.provider.assistant_of(call_id)
         await eventually(lambda: bool(assistant.sent_to_call))
 
         # Neither action happened, and a suspected fraudster is never put through to the user.

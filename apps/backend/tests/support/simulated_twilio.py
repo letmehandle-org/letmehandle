@@ -234,10 +234,7 @@ class SimulatedTwilio:
 
     async def send_caller_audio(self, call_sid: str, audio: bytes, *, frames: int = 1) -> None:
         """The call's audio reaching the assistant's leg, in the provider's own framing."""
-        # The application counts a socket once its start arrives, which can be before this side
-        # has finished recording the connection it opened, so wait for that too.
-        await eventually(lambda: self._has_streaming_assistant(call_sid))
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         for chunk in range(1, frames + 1):
             await leg.socket.send(
@@ -257,7 +254,7 @@ class SimulatedTwilio:
             )
 
     async def press_digit(self, call_sid: str, digit: str) -> None:
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.send(
             json.dumps(
@@ -281,13 +278,13 @@ class SimulatedTwilio:
 
     async def drop_assistant_socket(self, call_sid: str) -> None:
         """The websocket closes with no stop message, and the leg it carried ends."""
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.close()
 
     async def stop_stream_without_closing(self, call_sid: str) -> None:
         """A stop message, and a socket left open for the application to close."""
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.send(
             json.dumps({"event": "stop", "sequenceNumber": "99", "streamSid": leg.stream_sid})
@@ -332,19 +329,27 @@ class SimulatedTwilio:
             headers={SIGNATURE_HEADER: compute_signature(url, params, token)},
         )
 
-    def _has_streaming_assistant(self, call_sid: str) -> bool:
-        return any(
-            leg.label.startswith("assistant") and leg.socket is not None
-            for leg in self.conference_of(call_sid).legs
-        )
+    async def assistant_of(self, call_sid: str) -> SimulatedLeg:
+        """The call's assistant leg once its media socket is open on this side.
 
-    def assistant_of(self, call_sid: str) -> SimulatedLeg:
-        conference = self.conference_of(call_sid)
-        return next(
-            leg
-            for leg in reversed(conference.legs)
-            if leg.label.startswith("assistant") and leg.socket is not None
-        )
+        The application counts a socket once its start arrives, which can be before this side has
+        finished recording the connection it opened, so this waits for that rather than guessing.
+        """
+
+        def streaming() -> SimulatedLeg | None:
+            return next(
+                (
+                    leg
+                    for leg in reversed(self.conference_of(call_sid).legs)
+                    if leg.label.startswith("assistant") and leg.socket is not None
+                ),
+                None,
+            )
+
+        await eventually(lambda: streaming() is not None)
+        leg = streaming()
+        assert leg is not None
+        return leg
 
     def conference_of(self, call_sid: str) -> SimulatedConference:
         conference = self.legs[call_sid].conference

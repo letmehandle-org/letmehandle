@@ -111,7 +111,7 @@ async def test_media_flows_both_ways_and_an_interruption_clears_the_line(
     await streaming.inject_audio(CALL, AudioFrame(b"\x22" * 160, TELEPHONY_NARROWBAND))
     await streaming.audio_sink(CALL).discard()
     await deployment.settle()
-    leg = deployment.provider.assistant_of(CALL.value)
+    leg = await deployment.provider.assistant_of(CALL.value)
     assert leg.sent_to_call == [b"\x22" * 160]
     assert leg.clears == 1
 
@@ -145,7 +145,7 @@ async def test_a_conversation_runs_over_the_call_as_it_runs_over_a_microphone(
     )
     running = asyncio.create_task(conversation.run())
     await deployment.provider.send_caller_audio(CALL.value, b"\x33" * 160, frames=4)
-    leg = deployment.provider.assistant_of(CALL.value)
+    leg = await deployment.provider.assistant_of(CALL.value)
     await eventually(lambda: len(leg.sent_to_call) >= 4)
     # The echo session says back exactly what it heard, onto the call, through the sink.
     assert leg.sent_to_call == [b"\x33" * 160] * 4
@@ -181,7 +181,7 @@ async def test_the_user_is_added_to_the_live_call_and_removed_leaving_it_standin
 
     call = three_way(deployment.transport)
     await call.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)
-    assistant = deployment.provider.assistant_of(CALL.value)
+    assistant = await deployment.provider.assistant_of(CALL.value)
     assert assistant.muted
     await call.set_assistant_presence(CALL, AssistantPresence.SPEAK_TO_USER_ONLY)
     assert not assistant.muted
@@ -266,7 +266,7 @@ async def test_the_user_hanging_up_first_leaves_the_caller_with_the_assistant(
     await deployment.settle()
     assert deployment.kinds()[-1] == ("participant_left", "user", None)
     assert deployment.transport.active_calls == 1
-    assert not deployment.provider.assistant_of(CALL.value).muted
+    assert not (await deployment.provider.assistant_of(CALL.value)).muted
 
 
 async def test_the_assistants_socket_dropping_mid_call_is_reported_and_recoverable(

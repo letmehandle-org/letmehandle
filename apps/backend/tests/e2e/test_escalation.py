@@ -75,7 +75,7 @@ async def test_b_a_delivery_driver_reaches_the_user_who_joins_the_live_call(
         assert human.is_present
         assert not system.dialled()[0].muted
         # The assistant still hears the caller and is heard, and knows the user is on the call.
-        assistant = system.provider.assistant_of(call_id)
+        assistant = await system.provider.assistant_of(call_id)
         heard = len(assistant.sent_to_call)
         await system.provider.send_caller_audio(call_id, b"\x22" * 160, frames=2)
         await eventually(lambda: len(assistant.sent_to_call) >= heard + 2)
@@ -145,7 +145,7 @@ async def test_g_an_unanswered_escalation_returns_the_call_to_the_assistant(
         handed_back = await system.reaches(account, call_id, CallState.AGENT_HANDLING)
         assert handed_back.escalated_at is not None
         assert system.on_the_call(call_id) == ["caller", "assistant"]
-        assistant = system.provider.assistant_of(call_id)
+        assistant = await system.provider.assistant_of(call_id)
         heard = len(assistant.sent_to_call)
         await system.provider.send_caller_audio(call_id, b"\x33" * 160, frames=2)
         await eventually(lambda: len(assistant.sent_to_call) >= heard + 2)
