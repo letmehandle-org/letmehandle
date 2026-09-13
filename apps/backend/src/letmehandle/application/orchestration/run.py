@@ -349,9 +349,11 @@ class CallRun:
                 self._ring.cancel()
                 await ledger.joined(ParticipantRole.HUMAN)
             case _:
-                # The user answering a ring already given up on: its leg was cancelled with it, and
-                # the assistant has the call.
-                pass
+                # The user answering a ring already given up on, whose cancelling did not reach the
+                # provider in time: they are on the call all the same. The assistant keeps it, and
+                # is told they are there; the record says who was on it.
+                await ledger.joined(ParticipantRole.HUMAN)
+                await self._tell(Situation(UserReach.ON_THE_CALL))
 
     async def _on_unreachable(
         self, live: _Live, leg: Leg | None, outcome: ParticipantOutcome | None

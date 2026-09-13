@@ -185,20 +185,33 @@ class TestLateAndStaleNews:
             assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
             assert line.asked("cancel", CALL) == 0
 
-    async def test_a_user_answering_a_ring_already_given_up_on_changes_nothing(self) -> None:
+    async def test_a_user_answering_a_ring_already_given_up_on_is_recorded_on_the_call(
+        self,
+    ) -> None:
         line = StreamingLine()
+        # Giving up on the ring could not reach the provider, so the user's phone rang on.
+        line.refusing.add("cancel")
         async with orchestrating(line) as running:
             await on_the_assistant(running)
             await actions_of(running).escalate(CallId(CALL), IMMEDIATELY)
             await running.settled(CALL, CallState.HUMAN_RINGING)
-            line.user_unreachable(CALL, ParticipantOutcome.NO_ANSWER)
             await running.settled(CALL, CallState.AGENT_HANDLING)
+            assert line.asked("cancel", CALL) == 1
+            session = await running.session()
             line.user_answers(CALL)
-            line.user_unreachable(CALL, ParticipantOutcome.FAILED)
-            await asyncio.sleep(0.02)
-            call = running.stores.call(CALL)
-            assert call.state is CallState.AGENT_HANDLING
-            assert not call.has_participant(ParticipantRole.HUMAN)
+            await eventually(
+                lambda: running.stores.call(CALL).has_participant(ParticipantRole.HUMAN)
+            )
+            await eventually(lambda: '"on_the_call"' in session.context_updates[-1])
+            # Still the assistant's call: the user leaving does not end it for the caller.
+            line.leaves(CALL, Leg.USER)
+            await eventually(
+                lambda: not running.stores.call(CALL).has_participant(ParticipantRole.HUMAN)
+            )
+            assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
+            line.hangs_up(CALL)
+            call = await running.ended(CALL)
+            assert [each.role for each in call.participants] == [ParticipantRole.HUMAN]
 
     async def test_the_assistant_joining_twice_is_one_assistant(self) -> None:
         line = StreamingLine()
