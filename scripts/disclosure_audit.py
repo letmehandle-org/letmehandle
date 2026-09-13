@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Blocks credentials, personal data and session talk from tracked files, commits and messages (D-021)."""
+# ruff: noqa: T201, S603, S607 - a terminal tool whose output is the point
+"""Blocks credentials, personal data and session talk from files, commits and messages (D-021)."""
 
 import argparse
 import base64

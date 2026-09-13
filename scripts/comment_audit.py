@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: T201, S603
+# ruff: noqa: T201, S603, S607 - a terminal tool that runs git
 """Fails when a file gains a multi-line docstring or comment block, ratcheted per file."""
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ def repository_files(root: Path) -> list[str]:
     """Tracked and untracked, not ignored, files under the audited roots."""
     roots = sorted({*PYTHON_ROOTS, *TYPESCRIPT_ROOTS, *KOTLIN_ROOTS})
     listed = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", *roots],  # noqa: S607
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", *roots],
         cwd=root,
         capture_output=True,
         text=True,

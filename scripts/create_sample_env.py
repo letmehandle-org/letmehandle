@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 - a terminal tool whose output is the point
 """Writes a `.env` that runs the whole local stack with no paid account."""
 
 from __future__ import annotations

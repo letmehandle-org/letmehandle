@@ -111,12 +111,16 @@ audit-deps: ## Check every locked dependency for known vulnerabilities (needs th
 
 .PHONY: lint
 lint: ## Lint and check formatting
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff check . && uv run ruff format --check .; fi
+	@if [ -d $(BACKEND) ]; then $(MAKE) --no-print-directory lint-backend; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile lint; fi
+
+.PHONY: lint-backend
+lint-backend: ## Lint and check the formatting of the backend and the scripts
+	@cd $(BACKEND) && uv run ruff check . ../../scripts && uv run ruff format --check . ../../scripts
 
 .PHONY: format
 format: ## Apply formatting
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff format . && uv run ruff check --fix .; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff format . ../../scripts && uv run ruff check --fix . ../../scripts; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile format; fi
 
 .PHONY: typecheck

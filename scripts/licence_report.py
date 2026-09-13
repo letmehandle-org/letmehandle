@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201, S607 - a terminal tool whose output is the point
 """List the licence of every shipped dependency, and flag any the MIT licence cannot carry."""
 
 from __future__ import annotations

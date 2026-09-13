@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 - a terminal tool whose output is the point
 """Write the backend's OpenAPI schema, from which the mobile app's types are generated."""
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ def main() -> int:
         Settings(
             app_env=Environment.TEST,
             log_level="critical",
-            auth_signing_key="a-key-used-only-to-build-the-schema-never-to-sign",  # noqa: S106
+            auth_signing_key="a-key-used-only-to-build-the-schema-never-to-sign",
             # A voice catalogue is required, and does not change the schema.
             speech_voices="schema-voice:A voice used only to build the schema:en",
             speech_default_voice="schema-voice",

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 - a terminal tool whose output is the point
 """Write the configuration reference from `Settings`, and check what copies its variables."""
 
 from __future__ import annotations

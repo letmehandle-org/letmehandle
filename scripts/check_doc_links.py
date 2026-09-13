@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201, S607 - a terminal tool whose output is the point
 """Fails when a link between this repository's own documents points at nothing."""
 
 from __future__ import annotations

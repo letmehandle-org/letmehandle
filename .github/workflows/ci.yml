@@ -110,11 +110,8 @@ jobs:
       - name: Install
         run: uv sync --all-extras --frozen
 
-      - name: Lint
-        run: uv run ruff check .
-
-      - name: Format
-        run: uv run ruff format --check .
+      - name: Lint and format
+        run: make -C ../.. lint-backend
 
       - name: Types and architecture boundaries
         run: make -C ../.. typecheck-backend
