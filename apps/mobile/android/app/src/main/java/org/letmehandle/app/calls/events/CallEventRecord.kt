@@ -1,6 +1,7 @@
 package org.letmehandle.app.calls.events
 
 import java.time.Instant
+import org.json.JSONArray
 import org.json.JSONObject
 import org.letmehandle.app.calls.WireValue
 import org.letmehandle.app.calls.optStringOrNull
@@ -62,6 +63,9 @@ data class CallEventRecord(
       }
 
   companion object {
+    /** The events as a JSON array of call reports, the form both stored and handed to the app. */
+    fun listToJson(events: List<CallEventRecord>): String = JSONArray(events.map { it.toJson() }).toString()
+
     /** Reads one stored event, or throws [UnreadableRecord] and nothing else. */
     fun fromJson(json: JSONObject): CallEventRecord =
         readingJson(::UnreadableRecord) {

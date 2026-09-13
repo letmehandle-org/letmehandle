@@ -140,7 +140,7 @@ class CallEventLedger(
     if (dropped > 0) {
       onOverflow(dropped)
     }
-    return PENDING to JSONArray(events.drop(dropped).map { it.toJson() }).toString()
+    return PENDING to CallEventRecord.listToJson(events.drop(dropped))
   }
 
   companion object {

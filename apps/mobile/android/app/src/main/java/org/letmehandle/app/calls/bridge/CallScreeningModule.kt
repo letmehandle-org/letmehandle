@@ -8,8 +8,8 @@ import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
-import org.json.JSONArray
 import org.letmehandle.app.calls.CallScreeningGraph
+import org.letmehandle.app.calls.events.CallEventRecord
 import org.letmehandle.app.calls.rules.CallRulesSnapshotCodec
 import org.letmehandle.app.specs.NativeCallScreeningSpec
 
@@ -99,7 +99,7 @@ class CallScreeningModule(private val context: ReactApplicationContext) :
   }
 
   override fun pendingCallEvents(promise: Promise) {
-    promise.resolve(JSONArray(graph.ledger.pending().map { it.toJson() }).toString())
+    promise.resolve(CallEventRecord.listToJson(graph.ledger.pending()))
   }
 
   override fun acknowledgeCallEvents(eventIds: ReadableArray, promise: Promise) {
