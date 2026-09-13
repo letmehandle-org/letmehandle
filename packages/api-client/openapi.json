@@ -173,6 +173,21 @@
         "title": "CallEnding",
         "type": "string"
       },
+      "CallForwardingResponse": {
+        "description": "Where the user's phone should forward the calls it does not take.",
+        "properties": {
+          "number": {
+            "description": "The number, in E.164 form, to set the phone's conditional call forwarding to: calls that go unanswered and calls that arrive while the line is busy.",
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "title": "CallForwardingResponse",
+        "type": "object"
+      },
       "CallHandling": {
         "description": "Whom routing gave the call to, which its final state no longer says.\n\nA completed call was either put straight through to the user or taken by the assistant, and\nhistory tells the two apart. Read from the moves themselves rather than set beside them, so it\ncannot disagree with the path the call took. A rejected call was given to nobody.",
         "enum": [
@@ -1258,6 +1273,17 @@
       },
       "ProfileResponse": {
         "properties": {
+          "call_forwarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallForwardingResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present when calls reach the assistant only by being forwarded: until the user's phone forwards unanswered and busy calls to this number, no call reaches it. Null when nothing needs forwarding."
+          },
           "display_name": {
             "anyOf": [
               {
@@ -1286,7 +1312,8 @@
           "id",
           "phone_number",
           "display_name",
-          "locale"
+          "locale",
+          "call_forwarding"
         ],
         "title": "ProfileResponse",
         "type": "object"

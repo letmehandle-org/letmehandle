@@ -498,6 +498,17 @@ export interface components {
          */
         CallEnding: "screened_out" | "missed" | "completed";
         /**
+         * CallForwardingResponse
+         * @description Where the user's phone should forward the calls it does not take.
+         */
+        CallForwardingResponse: {
+            /**
+             * Number
+             * @description The number, in E.164 form, to set the phone's conditional call forwarding to: calls that go unanswered and calls that arrive while the line is busy.
+             */
+            number: string;
+        };
+        /**
          * CallHandling
          * @description Whom routing gave the call to, which its final state no longer says.
          *
@@ -951,6 +962,8 @@ export interface components {
         };
         /** ProfileResponse */
         ProfileResponse: {
+            /** @description Present when calls reach the assistant only by being forwarded: until the user's phone forwards unanswered and busy calls to this number, no call reaches it. Null when nothing needs forwarding. */
+            call_forwarding: components["schemas"]["CallForwardingResponse"] | null;
             /** Display Name */
             display_name: string | null;
             /** Id */

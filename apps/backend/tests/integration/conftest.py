@@ -8,7 +8,7 @@ and two suites disagreeing about how the application is assembled is worse than 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from letmehandle.config.settings import Settings
+    from letmehandle.domain.models.forwarding import CallForwarding
     from letmehandle.domain.ports.voice import VoiceProvider
 
 NUMBER = "+12025550143"
@@ -69,13 +70,18 @@ class Api:
 
 @asynccontextmanager
 async def running(
-    database_url: str, schema: str, *, voices: VoiceProvider | None = None
+    database_url: str,
+    schema: str,
+    *,
+    voices: VoiceProvider | None = None,
+    forwarding: CallForwarding | None = None,
 ) -> AsyncIterator[Api]:
     """The whole application, on its own engine, against one schema.
 
     Separate from the fixture so that a test needing a differently configured application — a
     voice provider with other capabilities, say — assembles it the same way rather than by
-    building a second, subtly different one of its own.
+    building a second, subtly different one of its own. `forwarding` stands in for the number a
+    streaming deployment's bootstrap chooses, without building that transport's provider.
     """
     # With transcript keys, as a deployment that serves call history has.
     settings = make_settings(transcript_encryption_keys=TEST_TRANSCRIPT_KEYS)
@@ -88,8 +94,9 @@ async def running(
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
-    app.state.container = build_container(
-        settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+    app.state.container = replace(
+        build_container(settings, voices=app.state.voices, reported_calls=app.state.reported_calls),
+        forwarding=forwarding,
     )
 
     try:

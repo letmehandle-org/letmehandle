@@ -89,6 +89,7 @@ from letmehandle.config.settings import (
     TelephonyProviderName,
 )
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
+from letmehandle.domain.models.forwarding import CallForwarding
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -146,6 +147,9 @@ class Container:
     # represents handsets is that sink, so the one instance is both what the reporting route
     # feeds and what anything consuming that transport's events reads.
     reported_calls: CallEventSink
+    # The number users forward their unanswered and busy calls to, or None where nothing needs
+    # forwarding. Decided here once, so the profile and the setup flow cannot disagree about it.
+    forwarding: CallForwarding | None
     # One per configured platform, possibly none. A platform without one is an outcome at
     # dispatch, not a startup failure: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
@@ -190,7 +194,24 @@ def build_container(
         ),
         notifications=build_notification_providers(settings, clock=clock),
         reported_calls=reported_calls,
+        forwarding=build_call_forwarding(settings),
     )
+
+
+def build_call_forwarding(settings: Settings) -> CallForwarding | None:
+    """Which number, if any, users must forward their calls to for any to arrive.
+
+    A streaming call reaches the product only when the user's carrier forwards it to one of the
+    account's numbers, and every user is told the first. A handset screens its own calls and
+    needs nothing forwarded, and a deployment with no transport takes no calls at all.
+    """
+    match settings.telephony_provider:
+        case TelephonyProviderName.TWILIO:
+            return CallForwarding(settings.require_streaming_telephony().numbers[0])
+        case TelephonyProviderName.ANDROID_NATIVE | None:
+            return None
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
 
 
 def build_notification_providers(

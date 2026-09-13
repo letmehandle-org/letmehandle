@@ -83,11 +83,35 @@ class TokenResponse(Response):
     expires_in_seconds: int
 
 
+class CallForwardingResponse(Response):
+    """Where the user's phone should forward the calls it does not take."""
+
+    number: Annotated[
+        str,
+        Field(
+            description=(
+                "The number, in E.164 form, to set the phone's conditional call forwarding to: "
+                "calls that go unanswered and calls that arrive while the line is busy."
+            )
+        ),
+    ]
+
+
 class ProfileResponse(Response):
     id: str
     phone_number: str
     display_name: str | None
     locale: str
+    call_forwarding: Annotated[
+        CallForwardingResponse | None,
+        Field(
+            description=(
+                "Present when calls reach the assistant only by being forwarded: until the user's "
+                "phone forwards unanswered and busy calls to this number, no call reaches it. "
+                "Null when nothing needs forwarding."
+            )
+        ),
+    ]
 
 
 class UpdateProfileRequest(Request):

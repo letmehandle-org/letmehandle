@@ -45,6 +45,7 @@ from letmehandle.application.escalation.devices import DeviceRegistrationService
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
+from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.repositories import EscalationContextRepository, UserRepository
 from letmehandle.domain.ports.voice import VoiceProvider
@@ -268,6 +269,11 @@ def get_voice_provider(request: Request) -> VoiceProvider:
     return container_of(request).voices
 
 
+def get_call_forwarding(request: Request) -> CallForwarding | None:
+    """The number this deployment's users forward their calls to, if it has one."""
+    return container_of(request).forwarding
+
+
 def get_user_repository(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -309,6 +315,7 @@ Deletion = Annotated[AccountDeletion, Depends(get_account_deletion)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+Forwarding = Annotated[CallForwarding | None, Depends(get_call_forwarding)]
 CallReports = Annotated[CallReporting, Depends(get_call_reporting)]
 CallHistory = Annotated[CallHistoryService, Depends(get_call_history_service)]
 Devices = Annotated[DeviceRegistrationService, Depends(get_device_service)]
