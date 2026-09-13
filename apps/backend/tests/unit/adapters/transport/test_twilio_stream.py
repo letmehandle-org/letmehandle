@@ -169,7 +169,7 @@ async def test_a_writer_waits_for_the_stream_to_connect() -> None:
     await asyncio.sleep(0)
     assert not playing.done()
     stream.attach(socket, "MZsim-2")
-    await playing
+    await asyncio.wait_for(playing, timeout=5)
     assert socket.events_sent() == ["media"]
 
 
@@ -188,7 +188,7 @@ async def test_a_stream_that_ends_before_connecting_fails_the_writer_at_once() -
     await asyncio.sleep(0)
     await stream.end()
     with pytest.raises(ProviderError, match="has ended") as failure:
-        await playing
+        await asyncio.wait_for(playing, timeout=5)
     assert not failure.value.retryable
 
 

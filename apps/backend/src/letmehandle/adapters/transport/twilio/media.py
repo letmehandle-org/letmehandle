@@ -120,8 +120,7 @@ def parse_message(text: str) -> MediaMessage:
             return StreamStopped()
         case str():
             return UnknownMessage(event)
-        case _:
-            raise MediaProtocolError("a frame names no event")
+    raise MediaProtocolError("a frame names no event")
 
 
 def media_message(stream_sid: str, audio: bytes) -> str:

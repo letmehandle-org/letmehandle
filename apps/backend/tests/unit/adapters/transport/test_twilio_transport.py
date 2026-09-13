@@ -647,7 +647,7 @@ async def test_a_dial_abandoned_while_being_placed_does_not_block_dialling_again
     await placing.wait()
     dialling.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await dialling
+        await asyncio.wait_for(dialling, timeout=5)
     api.create_participant = original  # type: ignore[method-assign]
     await transport.add_participant(CALL, USER)
     assert [request.label for _, request in api.created] == ["assistant-1", "user-3"]
@@ -923,7 +923,7 @@ async def test_a_dial_that_outlasts_shutdown_is_ended_as_soon_as_it_exists(
     assert transport.active_calls == 0
     finish.set()
     with pytest.raises(ProviderError, match="ended"):
-        await dialling
+        await asyncio.wait_for(dialling, timeout=5)
     assert ("CAsim-user-1", "canceled") in api.ended_calls
 
 
@@ -959,7 +959,7 @@ async def test_closing_cancels_work_still_in_flight(
     await transport.close()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert transport.pending_tasks == 0
 
 
@@ -1017,7 +1017,7 @@ async def test_a_media_socket_carries_the_callers_audio_until_the_stream_stops(
     socket.provider_sends({"event": "stop"})
     running = asyncio.create_task(transport.media_connected(socket))
     frames = [frame.data async for frame in transport.stream_audio(CALL)]
-    await running
+    await asyncio.wait_for(running, timeout=5)
     assert frames == [b"\x00\x01\x02"]
     # Stopped without the socket closing: this side closes it.
     assert socket.closed
@@ -1034,7 +1034,7 @@ async def test_a_socket_closing_without_a_stop_ends_the_stream_too(
     await transport.inject_audio(CALL, AudioFrame(b"\x10" * 160, TELEPHONY_NARROWBAND))
     await transport.audio_sink(CALL).discard()
     socket.provider_closes()
-    await running
+    await asyncio.wait_for(running, timeout=5)
     assert socket.events_sent() == ["media", "clear"]
     assert [frame async for frame in transport.stream_audio(CALL)] == []
 
@@ -1118,7 +1118,7 @@ async def test_a_second_socket_for_a_stream_already_connected_is_refused(
     assert second.closed
     assert not first.closed
     first.provider_sends("garbage")
-    await running
+    await asyncio.wait_for(running, timeout=5)
     assert first.closed
 
 
@@ -1131,7 +1131,7 @@ async def test_the_assistant_leaving_ends_its_stream_and_closes_its_socket(
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "assistant-1"))
-    await running
+    await asyncio.wait_for(running, timeout=5)
     assert socket.closed
     with pytest.raises(ProviderError, match="no assistant"):
         await transport.inject_audio(CALL, AudioFrame(b"\x10", TELEPHONY_NARROWBAND))
@@ -1146,7 +1146,7 @@ async def test_the_caller_hanging_up_closes_the_assistants_socket(
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "caller"))
-    await running
+    await asyncio.wait_for(running, timeout=5)
     await transport.settled()
     assert socket.closed
     assert transport.active_calls == 0
@@ -1164,7 +1164,7 @@ async def test_a_listening_only_assistant_sends_nothing_to_the_call(
     await transport.inject_audio(CALL, AudioFrame(b"\x10" * 160, TELEPHONY_NARROWBAND))
     assert socket.sent == []
     socket.provider_closes()
-    await running
+    await asyncio.wait_for(running, timeout=5)
 
 
 def test_a_repeated_delivery_token_is_recognised() -> None:
@@ -1206,8 +1206,8 @@ async def test_terminating_while_a_dial_is_being_placed_ends_that_leg_once_it_ex
     terminating = asyncio.create_task(transport.terminate(CALL))
     await asyncio.sleep(0.01)
     finish.set()
-    await dialling
-    await terminating
+    await asyncio.wait_for(dialling, timeout=5)
+    await asyncio.wait_for(terminating, timeout=5)
     # Ended once it had an identifier to be ended by, rather than left ringing into a dead call.
     assert api.ended_calls == [(CALL.value, "completed"), (leg, "canceled")]
     assert transport.active_calls == 0
@@ -1230,7 +1230,7 @@ async def test_the_provider_ending_the_call_during_a_terminate_releases_it_once(
     await ending.wait()
     transport.conference_updated(CALL.value, conference(ConferenceEvent.END, 9))
     finish.set()
-    await terminating
+    await asyncio.wait_for(terminating, timeout=5)
     await transport.settled()
     assert shapes(await drain(transport)) == [("ended", None, None)]
 
