@@ -11,9 +11,7 @@ import java.util.concurrent.Executors
 import org.letmehandle.app.calls.CallScreeningGraph
 import org.letmehandle.app.calls.FailureSummary
 import org.letmehandle.app.calls.rules.DialingCountry
-import org.letmehandle.app.calls.rules.ScreenedCaller
 import org.letmehandle.app.calls.rules.ScreeningDecision
-import org.letmehandle.app.calls.rules.ScreeningRules
 
 /**
  * Decides each incoming call before the handset rings, from the user's own rules.
@@ -27,32 +25,27 @@ import org.letmehandle.app.calls.rules.ScreeningRules
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 class RulesScreeningService : CallScreeningService() {
-  private val screener = DeadlineScreener(worker = WORKER, timer = TIMER)
-
   override fun onScreenCall(callDetails: Call.Details) {
-    // Outgoing calls are passed here too; a response to one is ignored, so none is given.
+    // Outgoing calls are passed here too, and a response to one is ignored.
     if (callDetails.callDirection != Call.Details.DIRECTION_INCOMING) {
       return
     }
     val graph = CallScreeningGraph.get(this)
+    val screening =
+        IncomingCallScreening(
+            screener = SCREENER,
+            clock = Instant::now,
+            readSnapshot = graph::readSnapshot,
+            record = graph.ledger::screened,
+            onFailure = { failure ->
+              Log.e(CallScreeningGraph.TAG, "screening a call failed: ${FailureSummary.of(failure)}")
+            },
+        )
     val caller =
         HandlePresentation.callerOf(callDetails.handlePresentation, callDetails.handle?.schemeSpecificPart)
-    // Read on the worker, because asking telephony is a call into another process and the main
-    // thread is the one the platform is waiting on.
-    val country = lazy { dialingCountry() }
-    screener.screen(
-        evaluate = { ScreeningRules.evaluate(graph.readSnapshot(), caller, Instant.now(), country.value) },
-        onFailure = { failure ->
-          Log.e(CallScreeningGraph.TAG, "screening a call failed: ${FailureSummary.of(failure)}")
-        },
-    ) { screening ->
-      respondToCall(callDetails, responseFor(screening.decision))
-      Log.i(CallScreeningGraph.TAG, "screened: ${screening.decision} (${screening.reason})")
-      // Not asked for here when the evaluation never got as far: a response given on the deadline
-      // must not wait on the same stalled call that made it late.
-      val reached = if (country.isInitialized()) country.value else null
-      val number = (caller as? ScreenedCaller.Presented)?.number?.e164(reached)
-      graph.ledger.screened(number, screening.decision, Instant.now())
+    screening.screen(caller, ::dialingCountry) { result ->
+      respondToCall(callDetails, responseFor(result.decision))
+      Log.i(CallScreeningGraph.TAG, "screened: ${result.decision} (${result.reason})")
     }
   }
 
@@ -63,8 +56,8 @@ class RulesScreeningService : CallScreeningService() {
   }
 
   companion object {
-    private val WORKER = Executors.newSingleThreadExecutor()
-    private val TIMER = Executors.newSingleThreadScheduledExecutor()
+    private val SCREENER =
+        DeadlineScreener(worker = Executors.newSingleThreadExecutor(), timer = Executors.newSingleThreadScheduledExecutor())
 
     /**
      * The platform's response for each decision.

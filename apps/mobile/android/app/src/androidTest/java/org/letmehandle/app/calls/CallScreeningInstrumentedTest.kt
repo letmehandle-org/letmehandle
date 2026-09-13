@@ -140,7 +140,7 @@ class CallScreeningInstrumentedTest {
             { ScreeningRules.evaluate(graph.readSnapshot(), screened, Instant.now(), country = null) },
             { failure -> throw AssertionError("screening failed", failure) },
             responses::add,
-        )
+        ) {}
 
     val screening = responses.poll(5, TimeUnit.SECONDS)
     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
