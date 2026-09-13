@@ -189,7 +189,7 @@
         "type": "object"
       },
       "CallHandling": {
-        "description": "Whom routing gave the call to, which its final state no longer says.\n\nA completed call was either put straight through to the user or taken by the assistant, and\nhistory tells the two apart. Read from the moves themselves rather than set beside them, so it\ncannot disagree with the path the call took. A rejected call was given to nobody.",
+        "description": "Whom routing gave the call to, read from the moves the call made.",
         "enum": [
           "passed_through",
           "assistant"
@@ -237,7 +237,7 @@
         "type": "object"
       },
       "CallImportance": {
-        "description": "How much this matters to the user, ordered.\n\nAn `IntEnum` because these are compared \u2014 a rule says \"escalate at or above this\" \u2014 and an\nordering written as a lookup table beside an unordered enum is an ordering that drifts\nfrom it.\n\nThe numbers are spaced so that a level can be inserted later without renumbering the ones\neither side, which would silently change the meaning of every stored value.",
+        "description": "How much a call matters to the user, ordered, with gaps so a level can be inserted.",
         "enum": [
           10,
           20,
@@ -249,7 +249,7 @@
         "type": "integer"
       },
       "CallIntent": {
-        "description": "What the call is for.\n\n`UNDETERMINED` is a real answer: early in a call, or in a call that never made sense, the\nhonest classification is that there is not one yet. A model forced to choose will choose\nsomething, and downstream rules will act on it.",
+        "description": "What the call is for; `UNDETERMINED` is the answer while there is none yet.",
         "enum": [
           "undetermined",
           "delivery_in_progress",
@@ -332,7 +332,7 @@
         "type": "object"
       },
       "CallOutcome": {
-        "description": "How it ended, in the terms a person would use.\n\nDistinct from `CallState`: the state machine's endings are about the mechanism, and these\nare about what happened. A call that reached COMPLETED could have been resolved, handed\nover, or abandoned, and a user reading their history wants to know which.",
+        "description": "How a call ended in the terms a person would use, unlike the mechanism of `CallState`.",
         "enum": [
           "resolved_by_agent",
           "handed_to_user",
@@ -569,7 +569,7 @@
         "type": "object"
       },
       "CallerCategory": {
-        "description": "What kind of call this appears to be.\n\nDeliberately coarse. These are the distinctions the user's rules act on \u2014 the difference\nbetween a delivery and a courier is not one anybody would set a different rule for, and a\ncategory nobody can act on is a category that only makes classification harder.",
+        "description": "The coarse kinds of call the user's rules act on.",
         "enum": [
           "known_contact",
           "delivery",
@@ -614,7 +614,7 @@
         "type": "object"
       },
       "Capability": {
-        "description": "One thing the assistant may be permitted to do.\n\nEach is a distinct decision a user would actually make differently, which is the test for\nwhether a capability belongs here. Splitting further produces a settings screen nobody\nfinishes; merging produces permissions nobody meant to give.",
+        "description": "One thing the assistant may be permitted to do, each a decision a user makes on its own.",
         "enum": [
           "answer_questions_about_availability",
           "share_delivery_instructions",
@@ -794,7 +794,7 @@
         "type": "object"
       },
       "EscalationReason": {
-        "description": "Why the assistant wants a person.\n\nThese are the reasons it can actually distinguish, and each leads somewhere different: an\nunauthorised action may be resolved by granting a capability, a caller's request may be\nresolved by the user answering, and a failure is an operational problem.",
+        "description": "Why the assistant wants the user.",
         "enum": [
           "caller_asked_for_the_user",
           "action_not_authorised",
@@ -807,7 +807,7 @@
         "type": "string"
       },
       "EscalationStatus": {
-        "description": "Whether the call the escalation belongs to is still going.\n\nA notification can arrive after the call has ended, and that is a designed state: the app\nshows what happened instead of a live context for a call nobody can join.",
+        "description": "Whether the call the escalation belongs to is still going.",
         "enum": [
           "live",
           "ended"
@@ -1036,7 +1036,7 @@
         "type": "object"
       },
       "OnboardingStep": {
-        "description": "One thing to ask about.\n\nOne step per group of preferences, because a step is a screen and a screen that asks about\ntwo unrelated things is one people abandon.",
+        "description": "One screen of setup, asking about one group of preferences.",
         "enum": [
           "call_handling",
           "call_forwarding",
@@ -1466,7 +1466,7 @@
         "type": "string"
       },
       "ScreeningDecision": {
-        "description": "What was done with a call before the handset rang.\n\nOnly produced where `can_screen_before_ringing` is declared. `SILENCE` is distinct from\n`REJECT` because they mean different things to the caller: one rings out, the other is\nrefused, and a user choosing between them is choosing what the caller learns.",
+        "description": "What was done with a call before the handset rang, where screening is declared.",
         "enum": [
           "allow",
           "reject",
@@ -1705,7 +1705,7 @@
         "type": "object"
       },
       "Verbosity": {
-        "description": "How much the assistant says.\n\nSeparate from formality because they vary independently: a warm assistant can be brief, and\na formal one can go on. Collapsing them into one dial would make half the combinations\npeople actually want unreachable.",
+        "description": "How much the assistant says, independently of how formally.",
         "enum": [
           "brief",
           "normal",
