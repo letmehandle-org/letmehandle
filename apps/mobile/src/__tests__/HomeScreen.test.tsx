@@ -1,51 +1,347 @@
-import { render } from '@testing-library/react-native';
+/**
+ * Home: every state the design draws, each reached only by the facts that make it true.
+ */
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
+import { SessionProvider } from '../auth/SessionProvider';
+import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
+import { forgetHome } from '../home/useHome';
+import {
+  elapsed,
+  homeState,
+  ringParts,
+  startOfToday,
+  tally,
+} from '../home/today';
 import { initialiseI18n } from '../i18n';
 import { en } from '../i18n/locales/en';
-import { HomeScreen } from '../screens/HomeScreen';
+import { RootNavigator } from '../navigation/RootNavigator';
+import { aCall, runningBackend, type HistorySetup } from './support/backend';
+import { FakeNativeCallScreening } from './support/nativeCallScreening';
 
-jest.mock('../preferences/PreferencesProvider', () => ({
-  usePreferences: () => ({
-    preferences: jest.requireActual('./support/backend').DEFAULT_PREFERENCES,
-  }),
+jest.mock('../auth/tokenStore', () => ({
+  ...jest.requireActual('../auth/tokenStore'),
+  loadSession: jest.fn(async () => ({
+    accessToken: 'a-token',
+    refreshToken: 'a-refresh-token',
+    accessTokenExpiresAt: Date.now() + 600_000,
+  })),
+  saveSession: jest.fn(async () => undefined),
+  clearSession: jest.fn(async () => undefined),
 }));
 
-/** Every string the tree actually renders, read from the output rather than from internals. */
-function renderedStrings(node: unknown): string[] {
-  if (typeof node === 'string') {
-    return [node];
-  }
-  if (Array.isArray(node)) {
-    return node.flatMap(renderedStrings);
-  }
-  if (node !== null && typeof node === 'object' && 'children' in node) {
-    return renderedStrings((node as { children: unknown }).children);
-  }
-  return [];
+const mockSecure = { setSecure: jest.fn() };
+jest.mock('../calls/native/NativeSecureScreen', () => ({
+  __esModule: true,
+  get default() {
+    return mockSecure;
+  },
+}));
+
+type View = Awaited<ReturnType<typeof render>>;
+
+beforeAll(async () => {
+  await initialiseI18n('en');
+});
+
+beforeEach(() => {
+  forgetHome();
+  mockSecure.setSecure.mockClear();
+});
+
+async function home(
+  history: HistorySetup,
+  screening: CallScreening | null = null,
+): Promise<{ view: View; backend: ReturnType<typeof runningBackend> }> {
+  const backend = runningBackend({ startAt: null, history });
+  const view = await render(
+    <SessionProvider>
+      <RootNavigator screening={screening} />
+    </SessionProvider>,
+  );
+  await view.findByTestId('home-status');
+  return { view, backend };
 }
 
-describe('Home', () => {
-  beforeAll(async () => {
-    await initialiseI18n('en');
-  });
+const EARLIER = new Date(Date.now() - 60_000).toISOString();
 
-  it('says plainly that nothing is being answered yet', async () => {
-    const view = await render(<HomeScreen />);
+describe('what Home says', () => {
+  it('waits honestly for the first call rather than claiming to be on duty', async () => {
+    const { view } = await home({ calls: [] });
 
     expect(view.getByTestId('home-status')).toHaveAccessibleName(
-      en.home.notYet,
+      en.home.waiting,
     );
-    expect(view.getByText(en.home.callsToday)).toBeOnTheScreen();
+    expect(view.getByTestId('home-figure')).toHaveTextContent('0');
+    expect(view.getByText(en.home.nothingYet)).toBeOnTheScreen();
     expect(view.getByText(en.home.fillsRing)).toBeOnTheScreen();
-    expect(view.getByText(en.home.ringsYou)).toBeOnTheScreen();
+    expect(mockSecure.setSecure).not.toHaveBeenCalled();
   });
 
-  it('never claims to be on duty before the assistant takes calls', async () => {
-    // Call handling arrives with phases 7 and 8. A zero beside "on duty" would describe an
-    // assistant that is not there.
-    const view = await render(<HomeScreen />);
-    const strings = renderedStrings(view.toJSON()).join(' ');
-    expect(strings).not.toMatch(/on duty|answering calls now|handled today/i);
+  it('is on duty with today on the ring and the latest calls, kept out of screenshots', async () => {
+    const { view } = await home({
+      calls: [
+        aCall({ id: 'courier', started_at: EARLIER }),
+        aCall({
+          id: 'bank',
+          outcome: 'handed_to_user',
+          human_joined: true,
+          started_at: EARLIER,
+        }),
+        aCall({
+          id: 'spam',
+          outcome: 'rejected_by_rule',
+          caller: {
+            category: 'spam',
+            display_name: null,
+            number_withheld: false,
+          },
+          started_at: EARLIER,
+        }),
+        aCall({ id: 'another', started_at: EARLIER }),
+      ],
+    });
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.onDuty,
+    );
+    expect(view.getByTestId('home-figure')).toHaveTextContent('4');
+    expect(view.getByTestId('home-legend')).toHaveTextContent(/2 handled/);
+    expect(view.getByTestId('home-legend')).toHaveTextContent(/1 you/);
+    expect(view.getByTestId('home-legend')).toHaveTextContent(/1 spam/);
+    expect(view.getByTestId('home-call-courier')).toBeOnTheScreen();
+    expect(view.queryByTestId('home-call-another')).toBeNull();
+    expect(mockSecure.setSecure).toHaveBeenLastCalledWith(true);
+
+    await fireEvent.press(view.getByTestId('home-call-bank'));
+    expect(await view.findByTestId('call-detail')).toBeOnTheScreen();
+  });
+
+  it('shows the latest calls even when none came in today', async () => {
+    const yesterday = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const { view, backend } = await home({
+      calls: [aCall({ id: 'old', started_at: yesterday })],
+    });
+
+    // The fake backend does not filter by date, so today's listing is told apart by its query.
+    expect(backend.listings.some(query => query.includes('from='))).toBe(true);
+    expect(view.getByTestId('home-call-old')).toBeOnTheScreen();
+  });
+
+  it('takes the whole screen when a call still going needs the user', async () => {
+    const { view } = await home({
+      calls: [
+        aCall({
+          id: 'live',
+          status: 'in_progress',
+          outcome: null,
+          headline: null,
+          started_at: EARLIER,
+          timings: {
+            ...aCall().timings,
+            escalated_at: EARLIER,
+            ended_at: null,
+          },
+        }),
+      ],
+      escalations: {
+        live: {
+          call_id: 'live',
+          status: 'live',
+          title: "Can't agree without you",
+          caller: 'Your bank',
+          caller_label: 'Important contact',
+          body: 'A payment is held.',
+          established: null,
+          needed: null,
+          reason: 'decision_needs_the_user',
+          raised_at: EARLIER,
+          ended_at: null,
+          delivery: 'delivered',
+        },
+      },
+    });
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.needsYou,
+    );
+    expect(view.getByTestId('home-needs-you')).toHaveTextContent(
+      /Answer your phone/,
+    );
+    expect(view.getByTestId('home-needs-you')).toHaveTextContent(/Your bank/);
+    expect(view.getByTestId('home-needs-you-timer')).toHaveTextContent(
+      /^1:0\d$/,
+    );
+
+    await fireEvent.press(view.getByTestId('home-open-escalation'));
+    expect(await view.findByTestId('escalation-screen')).toBeOnTheScreen();
+  });
+
+  it('still says it needs the user when why cannot be read', async () => {
+    const { view } = await home({
+      calls: [
+        aCall({
+          id: 'live',
+          status: 'in_progress',
+          timings: {
+            ...aCall().timings,
+            escalated_at: EARLIER,
+            ended_at: null,
+          },
+        }),
+      ],
+      escalations: { live: { status: 503, error: 'escalations_unavailable' } },
+    });
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.needsYou,
+    );
+    expect(view.queryByTestId('home-needs-you-timer')).toBeNull();
+  });
+
+  it('is not on duty on a screening phone without the role, and says how to fix it', async () => {
+    const native = new FakeNativeCallScreening();
+    native.role = 'available';
+    const { view } = await home({ calls: [] }, callScreeningFrom(native));
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.notOnDuty,
+    );
+    expect(view.getByTestId('home-not-screening')).toHaveTextContent(
+      /ring you directly/,
+    );
+    await fireEvent.press(view.getByTestId('home-turn-on-screening'));
+    expect(await view.findByTestId('screening-screen')).toBeOnTheScreen();
+  });
+
+  it('counts what a screening phone stopped, and says what it cannot do', async () => {
+    const native = new FakeNativeCallScreening();
+    native.role = 'held';
+    const { view } = await home(
+      {
+        calls: [
+          aCall({ id: 'a', outcome: 'rejected_by_rule', started_at: EARLIER }),
+          aCall({ id: 'b', outcome: 'passed_through', started_at: EARLIER }),
+        ],
+      },
+      callScreeningFrom(native),
+    );
+
+    expect(view.getByTestId('home-status')).toHaveAccessibleName(
+      en.home.screening,
+    );
+    expect(view.getByTestId('home-figure')).toHaveTextContent('1');
+    expect(view.getByTestId('home-legend')).toHaveTextContent(/1 rang you/);
+    expect(view.getByTestId('home-screening-only')).toHaveTextContent(
+      en.home.screeningOnly,
+    );
+  });
+
+  it('keeps what it last showed, said to be old, when the connection goes', async () => {
+    const { view, backend } = await home({
+      calls: [aCall({ started_at: EARLIER })],
+    });
+    await fireEvent.press(view.getByTestId('tab-activity'));
+    await view.findByTestId('call-call-1');
+    // The connection goes while Activity is open; Home's next refresh is the one that fails.
+    backend.failNext('/v1/calls', {
+      status: 503,
+      body: { error: 'down', message: 'x' },
+    });
+    await fireEvent.press(view.getByTestId('tab-home'));
+
+    expect(await view.findByTestId('home-offline')).toHaveTextContent(
+      /No connection/,
+    );
+    expect(view.getByTestId('home-figure')).toHaveTextContent('1');
+  });
+
+  it('draws the ring first and offers another try when nothing has loaded', async () => {
+    const backend = runningBackend({ startAt: null, history: { calls: [] } });
+    backend.failNext('/v1/calls', {
+      status: 503,
+      body: { error: 'down', message: 'x' },
+    });
+    const view = await render(
+      <SessionProvider>
+        <RootNavigator screening={null} />
+      </SessionProvider>,
+    );
+
+    expect(await view.findByTestId('home-problem')).toBeOnTheScreen();
+    expect(view.getByTestId('home-loading')).toBeOnTheScreen();
+    await fireEvent.press(view.getByTestId('home-retry'));
+    await waitFor(() => {
+      expect(view.getByTestId('home-status')).toHaveAccessibleName(
+        en.home.waiting,
+      );
+    });
+  });
+});
+
+describe('the facts behind it', () => {
+  it('orders the states: needed, then the phone, then whether calls have come', () => {
+    expect(
+      homeState({
+        escalatedCallId: 'x',
+        screeningRole: 'available',
+        anyCalls: false,
+      }),
+    ).toBe('needs-you');
+    expect(
+      homeState({
+        escalatedCallId: null,
+        screeningRole: 'failed',
+        anyCalls: true,
+      }),
+    ).toBe('not-on-duty');
+    expect(
+      homeState({
+        escalatedCallId: null,
+        screeningRole: 'held',
+        anyCalls: false,
+      }),
+    ).toBe('screening');
+    expect(
+      homeState({ escalatedCallId: null, screeningRole: null, anyCalls: true }),
+    ).toBe('on-duty');
+    expect(
+      homeState({
+        escalatedCallId: null,
+        screeningRole: null,
+        anyCalls: false,
+      }),
+    ).toBe('first-day');
+  });
+
+  it('counts a call once, by what happened to it', () => {
+    const counts = tally([
+      aCall({ outcome: 'resolved_by_agent' }),
+      aCall({ outcome: 'unanswered_escalation' }),
+      aCall({ outcome: 'passed_through' }),
+      aCall({ outcome: 'rejected_by_rule', human_joined: false }),
+      aCall({ outcome: 'failed' }),
+      aCall({ outcome: 'caller_hung_up', human_joined: true }),
+    ]);
+    expect(counts).toEqual({ total: 6, handled: 1, you: 3, turnedAway: 1 });
+    expect(ringParts(counts)).toEqual({
+      handled: 1 / 6,
+      you: 3 / 6,
+      turnedAway: 1 / 6,
+    });
+    expect(ringParts(tally([]))).toEqual({ handled: 0, you: 0, turnedAway: 0 });
+  });
+
+  it('reads midnight and elapsed time as the phone does', () => {
+    expect(
+      new Date(startOfToday(new Date(2026, 8, 13, 15, 30))).getHours(),
+    ).toBe(0);
+    expect(
+      elapsed('2026-09-13T10:00:00Z', new Date('2026-09-13T10:01:28Z')),
+    ).toBe('1:28');
+    expect(
+      elapsed('2026-09-13T10:00:00Z', new Date('2026-09-13T09:00:00Z')),
+    ).toBe('0:00');
   });
 });
