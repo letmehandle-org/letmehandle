@@ -1,9 +1,4 @@
-"""The decision to involve the human, and why.
-
-The reason is structured. A sentence would be easier to produce and impossible to act on: the
-notification wants a human-readable line, the metrics want a category, and the tests want
-something to assert. Deriving all three from prose means parsing prose.
-"""
+"""The decision to involve the user, and the structured reason for it."""
 
 from __future__ import annotations
 
@@ -14,12 +9,7 @@ from letmehandle.domain.errors import InvariantError
 
 
 class EscalationReason(StrEnum):
-    """Why the assistant wants a person.
-
-    These are the reasons it can actually distinguish, and each leads somewhere different: an
-    unauthorised action may be resolved by granting a capability, a caller's request may be
-    resolved by the user answering, and a failure is an operational problem.
-    """
+    """Why the assistant wants the user."""
 
     CALLER_ASKED_FOR_THE_USER = "caller_asked_for_the_user"
     ACTION_NOT_AUTHORISED = "action_not_authorised"
@@ -30,13 +20,7 @@ class EscalationReason(StrEnum):
 
 
 class EscalationUrgency(StrEnum):
-    """How hard to try to reach the user.
-
-    `WHILE_CONVENIENT` exists so that "the user would want to know" does not have to mean
-    "ring their phone now". Today's policy never chooses it: the user's hours used to, and since
-    D-030 a call outside them rings the user rather than meeting the assistant. It stays in the
-    model for a notification setting that defers without the hours, not for the policy.
-    """
+    """How hard to try to reach the user; the policy never chooses `WHILE_CONVENIENT` (D-030)."""
 
     IMMEDIATE = "immediate"
     WHILE_CONVENIENT = "while_convenient"
@@ -44,11 +28,7 @@ class EscalationUrgency(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class EscalationDecision:
-    """Whether a human is needed, and on what grounds.
-
-    Construct through `not_needed` or `needed`. The pairing of "no escalation" with a reason,
-    or "escalate" with none, is not a state this type allows to exist.
-    """
+    """Whether the user is needed, with a reason and urgency exactly when they are."""
 
     required: bool
     reason: EscalationReason | None = None
@@ -80,12 +60,7 @@ class EscalationDecision:
         urgency: EscalationUrgency,
         caller_summary: str | None = None,
     ) -> EscalationDecision:
-        """Escalate, for this reason.
-
-        `caller_summary` is what the user reads before they answer — "a courier is at the gate
-        and needs to know where to leave a parcel". It is what turns a ringing phone into a
-        call somebody can walk into already knowing something.
-        """
+        """Escalate for this reason, with what the user reads about the caller before answering."""
         return cls(required=True, reason=reason, urgency=urgency, caller_summary=caller_summary)
 
     @property

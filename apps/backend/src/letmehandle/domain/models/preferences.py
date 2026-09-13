@@ -1,11 +1,4 @@
-"""How the user wants calls handled.
-
-This is configuration, not behaviour. Nothing here decides anything; it states what the user
-asked for, and the rules engine and the agent read it. The separation is the point: the same
-call must be able to produce different outcomes for two users without a line of code differing.
-
-Phase 3 collects these through onboarding and persists them. Phase 1 defines what they are.
-"""
+"""How the user wants calls handled, stated as configuration that the rules and the agent read."""
 
 from __future__ import annotations
 
@@ -18,7 +11,7 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority
 from letmehandle.domain.models.intent import CallImportance
 
-# At run time, not under TYPE_CHECKING: it is a default factory, not only an annotation.
+# Imported at run time because it is a default factory, not only an annotation.
 from letmehandle.domain.models.voice import VoiceSelection
 
 if TYPE_CHECKING:
@@ -27,45 +20,13 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.caller import CallerCategory
     from letmehandle.domain.models.phone_number import PhoneNumber
 
-# The shape these preferences were written in.
-#
-# Stored beside them, so that a later change can migrate what is there rather than guess what
-# an older row meant. Without it, adding a field leaves every existing row ambiguous: absent
-# because the user declined, or absent because the field did not exist when they answered.
-#
-# 2 added the chosen voice. A document written at 1 has none, which reads as "has not chosen"
-# rather than "chose nothing" — and the difference matters, because the first resolves to the
-# provider's default and the second would mean silence.
-#
-# 4 replaced working hours and quiet hours with one window of hours the assistant answers in
-# (D-030). A document written earlier is read as around the clock: neither older window meant
-# "the assistant answers now", and the one that is closest to the user's intent at night is the
-# assistant still answering rather than their phone ringing.
-#
-# 5 added how long transcripts are kept. A document written before it has none, which reads as
-# the default rather than as any particular choice. (3 was never released.)
+# The shape these preferences are written in, stored beside them (D-022).
 PREFERENCES_VERSION: Final = 5
-# How long what was said on a call is kept, in days (D-014).
-#
-# Seven by default: long enough to check what was said after a busy week, short enough that a
-# transcript is not an archive.
-#
-# The floor is one day. A transcript is how a user checks what was said once the call is over and
-# how a failure is diagnosed, and both happen after the call rather than during it; a shorter
-# setting would purge the words before anybody could read them, leaving a summary whose evidence
-# nobody can check. The purge runs in whole days, so a finer setting would promise a precision
-# that is not kept.
-#
-# The ceiling is ninety days. The summary is what outlives a call; a transcript kept past a
-# quarter has no use left that the summary does not serve, and is only a larger thing to lose.
-# It also bounds how long a retired encryption key must be kept for transcripts sealed under it.
-#
-# The ceiling bounds what somebody can choose here, not what a stored set may hold. A deployment
-# with a higher ceiling may have written a longer retention, and reading it as ninety would have
-# this version delete transcripts earlier than the user chose — the one direction that cannot be
-# undone. Such a set is held as stored and marked as beyond what this version honours.
+
+# How many days what was said on a call is kept (D-014).
 TRANSCRIPT_RETENTION_DEFAULT_DAYS: Final = 7
 TRANSCRIPT_RETENTION_FLOOR_DAYS: Final = 1
+# The most anybody can choose here; a longer stored retention is kept as stored.
 TRANSCRIPT_RETENTION_CEILING_DAYS: Final = 90
 
 
@@ -97,12 +58,7 @@ class Formality(StrEnum):
 
 
 class Verbosity(StrEnum):
-    """How much the assistant says.
-
-    Separate from formality because they vary independently: a warm assistant can be brief, and
-    a formal one can go on. Collapsing them into one dial would make half the combinations
-    people actually want unreachable.
-    """
+    """How much the assistant says, independently of how formally."""
 
     BRIEF = "brief"
     NORMAL = "normal"
@@ -111,17 +67,7 @@ class Verbosity(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Topic:
-    """Something the user cares about, normalised.
-
-    A value object rather than free text, because the agent reads these. Text that reaches a
-    model unvalidated is text somebody can put instructions in, and a caller who learns what a
-    user's topics are has a way to write them.
-
-    Normalised so that "School Run", "school run" and " school run " are one topic rather than
-    three, which is what stops a list nobody can maintain. Splitting on whitespace also means a
-    newline cannot survive into a topic, so a multi-line value cannot be smuggled into something
-    the model reads as a list.
-    """
+    """Something the user cares about, lower-cased and collapsed to one short line."""
 
     name: str
 
@@ -144,19 +90,7 @@ class Topic:
 
 @dataclass(frozen=True, slots=True)
 class DisclosableFact:
-    """Something the assistant is allowed to volunteer about the user.
-
-    "Works from home on Tuesdays", say — the kind of thing that makes an assistant useful and
-    that a user would not want said to just anybody.
-
-    Validated for the same reason a topic is, and more urgently. This text is put in front of
-    the model while an unknown caller is talking to it, so it is both a disclosure the user
-    chose *and* a place somebody could try to write an instruction. Bounded in length and
-    collapsed to a single line: an instruction needs room, and this does not give it any.
-
-    Case is kept, unlike a topic. A topic is matched against, so it is normalised; a fact is
-    read out, so "Tuesdays" should not become "tuesdays".
-    """
+    """Something the assistant may volunteer about the user, as one short line, case kept."""
 
     text: str
 
@@ -180,13 +114,7 @@ class DisclosableFact:
 
 @dataclass(frozen=True, slots=True)
 class ImportantContact:
-    """Somebody whose calls are treated differently.
-
-    The number is the identity, as everywhere else in this product. The label is what the
-    assistant calls them to nobody: it is shown to the user, and it is never read out to a
-    caller, because confirming who is in somebody's contacts is a disclosure they did not ask
-    for.
-    """
+    """Somebody whose calls are treated differently, with a label never read out to a caller."""
 
     number: PhoneNumber
     label: str
@@ -195,10 +123,7 @@ class ImportantContact:
     MAX_LABEL: ClassVar[int] = 80
 
     def __post_init__(self) -> None:
-        # Collapsed the way a topic is, and for the same reason: this label is put in front of
-        # the model, so a value spanning several lines is room for something shaped like an
-        # instruction. The label is the user's own text about their own contact, but on a phone
-        # it usually comes from an address book they did not write either.
+        # Collapsed to one line, since the label is put in front of the model.
         collapsed = " ".join(self.label.split())
         if not collapsed:
             raise InvariantError("an important contact needs a label, or the list is numbers")
@@ -207,42 +132,25 @@ class ImportantContact:
         object.__setattr__(self, "label", collapsed)
 
     def __str__(self) -> str:
-        """The label alone. The number is personal data belonging to somebody else."""
+        """The label alone, never the number."""
         return self.label
 
 
 @dataclass(frozen=True, slots=True)
 class NotificationPreferences:
-    """What is worth interrupting somebody for.
-
-    Escalation is not configurable. Being told that the assistant needs you, while it needs
-    you, is the product — a user who turned it off would have a phone ringing with no idea why,
-    which is worse than not having the feature.
-
-    Everything else is off by default. A product that notifies about everything is one people
-    silence, and a silenced product cannot reach them when it matters.
-    """
+    """Which optional notifications the user wants; being told of an escalation is not optional."""
 
     on_handled_call: bool = False
     on_blocked_call: bool = False
     on_missed_escalation: bool = True
     daily_summary: bool = False
-    # Outside the assistant's hours calls ring the user directly, so a note about a call the
-    # assistant handled can wait until the hours begin rather than arriving on top of them.
+    # Whether a note about a handled call waits until the assistant's hours begin.
     respect_active_hours: bool = True
 
 
 @dataclass(frozen=True, slots=True)
 class TimeWindow:
-    """A daily window, in the user's own timezone.
-
-    The timezone is part of the window rather than applied later. A window compared in the
-    wrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of
-    day rather than as anything that looks like a bug.
-
-    A window may wrap past midnight — seven in the evening to two in the morning is an ordinary
-    evening shift — so containment is not a simple between.
-    """
+    """A daily window, to the minute, in its own timezone, which may wrap past midnight."""
 
     start: time
     end: time
@@ -255,10 +163,7 @@ class TimeWindow:
                 "for a whole day, use midnight to one minute before it"
             )
         if any(moment.second or moment.microsecond for moment in (self.start, self.end)):
-            # Stored to the minute, so anything finer is lost on the way out and different on
-            # the way back. Worse than lossy: two ends that differ only in seconds come back
-            # equal, which this very constructor refuses — so the row saves and can never be
-            # read again, and that user's preferences return a server error for ever.
+            # Stored to the minute, so a finer end could come back equal to the start.
             raise InvariantError(
                 "a window is set to the minute; seconds are not stored and would be lost"
             )
@@ -276,12 +181,7 @@ class TimeWindow:
         return self.end < self.start
 
     def contains(self, instant: datetime) -> bool:
-        """Whether the instant falls inside the window, in the window's own zone.
-
-        The instant must be timezone-aware. A naive one would be interpreted as whatever the
-        machine's clock happens to be set to, which is how a service that works in one region
-        misbehaves in another.
-        """
+        """Whether a timezone-aware instant falls inside the window, read in the window's zone."""
         if instant.tzinfo is None:
             raise InvariantError(
                 "a time window can only be compared against an instant that knows its own "
@@ -295,19 +195,13 @@ class TimeWindow:
 
 @dataclass(frozen=True, slots=True)
 class CallRules:
-    """The deterministic part, evaluated before the assistant is involved.
-
-    Deterministic on purpose. A known caller should never wait for a model to decide whether
-    they may ring, and a rule a user set should never be overruled by a judgement.
-    """
+    """The deterministic rules a call meets before the assistant is involved."""
 
     default_posture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT
     posture_by_category: dict[CallerCategory, HandlingPosture] = field(default_factory=dict)
     blocked_categories: frozenset[CallerCategory] = field(default_factory=frozenset)
     anonymous_posture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT
-    # When the assistant answers. Outside it, calls ring the user as if there were no assistant.
-    # Nothing means always (D-030): a user who never set hours has an assistant that answers
-    # around the clock, which is what the product promises by default.
+    # When the assistant answers; none means around the clock (D-030).
     active_hours: TimeWindow | None = None
     escalate_at_or_above: CallImportance = CallImportance.NOTABLE
 
@@ -326,11 +220,7 @@ class CallRules:
         return self.posture_by_category.get(category, self.default_posture)
 
     def is_active_at(self, instant: datetime) -> bool:
-        """Whether this instant is inside the hours the user asked the assistant to answer in.
-
-        No window is every instant. Outside the window the assistant answers nothing and calls
-        ring the user; what was rejected is still rejected (D-030, D-031).
-        """
+        """Whether this instant is inside the hours the assistant answers in (D-030)."""
         return self.active_hours is None or self.active_hours.contains(instant)
 
 
@@ -341,19 +231,16 @@ class UserPreferences:
     rules: CallRules = field(default_factory=CallRules)
     authority: AgentAuthority = field(default_factory=AgentAuthority.none)
     notifications: NotificationPreferences = field(default_factory=NotificationPreferences)
-    # How the assistant sounds. Empty means nothing has been chosen, which resolves to the
-    # provider's default rather than to silence — see `resolve_voice`.
+    # An empty selection resolves to the provider's default voice.
     voice: VoiceSelection = field(default_factory=VoiceSelection)
     formality: Formality = Formality.NEUTRAL
     verbosity: Verbosity = Verbosity.NORMAL
     locale: str = "en"
     important_contacts: tuple[ImportantContact, ...] = ()
     topics: frozenset[Topic] = field(default_factory=frozenset)
-    # What the assistant may say about the user unprompted. Empty by default: the safe answer
-    # to "where are they?" is not a location.
+    # What the assistant may say about the user unprompted.
     disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
-    # Whole days, at least the floor above. Beyond the ceiling only when a deployment with a
-    # higher one stored it; see `retention_exceeds_ceiling`.
+    # Whole days, at least the floor; beyond the ceiling only as stored elsewhere.
     transcript_retention_days: int = TRANSCRIPT_RETENTION_DEFAULT_DAYS
     version: int = PREFERENCES_VERSION
 
@@ -393,11 +280,7 @@ class UserPreferences:
 
     @property
     def retention_exceeds_ceiling(self) -> bool:
-        """Whether this set keeps transcripts for longer than this version lets anyone choose.
-
-        True only of a set a deployment with a higher ceiling stored. Nothing here may purge on
-        its behalf: honouring it is beyond this version, and the alternative is deleting early.
-        """
+        """Whether this set keeps transcripts longer than the ceiling, which nothing here purges."""
         return self.transcript_retention_days > TRANSCRIPT_RETENTION_CEILING_DAYS
 
     def contact_for(self, number: PhoneNumber) -> ImportantContact | None:

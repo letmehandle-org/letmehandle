@@ -15,15 +15,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class User:
-    """An account.
-
-    The phone number is the identity, not a detail on it: it is what a caller dials and what
-    the assistant answers for. A user without one is not a user this product can serve.
-
-    `display_name` is what the assistant calls them to a caller. Optional, because a user who
-    would rather the assistant not give their name to strangers is expressing a preference
-    rather than leaving a field blank.
-    """
+    """An account, identified by its phone number, with the name the assistant may give callers."""
 
     id: UserId
     phone_number: PhoneNumber
@@ -38,8 +30,5 @@ class User:
             )
 
     def __str__(self) -> str:
-        """The identifier alone.
-
-        Neither the name nor the number: this appears in logs, and both are personal data.
-        """
+        """The identifier alone, never the name or the number."""
         return f"user {self.id.value}"

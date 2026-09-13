@@ -1,13 +1,4 @@
-"""Where a call can be, and where it can go from there.
-
-The transitions live in one table. Not spread across the code that performs them, because then
-the answer to "can this happen?" is a search rather than a read, and two places eventually
-disagree.
-
-The table is also the reason a new state cannot be added quietly: `ALLOWED` must name every
-member, and a test asserts it, so adding a state without deciding its transitions fails the
-build rather than producing a state nothing can leave.
-"""
+"""Where a call can be, and every move it may make from there, in one table."""
 
 from __future__ import annotations
 
@@ -19,13 +10,7 @@ from letmehandle.domain.errors import IllegalTransitionError
 
 
 class CallState(StrEnum):
-    """The life of a call.
-
-    `REJECTED` and `COMPLETED` and `FAILED` are endings, and they are different endings:
-    rejected means the rules refused it, completed means it ran its course, failed means the
-    product broke. Collapsing them would make the difference invisible in history and in
-    metrics, which is exactly where it matters.
-    """
+    """The life of a call, with rejected, completed and failed as three distinct endings."""
 
     RECEIVED = "received"
     ROUTING = "routing"
@@ -85,12 +70,7 @@ def can_move(current: CallState, requested: CallState) -> bool:
 
 
 def move(current: CallState, requested: CallState) -> CallState:
-    """Perform the move, or raise naming both states.
-
-    Raising rather than returning the current state unchanged. A no-op would let a caller
-    believe a transition happened, and the bug would surface as a call stuck in a state with no
-    indication of why.
-    """
+    """Perform the move, or raise naming both states."""
     if not can_move(current, requested):
         raise IllegalTransitionError(current, requested)
     return requested

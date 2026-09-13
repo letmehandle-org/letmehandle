@@ -1,9 +1,4 @@
-"""Who is on the other end, as far as anyone knows.
-
-Unknown is the common case, and it is modelled rather than left as an absence. A `None` name
-would be checked in some places and not others; `is_known` is a question every caller has to
-answer deliberately.
-"""
+"""Who is on the other end of a call, as far as anyone knows."""
 
 from __future__ import annotations
 
@@ -18,12 +13,7 @@ if TYPE_CHECKING:
 
 
 class CallerCategory(StrEnum):
-    """What kind of call this appears to be.
-
-    Deliberately coarse. These are the distinctions the user's rules act on — the difference
-    between a delivery and a courier is not one anybody would set a different rule for, and a
-    category nobody can act on is a category that only makes classification harder.
-    """
+    """The coarse kinds of call the user's rules act on."""
 
     KNOWN_CONTACT = "known_contact"
     DELIVERY = "delivery"
@@ -38,14 +28,9 @@ class CallerCategory(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Caller:
-    """The other party.
+    """The other party; no number means the caller withheld it."""
 
-    `number` is optional because a caller can withhold it, and a withheld number is a fact the
-    user's rules care about rather than an error.
-    """
-
-    # Out of the repr, which is what a debugger, a log line or a failing assertion prints: who
-    # called is as personal as what they said. The category stays, being what a reader debugs by.
+    # Out of the repr, which a debugger, a log line or a failing assertion prints.
     number: PhoneNumber | None = field(default=None, repr=False)
     display_name: str | None = field(default=None, repr=False)
     category: CallerCategory = CallerCategory.UNKNOWN
@@ -64,19 +49,11 @@ class Caller:
 
     @property
     def is_known(self) -> bool:
-        """Whether this is somebody the user has told us about.
-
-        A name alone is not enough: a network can supply one for a stranger. Only the
-        category, which is set from the user's own contacts, makes a caller known.
-        """
+        """Whether the caller is one of the user's contacts; a display name alone never says so."""
         return self.category is CallerCategory.KNOWN_CONTACT
 
     def __str__(self) -> str:
-        """Safe to interpolate: a name only if the user already knows it, and a masked number.
-
-        A caller's number and name are personal data belonging to somebody who never agreed to
-        anything, so the readable form has to be asked for.
-        """
+        """The display name, else the masked number, else "an anonymous caller"."""
         if self.display_name is not None:
             return self.display_name
         if self.number is not None:

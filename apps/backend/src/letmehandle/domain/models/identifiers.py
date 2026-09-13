@@ -1,12 +1,4 @@
-"""Identifiers, each distinct from the others.
-
-`UserId` and `CallId` are both strings underneath, and a plain `str` for both means a function
-taking two of them can be called with the arguments swapped and nothing will notice until
-production. Distinct types make that a type error.
-
-They are not generated here. Generation is a port (`IdGenerator`), so that a test can make
-identifiers predictable rather than discovering them from the output.
-"""
+"""Identifiers, each a distinct type so that two of them cannot be passed in swapped."""
 
 from __future__ import annotations
 
@@ -17,7 +9,7 @@ from letmehandle.domain.errors import InvariantError
 
 @dataclass(frozen=True, slots=True)
 class _Identifier:
-    """Shared behaviour for identifiers. Not used directly."""
+    """A non-empty value with no surrounding space, shared by every identifier."""
 
     value: str
 
@@ -43,8 +35,4 @@ class CallId(_Identifier):
 
 @dataclass(frozen=True, slots=True)
 class EventId(_Identifier):
-    """Identifies one event from a provider.
-
-    The basis of idempotency: providers redeliver, and the only reliable way to recognise a
-    repeat is the identifier the provider itself assigned.
-    """
+    """Identifies one event by the identifier its provider assigned, so a repeat is visible."""
