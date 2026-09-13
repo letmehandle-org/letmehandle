@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
-from letmehandle.domain.errors import ProviderError
+from letmehandle.domain.errors import DeliveryUncertainError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -280,11 +280,16 @@ async def send(
     """One request, with a network failure or a timeout as a `ProviderError` worth retrying."""
     try:
         return await client.request(method, path, data=form, params=params)
-    except httpx.TimeoutException:
-        raise ProviderError(PROVIDER, "the API did not answer in time", retryable=True) from None
-    except httpx.TransportError as error:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
+        # Nothing left this process, so nothing can have been done.
         raise ProviderError(
             PROVIDER, f"the API could not be reached: {type(error).__name__}", retryable=True
+        ) from None
+    except httpx.TimeoutException:
+        raise DeliveryUncertainError(PROVIDER, "the API did not answer in time") from None
+    except httpx.TransportError as error:
+        raise DeliveryUncertainError(
+            PROVIDER, f"the connection failed after sending: {type(error).__name__}"
         ) from None
 
 

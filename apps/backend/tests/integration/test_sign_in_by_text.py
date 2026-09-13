@@ -8,6 +8,7 @@ difference between them is what somebody signing in sees.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -88,7 +89,9 @@ async def test_a_number_that_cannot_receive_a_text_is_told_so(
     assert NUMBER not in repr(logs)
 
 
-@pytest.mark.parametrize("behaviour", [Behaviour.THROTTLES, Behaviour.DOWN, Behaviour.SILENT])
+@pytest.mark.parametrize(
+    "behaviour", [Behaviour.THROTTLES, Behaviour.DOWN, Behaviour.SILENT, Behaviour.UNREACHABLE]
+)
 async def test_a_provider_that_cannot_send_now_is_a_temporary_failure(
     texting: Api, service: SimulatedSms, behaviour: Behaviour
 ) -> None:
@@ -115,3 +118,45 @@ async def test_codes_that_were_never_sent_do_not_use_up_the_hourly_allowance(
         sent = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
         assert sent.status_code == 202
     assert len(service.sent) == CODES_AN_HOUR
+
+
+async def test_a_code_that_may_have_been_sent_counts_and_says_when_to_ask_again(
+    session: object, database_url: str, schema: str, service: SimulatedSms
+) -> None:
+    # A request the service did not answer may still have been delivered. Rolling it back would
+    # let every slow send escape the cooldown and the budgets, which is when pumping pays best.
+    provider = SmsOTPProvider(
+        account_id=SMS_ACCOUNT, auth_token=SMS_TOKEN, sender=SMS_SENDER, transport=service.transport
+    )
+    try:
+        async with running(
+            database_url, schema, otp=provider, resend_cooldowns=(timedelta(seconds=30),)
+        ) as texting:
+            await _uncertain_then_refused(texting, service)
+    finally:
+        await provider.aclose()
+
+
+async def _uncertain_then_refused(texting: Api, service: SimulatedSms) -> None:
+    service.behaviour = Behaviour.SILENT
+    uncertain = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+    assert uncertain.status_code == 503
+    assert uncertain.json()["error"] == "provider_unavailable"
+    assert int(uncertain.headers["Retry-After"]) > 0
+
+    service.behaviour = Behaviour.DELIVERS
+    again = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+    assert again.status_code == 429
+
+
+async def test_a_service_that_could_not_be_reached_sent_nothing_and_counts_for_nothing(
+    texting: Api, service: SimulatedSms
+) -> None:
+    service.behaviour = Behaviour.UNREACHABLE
+    refused = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+    assert refused.status_code == 503
+    assert "Retry-After" not in refused.headers
+
+    service.behaviour = Behaviour.DELIVERS
+    sent = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+    assert sent.status_code == 202

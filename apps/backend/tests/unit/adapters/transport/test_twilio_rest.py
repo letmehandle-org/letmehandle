@@ -13,7 +13,7 @@ from letmehandle.adapters.transport.twilio.rest import (
     HttpTelephonyApi,
     ParticipantRequest,
 )
-from letmehandle.domain.errors import ProviderError
+from letmehandle.domain.errors import DeliveryUncertainError, ProviderError
 
 ACCOUNT = "account-for-tests"
 TOKEN = "token-for-tests"
@@ -245,6 +245,25 @@ async def test_an_unreachable_api_is_worth_another_attempt() -> None:
     with pytest.raises(ProviderError, match="ConnectError") as failure:
         await client.remove_participant("c", "p")
     assert failure.value.retryable
+
+
+async def test_an_unanswered_request_may_have_been_acted_on() -> None:
+    client = api(Recorder(httpx.ReadTimeout("slow")))
+    with pytest.raises(DeliveryUncertainError):
+        await client.end_conference("c")
+
+
+async def test_a_connection_lost_after_sending_may_have_been_acted_on() -> None:
+    client = api(Recorder(httpx.ReadError("reset")))
+    with pytest.raises(DeliveryUncertainError, match="ReadError"):
+        await client.end_conference("c")
+
+
+async def test_a_refused_connection_sent_nothing() -> None:
+    client = api(Recorder(httpx.ConnectError("refused")))
+    with pytest.raises(ProviderError) as failure:
+        await client.end_conference("c")
+    assert not isinstance(failure.value, DeliveryUncertainError)
 
 
 async def test_a_call_is_looked_up_for_the_numbers_it_arrived_on() -> None:

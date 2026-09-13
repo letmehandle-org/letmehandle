@@ -760,3 +760,9 @@ so no locale, and gets the default. Whether the provider delivers to a real hand
 with a real account; the adapter's requests and error mapping are tested against a simulated
 message API.
 
+**Amended: a send that may have gone out counts.** A provider that refuses before sending — an
+error answer, or a connection that never opened — rolls the challenge back, because nothing was
+sent and an outage is nobody's attempt. A request the provider accepted but never answered — a
+timeout, or a connection lost after sending — may have been delivered, so the challenge is kept and
+counts against the cooldown and every budget. The client is told `provider_unavailable` with the
+wait before another code, so a slow provider cannot be used to send codes nobody counts.

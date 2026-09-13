@@ -87,6 +87,18 @@ class ProviderError(DomainError):
         self.retryable = retryable
 
 
+class DeliveryUncertainError(ProviderError):
+    """A request reached a provider, which never said what it did with it.
+
+    A timeout or a dropped connection after sending is not a refusal: the provider may have
+    acted on the request. Its own type so that a caller can count what may have happened rather
+    than assume it did not.
+    """
+
+    def __init__(self, provider: str, reason: str) -> None:
+        super().__init__(provider, reason, retryable=True)
+
+
 class UnreachableNumberError(ProviderError):
     """A provider will not deliver to this number, and asking again will not change that.
 

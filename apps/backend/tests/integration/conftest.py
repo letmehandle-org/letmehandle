@@ -78,6 +78,7 @@ async def running(
     voices: VoiceProvider | None = None,
     forwarding: CallForwarding | None = None,
     otp: OTPProvider | None = None,
+    resend_cooldowns: tuple[timedelta, ...] = (timedelta(0),),
 ) -> AsyncIterator[Api]:
     """The whole application, on its own engine, against one schema.
 
@@ -106,7 +107,7 @@ async def running(
         forwarding=forwarding,
         # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
         # moved past the resend cooldown. The cooldown has its own tests, which restore it.
-        auth_limits=replace(container.auth_limits, resend_cooldowns=(timedelta(0),)),
+        auth_limits=replace(container.auth_limits, resend_cooldowns=resend_cooldowns),
         otp=container.otp if otp is None else otp,
     )
 
