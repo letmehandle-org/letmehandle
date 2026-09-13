@@ -315,6 +315,28 @@ class TestTheAssistantHandlesACall:
 
 
 class TestEscalation:
+    async def test_a_user_answering_before_the_assistants_join_is_heard_is_recorded_after_it(
+        self,
+    ) -> None:
+        # Callbacks can arrive in any order. The assistant was talking to the caller before the
+        # user was rung, so the record says it was on the call first whatever order they came in.
+        line = streaming()
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            line.arrives(CALL, STRANGER)
+            await running.settled(CALL, CallState.AGENT_HANDLING)
+            await running.session()
+            await running.caller_says("Can I speak to them, please?")
+            await running.settled(CALL, CallState.HUMAN_RINGING)
+            line.user_answers(CALL)
+            await running.settled(CALL, CallState.HUMAN_JOINED)
+            line.assistant_joins(CALL)
+            await asyncio.sleep(0.02)
+
+            assert [each.role for each in running.stores.call(CALL).participants] == [
+                ParticipantRole.AGENT,
+                ParticipantRole.HUMAN,
+            ]
+
     async def test_an_escalation_answered_joins_the_user_and_ends_when_they_leave(self) -> None:
         line = streaming()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:

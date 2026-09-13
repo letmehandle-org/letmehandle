@@ -7,13 +7,16 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly correlationId: string | undefined;
+  /** How long the server said to wait, from `Retry-After`, when it said. */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(status: number, body: ApiErrorBody) {
+  constructor(status: number, body: ApiErrorBody, retryAfterSeconds?: number) {
     super(body.message);
     this.name = 'ApiError';
     this.status = status;
     this.code = body.error;
     this.correlationId = body.correlation_id;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 
   /** Whether signing in again is the answer. */

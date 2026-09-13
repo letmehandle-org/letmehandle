@@ -82,6 +82,33 @@ to is a thing about them. A provider that synthesises samples on demand rather t
 should cache them itself, keyed by provider, voice and locale, so that changing provider cannot
 serve a stale sample.
 
+## Adding one
+
+A worked example: a provider that ships sample audio for its voices, and so declares `preview`.
+
+```python
+class SampledVoiceProvider(VoiceProvider):
+    """A fixed catalogue with a recorded sample of each voice."""
+
+    @property
+    def capabilities(self) -> VoiceCapabilities:
+        return VoiceCapabilities(builtin_voices=True, preview=True)
+```
+
+Prove it with the contract, which checks that `preview` answers exactly when it is declared and that
+resolution always reaches a voice:
+
+```python
+class TestSampledVoiceProvider(VoiceProviderContract):
+    @pytest.fixture
+    def voices(self) -> SampledVoiceProvider:
+        return SampledVoiceProvider(catalogue=EXAMPLE_VOICES, samples=synthetic_samples())
+```
+
+Samples in tests are generated in memory; no audio file is ever committed (D-013). Construct it in
+`build_voice_provider` in `bootstrap.py`. Because it declares `preview`, the preview route appears in
+the application, the OpenAPI schema and the generated client, and `make api-types` records that.
+
 ## The custom-voice surface, specified and not built
 
 No provider in this product declares `cloning` or `custom_voice`, so none of the following

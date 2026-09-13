@@ -13,6 +13,8 @@ from letmehandle.config.settings import (
     SpeechProviderName,
     TelephonyProviderName,
     get_settings,
+    parse_calling_codes,
+    parse_proxy_networks,
     parse_voice_catalogue,
 )
 from letmehandle.domain.ports.voice import Voice
@@ -383,3 +385,35 @@ def test_a_base_url_with_a_query_or_fragment_is_refused(
     monkeypatch.setenv("TELEPHONY_WEBHOOK_BASE_URL", url)
     with pytest.raises(ValidationError, match="query or a fragment"):
         Settings()
+
+
+class TestSignInAbuseSettings:
+    def test_calling_codes_are_read_without_their_plus_and_blank_is_anywhere(self) -> None:
+        assert parse_calling_codes(" +91, 1 ,44 ") == frozenset({"91", "1", "44"})
+        assert parse_calling_codes(" , ") is None
+
+    @pytest.mark.parametrize("entry", ["abc", "0044", "1234", "+"])
+    def test_a_calling_code_that_is_not_one_is_refused_by_position(self, entry: str) -> None:
+        with pytest.raises(ValueError, match="entry 2"):
+            parse_calling_codes(f"91,{entry}")
+
+    def test_proxies_are_networks(self) -> None:
+        assert [str(net) for net in parse_proxy_networks("10.0.0.0/8, 2001:db8::/32")] == [
+            "10.0.0.0/8",
+            "2001:db8::/32",
+        ]
+        assert parse_proxy_networks("") == ()
+        with pytest.raises(ValueError, match="entry 1"):
+            parse_proxy_networks("not-a-network")
+
+    def test_they_arrive_from_the_environment(
+        self, required_environment: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OTP_ALLOWED_CALLING_CODES", "91,44")
+        monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert settings.otp_allowed_calling_codes == frozenset({"91", "44"})
+        assert [str(net) for net in settings.trusted_proxy_cidrs] == ["10.0.0.0/8"]
+        assert settings.auth_refresh_token_ttl_seconds == 90 * 24 * 3600
+        get_settings.cache_clear()

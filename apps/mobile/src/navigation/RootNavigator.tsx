@@ -21,7 +21,11 @@ import { SetupScreen } from '../screens/SetupScreen';
 import type { SettingsPage } from '../screens/SettingsScreen';
 import { VerifyCodeScreen } from '../screens/VerifyCodeScreen';
 import { WelcomeScreen } from '../screens/WelcomeScreen';
+import { CallDetailScreen } from '../screens/calls/CallDetailScreen';
+import { EscalationScreen } from '../screens/calls/EscalationScreen';
+import { TranscriptScreen } from '../screens/calls/TranscriptScreen';
 import { AccountScreen } from '../screens/settings/AccountScreen';
+import { PrivacyScreen } from '../screens/settings/PrivacyScreen';
 import { AuthorityScreen } from '../screens/settings/AuthorityScreen';
 import { HoursScreen } from '../screens/settings/HoursScreen';
 import { PersonaliseScreen } from '../screens/settings/PersonaliseScreen';
@@ -69,6 +73,7 @@ const SETTINGS_ROUTES: Record<SettingsPage, keyof AppStackParamList> = {
   say: APP_ROUTES.say,
   personalise: APP_ROUTES.personalise,
   account: APP_ROUTES.account,
+  privacy: APP_ROUTES.privacy,
   callScreening: APP_ROUTES.callScreening,
 };
 
@@ -148,10 +153,11 @@ function SignedOut(): React.JSX.Element {
             onBack={() => {
               navigation.goBack();
             }}
-            onCodeSent={(challengeId, phoneNumber) => {
+            onCodeSent={(sent, phoneNumber) => {
               navigation.navigate(AUTH_ROUTES.verifyCode, {
-                challengeId,
+                challengeId: sent.challengeId,
                 phoneNumber,
+                resendAfterSeconds: sent.resendAfterSeconds,
               });
             }}
           />
@@ -163,6 +169,7 @@ function SignedOut(): React.JSX.Element {
           <VerifyCodeScreen
             challengeId={route.params.challengeId}
             phoneNumber={route.params.phoneNumber}
+            resendAfterSeconds={route.params.resendAfterSeconds}
             onBack={() => {
               navigation.goBack();
             }}
@@ -191,6 +198,8 @@ function SignedIn({
 
   const previous = useRef(step);
   const [justFinished, setJustFinished] = useState(false);
+  // Bumped when a call is deleted, so the list under the summary does not still show it.
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   useEffect(() => {
     if (previous.current !== null && step === null) {
@@ -227,8 +236,55 @@ function SignedIn({
             onOpenSetting={page => {
               navigation.navigate(SETTINGS_ROUTES[page]);
             }}
+            onOpenCall={callId => {
+              navigation.navigate(APP_ROUTES.call, { callId });
+            }}
+            historyVersion={historyVersion}
           />
         )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.call}>
+        {({ navigation, route }) => (
+          <CallDetailScreen
+            callId={route.params.callId}
+            onBack={navigation.goBack}
+            onOpenTranscript={callId => {
+              navigation.navigate(APP_ROUTES.transcript, { callId });
+            }}
+            onOpenEscalation={callId => {
+              navigation.navigate(APP_ROUTES.escalation, { callId });
+            }}
+            onDeleted={() => {
+              setHistoryVersion(version => version + 1);
+              navigation.goBack();
+            }}
+          />
+        )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.transcript}>
+        {({ navigation, route }) => (
+          <TranscriptScreen
+            callId={route.params.callId}
+            onBack={navigation.goBack}
+            onOpenPrivacy={() => {
+              navigation.navigate(APP_ROUTES.privacy);
+            }}
+          />
+        )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.escalation}>
+        {({ navigation, route }) => (
+          <EscalationScreen
+            callId={route.params.callId}
+            onBack={navigation.goBack}
+            onOpenSummary={callId => {
+              navigation.navigate(APP_ROUTES.call, { callId });
+            }}
+          />
+        )}
+      </AppStack.Screen>
+      <AppStack.Screen name={APP_ROUTES.privacy}>
+        {({ navigation }) => <PrivacyScreen onBack={navigation.goBack} />}
       </AppStack.Screen>
       <AppStack.Screen name={APP_ROUTES.who}>
         {({ navigation }) => (

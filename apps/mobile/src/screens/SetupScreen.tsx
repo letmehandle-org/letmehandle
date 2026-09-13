@@ -18,6 +18,8 @@ import { HoursEditor } from '../components/HoursEditor';
 import { Icon } from '../components/icon/Icon';
 import { Lane } from '../components/Lanes';
 import { Notice } from '../components/Notice';
+import { Row } from '../components/Row';
+import { Hero } from '../components/Hero';
 import { Screen } from '../components/Screen';
 import { Steps } from '../components/Steps';
 import { Toggle } from '../components/Toggle';
@@ -129,13 +131,7 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
     >
       {step === 'call_handling' && <WhoGetsThrough />}
       {step === 'call_forwarding' && (
-        <Card>
-          <Text style={styles.body}>{t('setup.forwarding.how')}</Text>
-          <Text style={styles.number} testID="forwarding-number">
-            {profile?.call_forwarding?.number ?? ''}
-          </Text>
-          <Text style={styles.body}>{t('setup.forwarding.why')}</Text>
-        </Card>
+        <Forwarding number={profile?.call_forwarding?.number ?? ''} />
       )}
       {step === 'hours' && <HoursEditor value={hours} onChange={setHours} />}
       {step === 'notifications' && <CallGraph />}
@@ -161,6 +157,54 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
         </Card>
       )}
     </Screen>
+  );
+}
+
+/**
+ * Where the phone sends the calls it does not take.
+ *
+ * The two conditions are drawn as the two switches a phone's call settings actually have, and the
+ * number is large and selectable, because it is copied into another app by hand.
+ */
+function Forwarding({
+  number,
+}: {
+  readonly number: string;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.forwarding}>
+      <Text style={styles.body}>{t('setup.forwarding.how')}</Text>
+      <Card>
+        <Row
+          icon="phone-off"
+          tone="assistant"
+          title={t('setup.forwarding.unanswered')}
+        />
+        <Row
+          icon="phone-ring"
+          tone="assistant"
+          title={t('setup.forwarding.busy')}
+          last
+        />
+      </Card>
+      <Hero>
+        <View style={styles.forwardTo}>
+          <Text style={styles.forwardLabel}>
+            {t('setup.forwarding.number')}
+          </Text>
+          <Text selectable style={styles.number} testID="forwarding-number">
+            {number}
+          </Text>
+        </View>
+      </Hero>
+      <View style={styles.aside}>
+        <Icon name="info" colour={theme.colour.textFaint} size={18} />
+        <Text style={[styles.asideText, styles.asideWide]}>
+          {t('setup.forwarding.why')}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -197,10 +241,19 @@ const styles = StyleSheet.create({
     gap: theme.space.sm,
   },
   asideText: { ...theme.type.subtitle, color: theme.colour.textFaint },
-  body: { ...theme.type.subtitle, color: theme.colour.text },
+  body: { ...theme.type.subtitle, color: theme.colour.textMuted },
+  forwarding: { gap: theme.space.md, paddingTop: theme.space.sm },
+  forwardTo: {
+    alignItems: 'center',
+    gap: theme.space.xs,
+    paddingVertical: theme.space.lg,
+  },
+  forwardLabel: { ...theme.type.label, color: theme.colour.heroMuted },
+  asideWide: { flexShrink: 1 },
   number: {
-    ...theme.type.label,
-    color: theme.colour.text,
-    marginVertical: theme.space.sm,
+    ...theme.type.title,
+    fontFamily: theme.font.light,
+    color: theme.colour.heroText,
+    fontVariant: ['tabular-nums'],
   },
 });

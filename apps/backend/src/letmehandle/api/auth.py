@@ -7,6 +7,7 @@ from dataclasses import replace
 from fastapi import APIRouter, Request, Response, status
 
 from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
+from letmehandle.api.client_address import client_source
 from letmehandle.api.dependencies import (
     AuthService,
     CurrentUser,
@@ -14,6 +15,7 @@ from letmehandle.api.dependencies import (
     Devices,
     Forwarding,
     Users,
+    container_of,
 )
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.schemas import (
@@ -27,7 +29,11 @@ from letmehandle.api.schemas import (
     UpdateProfileRequest,
     VerifyRequest,
 )
-from letmehandle.application.auth.service import AuthenticationError, RateLimitedError
+from letmehandle.application.auth.service import (
+    AuthenticationError,
+    RateLimitedError,
+    UnservedNumberError,
+)
 from letmehandle.domain.errors import UnreachableNumberError
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.forwarding import CallForwarding
@@ -43,14 +49,17 @@ router = APIRouter(
 
 
 def _source_of(request: Request) -> str | None:
-    """Something to count attempts against, per origin.
+    """Something to count attempts against, per origin: see `client_address`."""
+    return client_source(request, container_of(request).trusted_proxies)
 
-    The immediate peer, not a forwarded header. A header is set by whoever is calling, so a
-    limit keyed on one is a limit the attacker chooses the key for. Behind a proxy this needs
-    the proxy's own trusted forwarding, which is deployment configuration rather than
-    something to guess at here.
-    """
-    return request.client.host if request.client else None
+
+def _rate_limited(error: RateLimitedError) -> ApiError:
+    return ApiError(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "rate_limited",
+        "Too many attempts. Try again shortly.",
+        headers={"Retry-After": str(error.retry_after_seconds)},
+    )
 
 
 def _not_valid(message: str) -> ApiError:
@@ -102,11 +111,12 @@ async def request_challenge(
             PhoneNumber(body.phone_number), source=_source_of(request)
         )
     except RateLimitedError as error:
+        raise _rate_limited(error) from error
+    except UnservedNumberError as error:
         raise ApiError(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "rate_limited",
-            "Too many attempts. Try again shortly.",
-            headers={"Retry-After": str(error.retry_after_seconds)},
+            UNPROCESSABLE,
+            "unserved_country",
+            "Sign-in codes are not sent to numbers in this country.",
         ) from error
     except UnreachableNumberError as error:
         # The one delivery failure the person signing in can fix. It says nothing about whether
@@ -120,15 +130,19 @@ async def request_challenge(
         ) from error
 
     return ChallengeResponse(
-        challenge_id=issued.challenge_id, expires_in_seconds=issued.expires_in_seconds
+        challenge_id=issued.challenge_id,
+        expires_in_seconds=issued.expires_in_seconds,
+        resend_after_seconds=issued.resend_after_seconds,
     )
 
 
 @router.post("/auth/verify", response_model=TokenResponse, summary="Exchange a code")
-async def verify(body: VerifyRequest, service: AuthService) -> TokenResponse:
+async def verify(body: VerifyRequest, request: Request, service: AuthService) -> TokenResponse:
     """Exchange a correct code for a session, creating the account if there is not one."""
     try:
-        pair = await service.verify(body.challenge_id, body.code)
+        pair = await service.verify(body.challenge_id, body.code, source=_source_of(request))
+    except RateLimitedError as error:
+        raise _rate_limited(error) from error
     except AuthenticationError as error:
         raise _not_valid("That code is not valid.") from error
 

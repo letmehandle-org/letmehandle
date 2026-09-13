@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -101,7 +102,12 @@ async def running(
         settings, voices=app.state.voices, reported_calls=app.state.reported_calls
     )
     app.state.container = replace(
-        container, forwarding=forwarding, otp=container.otp if otp is None else otp
+        container,
+        forwarding=forwarding,
+        # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
+        # moved past the resend cooldown. The cooldown has its own tests, which restore it.
+        auth_limits=replace(container.auth_limits, resend_cooldowns=(timedelta(0),)),
+        otp=container.otp if otp is None else otp,
     )
 
     try:

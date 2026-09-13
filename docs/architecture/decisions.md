@@ -633,6 +633,87 @@ including those who had finished: finished meant finished for calls that no long
 409: nothing about the user's state would make it succeed on another try. It is the same answer a
 removed or invented step gets — the request names something that does not exist here.
 
+## D-035 — What callers said is kept out of screenshots, as far as each platform allows
+
+**Accepted.** Call history, a call's summary, what was said and an escalation are other people's
+words and the user's circumstances. They are kept out of screenshots, screen recordings and the
+app switcher's snapshot, by what each platform actually offers rather than by one mechanism
+pretended to be both:
+
+| Platform | What it does | Where |
+| --- | --- | --- |
+| Android | `FLAG_SECURE` on the window: screenshots and recordings are refused and the recents card is blank | only while one of those screens is mounted, counted so a transcript opened over a summary keeps both protected |
+| iOS | a cover drawn over the whole app as it resigns active, so the switcher's snapshot shows nothing | the whole app, always |
+
+iOS gives an app no supported way to refuse a screenshot, and no per-screen hook before the
+switcher's snapshot is taken, so the app does not claim either: it covers everything, which is
+cheap because every screen in it is about the user's calls. The Android flag is not applied app-wide
+because it also blanks the setup screens, where a user sending a screenshot to someone helping them
+is the ordinary case.
+
+The native side is a module on Android and nothing on iOS; the JavaScript asks the module if it is
+there and does nothing if it is not (D-005). The guard is a counter rather than a toggle, so
+closing the top screen never unprotects the ones beneath it.
+
+## D-036 — Signing in is defended in layers, and a session ends only when the server says so
+
+**Accepted.** Two requirements pull against each other. Somebody who has signed in should never be
+asked for their number again without cause, and the one route that does not need a session — sending
+a code to a number — must not be a way to spend this deployment's money, bomb a stranger's phone,
+or guess one's way into an account.
+
+### Staying signed in
+
+- **Only a 401 ends a session on the phone.** No signal, a timeout, a 5xx or a rate limit while
+  restoring or renewing keeps the stored session: the app opens signed in and retries. Ending a
+  session over a train tunnel is how somebody is asked for their number for no fault of their own.
+- **A rotated refresh token is honoured again for two minutes** (`REFRESH_REUSE_LEEWAY`). The server
+  rotates a token and answers; the phone writes the new one to its keychain. An app killed between
+  the two comes back with the old token, which reuse detection would otherwise read as theft and
+  revoke the whole sign-in. Presented within two minutes, it gets a fresh pair and nothing is
+  revoked; after that, reuse still revokes the family.
+- **Sessions last ninety days and slide.** Every renewal starts the lifetime again, so a phone that
+  opens the app within ninety days of the last time stays signed in indefinitely. Signing out, and
+  deleting the account, still end it at once.
+
+### Sending codes
+
+Each layer answers a different attack and is counted where that attack cannot reset it:
+
+| Layer | Stops | Default | Counted in |
+| --- | --- | --- | --- |
+| Allowed calling codes | premium-rate and unserved destinations; most SMS pumping | any (production should list its countries) | configuration |
+| Per source | one place asking for codes to many numbers | 20 an hour | the rate limiter |
+| Resend cooldown | bombing one phone | 30 s, 60 s, 2 min, then 5 min | the database |
+| Per number | the same, slower | 5 an hour, 10 a day | the database |
+| Wrong codes per number | guessing, across new codes | 10 in 24 h, then locked — even the right code is refused | the database |
+| Verifications per source | one place guessing at many numbers' codes | 60 an hour | the rate limiter |
+| Deployment budget | attacks spread across numbers and sources | 500 an hour, 100 per calling code | the database |
+
+- **Only the newest code works.** Sending one supersedes every open code to that number, so asking
+  for more codes never opens more to guess at: five guesses per code, against one code at a time.
+- **Every refusal says when to come back** (`Retry-After`), and every code sent says when another
+  may be asked for (`resend_after_seconds`), so the app counts down instead of retrying into a
+  refusal. Refusals are counted as `auth.challenge.refused` by outcome, which is what to alert on.
+- **The budget is a circuit breaker.** Past it, codes stop for everybody until the hour rolls on.
+  That costs sign-ins for a while, which is recoverable; a pumping attack costs money, which is not.
+- **Who is asking** is the connection's peer, unless that peer is a configured trusted proxy, in
+  which case it is the nearest address in `X-Forwarded-For` that is not one of ours; IPv6 is counted
+  by /64. Behind a load balancer with no proxies configured, every client looks like the balancer,
+  so a deployment behind one must set `TRUSTED_PROXY_CIDRS`.
+- **Nothing tells an attacker whether a number has an account.** Limits, locks and refusals apply
+  to every number alike, and a refused country is refused for everybody in it.
+
+### Not built yet, in the order they would help
+
+1. **Device attestation** (Play Integrity, App Attest) on the challenge route, so codes are sent
+   only for requests from a genuine install.
+2. **Line-type lookup** before sending, refusing premium-rate and unassigned numbers the allowlist
+   cannot see.
+3. **The SMS provider's own fraud guard**, once a production OTP provider exists.
+4. **A shared rate limiter.** The per-source limits are per process (the limiter says so); the
+   per-number and deployment limits are already shared, because they are counted in the database.
+
 ## D-037 — Sign-in codes are the application's, sent as a text message
 
 **Accepted.** Production needs a provider that delivers a sign-in code to a real handset; until one
@@ -678,3 +759,4 @@ The wording of the message is a per-locale template (D-017); a number signing in
 so no locale, and gets the default. Whether the provider delivers to a real handset is verified
 with a real account; the adapter's requests and error mapping are tested against a simulated
 message API.
+

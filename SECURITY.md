@@ -41,9 +41,9 @@ severity or scope, we will say why in the advisory thread.
 
 ## Supported versions
 
-The project is pre-1.0. Security fixes go to the default branch and into the next release; the
-most recent release is the only supported one, and there are no backports to earlier ones. A
-support matrix will replace this at the first stable release.
+Releases are named for their date (`vYYYY.M.D`). Security fixes go to the default branch and into
+the next release; the most recent release is the only supported one, and there are no backports to
+earlier ones.
 
 | Version | Supported |
 | --- | --- |

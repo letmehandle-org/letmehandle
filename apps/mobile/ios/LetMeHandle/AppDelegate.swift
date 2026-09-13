@@ -8,6 +8,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
+  /// Drawn over the app while it is not in front, so the app switcher's snapshot shows nothing.
+  private var privacyCover: UIView?
   var reactNativeFactory: RCTReactNativeFactory?
 
   func application(
@@ -30,6 +32,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     )
 
     return true
+  }
+
+  /// iOS takes the app switcher's snapshot as the app resigns active, and gives an app no
+  /// per-screen way to refuse it or to refuse screenshots. The app is call summaries and what
+  /// callers said, so the whole of it is covered rather than guessing which screen is showing.
+  func applicationWillResignActive(_ application: UIApplication) {
+    guard privacyCover == nil, let window else { return }
+    let cover = UIView(frame: window.bounds)
+    cover.backgroundColor = UIColor(red: 0xF8 / 255, green: 0xF6 / 255, blue: 1, alpha: 1)
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    window.addSubview(cover)
+    privacyCover = cover
+  }
+
+  func applicationDidBecomeActive(_ application: UIApplication) {
+    privacyCover?.removeFromSuperview()
+    privacyCover = nil
   }
 }
 

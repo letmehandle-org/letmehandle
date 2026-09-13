@@ -12,9 +12,10 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import React from 'react';
+import { AppState } from 'react-native';
 
 import { App } from '../App';
-import { useSession } from '../auth/SessionProvider';
+import { SessionProvider, useSession } from '../auth/SessionProvider';
 import * as tokenStore from '../auth/tokenStore';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
 
@@ -164,6 +165,116 @@ describe('starting up', () => {
     });
     // Nothing was asked of the backend: there was no session to check.
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('never being asked for the number again without cause', () => {
+  const offline = (): void => {
+    globalThis.fetch = (async () => {
+      throw new TypeError('Network request failed');
+    }) as unknown as typeof fetch;
+  };
+
+  it('opens signed in with no signal, even when the token needed renewing', async () => {
+    // On a train, in a lift, in airplane mode: the stored session is still the user's.
+    store.loadSession.mockResolvedValue({
+      accessToken: 'nearly-expired',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 1_000,
+    });
+    offline();
+
+    const view = await render(<App />);
+
+    await waitFor(() => {
+      expect(view.getByTestId('preferences-unavailable')).toBeOnTheScreen();
+    });
+    expect(view.queryByTestId('welcome-screen')).toBeNull();
+    expect(store.clearSession).not.toHaveBeenCalled();
+  });
+
+  it('stays signed in when the server is down while renewing', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'expired',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() - 1_000,
+    });
+    replyWith([
+      { status: 503, body: { error: 'database_unavailable', message: 'down' } },
+    ]);
+
+    const view = await render(<App />);
+
+    await waitFor(() => {
+      expect(view.queryByTestId('restoring')).toBeNull();
+    });
+    expect(view.queryByTestId('welcome-screen')).toBeNull();
+    expect(store.clearSession).not.toHaveBeenCalled();
+  });
+
+  it('stays signed in when the profile cannot be fetched, and fetches it once back in front', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    offline();
+    const listeners: ((state: string) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+      _type: string,
+      listener: (state: string) => void,
+    ) => {
+      listeners.push(listener);
+      return { remove: () => undefined };
+    }) as unknown as typeof AppState.addEventListener);
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+    expect(result.current.profile).toBeNull();
+
+    replyWith([{ status: 200, body: PROFILE }]);
+    for (const listener of listeners) {
+      listener('active');
+    }
+    await waitFor(() => {
+      expect(result.current.profile).toEqual(PROFILE);
+    });
+  });
+
+  it('keeps the session when a request cannot renew for want of a signal', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    replyWith([{ status: 200, body: PROFILE }]);
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+
+    // The access token is refused, and renewing it finds no network.
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ error: 'not_authenticated', message: 'no' }),
+        } as Response;
+      }
+      throw new TypeError('Network request failed');
+    }) as unknown as typeof fetch;
+
+    await expect(result.current.api.me()).rejects.toThrow();
+    expect(result.current.status).toBe('signed-in');
+    expect(store.clearSession).not.toHaveBeenCalled();
   });
 });
 

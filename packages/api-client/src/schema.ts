@@ -703,6 +703,8 @@ export interface components {
             challenge_id: string;
             /** Expires In Seconds */
             expires_in_seconds: number;
+            /** Resend After Seconds */
+            resend_after_seconds: number;
         };
         /**
          * DevicePayload
