@@ -647,6 +647,23 @@ class TestDegradedProviders:
             line.leaves(CALL, Leg.ASSISTANT)
             assert (await running.ended(CALL)).state is CallState.FAILED
 
+    async def test_the_assistant_leaving_before_the_hang_up_is_reported_waits_for_it(
+        self,
+    ) -> None:
+        line = streaming()
+        async with orchestrating(line) as running:
+            await with_the_assistant(running)
+            # A caller hanging up ends the conference, and the assistant's leg can be heard of
+            # leaving before the caller's.
+            line.leaves(CALL, Leg.ASSISTANT)
+            session = await running.session()
+            await eventually(lambda: session.is_closed)
+            assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
+            line.hangs_up(CALL)
+            assert (await running.ended(CALL)).state is CallState.COMPLETED
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert summary.outcome is CallOutcome.CALLER_HUNG_UP
+
     async def test_audio_that_stops_before_the_hang_up_is_reported_waits_for_it(self) -> None:
         line = streaming()
         async with orchestrating(line) as running:
