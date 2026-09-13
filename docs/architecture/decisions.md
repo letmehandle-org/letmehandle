@@ -1059,3 +1059,58 @@ service sends from its own. Startup refuses a missing one, naming the variables 
 The adapter logs that a code was sent, refused or checked and whether it was approved, never the
 number or the code. A number the service will not deliver to is `UnreachableNumberError`; its send
 limit is a retryable `ProviderError`.
+
+## D-043 — Test builds of the Android app are released as an APK that updates itself
+
+**Accepted.** Every published release carries the Android app, built by the release workflow, as
+`letmehandle-android.apk`, beside `letmehandle-android.json`, which describes it. Anybody can install
+the app from a release without a store, and a download page can link to the latest release's APK,
+whose address never changes. An app installed that way keeps itself on the newest release.
+
+Until the app is in a store, a release is the only way to put it on somebody's phone. An APK nobody
+updates is worse than none: people keep running whatever version they first installed, reporting
+problems long since fixed, against a backend that has moved on.
+
+**The build.** The release workflow builds `assembleRelease` with the version as `versionName` and a
+version code of `YYYY*1000000 + M*10000 + D*100 + N` — `2026.9.14` is `2026091400`, `2026.9.14-2` is
+`2026091402` — so a later release always has a larger code. It is signed with the release key, from
+repository secrets, and the build fails rather than fall back to the debug key; the certificate's
+SHA-256 is checked against the key and printed in the log. It talks to the backend named by the
+repository variable `ANDROID_API_BASE_URL`, with `APP_ENV=production`. How to set these up is in
+[`docs/development/workflow.md`](../development/workflow.md#the-android-app).
+
+**The manifest.** `{"versionCode", "versionName", "apkUrl", "sha256"}`. `apkUrl` is the APK attached
+to that same release, not the latest one, so the digest always describes the file at that address.
+The APK is uploaded before the manifest, so a manifest never points at a file not yet there.
+
+**The update.** The build is given the latest release's manifest address, and only the release
+workflow gives it one. When the app starts or returns to the foreground, at most once every four
+hours, it fetches the manifest over https; if the version code is larger than its own, it downloads
+the APK to its cache, checks the SHA-256, and installs it through the platform's package installer.
+An APK whose digest differs is never installed, the download is deleted either way, and a failure is
+logged and tried again at the next check. The logic that decides — reading the manifest, comparing
+versions, the four-hour throttle, the digest — is plain Kotlin with unit tests; the Android side only
+fetches, writes and installs.
+
+**Built from source, never updated.** A debug build, or anybody's own release build, has no manifest
+address and never checks. Its signature would not match the published APK's, and the installer
+would refuse the update anyway.
+
+**Consequences.**
+
+- The app holds `REQUEST_INSTALL_PACKAGES`, which it uses only to install its own updates.
+- The first install is the user's decision: they download the APK in a browser and allow their
+  browser to install apps.
+- Updates are silent only on Android 12 and later, and only once this app is the installer of record,
+  which it becomes after it has installed the first update itself. The first update of a
+  browser-installed app, every update before Android 12, and any update while installs from this
+  app are not yet allowed, show the platform's confirmation screen; Android may not show it while the
+  app is in the background, in which case the next check asks again.
+- The release key is now something that cannot be lost: an APK signed with another key cannot update
+  an installed app, and every user would have to uninstall and install again.
+- A release published after its tag was pushed runs the workflow twice, and the second run replaces
+  the APK and manifest with its own build. Until both are replaced, an app may find a digest that
+  does not match and wait for the next check.
+- A store release (Google Play, and the App Store for iOS) replaces this when the app is ready for
+  one. The version code stays under Google Play's limit of 2100000000 so the same codes carry over;
+  store builds would be given no manifest address.
