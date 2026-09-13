@@ -1,4 +1,4 @@
-"""Every route the application has, checked for who may call it.
+"""Every route the application has, checked for who may call it and how much it will read.
 
 Enumerated from the application rather than listed by hand. A list of routes to check is a list
 somebody forgets to extend; walking the application means a route added later is checked the
@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
+import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute, iter_route_contexts
+from httpx import ASGITransport, AsyncClient
 
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.api.dependencies import CurrentUser, get_authenticated_user
@@ -21,7 +23,7 @@ from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES
 from tests.support.simulated_twilio import telephony_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Iterator
 
     from fastapi.dependencies.models import Dependant
 
@@ -34,6 +36,9 @@ EXEMPT: Final[dict[tuple[str, str], str]] = {
     ("POST", "/v1/auth/refresh"): "the refresh token in the body is the credential",
     ("POST", "/v1/auth/signout"): "the refresh token in the body is the credential",
 }
+
+# Larger than any route here reads, and small enough to send in a test.
+OVERSIZED_BODY: Final = b"{" + b" " * (2 * 1024 * 1024) + b"}"
 
 
 def _application() -> FastAPI:
@@ -81,6 +86,16 @@ def unprotected_routes(app: FastAPI) -> list[tuple[str, str]]:
     ]
 
 
+@pytest.fixture
+async def everything() -> AsyncIterator[AsyncClient]:
+    app = _application()
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as http,
+    ):
+        yield http
+
+
 class TestAuthorisation:
     def test_every_route_needs_a_signed_in_user_or_says_why_not(self) -> None:
         assert unprotected_routes(_application()) == []
@@ -113,3 +128,30 @@ class TestAuthorisation:
         app.include_router(remembered)
 
         assert unprotected_routes(app) == []
+
+
+class TestBodyLimits:
+    async def test_every_route_that_reads_a_body_refuses_an_oversized_one(
+        self, everything: AsyncClient
+    ) -> None:
+        # Refused before it is parsed and before anyone is authenticated: a body is read before
+        # either can happen, so a route without a cap holds whatever an anonymous client sends.
+        accepting = [
+            (method, path)
+            for method, path, route, in_schema in _routes(_application())
+            if method in {"POST", "PUT", "PATCH"}
+            and (route.body_field is not None or not in_schema)
+        ]
+        assert accepting
+
+        answers = {}
+        for method, path in accepting:
+            response = await everything.request(
+                method,
+                path.replace("{call_id}", "a-call").replace("{voice_id}", EXAMPLE_DEFAULT_VOICE),
+                content=OVERSIZED_BODY,
+                headers={"content-type": "application/json"},
+            )
+            answers[(method, path)] = response.status_code
+
+        assert {route: status for route, status in answers.items() if status != 413} == {}

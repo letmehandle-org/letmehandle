@@ -7,13 +7,18 @@ route's handler is entered instead, and the body read under it is handed on to b
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from fastapi import Request, status
 from fastapi.routing import APIRoute
 
 from letmehandle.adapters.http.body import BodyTooLargeError, read_limited_body
 from letmehandle.api.errors import ApiError
+
+# The largest body an ordinary JSON route reads. The biggest request any of them has a use for is
+# a whole set of preferences at its domain limits, which is a fraction of this even with every
+# character escaped.
+JSON_BODY_LIMIT_BYTES: Final = 256 * 1024
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
