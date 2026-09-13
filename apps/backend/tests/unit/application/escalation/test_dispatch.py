@@ -466,7 +466,7 @@ class TestAPushServiceFailing:
         assert circuits.states()["push_ios"] is CircuitState.OPEN
         assert circuits.states()["push_android"] is CircuitState.CLOSED
         assert metrics.counted("escalation.delivery", outcome="unavailable") == 1
-        # Nothing was asked of the service, so there is no latency to record for it.
+        # Nothing was asked of the service, so no latency is recorded.
         assert len(metrics.observed(DELIVERY_SECONDS)) == 3
 
     async def test_a_device_it_refuses_is_the_service_working(self) -> None:

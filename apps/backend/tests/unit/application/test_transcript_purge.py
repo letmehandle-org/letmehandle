@@ -117,8 +117,7 @@ async def test_a_failure_is_recorded_with_what_was_done_and_then_raised() -> Non
 def test_a_batch_outside_what_the_store_accepts_is_refused_before_anything_runs(
     batch_size: int,
 ) -> None:
-    # Refused when the purge is built, rather than by the store's first statement once a
-    # scheduled run is already under way.
+    # Refused when the purge is built.
     with pytest.raises(InvariantError):
         TranscriptPurge(
             open_scope=None,  # type: ignore[arg-type]  # never reached: the size is refused first

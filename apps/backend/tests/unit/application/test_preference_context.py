@@ -158,7 +158,7 @@ class TestTheInstant:
         assert in_london == in_utc
 
     def test_no_window_means_the_assistant_is_always_active(self) -> None:
-        # Hours nobody set are around the clock (D-030), including in the middle of the night.
+        # Hours nobody set are around the clock (D-030).
         context = build_preference_context(UserPreferences(), now=MIDNIGHT)
         assert context.in_active_hours
 
@@ -257,7 +257,7 @@ class TestVersion:
 
 
 def test_the_whole_shape_of_the_context() -> None:
-    """The snapshot. An unintended change to any field fails here rather than in a call."""
+    """The snapshot of every field."""
     assert build_preference_context(fully_populated(), now=MIDDAY) == PreferenceContext(
         preferences_version=PREFERENCES_VERSION,
         locale="en-gb",
