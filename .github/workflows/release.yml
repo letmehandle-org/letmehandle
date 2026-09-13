@@ -262,7 +262,10 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
         run: |
           apksigner=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)/apksigner
-          signers=$("$apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p')
+          # Printed once per signature scheme ("V2 Signer", "V3 Signer", or "Signer #1" on older
+          # tools), so the same certificate may appear more than once.
+          signers=$("$apksigner" verify --print-certs "$APK" \
+            | sed -n -E 's/^(Signer #[0-9]+|V[0-9.]+ Signer): certificate SHA-256 digest: //p' | sort -u)
           if [[ $(printf '%s\n' "$signers" | grep -c .) -ne 1 ]]; then
             echo "::error::the APK does not have exactly one signer"
             exit 1
