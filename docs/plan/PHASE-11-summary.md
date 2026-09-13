@@ -86,14 +86,16 @@ so that a prompt change that degrades summaries is caught.
 ```
 PHASE 11 VERIFICATION
 
-Planned tasks:        backend complete; mobile history screens pending; real-model scoring held
-Acceptance criteria:  1–7 and 9 passed for the backend; 8 held (no model endpoint configured)
+Planned tasks:        backend complete; mobile history screens pending
+Acceptance criteria:  1–9 passed for the backend
 Unit tests:           passed   summary checks, summariser fallbacks, prompts, schema
 Integration tests:    passed   the real SDK loop on a scripted model; summaries sealed in PostgreSQL;
                                history listing, filtering, pagination, transcript purged vs absent,
                                deletion
-Evaluation:           held     tests/evaluation/summaries.json and scripts/summary_evaluation.py;
-                               degenerate strategies proven to fail every class
+Evaluation:           passed   tests/evaluation/summaries.json and scripts/summary_evaluation.py
+                               against a real OpenAI-compatible model, prompts v2, three full runs:
+                               every class at or above 90% on the mean, below; degenerate
+                               strategies proven to fail every class
 Coverage:             100.00%  backend
 Docs updated:         this plan
 Known issues:         mobile activity and call detail screens are not yet built
@@ -102,3 +104,40 @@ Known issues:         mobile activity and call detail screens are not yet built
 A model's draft is kept only when every detail quotes the transcript, the outcome agrees with the
 call's facts, and the headline is short and names the ending; anything else falls back to the
 summary built from the facts. The summariser runs inside teardown's summary bound.
+
+## Evaluation
+
+Run against a real OpenAI-compatible model from `apps/backend`:
+`uv run python ../../scripts/summary_evaluation.py`. Three full runs of the summary prompts as
+shipped (v2), each class as the mean of the three with the lowest and highest run:
+
+| Class | Calls | Mean | Min | Max |
+| --- | --- | --- | --- | --- |
+| extraction | 4 | 92% (11 of 12) | 75% | 100% |
+| absent_detail | 4 | 92% (11 of 12) | 75% | 100% |
+| ending | 4 | 92% (11 of 12) | 75% | 100% |
+| no_details | 3 | 100% (9 of 9) | 100% | 100% |
+
+The v1 prompts, on the same model, scored 9 of 15 in one run: extraction 1/4, absent_detail 3/4,
+ending 2/4, no_details 3/3.
+
+No check and no expectation was changed. Most v1 failures were drafts the checks refused for
+reasons the prompt never explained, so v2 explains them:
+
+- **Restating the call.** Headlines copied a clause of what was said and were refused. v2 asks for
+  about twenty-five words in the summary's own words, and leaves addresses and references to the
+  details, which is where a user looks for them.
+- **Reworded detail values.** "They cannot come" for "I can't come out" is refused as ungrounded,
+  and one ungrounded detail refuses the whole draft. v2 says a value shortens its evidence and never
+  rewords it, with an example of each.
+- **Numbers.** A spoken amount written as digits is a number nobody said. v2 says a number said in
+  words stays in words.
+- **Intent.** v1 gave intents no meaning, so a failed call became undetermined. v2 defines each and
+  asks for what the caller called for, however the call ended.
+- **Commitments.** A refusal to come out today went unrecorded. v2 says a commitment counts in
+  either direction and from anybody on the call, and that a request is not one.
+
+The misses in three runs were one of each kind still seen while tuning: a neighbour's call read as
+an enquiry rather than personal, a headline refused for repeating a line of the call, and a
+plumber's "can't come out today" left out of the details. A single run can report a class of four
+at 75%, so the 90% threshold holds on the mean of several runs rather than on one.
