@@ -56,7 +56,7 @@ async def test_a_refusal_is_told_to_the_model_and_recorded() -> None:
 
     assert result["status"] == "error"
     assert result["content"][0]["text"].startswith("Refused: ")
-    # Recorded once, by the tool that refused: the wrapper keeps no second copy.
+    # Recorded once, by the tool that refused.
     assert [refusal.tool for refusal in ledger.notes.refusals] == ["share_contact_details"]
     assert tool.acted == []
 
@@ -80,7 +80,7 @@ async def test_a_tool_that_raises_is_kept_and_the_model_learns_nothing_of_why() 
     await result_of(presented(BrokenTool(second), ledger), {})
 
     assert result["content"] == [{"text": TOOL_FAILED}]
-    # The first failure is the one that explains the rest.
+    # The first failure is the one kept.
     assert ledger.failure is first
 
 

@@ -12,8 +12,6 @@ from letmehandle.domain.models.summary import MAX_HEADLINE_CHARACTERS, CallOutco
 
 
 def test_the_schema_offers_exactly_the_words_the_domain_has() -> None:
-    # A word offered and not in the domain is a guaranteed refusal; one missing is an answer the
-    # model cannot give.
     spec = convert_pydantic_to_tool_spec(CallSummaryAnswer)
     schema = spec["inputSchema"]["json"]
     properties = schema["properties"]

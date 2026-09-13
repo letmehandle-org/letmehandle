@@ -1,9 +1,4 @@
-"""The summary written when a model's cannot be.
-
-Every test is a call ending one way, walked through the real state machine, and the assertion is
-what the user reads afterwards: an outcome that is true, a sentence that says it plainly, and
-nothing the call did not contain.
-"""
+"""The fallback summary of calls ending each way, walked through the real state machine."""
 
 from __future__ import annotations
 
@@ -150,8 +145,7 @@ class TestEveryEnding:
         )
 
     def test_every_outcome_the_domain_has_is_reachable(self) -> None:
-        # A new outcome with no path here is one the fallback can never write, and a call ending
-        # that way would be summarised as something else.
+        # Every outcome has a path that writes it.
         reached = {
             fallback_summary(facts, locale="en").outcome
             for facts in (
@@ -174,7 +168,7 @@ class TestEveryEnding:
         assert summary.outcome is CallOutcome.UNANSWERED_ESCALATION
 
     def test_a_caller_who_hangs_up_before_the_assistant_joins_was_not_put_through(self) -> None:
-        # Given to the assistant, and gone before its leg joined: nobody put the call through.
+        # Given to the assistant and gone before its leg joined: nobody put the call through.
         call = a_call()
         call.move_to(CallState.AGENT_HANDLING)
         call.move_to(CallState.COMPLETED, at_instant=at(3))
@@ -284,8 +278,7 @@ class TestWhatItSays:
 
 class TestAfterTheTranscriptIsGone:
     def test_it_needs_nothing_but_the_call_to_render(self) -> None:
-        # Built from the stored call alone, as it is read back once every line said on it has
-        # been purged: no transcript, restored from storage, and still a complete summary.
+        # Built from the stored call alone, with no transcript, and still complete.
         original = escalated(answered=True)
         stored = CallSession.restore(
             id=original.id,

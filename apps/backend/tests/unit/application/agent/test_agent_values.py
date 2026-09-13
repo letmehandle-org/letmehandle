@@ -13,7 +13,6 @@ from tests.unit.application.agent.calls import a_call
 
 @pytest.mark.parametrize(("tool", "reason"), [("", "because"), ("end_call", "  ")])
 def test_a_refusal_names_the_tool_and_says_why(tool: str, reason: str) -> None:
-    # A refusal is shown to the user; one that names nothing or explains nothing is noise.
     with pytest.raises(InvariantError):
         ToolRefusal(tool=tool, reason=reason)
 

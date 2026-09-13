@@ -1,10 +1,4 @@
-"""What the model is told, and what it is not.
-
-Two kinds of test here. The first kind asserts that a phone number never reaches the context,
-because that is the failure with a consequence outside the process. The second asserts the
-shape byte for byte, because a field that quietly changes order changes every model response
-and no test that only checks membership would notice.
-"""
+"""The preference context carries no phone number and has a byte-for-byte stable shape."""
 
 from __future__ import annotations
 
@@ -46,8 +40,7 @@ from letmehandle.domain.models.preferences import (
 
 LONDON = "Europe/London"
 
-# Reserved for documentation and never routable, which is the only kind of number that belongs
-# in a fixture.
+# Reserved for documentation and never routable.
 PARTNER_NUMBER = PhoneNumber("+12025550143")
 SCHOOL_NUMBER = PhoneNumber("+12025550187")
 
@@ -108,14 +101,11 @@ class TestChoosingAPhrasebook:
         assert phrasebook_for("fr-CA") is PHRASEBOOKS[DEFAULT_LOCALE]
 
     def test_the_users_language_survives_the_fallback(self) -> None:
-        # Which language to speak and which phrasebook happens to exist are different
-        # questions. Answering the first with the second answers a French user in English.
+        # The requested locale is kept even when no phrasebook for it exists.
         context = build_preference_context(UserPreferences(locale="fr"), now=MIDDAY)
         assert context.locale == "fr"
 
     def test_every_phrasebook_can_phrase_everything(self) -> None:
-        # A phrasebook missing an entry fails at build time, during a call, on the one user
-        # whose locale reached it.
         for phrasebook in PHRASEBOOKS.values():
             assert set(phrasebook.tone) == set(Formality)
             assert set(phrasebook.length) == set(Verbosity)
@@ -128,8 +118,7 @@ class TestTheInstant:
             build_preference_context(fully_populated(), now=datetime(2026, 6, 1, 12, 0))
 
     def test_active_hours_are_resolved_not_handed_over(self) -> None:
-        # The model is told whether the assistant is in its hours now, never the window. A window
-        # is arithmetic, and arithmetic in a prompt is a coin toss about whether somebody is woken.
+        # The model is told whether it is within active hours now, never the window.
         preferences = fully_populated()
         assert build_preference_context(preferences, now=MIDDAY).in_active_hours
         assert not build_preference_context(preferences, now=MIDNIGHT).in_active_hours
@@ -148,8 +137,7 @@ class TestTheInstant:
 
 class TestWhatIsNotDisclosed:
     def test_no_phone_number_reaches_the_context(self) -> None:
-        # The one assertion in this file with a consequence outside the process. A number in
-        # model context is a number a caller can ask for.
+        # A number in model context is a number a caller can ask for.
         context = build_preference_context(fully_populated(), now=MIDDAY)
         rendered = repr(context)
         assert PARTNER_NUMBER.value not in rendered
@@ -166,8 +154,7 @@ class TestWhatIsNotDisclosed:
 
 class TestCapabilities:
     def test_every_capability_is_stated_including_the_refused_ones(self) -> None:
-        # A model told only what it may do infers the rest from silence, and silence is the
-        # input a caller gets to shape.
+        # What the assistant may not do is stated, not left to silence.
         context = build_preference_context(fully_populated(), now=MIDDAY)
         assert {statement.capability for statement in context.capabilities} == set(Capability)
 
@@ -194,9 +181,7 @@ class TestCapabilities:
 
 class TestDeterminism:
     def test_sets_arrive_sorted_rather_than_in_hash_order(self) -> None:
-        # A frozenset iterates in hash order, which differs between processes. The same call
-        # would then produce a different context, and so a different model response, with
-        # nothing in a log to say why.
+        # A frozenset iterates in hash order, which differs between processes.
         context = build_preference_context(fully_populated(), now=MIDDAY)
         assert context.topics == ("boiler repair", "school run")
         assert context.disclosable_facts == ("is travelling this week", "prefers email")
@@ -236,7 +221,7 @@ class TestVersion:
         assert context.is_current_version
 
     def test_an_older_version_is_visible_rather_than_assumed_away(self) -> None:
-        # The point of carrying it: a transcript can be read against the rules that applied.
+        # Carried so a transcript can be read against the rules that applied.
         older = UserPreferences(version=PREFERENCES_VERSION + 1)
         context = build_preference_context(older, now=MIDDAY)
         assert context.preferences_version == PREFERENCES_VERSION + 1
@@ -311,13 +296,10 @@ class TestPhrasebooksAreCompleteAtImport:
     """A missing phrase must stop the process, not a call."""
 
     def test_the_shipped_phrasebooks_pass_the_check(self) -> None:
-        # The check runs at import, so reaching this line already proves it. Calling it again
-        # is what makes the guard itself covered rather than merely executed.
+        # Calls the import-time check again so the guard itself is covered.
         _every_phrasebook_is_complete()
 
     def test_a_phrasebook_missing_a_phrase_is_refused(self) -> None:
-        # Without this the gap surfaces mid-call, and only for the user whose formality happens
-        # to be the missing one — so it could sit unnoticed until the worst possible moment.
         incomplete = Phrasebook(
             tone={Formality.WARM: "warm"},
             length=dict(PHRASEBOOKS[DEFAULT_LOCALE].length),
@@ -333,18 +315,12 @@ class TestPhrasebooksAreCompleteAtImport:
             _every_phrasebook_is_complete()
 
 
-# A fixed, timezone-aware moment. Any instant will do; what matters is that it is the same
-# one on both sides of every comparison below.
+# A fixed, timezone-aware moment shared by every comparison below.
 AN_INSTANT = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
 
 class TestPreferencesMateriallyChangeTheContext:
-    """Nothing about the assistant's behaviour may be a constant in the code.
-
-    The acceptance criterion for this phase is that no preference value is hard-coded anywhere.
-    A builder that ignored half of what it was given would still pass every determinism and
-    disclosure test above, so this drives each field separately and insists the output moves.
-    """
+    """Every preference field moves the context; none is a constant in the code."""
 
     @pytest.mark.parametrize(
         ("one", "other"),

@@ -1,9 +1,4 @@
-"""The one path to the user's phone.
-
-What these tests count is rings. The policy's decisions are tested beside the policy; here the
-question is only how many times a call reaches the user, and whether a failure to reach them
-leaves the call unable to reach them again.
-"""
+"""How many times the one path to the user's phone rings for a call."""
 
 from __future__ import annotations
 
@@ -136,7 +131,7 @@ async def test_a_failed_upgrade_leaves_the_earlier_escalation_standing(
     with pytest.raises(ConnectionError):
         await escalation.consider(night, URGENT)
 
-    # The note for later still stands, so another one is not made...
+    # The note for later still stands, so another is not made...
     await escalation.consider(night, NOTABLE)
     assert len(actions.actions) == 1
     # ...and the upgrade can still be.
@@ -170,9 +165,7 @@ async def test_an_upgrade_that_reached_the_user_survives_an_earlier_look_failing
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     deferring(monkeypatch)
-    # The first look is still ringing "while convenient" when the urgent one arrives. The first
-    # fails; the urgent one reaches the user. The call has been escalated immediately, and asking
-    # again must not ring a third time.
+    # The earlier look fails while the urgent one reaches the user; a third ring must not follow.
     escalation, actions = service()
     actions.escalation_gate = asyncio.Event()
     actions.escalation_failures = [ConnectionError("the notification did not send")]
@@ -209,13 +202,12 @@ async def test_two_looks_that_both_fail_leave_the_call_able_to_reach_the_user(
     outcomes = await asyncio.gather(*looks, return_exceptions=True)
 
     assert all(isinstance(outcome, ConnectionError) for outcome in outcomes)
-    # Nobody was reached, so a call that merits only a later note still gets one.
+    # Nobody was reached, so a call that merits a later note still gets one.
     later = await escalation.consider(night, NOTABLE)
     assert actions.of_kind(Escalated) == [Escalated(night.call_id, later)]
 
 
 async def test_a_forgotten_call_can_reach_the_user_again() -> None:
-    # What orchestration does when a call is over: nothing about it is kept, per call, for ever.
     escalation, actions = service()
     call = a_call()
     await escalation.consider(call, URGENT)

@@ -1,17 +1,4 @@
-"""The summary evaluation set: fixed calls, expected extractions, a pass rate per class of call.
-
-Deterministic tests prove the checks and the fallback with a scripted model. This measures a real
-one: whether the configured model, with the current summary prompts, writes summaries the checks
-keep and that carry what the call contained. A prompt change that degrades summaries shows here.
-It is not part of the test run, because it needs a model endpoint and its answers vary.
-
-Calls are data, in `summaries.json`. Each is what was said, how the call ended, which intents are
-acceptable, a reference summary a person wrote, and the kinds of detail the call does not contain
-however tempting they look. A summary passes when a model's draft was kept rather than the
-fallback, its intent is acceptable, it carries every reference detail, and it carries no detail of
-an absent kind. The reference summary is itself held to the checks, so the set cannot ask for a
-summary the product would refuse.
-"""
+"""The summary evaluation set: fixed calls, expected extractions, a pass rate per class of call."""
 
 from __future__ import annotations
 
@@ -26,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.calls.summary_checks import words
 
-# Read by pydantic when it builds the scenario models, so they are needed at run time.
+# Read by pydantic when it builds the scenario models, so needed at run time.
 from letmehandle.application.calls.summary_draft import DetailKind  # noqa: TC001
 from letmehandle.domain.models.call import Speaker  # noqa: TC001
 from letmehandle.domain.models.intent import CallIntent  # noqa: TC001

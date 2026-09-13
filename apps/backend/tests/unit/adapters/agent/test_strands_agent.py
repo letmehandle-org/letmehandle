@@ -33,8 +33,7 @@ def a_conclusion() -> JudgementConclusion:
 
 @pytest.fixture
 def unfiltered_logging() -> Iterator[None]:
-    # Another test may have configured logging at a level that drops these events before they
-    # could be captured. Whatever was configured is put back afterwards.
+    # Resets logging so no configured level drops the events, and restores it afterwards.
     configured = structlog.get_config()
     structlog.reset_defaults()
     yield
@@ -73,8 +72,6 @@ async def test_a_failure_is_logged_by_kind_and_never_by_content(steps: list[Step
 
 
 def test_the_schema_offers_exactly_the_words_the_domain_has() -> None:
-    # A value added to the domain and not offered to the model is a judgement it cannot make; one
-    # offered and not in the domain is a guaranteed refusal.
     spec = convert_pydantic_to_tool_spec(CallAssessment)
     properties = spec["inputSchema"]["json"]["properties"]
     assert spec["name"] == ASSESSMENT_TOOL

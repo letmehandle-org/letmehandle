@@ -1,9 +1,4 @@
-"""What the model writing a summary is told, and how the call reaches it.
-
-The instructions carry nothing from any call. The call arrives as data in a message of its own: how
-it ended, the words a headline may name that ending with, who called as far as the user knows, and
-what was said, with no delimiter a caller could close by speaking it.
-"""
+"""What the summarising model is told, and the call it is given as data."""
 
 from __future__ import annotations
 

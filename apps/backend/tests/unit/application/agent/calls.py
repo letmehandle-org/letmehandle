@@ -1,8 +1,4 @@
-"""Calls to judge, built the way orchestration will build them.
-
-Everything is derived from one `UserPreferences`, so the authority a tool enforces and the context
-a model reads start out agreeing — and a test that wants them to disagree has to say so.
-"""
+"""Calls to judge, built from one `UserPreferences` so authority and context agree."""
 
 from __future__ import annotations
 
@@ -30,8 +26,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.authority import AgentAuthority
     from letmehandle.domain.policy.escalation import CallCircumstances, EscalationProposal
 
-# Winter, so London is on UTC and the active window reads the same in both. Noon is inside it and
-# three in the morning outside.
+# In winter London is on UTC; noon is inside the active window and three in the morning outside.
 NOON: Final = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 THREE_AM: Final = datetime(2026, 1, 15, 3, 0, tzinfo=UTC)
 ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
@@ -74,12 +69,7 @@ def a_call(
 
 
 def deferring(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stand in for a policy that leaves what is not urgent for later.
-
-    Today's policy never does (D-030), but the service, the tool and the conclusion still act on a
-    decision that waits — `WHILE_CONVENIENT` is kept in the model — so they are tested against one.
-    Everything else about the decision is the real policy's.
-    """
+    """Stands in for a policy that defers what is not urgent."""
 
     def decide(
         proposal: EscalationProposal, circumstances: CallCircumstances

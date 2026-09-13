@@ -1,9 +1,4 @@
-"""The two tools that only read: what the user wants, and who is calling.
-
-Nothing they return may carry a phone number, and the same call must render the same bytes. The
-first is a disclosure a caller can ask for; the second is a model that answers two identical calls
-differently with nothing in a log to say why.
-"""
+"""The two reading tools return no phone number and the same bytes for the same call."""
 
 from __future__ import annotations
 
@@ -32,7 +27,7 @@ from letmehandle.domain.models.preferences import (
 from tests.unit.application.agent.calls import STRANGER_NUMBER, THREE_AM, a_call
 from tests.unit.application.agent.kit import Kit, answered, refused
 
-# The first number reserved for fiction; the other ninety-nine differ only in the last two digits.
+# The first number reserved for fiction; the others differ only in the last two digits.
 FIRST_FICTIONAL = PhoneNumber("+12025550100")
 LABELS = ("Partner", "School office", "Mum", "Plumber", "Dentist reception", "Neighbour")
 
@@ -151,7 +146,7 @@ async def test_the_caller_is_described_without_their_number() -> None:
 
 
 async def test_an_important_contact_is_named_as_the_user_labelled_them() -> None:
-    # The network's name for the caller is not what the user called them, and is not used.
+    # The network's name for the caller is not used.
     caller = Caller(
         number=STRANGER_NUMBER, display_name="Unknown Ltd", category=CallerCategory.KNOWN_CONTACT
     )
