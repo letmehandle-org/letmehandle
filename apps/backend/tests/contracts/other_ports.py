@@ -75,6 +75,11 @@ class OTPProviderContract:
         assert isinstance(otp.is_safe_for_production, bool)
         assert otp.name.strip()
 
+    def test_only_a_provider_unsafe_for_production_fixes_the_code(self, otp: OTPProvider) -> None:
+        # A real provider with a fixed code would give every account the same one.
+        if otp.is_safe_for_production:
+            assert otp.fixed_code is None
+
     async def test_it_accepts_a_code_for_a_number(self, otp: OTPProvider) -> None:
         await otp.send(A_NUMBER, "000000")
 

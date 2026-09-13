@@ -42,6 +42,7 @@ from letmehandle.adapters.notification.fcm import provider as fcm
 from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
 from letmehandle.adapters.notification.shared import CredentialError
 from letmehandle.adapters.otp.mock import MockOTPProvider
+from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
 from letmehandle.adapters.security.hashing import (
     DeterministicHasher,
@@ -306,9 +307,9 @@ class _Closable(Protocol):
         """Release what it holds."""
 
 
-async def close_notification_providers(container: Container) -> None:
+async def close_providers(container: Container) -> None:
     """Close each provider's connection. Called once, as the application stops."""
-    for provider in container.notifications:
+    for provider in (container.otp, *container.notifications):
         if isinstance(provider, _Closable):
             await provider.aclose()
 
@@ -602,6 +603,13 @@ def _build_otp_provider(settings: Settings) -> OTPProvider:
     match settings.otp_provider:
         case OTPProviderName.MOCK:
             return MockOTPProvider(is_production=settings.is_production)
+        case OTPProviderName.TWILIO_SMS:
+            account = settings.require_sms_account()
+            return SmsOTPProvider(
+                account_id=account.account_id,
+                auth_token=account.auth_token,
+                sender=account.sender,
+            )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             # Not dead code: it is what makes the type checker reject a new provider that has
             # not been wired in here. Unreachable at run time is exactly the point.

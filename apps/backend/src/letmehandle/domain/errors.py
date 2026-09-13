@@ -87,6 +87,18 @@ class ProviderError(DomainError):
         self.retryable = retryable
 
 
+class UnreachableNumberError(ProviderError):
+    """A provider will not deliver to this number, and asking again will not change that.
+
+    Its own type because what somebody can do about it differs from every other provider failure:
+    a number mistyped, or one that cannot receive a text, is fixed by the person entering it, while
+    an outage or a refused account is fixed by nobody on the other end of the request.
+    """
+
+    def __init__(self, provider: str, reason: str) -> None:
+        super().__init__(provider, reason, retryable=False)
+
+
 class RecordNotFoundError(DomainError):
     """A stored record this user asked to write against does not exist for them.
 

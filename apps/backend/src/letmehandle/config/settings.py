@@ -48,6 +48,7 @@ class OTPProviderName(StrEnum):
     """Which provider delivers sign-in codes."""
 
     MOCK = "mock"
+    TWILIO_SMS = "twilio_sms"
 
 
 class SpeechProviderName(StrEnum):
@@ -97,6 +98,15 @@ class TelephonyProviderName(StrEnum):
 
     TWILIO = "twilio"
     ANDROID_NATIVE = "android_native"
+
+
+@dataclass(frozen=True, slots=True)
+class SmsAccount:
+    """Everything the text-message code provider needs, present and checked."""
+
+    account_id: str
+    auth_token: str = field(repr=False)
+    sender: PhoneNumber
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +244,16 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+def _sender_from_text(value: object) -> object:
+    # The message names the variable and never repeats the value, as every number error here does.
+    if not isinstance(value, str):
+        return value
+    try:
+        return PhoneNumber.parse(value)
+    except InvariantError:
+        raise ValueError("SMS_FROM_NUMBER is not an international number in E.164 form") from None
+
+
 # How LLM_HEADERS is written, quoted in every error about it.
 LLM_HEADERS_FORMAT: Final = "Header-Name=value;Other-Header=value"
 
@@ -327,6 +347,17 @@ class Settings(BaseSettings):
     auth_access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     auth_refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=3600)
     otp_provider: OTPProviderName = OTPProviderName.MOCK
+    # The account the text-message code provider sends from, required only when it is chosen.
+    # Its own variables rather than the telephony account's: a deployment whose calls arrive on a
+    # handset has no telephony account at all and still needs codes delivered, and a credential
+    # that can only send texts is revoked without touching the one that carries calls.
+    sms_account_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    sms_auth_token: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    sms_from_number: Annotated[
+        PhoneNumber | None,
+        BeforeValidator(_sender_from_text),
+        BeforeValidator(_blank_is_absent),
+    ] = None
 
     # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
     # is optional at startup: nothing opens a speech session in a request yet, and a process that
@@ -550,6 +581,25 @@ class Settings(BaseSettings):
                 f"Set it in .env as {TRANSCRIPT_KEYS_FORMAT!r}; see .env.example."
             )
         return parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
+
+    def require_sms_account(self) -> SmsAccount:
+        """What the text-message code provider needs, or a failure naming every variable missing."""
+        account_id, token, sender = self.sms_account_id, self.sms_auth_token, self.sms_from_number
+        if account_id is None or token is None or sender is None:
+            missing = [
+                name
+                for name, value in (
+                    ("SMS_ACCOUNT_ID", account_id),
+                    ("SMS_AUTH_TOKEN", token),
+                    ("SMS_FROM_NUMBER", sender),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to send sign-in codes with "
+                f"OTP_PROVIDER={self.otp_provider}. Set them in .env; see .env.example."
+            )
+        return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.
