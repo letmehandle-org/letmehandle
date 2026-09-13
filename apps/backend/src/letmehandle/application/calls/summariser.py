@@ -1,27 +1,4 @@
-"""The summary a model writes of a call that has ended, and the facts it may not contradict.
-
-When a call ends, orchestration hands `CallSummariser` what it knows for certain and what was said,
-and gets back a summary that is always valid. A model writes the parts only a reading of the call
-can supply — the sentence the user reads, what the call was for, the details worth keeping — and
-nothing else: the outcome, the timings, who was on the call and why the user was asked for are the
-facts' own, taken from the fallback summary those facts build.
-
-Whatever the model does, the caller of this port gets a summary. A model that is down, slow, or
-answers with something the checks refuse produces the fallback (D-014): the summary is the only
-record left once the transcript is purged, and a call missing from history is worse than a plain
-sentence about it.
-
-A draft the checks refuse gets one correction first: the model is asked again with the problems the
-checks named, and a corrected draft that passes is kept. Most refusals are a model near the
-mark — a clause of the call repeated, a detail reworded — and those it can fix when told. A model
-that failed, timed out or wrote nothing usable is not asked again, because nothing it was told
-would change that. The correction is inside the same bound as the draft, and is not started once
-there is less time left than the draft took, since a correction abandoned half-written is the
-fallback at a model's price.
-
-Neither port here names a framework or a model (D-026). The model runs in an adapter behind
-`SummaryDrafter`, and everything that decides whether its draft is kept lives in this layer.
-"""
+"""Summarises an ended call with a model, one correction and a fallback (D-014)."""
 
 from __future__ import annotations
 
@@ -62,8 +39,7 @@ class Written(StrEnum):
     FALLBACK = "fallback"
 
 
-# Counted once per call a model was asked to summarise, so the share kept on the first draft, kept
-# after a correction and fallen back shows whether corrections earn the time they take.
+# Counted once per call a model was asked to summarise, by which summary was kept.
 SUMMARY_WRITTEN: Final = catalogue.count("call.summary_written", outcome=Written)
 
 
@@ -78,10 +54,7 @@ class SummaryDrafter(ABC):
     async def draft(
         self, request: SummaryRequest, correction: DraftCorrection | None = None
     ) -> SummaryDraft:
-        """The model's draft of `request`, or with `correction`, its draft again once refused.
-
-        May raise anything a model and its client raise; `CallSummariser` absorbs it.
-        """
+        """The model's draft of `request` or its correction; may raise anything."""
 
 
 class CallSummariser(ABC):
@@ -91,19 +64,11 @@ class CallSummariser(ABC):
     async def summarise(
         self, facts: CallFacts, transcript: Sequence[TranscriptEntry], *, locale: str
     ) -> CallSummary:
-        """A valid summary of the call, never a failure.
-
-        Raises only `InvariantError` for a call still in progress, as `fallback_summary` does,
-        because that is a defect in whoever asked rather than a model misbehaving.
-        """
+        """A valid summary; raises `InvariantError` only for a call still in progress."""
 
 
 class ModelCallSummariser(CallSummariser):
-    """Keeps a model's draft when every check passes it, a corrected one next, the fallback last.
-
-    `clock` is monotonic seconds, read to decide whether a correction still has time to finish;
-    the bound itself is enforced by the event loop whatever the clock says.
-    """
+    """Keeps a checked draft, then a checked correction if time allows, then the fallback."""
 
     def __init__(
         self,
@@ -127,20 +92,19 @@ class ModelCallSummariser(CallSummariser):
         """Ask the model within the bound, check what it wrote, and fall back on any failure."""
         known = fallback_summary(facts, locale=locale)
         if not transcript:
-            # Nothing was said, so there is nothing a model could add that would not be invented.
+            # Nothing was said, so a model has nothing to add.
             return known
         request = SummaryRequest(known=known, transcript=tuple(transcript), locale=locale)
         try:
             async with asyncio.timeout(self._timeout.total_seconds()):
                 summary, written = await self._written(request)
-        # Deliberately broad, for the reason the call agent gives: the port promises a summary
-        # whatever the model does. Logged by kind and never by content, which is somebody's call.
+        # Any model failure becomes the fallback, logged by kind and never by content.
         except Exception as error:  # noqa: BLE001
             self._logger.warning(
                 "summary.model_failed", call_id=str(known.call_id), failure=type(error).__name__
             )
             summary, written = known, Written.FALLBACK
-        # Counted outside the model's failures, so a metric refused is a defect that surfaces.
+        # Recorded outside the handler, so a refused metric surfaces as a defect.
         self._metrics.increment(SUMMARY_WRITTEN, {"outcome": written})
         return summary
 
@@ -174,14 +138,13 @@ class ModelCallSummariser(CallSummariser):
         return problems
 
     def _time_for_a_correction(self, started: float) -> bool:
-        # A correction is the same request and a little more, so it takes about as long as the
-        # draft did; one started with less time left than that is likely abandoned half-written.
+        # A correction takes about as long as the draft, so it needs that much time left.
         spent = self._clock() - started
         return self._timeout.total_seconds() - spent >= spent
 
 
 def _kept(known: CallSummary, draft: SummaryDraft) -> CallSummary:
-    """`known`, with what the checked draft adds. The checks refuse all the summary refuses."""
+    """`known`, with the headline, intent and details of a checked draft."""
     return replace(
         known,
         headline=draft.headline,

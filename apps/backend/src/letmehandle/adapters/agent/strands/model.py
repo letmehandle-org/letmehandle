@@ -1,8 +1,4 @@
-"""The model the agent runs on, reached as an OpenAI-compatible endpoint (D-007).
-
-The only model this adapter constructs. A hosted API, an aggregator and a server on somebody's own
-machine are the same few values here, so choosing between them is configuration and never code.
-"""
+"""The model the agent runs on, reached as an OpenAI-compatible endpoint (D-007)."""
 
 from __future__ import annotations
 

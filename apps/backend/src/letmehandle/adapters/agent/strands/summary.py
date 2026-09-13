@@ -1,15 +1,4 @@
-"""The call summariser's model, on the Strands Agents SDK (D-026).
-
-One SDK agent per summary, with no tools and nothing shared with any other call: it is asked for
-one structured answer and thrown away. What it writes is checked twice. Here, for shape, strictly,
-so an answer that is cut off, uses a word outside a set, or carries a field nothing reads is refused
-and the SDK hands the model the reason to correct. Then in the application, for truth and quality,
-which may ask once more with what was wrong before falling back.
-
-The instructions are the system prompt. The call and what was said on it are a message of their
-own, delimited as data, and nothing from the call is written into the instructions; nor is a draft
-being corrected, which is data after the call.
-"""
+"""The call summariser's model on the Strands Agents SDK (D-026)."""
 
 from __future__ import annotations
 
@@ -87,11 +76,7 @@ class StrandsSummaryDrafter(SummaryDrafter):
     async def draft(
         self, request: SummaryRequest, correction: DraftCorrection | None = None
     ) -> SummaryDraft:
-        """The model's answer, or `SummaryNotWrittenError` when it finished without a valid one.
-
-        A correction is a fresh agent too, told about the call and then, in the same message, about
-        the draft it is correcting: nothing of the first attempt's conversation is kept to resume.
-        """
+        """A fresh agent's answer, or `SummaryNotWrittenError` when it gave no valid one."""
         prompts = load_summary_prompts(request.locale)
         call: list[ContentBlock] = [{"text": prompts.call_message(request)}]
         if correction is not None:

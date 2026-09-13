@@ -1,8 +1,4 @@
-"""What a model is asked to summarise, and what it drafts, before anything has checked it.
-
-Kept apart from the summariser so that the checks, the prompts and the adapter can name these
-shapes without importing the port that uses them.
-"""
+"""What a model is asked to summarise, and the draft it writes before any check."""
 
 from __future__ import annotations
 
@@ -18,11 +14,7 @@ if TYPE_CHECKING:
 
 
 class DetailKind(StrEnum):
-    """The kinds of detail a summary keeps, which are the ones a user acts on.
-
-    Stored as an `ExtractedDetail`'s label. A commitment is split by which way it went, because
-    "they will call back" and "they would not refund it" send the user in opposite directions.
-    """
+    """The kinds of detail a summary keeps, stored as an `ExtractedDetail`'s label."""
 
     TIME = "time"
     NAME = "name"
@@ -44,11 +36,7 @@ class DraftDetail:
 
 @dataclass(frozen=True, slots=True)
 class SummaryDraft:
-    """What a model wrote, before anything has checked it.
-
-    `outcome` is the model's reading of how the call ended. It is never used as the outcome, which
-    the facts settle; a draft that disagrees with them misread the call and is refused.
-    """
+    """What a model wrote; its `outcome` is only compared with the facts, never kept."""
 
     headline: str
     intent: CallIntent
@@ -58,11 +46,7 @@ class SummaryDraft:
 
 @dataclass(frozen=True, slots=True)
 class SummaryRequest:
-    """What a model is given to summarise one ended call.
-
-    `known` is the summary the facts alone support. The model reads its outcome and who called
-    from it, and a kept draft changes only its headline, intent and details.
-    """
+    """What a model is given for one ended call; `known` is the summary the facts alone support."""
 
     known: CallSummary
     transcript: tuple[TranscriptEntry, ...]
@@ -71,11 +55,7 @@ class SummaryRequest:
 
 @dataclass(frozen=True, slots=True)
 class DraftCorrection:
-    """A draft the checks refused, and why, for a model asked to write the summary again.
-
-    The refused draft goes back to the model with the problems because a fresh request cannot see
-    what it wrote before, and "fix the headline" means nothing without the headline.
-    """
+    """A refused draft and the problems found with it, for the model to correct."""
 
     refused: SummaryDraft
     problems: tuple[DraftProblem, ...]

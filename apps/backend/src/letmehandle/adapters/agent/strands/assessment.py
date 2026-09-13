@@ -1,19 +1,4 @@
-"""The shape the model's assessment must arrive in, checked before anything reads it.
-
-Strict where strictness is the difference between a judgement and a guess. Every field that has no
-"none" is required, so an answer cut off halfway is refused rather than completed with defaults
-nobody chose. The two that may be null may also be left out, because the schema the SDK shows a
-model does not list a nullable field as required, and a model that follows the schema it was shown
-has answered. A flag is
-`true` or `false` and not the string "yes". An intent, an importance or a capability is one of the
-words it may be, exactly: "URGENT!!" is not `urgent` with the enthusiasm removed, it is an answer
-outside the set, and turning it into the nearest valid value is precisely the silent coercion a
-decision cannot rest on. Unknown fields are refused too, so a model cannot smuggle a decision in
-under a name nothing reads.
-
-A refused assessment goes back to the model with the reason, which is the SDK's behaviour for its
-structured output tool; a model that never produces a valid one gets the agent's fallback.
-"""
+"""The strict shape the model's assessment must arrive in; a refused one goes back to the model."""
 
 from __future__ import annotations
 

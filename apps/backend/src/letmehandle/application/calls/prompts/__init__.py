@@ -1,18 +1,4 @@
-"""What the model writing a call's summary is told, read from versioned template files.
-
-Laid out as the agent's prompts are (`v1/en/instructions.md`), for the same reasons: a change to
-what the model is told is prose somebody can review and a change the summary evaluation measures.
-Nothing about a particular call or user is written in a template. What orchestration knows about
-the call, and what was said on it, arrive as data in a message of their own, rendered by the agent
-prompts' `as_data` so no caller can speak a closing delimiter.
-
-The phrases a headline may name its ending with are rendered from the same vocabulary the checks
-read, so the model is asked for exactly what will be accepted.
-
-From v3 a version may also say how to ask for a draft again once the checks refused one. It is sent
-as a message after the call's, with the refused draft as data and the problems by name, and the
-template explains every name: the checks' own words for why, never anything the call contained.
-"""
+"""What the summarising model is told, from versioned template files, with the call as data."""
 
 from __future__ import annotations
 
@@ -62,12 +48,7 @@ class SummaryPrompts:
         return self.instructions.substitute(answer_tool=answer_tool)
 
     def call_message(self, request: SummaryRequest) -> str:
-        """What is known about the call, and what was said on it, delimited as data.
-
-        The caller is described by category, and by name only when the user saved them as a
-        contact: the fallback's own rule, so a model is never handed a stranger's claimed name to
-        repeat. No phone number is sent.
-        """
+        """The call's known facts and transcript as data, with a name only for a known caller."""
         known = request.known
         caller = known.caller
         call = {
@@ -78,7 +59,7 @@ class SummaryPrompts:
             "caller_category": caller.category.value,
             "caller_name": caller.display_name if caller.is_known else None,
             "user_joined": known.human_joined,
-            # The user reads the summary, so it is written in their language, not the caller's.
+            # Written in the user's language, not the caller's.
             "write_for_locale": normalise_locale(request.locale),
         }
         return self.call.substitute(
@@ -90,11 +71,7 @@ class SummaryPrompts:
         return self.answer.substitute(answer_tool=answer_tool)
 
     def correction_message(self, correction: DraftCorrection, *, answer_tool: str) -> str:
-        """What the model is told after the call when the checks refused its draft.
-
-        The draft is the model's own, but made of words from the call, so it is delimited as data
-        the same way the transcript is.
-        """
+        """The refused draft and its problems as data, for the model to correct."""
         if self.correction is None:
             raise InvariantError(
                 f"version {self.version!r} of the summary prompts cannot ask for a correction"

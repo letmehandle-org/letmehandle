@@ -1,22 +1,4 @@
-"""Application tools, presented to the SDK and nothing more.
-
-A presented tool forwards the model's arguments to `AgentTool.invoke` and hands back what the tool
-said. It does not validate, check a grant or decide anything: each tool does that for itself
-(D-026), so what the assistant may do does not depend on this file being right.
-
-Two things are kept for the judgement, in a ledger that lives as long as one: the judgement's notes,
-which the tools write their refusals and requests to, and which this file writes to only for calls
-that never reached a tool; and a tool that raised. The SDK's own answer to a raising tool is to
-tell the model the exception's text and carry on, which both shows a model — and through it a
-caller — whatever the exception said, and turns a defect into a sentence nobody reads. Here the
-model is told only that the action did not complete, no tool that acts on the call runs after it,
-and the agent raises the failure once the model has finished.
-
-A tool the model asks for that does not exist never reaches this file's wrappers, and the SDK's own
-answer is an error the judgement never hears of. `UnknownToolRefusals` records it as a refusal like
-any other, so the user sees what their assistant was asked to do even when there was nothing to do
-it with.
-"""
+"""Application tools presented to the SDK, with a raising tool kept and hidden from the model."""
 
 from __future__ import annotations
 
@@ -39,14 +21,13 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.ports import CallSoFar
     from letmehandle.application.agent.tool import AgentTool
 
-# What the model reads when a tool raised. Deliberately says nothing about why.
+# What the model reads when a tool raised; it says nothing about why.
 TOOL_FAILED: Final = "The action could not be completed."
 
 # Why a tool that acts on the call is refused once another has failed.
 AFTER_A_FAILURE: Final = "an earlier action on this call failed, so nothing more is done"
 
-# How a request for a tool nobody has is written down. The name is kept only when the SDK accepts it
-# as a tool name at all; anything else is text the model wrote, which a caller may have dictated.
+# How a request for an absent tool is recorded; a name the SDK refuses is never kept.
 NO_SUCH_TOOL: Final = "there is no tool by that name"
 UNKNOWN_TOOL: Final = "unknown_tool"
 
@@ -60,12 +41,7 @@ class ToolLedger:
 
 
 class UnknownToolRefusals(HookProvider):
-    """Refuses, and records, a request for a tool the judgement was not given.
-
-    Two hooks, because the SDK turns such a request away at two points. A name that is not a valid
-    tool name is answered before any tool runs, so it is caught as the model's message arrives. A
-    valid name nobody registered reaches the executor with no tool selected, and is cancelled there.
-    """
+    """Refuses and records a request for a tool the judgement was not given."""
 
     def __init__(self, ledger: ToolLedger) -> None:
         self._ledger = ledger
@@ -90,7 +66,7 @@ class UnknownToolRefusals(HookProvider):
             return
         refusal = ToolRefusal(event.tool_use["name"], NO_SUCH_TOOL)
         self._ledger.notes.refused(refusal)
-        # Cancelled, so the model reads a refusal like any other rather than the SDK's own error.
+        # Cancelled, so the model reads a refusal like any other.
         event.cancel_tool = _refusal_text(refusal)
 
 
@@ -112,7 +88,7 @@ def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgent
             return _result(tool_use, TOOL_FAILED, succeeded=False)
 
         if isinstance(outcome, ToolRefusal):
-            # Already in the notes: the tool that refused wrote it there.
+            # Already recorded by the tool that refused.
             return _result(tool_use, _refusal_text(outcome), succeeded=False)
         return _result(tool_use, outcome.content, succeeded=True)
 
