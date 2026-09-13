@@ -839,5 +839,5 @@ async def orchestrating(
         await orchestrator.stop()
         line.close()
         await dispatcher.aclose()
-        assert orchestrator.live_calls == 0
-        await eventually(lambda: not running_tasks() - before)
+    assert orchestrator.live_calls == 0
+    await eventually(lambda: not running_tasks() - before)

@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
-from enum import StrEnum
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.calls.summary_checks import problems_with
+from letmehandle.application.calls.summary_draft import SummaryDraft, SummaryRequest
 from letmehandle.domain.models.summary import ExtractedDetail
 from letmehandle.observability.logging import get_logger
 
@@ -34,60 +34,7 @@ if TYPE_CHECKING:
 
     from letmehandle.application.calls.fallback import CallFacts
     from letmehandle.domain.models.call import TranscriptEntry
-    from letmehandle.domain.models.intent import CallIntent
-    from letmehandle.domain.models.summary import CallOutcome, CallSummary
-
-
-class DetailKind(StrEnum):
-    """The kinds of detail a summary keeps, which are the ones a user acts on.
-
-    Stored as an `ExtractedDetail`'s label. A commitment is split by which way it went, because
-    "they will call back" and "they would not refund it" send the user in opposite directions.
-    """
-
-    TIME = "time"
-    NAME = "name"
-    REFERENCE_NUMBER = "reference_number"
-    ADDRESS = "address"
-    AMOUNT = "amount"
-    COMMITMENT_MADE = "commitment_made"
-    COMMITMENT_DECLINED = "commitment_declined"
-
-
-@dataclass(frozen=True, slots=True)
-class DraftDetail:
-    """One detail a model says the call contained, and the words it says it came from."""
-
-    kind: DetailKind
-    value: str
-    evidence: str
-
-
-@dataclass(frozen=True, slots=True)
-class SummaryDraft:
-    """What a model wrote, before anything has checked it.
-
-    `outcome` is the model's reading of how the call ended. It is never used as the outcome, which
-    the facts settle; a draft that disagrees with them misread the call and is refused.
-    """
-
-    headline: str
-    intent: CallIntent
-    outcome: CallOutcome
-    details: tuple[DraftDetail, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SummaryRequest:
-    """What a model is given to summarise one ended call.
-
-    `known` is the summary the facts alone support. The model reads its outcome and who called
-    from it, and a kept draft changes only its headline, intent and details.
-    """
-
-    known: CallSummary
-    transcript: tuple[TranscriptEntry, ...]
-    locale: str
+    from letmehandle.domain.models.summary import CallSummary
 
 
 class SummaryNotWrittenError(Exception):

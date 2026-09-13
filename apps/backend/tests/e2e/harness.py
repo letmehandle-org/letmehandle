@@ -302,7 +302,7 @@ class StreamingSystem(System):
             )
 
         await eventually(streaming, seconds=PATIENCE_SECONDS)
-        return self.provider.assistant_of(call_id)
+        return await self.provider.assistant_of(call_id)
 
     def user_is_on_the_call(self, number: str = USERS_LINE) -> bool:
         return any(leg.to == number and leg.in_conference for leg in self.provider.legs.values())

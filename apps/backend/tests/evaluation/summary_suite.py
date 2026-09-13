@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from letmehandle.application.calls.fallback import fallback_summary
+from letmehandle.application.calls.summary_checks import words
 
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
-from letmehandle.application.calls.summariser import DetailKind  # noqa: TC001
-from letmehandle.application.calls.summary_checks import words
+from letmehandle.application.calls.summary_draft import DetailKind  # noqa: TC001
 from letmehandle.domain.models.call import Speaker  # noqa: TC001
 from letmehandle.domain.models.intent import CallIntent  # noqa: TC001
 from tests.support.ended_calls import Ending, ended

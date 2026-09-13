@@ -187,7 +187,7 @@ def outcome_for(status_code: int, reason: str | None) -> DeliveryOutcome:
         return DeliveryOutcome(DeliveryStatus.TOKEN_INVALID, detail)
     if reason in _RETRYABLE or status_code == 429 or status_code >= 500:
         return DeliveryOutcome(DeliveryStatus.FAILED, detail)
-    if 400 <= status_code < 500:
+    if status_code >= 400:
         return DeliveryOutcome(DeliveryStatus.REJECTED, detail)
     return DeliveryOutcome(DeliveryStatus.FAILED, detail)
 

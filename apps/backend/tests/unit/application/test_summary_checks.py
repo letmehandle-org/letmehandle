@@ -11,12 +11,6 @@ import pytest
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
 from letmehandle.application.calls import summary_checks
 from letmehandle.application.calls.fallback import fallback_summary
-from letmehandle.application.calls.summariser import (
-    DetailKind,
-    DraftDetail,
-    SummaryDraft,
-    SummaryRequest,
-)
 from letmehandle.application.calls.summary_checks import (
     SUMMARY_VOCABULARIES,
     DraftProblem,
@@ -25,6 +19,12 @@ from letmehandle.application.calls.summary_checks import (
     names_the_ending,
     problems_with,
     vocabulary_for,
+)
+from letmehandle.application.calls.summary_draft import (
+    DetailKind,
+    DraftDetail,
+    SummaryDraft,
+    SummaryRequest,
 )
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.call import Speaker

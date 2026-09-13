@@ -773,4 +773,5 @@ class TestDeletion:
         assert (first.status_code, second.status_code) == (204, 204)
 
     async def test_it_needs_a_token(self, api: Api) -> None:
-        assert (await api.client.delete("/v1/calls/anything")).status_code == 401
+        response = await api.client.delete("/v1/calls/anything")
+        assert response.status_code == 401

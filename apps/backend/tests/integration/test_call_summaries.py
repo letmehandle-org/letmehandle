@@ -110,7 +110,8 @@ class TestAModelThatAnswers:
         summary, _ = await summarised([answer], facts)
 
         assert summary.outcome is CallOutcome.HANDED_TO_USER
-        assert summary.human_joined_at == the_fallback(facts).human_joined_at is not None
+        assert summary.human_joined_at is not None
+        assert summary.human_joined_at == the_fallback(facts).human_joined_at
         assert summary.details == ()
 
     async def test_an_invalid_answer_corrected_on_the_next_turn_is_kept(self) -> None:

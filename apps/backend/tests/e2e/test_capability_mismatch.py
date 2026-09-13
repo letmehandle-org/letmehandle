@@ -48,7 +48,7 @@ async def test_t7_escalation_where_nobody_can_be_added_takes_the_handoff_the_tra
         await system.caller_says("Hello? Is she coming?")
         # The second look starts only once the first one's request has been acted on.
         await eventually(lambda: system.model.unused_steps == 0)
-        assistant = system.provider.assistant_of(call_id)
+        assistant = await system.provider.assistant_of(call_id)
         await system.provider.send_caller_audio(call_id, b"\x55" * 160, frames=2)
         await eventually(lambda: len(assistant.sent_to_call) >= 2)
 

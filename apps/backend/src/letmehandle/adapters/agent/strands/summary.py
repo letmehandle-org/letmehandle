@@ -22,20 +22,15 @@ from letmehandle.adapters.agent.strands.assessment import one_of
 from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
 from letmehandle.application.calls.prompts import SUMMARY_PROMPT_VERSION, load_summary_prompts
-from letmehandle.application.calls.summariser import (
-    DetailKind,
-    DraftDetail,
-    SummaryDraft,
-    SummaryDrafter,
-    SummaryNotWrittenError,
-)
+from letmehandle.application.calls.summariser import SummaryDrafter, SummaryNotWrittenError
+from letmehandle.application.calls.summary_draft import DetailKind, DraftDetail, SummaryDraft
 from letmehandle.domain.models.intent import CallIntent
 from letmehandle.domain.models.summary import MAX_HEADLINE_CHARACTERS, CallOutcome
 
 if TYPE_CHECKING:
     from strands.models.model import Model
 
-    from letmehandle.application.calls.summariser import SummaryRequest
+    from letmehandle.application.calls.summary_draft import SummaryRequest
 
 # One turn to answer, one for a model that has to be asked for the answer, and one to correct an
 # answer the schema refused. A model still going after that is not going to write a summary.

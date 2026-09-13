@@ -63,7 +63,7 @@ def speaking_system(
 
 async def a_turn(system: StreamingSystem, call_id: str) -> None:
     """The caller says something and falls silent, and hears the assistant answer."""
-    assistant = system.provider.assistant_of(call_id)
+    assistant = await system.provider.assistant_of(call_id)
     before = len(assistant.sent_to_call)
     await system.provider.send_caller_audio(call_id, SPEECH, frames=5)
     await system.provider.send_caller_audio(call_id, SILENCE, frames=5)

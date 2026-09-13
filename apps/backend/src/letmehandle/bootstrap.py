@@ -214,13 +214,9 @@ def build_call_forwarding(settings: Settings) -> CallForwarding | None:
     account's numbers, and every user is told the first. A handset screens its own calls and
     needs nothing forwarded, and a deployment with no transport takes no calls at all.
     """
-    match settings.telephony_provider:
-        case TelephonyProviderName.TWILIO:
-            return CallForwarding(settings.require_streaming_telephony().numbers[0])
-        case TelephonyProviderName.ANDROID_NATIVE | None:
-            return None
-        case unknown:  # pragma: no cover - unreachable while every member has a case above
-            assert_never(unknown)
+    if settings.telephony_provider is TelephonyProviderName.TWILIO:
+        return CallForwarding(settings.require_streaming_telephony().numbers[0])
+    return None
 
 
 def build_notification_providers(
@@ -359,7 +355,8 @@ def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
 
 @runtime_checkable
 class _Closable(Protocol):
-    async def aclose(self) -> None: ...  # pragma: no cover - a protocol signature, never run
+    async def aclose(self) -> None:
+        """Release what it holds."""
 
 
 async def close_notification_providers(container: Container) -> None:
