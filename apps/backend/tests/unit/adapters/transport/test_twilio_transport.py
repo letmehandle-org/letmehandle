@@ -59,6 +59,7 @@ class RecordingApi:
         self.removed: list[tuple[str, str]] = []
         self.ended_conferences: list[str] = []
         self.ended_calls: list[tuple[str, EndStatus]] = []
+        self.ended_conference_names: list[str] = []
         self.failure: ProviderError | None = None
         self.closed = 0
 
@@ -92,6 +93,11 @@ class RecordingApi:
         self._maybe_fail()
         self.ended_calls.append((call_sid, status))
         return True
+
+    async def end_conferences_named(self, conference_name: str) -> int:
+        self._maybe_fail()
+        self.ended_conference_names.append(conference_name)
+        return 1
 
     async def close(self) -> None:
         self.closed += 1
