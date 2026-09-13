@@ -75,7 +75,36 @@ _ENGLISH: Final = SummaryPhrasebook(
     withheld="a caller who withheld their number",
 )
 
-SUMMARY_PHRASEBOOKS: Final[Mapping[str, SummaryPhrasebook]] = {DEFAULT_LOCALE: _ENGLISH}
+_HINDI: Final = SummaryPhrasebook(
+    headline={
+        CallOutcome.RESOLVED_BY_AGENT: "आपके सहायक ने {caller} की कॉल ली।",
+        CallOutcome.HANDED_TO_USER: "आपके सहायक ने {caller} की कॉल ली और उसे आपको सौंप दिया।",
+        CallOutcome.PASSED_THROUGH: "{caller} की कॉल सीधे आप तक पहुँचाई गई।",
+        CallOutcome.REJECTED_BY_RULE: "{caller} की कॉल आपके नियमों से खत्म की गई।",
+        CallOutcome.CALLER_HUNG_UP: "{caller} की कॉल तब खत्म हुई जब कॉल करने वाले ने फ़ोन रख दिया।",
+        CallOutcome.UNANSWERED_ESCALATION: (
+            "आपके सहायक ने {caller} की कॉल के बारे में आपसे संपर्क करने की कोशिश की, लेकिन आपने जवाब नहीं दिया।"
+        ),
+        CallOutcome.FAILED: "{caller} की कॉल कुछ गड़बड़ होने से संभाली नहीं जा सकी।",
+    },
+    caller={
+        CallerCategory.KNOWN_CONTACT: "आपके एक संपर्क",
+        CallerCategory.DELIVERY: "एक डिलीवरी सेवा",
+        CallerCategory.HEALTHCARE: "एक स्वास्थ्य सेवा",
+        CallerCategory.EDUCATION: "एक स्कूल या कॉलेज",
+        CallerCategory.FINANCIAL: "एक वित्तीय सेवा",
+        CallerCategory.SERVICE_PROVIDER: "एक सेवा प्रदाता",
+        CallerCategory.SALES: "एक बिक्री करने वाले कॉलर",
+        CallerCategory.SPAM: "एक संभावित स्पैम कॉलर",
+        CallerCategory.UNKNOWN: "एक अनजान कॉलर",
+    },
+    withheld="नंबर छिपाने वाले एक कॉलर",
+)
+
+SUMMARY_PHRASEBOOKS: Final[Mapping[str, SummaryPhrasebook]] = {
+    DEFAULT_LOCALE: _ENGLISH,
+    "hi": _HINDI,
+}
 
 
 def _every_phrasebook_is_complete() -> None:

@@ -118,6 +118,15 @@ class TestLocales:
     def test_the_closest_phrasebook_is_used_and_english_is_the_fallback(self, locale: str) -> None:
         assert phrasebook_for(locale) is PHRASEBOOKS["en"]
 
+    @pytest.mark.parametrize("locale", ["hi", "hi-IN"])
+    def test_a_hindi_user_is_told_in_hindi(self, locale: str) -> None:
+        shown = notification_for(
+            context(reason=EscalationReason.CALLER_ASKED_FOR_THE_USER, caller_label=None),
+            locale=locale,
+        )
+        assert shown.title == "कॉल करने वाले ने आपसे बात करनी चाही"
+        assert shown.caller_label == "अनजान कॉलर"
+
     def test_a_full_locale_is_preferred_to_its_language(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

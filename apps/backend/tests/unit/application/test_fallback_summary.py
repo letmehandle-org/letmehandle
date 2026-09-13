@@ -326,3 +326,16 @@ class TestThePhrasebooks:
             InvariantError, match="xx summary phrasebook has no phrasing for failed"
         ):
             _every_phrasebook_is_complete()
+
+
+class TestHindi:
+    def test_a_hindi_user_reads_the_headline_in_hindi(self) -> None:
+        summary = fallback_summary(
+            CallFacts(handled_by_agent(), caller_hung_up=True), locale="hi-IN"
+        )
+        assert summary.outcome is CallOutcome.CALLER_HUNG_UP
+        assert summary.headline == ("एक अनजान कॉलर की कॉल तब खत्म हुई जब कॉल करने वाले ने फ़ोन रख दिया।")
+
+    def test_a_withheld_number_says_so_in_hindi(self) -> None:
+        summary = fallback_summary(CallFacts(rejected(Caller())), locale="hi")
+        assert summary.headline == "नंबर छिपाने वाले एक कॉलर की कॉल आपके नियमों से खत्म की गई।"

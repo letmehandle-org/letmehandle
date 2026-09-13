@@ -118,7 +118,39 @@ _ENGLISH: Final = SummaryVocabulary(
     ),
 )
 
-SUMMARY_VOCABULARIES: Final[Mapping[str, SummaryVocabulary]] = {DEFAULT_LOCALE: _ENGLISH}
+# A letter with a nukta is written with and without it ("फ़ोन", "फोन"), so such a phrase is
+# listed both ways.
+_HINDI: Final = SummaryVocabulary(
+    endings={
+        CallOutcome.RESOLVED_BY_AGENT: ("आपके सहायक",),
+        CallOutcome.HANDED_TO_USER: ("सौंप दिया", "सौंप दी", "आप जुड़े", "आपने कॉल ली"),
+        CallOutcome.PASSED_THROUGH: ("सीधे आप तक", "आप तक पहुँचाई"),
+        CallOutcome.REJECTED_BY_RULE: ("आपके नियमों", "ब्लॉक"),
+        CallOutcome.CALLER_HUNG_UP: ("फ़ोन रख दिया", "फोन रख दिया", "कॉल काट दी"),
+        CallOutcome.UNANSWERED_ESCALATION: (
+            "जवाब नहीं दिया",
+            "संपर्क नहीं हो सका",
+            "फ़ोन नहीं उठाया",
+            "फोन नहीं उठाया",
+        ),
+        CallOutcome.FAILED: ("गड़बड़", "विफल"),
+    },
+    filler=(
+        "कॉल करने वाले ने कहा",
+        "कॉल के दौरान",
+        "इस कॉल में",
+        "कॉल इस बारे में थी",
+        "ट्रांसक्रिप्ट",
+        "सारांश में",
+        "संक्षेप में",
+        "एआई के रूप में",
+    ),
+)
+
+SUMMARY_VOCABULARIES: Final[Mapping[str, SummaryVocabulary]] = {
+    DEFAULT_LOCALE: _ENGLISH,
+    "hi": _HINDI,
+}
 
 
 def _every_vocabulary_is_complete() -> None:
