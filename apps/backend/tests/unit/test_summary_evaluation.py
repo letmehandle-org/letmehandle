@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from tests.support.scripted_model import Step
 
 CLASSES = ("extraction", "absent_detail", "ending", "no_details")
+# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
+# runs cannot tell the two apart.
+SMALLEST_CLASS = 12
 
 
 def scripted(steps: Callable[[SummaryScenario], Sequence[Step]]) -> SummariserFor:
@@ -94,7 +97,7 @@ def test_every_reference_summary_passes_the_checks() -> None:
 def test_the_set_covers_every_class_and_every_kind_of_detail() -> None:
     scenarios = load_summary_scenarios()
     for name in CLASSES:
-        assert len([s for s in scenarios if s.summary_class == name]) >= 3, name
+        assert len([s for s in scenarios if s.summary_class == name]) >= SMALLEST_CLASS, name
     extracted = {detail.kind for s in scenarios for detail in s.reference.details}
     assert extracted == set(DetailKind)
     # Every ending a model is asked to name, not only the calls the assistant resolved.

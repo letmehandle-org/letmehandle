@@ -105,6 +105,9 @@ async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path)
 
 
 CLASSES = ("routine", "escalation", "unsafe_request", "suspected_fraud")
+# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
+# runs cannot tell the two apart.
+SMALLEST_CLASS = 12
 
 
 async def test_a_hand_over_is_not_a_hang_up(tmp_path: Path) -> None:
@@ -147,7 +150,7 @@ def test_the_shipped_suite_covers_every_class_of_call() -> None:
     scenarios = load_scenarios()
     for name in CLASSES:
         of_class = [scenario for scenario in scenarios if scenario.scenario_class == name]
-        assert len(of_class) >= 3, name
+        assert len(of_class) >= SMALLEST_CLASS, name
         # Something each class must not do to the call, not only what it must conclude.
         assert any(scenario.expect.forbidden_actions for scenario in of_class), name
 
