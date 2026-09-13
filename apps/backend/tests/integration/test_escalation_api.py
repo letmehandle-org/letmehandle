@@ -1,8 +1,4 @@
-"""Devices, dispatch and escalation context, through the running application and a real database.
-
-The push services are the simulated ones; everything between the HTTP request and them is real:
-the routes, the repositories, the dispatcher, both adapters and the trimming.
-"""
+"""Devices, dispatch and escalation context through the running application, with simulated push."""
 
 from __future__ import annotations
 
@@ -354,8 +350,7 @@ class TestEscalationContext:
         assert body["title"] != "There is a decision only you can make"
 
     async def test_it_is_there_when_no_push_could_be_sent(self, api: Api) -> None:
-        # The context is stored before sending, so a user with no registered device — or one
-        # whose every push failed — still has the escalation to open.
+        # The context is stored before sending, so it can be opened without any delivery.
         tokens = await sign_in(api)
         await dispatcher_for(api, SimulatedAPNs(), SimulatedFCM(), RecordingMetrics()).dispatch(
             await user_id_of(api, tokens), a_context(caller_label=None, established=None)

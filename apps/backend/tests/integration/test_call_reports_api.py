@@ -1,9 +1,4 @@
-"""A handset reporting its calls, over HTTP, against a real database.
-
-Four properties: nobody reports without signing in; a handset speaks only for its own account;
-a report sent twice counts once; and what it reports becomes the call events every transport
-produces.
-"""
+"""A handset reporting its calls over HTTP: signed in, its own account only, once each."""
 
 from __future__ import annotations
 
@@ -47,7 +42,7 @@ def reported(event_id: str, kind: str, **extra: Any) -> dict[str, Any]:
 
 SCREENED_CALL = [
     reported("event-0001", "incoming", screening="silence", caller_number=CALLER),
-    # Said to be absent out loud, as a handset serialising an empty field does.
+    # Absent, written out as null.
     reported("event-0002", "answered", caller_number=None),
     reported("event-0003", "ended", ending="completed"),
 ]
@@ -114,7 +109,7 @@ class TestMapping:
             (reported("event-0001", "incoming", ending="missed"), "ended"),
             (reported("event-0001", "incoming", caller_number="2025550145"), "caller_number"),
             (reported("event-0001", "incoming", caller_number="+0555"), "caller_number"),
-            # Digits, but not ones a telephone network routes.
+            # Digits no telephone network routes.
             (
                 reported("event-0001", "incoming", caller_number="+1\u0662\u0660\u0662"),
                 "caller_number",
@@ -164,8 +159,7 @@ class TestMapping:
     async def test_one_invalid_report_does_not_hold_back_the_rest_of_its_batch(
         self, api: Api
     ) -> None:
-        # A handset resends a batch it has not seen acknowledged. Refusing the whole batch over
-        # one report would have it resend the valid ones with it forever.
+        # One unreadable report does not refuse the batch.
         tokens = await sign_in(api)
         invalid = reported("event-0009", "incoming", caller_number="12025550145")
         response = await send(api, tokens, [SCREENED_CALL[0], invalid, *SCREENED_CALL[1:]])
@@ -281,8 +275,7 @@ class TestIsolation:
     async def test_a_handset_speaks_only_for_its_own_account(
         self, api: Api, session: AsyncSession
     ) -> None:
-        # The second account's handset reuses the first account's identifiers, as a handset
-        # guessing them would. It creates its own call; it does not touch the first one.
+        # The second account's handset reuses the first account's identifiers.
         mine = await sign_in(api)
         theirs = await sign_in(api, ANOTHER_NUMBER)
         await send(api, mine, [SCREENED_CALL[0], SCREENED_CALL[2]])
@@ -309,8 +302,7 @@ class TestStorage:
     async def test_the_caller_s_number_is_not_kept_in_clear(
         self, api: Api, session: AsyncSession
     ) -> None:
-        # A call's record seals who called (D-014). A report stored beside it with the number in
-        # a plain column would leave a database dump saying who called whom all the same.
+        # A call's caller is sealed, so no report stores the number in clear (D-014).
         tokens = await sign_in(api)
         await send(api, tokens, SCREENED_CALL)
         assert len(await drain(api)) == len(SCREENED_CALL)

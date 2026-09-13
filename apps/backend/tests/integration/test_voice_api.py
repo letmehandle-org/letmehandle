@@ -1,10 +1,4 @@
-"""Choosing a voice over HTTP, against a real database.
-
-Two things are being proved here. The first is ordinary: a choice is stored, comes back, and
-belongs to one user. The second is the one this phase exists for — the routes the application
-has depend on what the configured provider can do, so a deployment whose provider cannot play a
-sample has no route that would.
-"""
+"""Choosing a voice over HTTP, with voice routes only where the provider can serve them."""
 
 from __future__ import annotations
 
@@ -51,8 +45,6 @@ async def selection(api: Api, tokens: dict[str, Any]) -> dict[str, Any]:
 
 class TestCatalogue:
     async def test_it_describes_the_provider_rather_than_being_bundled(self, api: Api) -> None:
-        # The client draws this screen from what the server says it has. A bundled list is a
-        # list that shows a voice the deployment cannot speak with.
         tokens = await sign_in(api)
         body = (await api.client.get("/v1/voices", headers=bearer(tokens))).json()
 
@@ -60,8 +52,7 @@ class TestCatalogue:
         assert body["default_voice_id"] == EXAMPLE_DEFAULT_VOICE
 
     async def test_it_declares_what_the_provider_cannot_do(self, api: Api) -> None:
-        # D-009: the interface renders from these, and a true it did not mean puts a training
-        # flow in front of somebody it will fail for.
+        # The interface renders from these (D-009).
         tokens = await sign_in(api)
         capabilities = (await api.client.get("/v1/voices", headers=bearer(tokens))).json()[
             "capabilities"
@@ -79,7 +70,7 @@ class TestChoosing:
         body = await selection(api, tokens)
 
         assert body["persona_voice_id"] is None
-        # The end of the fallback chain. Nothing chosen must never mean a call with no voice.
+        # The end of the fallback chain.
         assert body["resolved_voice_id"] == EXAMPLE_DEFAULT_VOICE
 
     async def test_a_chosen_voice_is_stored_and_used(self, api: Api) -> None:
@@ -112,8 +103,6 @@ class TestChoosing:
     async def test_a_voice_the_provider_does_not_offer_is_refused_rather_than_stored(
         self, api: Api
     ) -> None:
-        # Storing it would fall through to the default on every call, which looks to the user
-        # exactly like their choice being ignored.
         tokens = await sign_in(api)
         response = await api.client.put(
             "/v1/preferences/voice", headers=bearer(tokens), json={"persona_voice_id": "ghost"}
@@ -123,7 +112,6 @@ class TestChoosing:
         assert (await selection(api, tokens))["persona_voice_id"] is None
 
     async def test_choosing_a_voice_leaves_every_other_preference_alone(self, api: Api) -> None:
-        # The same rule the rest of preferences lives by, arriving through a different route.
         tokens = await sign_in(api)
         await api.client.patch(
             "/v1/preferences",
@@ -142,9 +130,7 @@ class TestChoosing:
         assert preferences["personality"]["topics"] == ["bins"]
 
     async def test_a_choice_survives_signing_out_and_back_in(self, api: Api) -> None:
-        # The property somebody actually experiences: the phone is reinstalled, or the token
-        # expired, and the assistant still sounds the way they left it. Held on the server
-        # rather than on the device, which is what makes that true.
+        # Held on the server, across a new sign-in.
         first = await sign_in(api)
         await api.client.put(
             "/v1/preferences/voice",
@@ -159,8 +145,7 @@ class TestChoosing:
     async def test_replacing_every_other_preference_does_not_change_the_voice(
         self, api: Api
     ) -> None:
-        # PUT /v1/preferences resets what it does not mention, deliberately — but it has no
-        # field for the voice, so without an exception it could only ever destroy it.
+        # A full replace of preferences keeps the voice.
         tokens = await sign_in(api)
         await api.client.put(
             "/v1/preferences/voice",
@@ -185,9 +170,7 @@ class TestChoosing:
         assert (await selection(api, theirs))["persona_voice_id"] is None
 
     async def test_a_token_for_a_deleted_account_is_refused_everywhere(self, api: Api) -> None:
-        # A token outlives the account it names. Checking only the signature would leave a
-        # deleted account reading the catalogue for the rest of that token's life, which is a
-        # weaker answer than the one every other route in this API gives.
+        # A token naming a deleted account cannot read the catalogue.
         tokens = await sign_in(api)
         factory = api.app.state.session_factory
         async with factory() as session:
@@ -203,8 +186,6 @@ class TestChoosing:
     async def test_leaving_the_field_out_is_refused_rather_than_read_as_clearing(
         self, api: Api
     ) -> None:
-        # Clearing is said with null. An empty body is a client that forgot, and treating it as
-        # a request to forget the user's choice would be acting on a mistake.
         tokens = await sign_in(api)
         await api.client.put(
             "/v1/preferences/voice",
@@ -225,14 +206,7 @@ class TestChoosing:
 
 class TestConcurrency:
     async def test_a_clone_revoked_mid_request_is_not_written_back(self, api: Api) -> None:
-        """Choosing a voice must not resurrect a cloned voice that was revoked meanwhile.
-
-        Deterministic rather than hopeful: a competing transaction holds the row lock, so the
-        request is guaranteed to be inside the service's locked read when the revocation
-        commits. A route that had read the cloned voice before taking the lock would write the
-        revoked one back — and the resolution chain puts a cloned voice first, so the caller
-        would then hear a voice the user had deleted.
-        """
+        """Choosing a voice keeps a clone revoked while the request waits on the row lock."""
         tokens = await sign_in(api)
         await api.client.patch("/v1/preferences", headers=bearer(tokens), json={"locale": "en"})
 
@@ -278,8 +252,7 @@ class TestConcurrency:
 
 class TestPreviewFollowsTheProvider:
     async def test_a_provider_that_cannot_preview_has_no_preview_route(self, api: Api) -> None:
-        # Not a route that refuses: a route that exists appears in the schema, generates a
-        # client method, and gets a button drawn for it somewhere.
+        # No route at all, rather than one that refuses.
         tokens = await sign_in(api)
         response = await api.client.get(
             f"/v1/voices/{EXAMPLE_DEFAULT_VOICE}/preview", headers=bearer(tokens)
@@ -305,8 +278,7 @@ class TestPreviewFollowsTheProvider:
         assert "/v1/voices/{voice_id}/preview" in schema["paths"]
 
     async def test_the_catalogue_says_which_voices_can_be_heard(self, previewing: Api) -> None:
-        # The provider has a sample for one voice of three. It declares preview, truthfully,
-        # and the catalogue has to say which — or a client draws three controls and two fail.
+        # A sample for one voice of three, and the catalogue says which.
         tokens = await sign_in(previewing)
         body = (await previewing.client.get("/v1/voices", headers=bearer(tokens))).json()
 
@@ -317,7 +289,7 @@ class TestPreviewFollowsTheProvider:
     async def test_a_voice_with_no_sample_says_there_is_nothing_to_play(
         self, previewing: Api
     ) -> None:
-        # Not "there is no such voice": the voice is real, listed and selectable.
+        # The voice exists; only its sample does not.
         tokens = await sign_in(previewing)
         response = await previewing.client.get(
             f"/v1/voices/{ANOTHER_VOICE}/preview", headers=bearer(tokens)

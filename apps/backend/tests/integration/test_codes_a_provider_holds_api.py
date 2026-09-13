@@ -1,9 +1,4 @@
-"""Signing in over HTTP, against a real database, where the provider makes and checks the code.
-
-What each outcome of the provider's check becomes for somebody signing in, and what it leaves
-stored: a right code a session, a wrong one a counted attempt, and a provider that could not answer
-a temporary failure that counts nothing and leaves the same code usable (D-042).
-"""
+"""Signing in over HTTP where the provider makes and checks the code: each check outcome (D-042)."""
 
 from __future__ import annotations
 

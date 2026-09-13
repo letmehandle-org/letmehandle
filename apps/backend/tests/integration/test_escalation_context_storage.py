@@ -124,7 +124,7 @@ async def test_one_user_cannot_read_or_block_another_s_context(
 ) -> None:
     await contexts.claim(ALICE, a_context())
     assert await contexts.get(BOB, CALL) is None
-    # The same call id for a different user is a different escalation, not a duplicate.
+    # The same call id for a different user is a different escalation.
     assert await contexts.claim(BOB, a_context(needed="Bob's own."))
     bobs = await contexts.get(BOB, CALL)
     assert bobs is not None
