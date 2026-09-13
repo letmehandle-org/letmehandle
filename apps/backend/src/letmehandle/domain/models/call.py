@@ -170,7 +170,7 @@ class CallSession:
         """Put somebody on the call, once per role at a time."""
         if self.is_over:
             raise InvariantError("nobody can join a call that has ended")
-        if any(p.role is role and p.is_present for p in self._participants):
+        if self.has_participant(role):
             raise InvariantError(f"the {role} is already on this call")
         self._participants.append(Participant(role, at_instant))
 
