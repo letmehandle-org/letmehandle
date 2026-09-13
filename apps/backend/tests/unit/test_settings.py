@@ -457,3 +457,20 @@ def test_unforwarded_calls_may_be_given_an_owner_only_outside_production() -> No
     )
     with pytest.raises(ConfigurationError, match="TELEPHONY_UNFORWARDED_CALLS_OWNER"):
         production.require_telephony_configuration()
+
+
+def test_the_owner_of_unforwarded_calls_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEPHONY_UNFORWARDED_CALLS_OWNER", "+12025550143")
+    assert get_settings().telephony_unforwarded_calls_owner == PhoneNumber.parse("+12025550143")
+
+
+def test_an_owner_of_unforwarded_calls_that_is_not_a_number_is_named_without_its_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEPHONY_UNFORWARDED_CALLS_OWNER", "not-a-number")
+    with pytest.raises(ConfigurationError, match="TELEPHONY_UNFORWARDED_CALLS_OWNER") as raised:
+        get_settings()
+    assert "not an international number" in str(raised.value)
+    assert "not-a-number" not in str(raised.value)
