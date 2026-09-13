@@ -17,7 +17,7 @@
         "type": "object"
       },
       "CallDetailResponse": {
-        "description": "One call in full.\n\n`transcript_retention_days` is the user's setting as it stands, which is the one the purge\napplies. `transcript_expires_at` is when the last of the transcript is due to go \u2014 null when\nthere is none to go, or while the call is still going.",
+        "description": "One call in full, with the user's current retention and when its transcript is due to go.",
         "properties": {
           "caller": {
             "$ref": "#/components/schemas/CallerPayload"
@@ -264,7 +264,7 @@
         "type": "string"
       },
       "CallListItem": {
-        "description": "One call in the list.\n\n`outcome` and `headline` are null until the call has a summary: while it is in progress, and\nfor the moment between its end and its summary being written.",
+        "description": "One call in the list; `outcome` and `headline` are null until it has a summary.",
         "properties": {
           "caller": {
             "$ref": "#/components/schemas/CallerPayload"
@@ -460,7 +460,7 @@
         "type": "object"
       },
       "CallReportReceipt": {
-        "description": "What became of each report in a batch. The handset forgets every one it is told about.\n\n`accepted` were stored now and `duplicates` had been already; `rejected` never will be,\nbecause something in them cannot have happened or cannot be read.",
+        "description": "What became of each report in a batch; the handset forgets every one listed.",
         "properties": {
           "accepted": {
             "items": {
@@ -493,7 +493,7 @@
         "type": "object"
       },
       "CallStatus": {
-        "description": "Whether a call is still going. An ended call's summary can arrive a moment after it ends.",
+        "description": "Whether a call is still going.",
         "enum": [
           "in_progress",
           "ended"
@@ -698,7 +698,7 @@
         "type": "string"
       },
       "EscalationContextResponse": {
-        "description": "An escalation as the app shows it \u2014 the same words the notification carried.\n\n`title`, `caller_label` and `body` are exactly what a notification would display, untrimmed.\nThe structured fields beside them are for the app to lay out itself: `caller` is absent when\nnobody knows who is calling, where `caller_label` says so in words. `status` says whether the\ncall is still going; an `ended` escalation is shown as what happened, not as a call to join.\n`delivery` says what became of the push, so a failure can be surfaced rather than hidden.",
+        "description": "An escalation as the app shows it: the untrimmed notification words and their fields.",
         "properties": {
           "body": {
             "title": "Body",
@@ -987,7 +987,7 @@
         "type": "object"
       },
       "OnboardingResponse": {
-        "description": "Where somebody is in the flow, and what is left.\n\nEvery list holds only the steps this deployment asks, in the order they are asked.\n`call_forwarding` is among them only where the profile's `call_forwarding` names a number,\nand an answer recorded to it elsewhere is not listed.",
+        "description": "Where somebody is in the flow, listing only the steps this deployment asks, in order.",
         "properties": {
           "completed": {
             "items": {
@@ -1152,7 +1152,7 @@
       },
       "PreferencesUpdate": {
         "additionalProperties": false,
-        "description": "A change to some of it.\n\nEvery section is optional, and an omitted section is left exactly as it was. That is what\nlets one screen save one section without knowing or caring what the others hold.",
+        "description": "A change to some of it; an omitted section is left exactly as it was.",
         "properties": {
           "authority": {
             "anyOf": [
@@ -1264,7 +1264,7 @@
         "type": "object"
       },
       "PrivacyResponse": {
-        "description": "What is kept, and for how long, as stored.\n\nUnbounded above, unlike the request: a deployment with a higher ceiling may have stored a\nlonger retention, and it is reported as it is rather than refused or quietly lowered.",
+        "description": "What is kept, and for how long, as stored and unbounded above.",
         "properties": {
           "transcript_retention_days": {
             "title": "Transcript Retention Days",
@@ -1325,7 +1325,7 @@
         "type": "object"
       },
       "Readiness": {
-        "description": "Readiness: can this process do its job.\n\n``checks`` names each dependency and whether it answered. It carries no configuration \u2014\nnot a host, not a user, not a URL \u2014 because a readiness endpoint is usually the most\nexposed thing an application has.\n\n``dependencies`` is where each provider's circuit stands, by role \u2014 telephony, speech, the\nmodel, each push platform \u2014 and never by vendor. An open circuit does not make the process\nunready: every process shares the same providers, so taking this one out of rotation would\nmove its calls to another that fails them the same way, while this one still does what the\ndegraded path allows. ``rate_limits`` says whether limits are counted across processes or in\neach one alone.",
+        "description": "Readiness: each dependency's answer, each circuit by role, and how limits are counted.",
         "properties": {
           "checks": {
             "additionalProperties": {
@@ -1390,7 +1390,7 @@
       },
       "RegisterDeviceRequest": {
         "additionalProperties": false,
-        "description": "This device's current push token.\n\n`previous_token` is the token the platform rotated away from, when the app knows it. It is\nremoved from this user's devices so the old one does not linger until a delivery fails.",
+        "description": "This device's current push token, and the one the platform rotated away from if known.",
         "properties": {
           "platform": {
             "$ref": "#/components/schemas/DevicePlatform"
@@ -1513,7 +1513,7 @@
       },
       "TimeWindowPayload": {
         "additionalProperties": false,
-        "description": "A daily window, in the user's own zone.\n\nThe zone travels with the window rather than being applied later. A window compared in the\nwrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of\nday rather than as anything that looks like a bug.",
+        "description": "A daily window, with the zone it is read in.",
         "properties": {
           "end": {
             "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
@@ -1739,7 +1739,7 @@
         "type": "object"
       },
       "VoiceCapabilitiesPayload": {
-        "description": "What the configured provider can do.\n\nThe interface renders from these. Everything absent means the control is not drawn at all \u2014\nnot disabled, not labelled as unavailable \u2014 because a control that cannot work teaches\npeople to distrust the ones that can.",
+        "description": "What the configured provider can do; a control it cannot serve is not drawn.",
         "properties": {
           "builtin_voices": {
             "title": "Builtin Voices",
@@ -1809,7 +1809,7 @@
         "type": "object"
       },
       "VoicePayload": {
-        "description": "One voice, and whether this one in particular can be heard.\n\nPer voice rather than per provider: a provider holding a sample for one voice and not\nanother declares the capability and can still serve only the one, and a client drawing a\ncontrol from the capability alone draws two that fail.",
+        "description": "One voice, and whether this one in particular can be heard.",
         "properties": {
           "id": {
             "title": "Id",
@@ -1841,7 +1841,7 @@
         "type": "object"
       },
       "VoiceSelectionResponse": {
-        "description": "What the user has chosen, and what a call would actually use.\n\n`resolved_voice_id` is the answer the fallback chain gives right now \u2014 the cloned voice if\nit is still available, otherwise the chosen one, otherwise the provider's default. It is\nreturned alongside the choice because those differ exactly when something has gone wrong\nwith a voice, and that is the moment a user should be able to see it.",
+        "description": "What the user has chosen, and the voice the fallback chain resolves to now.",
         "properties": {
           "cloned_voice_id": {
             "anyOf": [
@@ -1880,7 +1880,7 @@
       },
       "VoiceSelectionUpdate": {
         "additionalProperties": false,
-        "description": "A change to the chosen voice.\n\nThe field is required and may be `null`, and the difference from optional is the point.\n`null` clears the choice and returns to the provider's default, which somebody must be able\nto do; a request that simply left the field out would otherwise mean the same thing, and a\nclient reading the schema could not tell \"clear it\" from \"I forgot to send it\".",
+        "description": "A change to the chosen voice: required, with `null` returning to the provider's default.",
         "properties": {
           "persona_voice_id": {
             "anyOf": [
@@ -1919,7 +1919,7 @@
   "paths": {
     "/health": {
       "get": {
-        "description": "Answer without touching a dependency.\n\nAn orchestrator restarts a process that fails this. Checking the database here would make\na database outage restart every healthy process, which turns an outage into a worse one.",
+        "description": "Answer without touching a dependency.",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -1963,7 +1963,7 @@
     },
     "/v1/auth/challenge": {
       "post": {
-        "description": "Send a code to a number.\n\nAnswers the same way whether or not the number has an account. Telling them apart is the\nexpensive half of attacking a phone-number identity, and this is where it would be given\naway for nothing.",
+        "description": "Send a code to a number, answering alike whether or not it has an account.",
         "operationId": "request_challenge_v1_auth_challenge_post",
         "requestBody": {
           "content": {
@@ -2005,7 +2005,7 @@
     },
     "/v1/auth/refresh": {
       "post": {
-        "description": "Exchange a refresh token for a new pair.\n\nThe old one stops working immediately. Presenting it again means a copy exists somewhere\nit should not, and every session from that sign-in ends.",
+        "description": "Exchange a refresh token for a new pair, retiring the old one (D-036).",
         "operationId": "refresh_v1_auth_refresh_post",
         "requestBody": {
           "content": {
@@ -2047,7 +2047,7 @@
     },
     "/v1/auth/signout": {
       "post": {
-        "description": "End the session this refresh token belongs to, and forget the device signing out.\n\nAlways succeeds. Somebody signing out has nothing to gain from being told their token was\nalready invalid, and saying so would tell an attacker whether a token they hold is real.\n\nThe device is removed only from the account the refresh token belonged to, so a request can\nnever remove somebody else's device by naming it.",
+        "description": "End this refresh token's session and forget the device on its account; always succeeds.",
         "operationId": "sign_out_v1_auth_signout_post",
         "requestBody": {
           "content": {
@@ -2124,7 +2124,7 @@
     },
     "/v1/calls": {
       "get": {
-        "description": "The user's calls, newest first.\n\n`from` is inclusive and `to` exclusive, both on when the call started, and both must carry a\ntimezone offset. `outcome` and `human_joined` match only calls that have a summary. Calls still\nin progress are listed, with `status` `in_progress` and no outcome yet.",
+        "description": "The user's calls, newest first; `from` inclusive and `to` exclusive, both with an offset.",
         "operationId": "list_calls_v1_calls_get",
         "parameters": [
           {
@@ -2391,7 +2391,7 @@
     },
     "/v1/calls/{call_id}/transcript": {
       "get": {
-        "description": "What was said, while the user's retention still keeps it.\n\n`410 transcript_purged` once retention has deleted it, `404 transcript_not_recorded` for a\ncall nothing was said on, `404 call_not_found` for no such call.",
+        "description": "What was said, while the user's retention still keeps it.",
         "operationId": "read_transcript_v1_calls__call_id__transcript_get",
         "parameters": [
           {
@@ -2439,7 +2439,7 @@
     },
     "/v1/devices": {
       "put": {
-        "description": "Record this device's push token for the signed-in user.\n\nIdempotent: the app calls it on every launch and whenever its platform issues a new token. A\ntoken previously registered to another account moves to this one.",
+        "description": "Record this device's push token for the signed-in user, idempotently.",
         "operationId": "register_device_v1_devices_put",
         "requestBody": {
           "content": {
@@ -2479,7 +2479,7 @@
     },
     "/v1/devices/unregister": {
       "post": {
-        "description": "Forget this device for the signed-in user. Succeeds whether or not it was registered.\n\nA POST with a body rather than a DELETE with the token in the path: a push token identifies a\nhandset, and a path is what access logs keep.",
+        "description": "Forget this device for the signed-in user; a POST so the token stays out of access logs.",
         "operationId": "unregister_device_v1_devices_unregister_post",
         "requestBody": {
           "content": {
@@ -2519,7 +2519,7 @@
     },
     "/v1/escalations/{call_id}": {
       "get": {
-        "description": "What the user was, or would have been, told about this escalation.\n\nFor the app opened without a notification, or opened long after one: the same words, from\nthe backend rather than from the lock screen.",
+        "description": "What the user was, or would have been, told about this escalation.",
         "operationId": "read_escalation_v1_escalations__call_id__get",
         "parameters": [
           {
@@ -2569,7 +2569,7 @@
     },
     "/v1/me": {
       "delete": {
-        "description": "Delete the signed-in user's account and everything held because of it, now.\n\nCalls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,\nand the sign-in codes sent to the number. A call in progress is ended first. Every token the\naccount held stops working with it.",
+        "description": "Delete the signed-in account and everything held for it, ending any call in progress.",
         "operationId": "delete_me_v1_me_delete",
         "responses": {
           "204": {
@@ -2611,7 +2611,7 @@
         ]
       },
       "patch": {
-        "description": "Change what the assistant knows about the person it represents.\n\nA field that is absent is left alone rather than cleared. A client sending only what it\nchanged is the ordinary case, and reading absence as \"set to nothing\" would quietly erase\neverything it did not mention.",
+        "description": "Change the fields sent and leave absent ones alone (D-023).",
         "operationId": "update_me_v1_me_patch",
         "requestBody": {
           "content": {
@@ -2682,7 +2682,7 @@
         ]
       },
       "post": {
-        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.\n\nA step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this\ndeployment does not ask \u2014 `call_forwarding` where nothing needs forwarding \u2014 is a 422\n`step_not_asked`, and nothing is recorded.",
+        "description": "Record a step as answered or skipped; a step this deployment does not ask is refused.",
         "operationId": "record_onboarding_step_v1_onboarding_post",
         "requestBody": {
           "content": {
@@ -2753,7 +2753,7 @@
         ]
       },
       "patch": {
-        "description": "Change the sections that were sent and leave the rest exactly as they were.\n\nThe ordinary case: one screen saves one section, and has no idea what the others hold.",
+        "description": "Change the sections that were sent and leave the rest exactly as they were (D-023).",
         "operationId": "update_preferences_v1_preferences_patch",
         "requestBody": {
           "content": {
@@ -2798,7 +2798,7 @@
         ]
       },
       "put": {
-        "description": "Set everything the request mentions, from the defaults.\n\nDistinct from the patch below: this starts from the defaults rather than from what is\nstored, so a section left out is reset rather than kept. That is what a client means when\nit says \"replace\".",
+        "description": "Set everything the request mentions, starting from the defaults.",
         "operationId": "replace_preferences_v1_preferences_put",
         "requestBody": {
           "content": {
@@ -2869,7 +2869,7 @@
         ]
       },
       "put": {
-        "description": "Set or clear the chosen voice.\n\nA voice the provider does not offer is refused rather than stored. Storing it would\nmean a selection that silently falls through to the default on every call, which looks\nto the user exactly like their choice being ignored.\n\nOnly the half this request is about is sent. The cloned voice is left to the service to\ncarry, under the lock it takes: read here instead, a clone revoked while this request\nwas in flight would be written back from a read taken before it.",
+        "description": "Set or clear the chosen voice, refusing one the provider does not offer.",
         "operationId": "choose_voice_v1_preferences_voice_put",
         "requestBody": {
           "content": {
@@ -2916,7 +2916,7 @@
     },
     "/v1/voices": {
       "get": {
-        "description": "What the configured provider offers, and what it can do with it.\n\nThe client renders from this rather than from a bundled list, so a deployment that\nchanges provider changes the screen without shipping an app.\n\nBehind a token like everything else: this is a signed-in screen, and which provider a\ndeployment runs is not something to tell whoever asks.",
+        "description": "What the configured provider offers, and what it can do with it.",
         "operationId": "read_catalogue_v1_voices_get",
         "responses": {
           "200": {

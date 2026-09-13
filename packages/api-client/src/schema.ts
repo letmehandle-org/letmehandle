@@ -14,9 +14,6 @@ export interface paths {
         /**
          * Liveness
          * @description Answer without touching a dependency.
-         *
-         *     An orchestrator restarts a process that fails this. Checking the database here would make
-         *     a database outage restart every healthy process, which turns an outage into a worse one.
          */
         get: operations["health_health_get"];
         put?: never;
@@ -58,11 +55,7 @@ export interface paths {
         put?: never;
         /**
          * Send a sign-in code
-         * @description Send a code to a number.
-         *
-         *     Answers the same way whether or not the number has an account. Telling them apart is the
-         *     expensive half of attacking a phone-number identity, and this is where it would be given
-         *     away for nothing.
+         * @description Send a code to a number, answering alike whether or not it has an account.
          */
         post: operations["request_challenge_v1_auth_challenge_post"];
         delete?: never;
@@ -82,10 +75,7 @@ export interface paths {
         put?: never;
         /**
          * Renew a session
-         * @description Exchange a refresh token for a new pair.
-         *
-         *     The old one stops working immediately. Presenting it again means a copy exists somewhere
-         *     it should not, and every session from that sign-in ends.
+         * @description Exchange a refresh token for a new pair, retiring the old one (D-036).
          */
         post: operations["refresh_v1_auth_refresh_post"];
         delete?: never;
@@ -105,13 +95,7 @@ export interface paths {
         put?: never;
         /**
          * End this session
-         * @description End the session this refresh token belongs to, and forget the device signing out.
-         *
-         *     Always succeeds. Somebody signing out has nothing to gain from being told their token was
-         *     already invalid, and saying so would tell an attacker whether a token they hold is real.
-         *
-         *     The device is removed only from the account the refresh token belonged to, so a request can
-         *     never remove somebody else's device by naming it.
+         * @description End this refresh token's session and forget the device on its account; always succeeds.
          */
         post: operations["sign_out_v1_auth_signout_post"];
         delete?: never;
@@ -149,11 +133,7 @@ export interface paths {
         };
         /**
          * List calls
-         * @description The user's calls, newest first.
-         *
-         *     `from` is inclusive and `to` exclusive, both on when the call started, and both must carry a
-         *     timezone offset. `outcome` and `human_joined` match only calls that have a summary. Calls still
-         *     in progress are listed, with `status` `in_progress` and no outcome yet.
+         * @description The user's calls, newest first; `from` inclusive and `to` exclusive, both with an offset.
          */
         get: operations["list_calls_v1_calls_get"];
         put?: never;
@@ -215,9 +195,6 @@ export interface paths {
         /**
          * Read a call's transcript
          * @description What was said, while the user's retention still keeps it.
-         *
-         *     `410 transcript_purged` once retention has deleted it, `404 transcript_not_recorded` for a
-         *     call nothing was said on, `404 call_not_found` for no such call.
          */
         get: operations["read_transcript_v1_calls__call_id__transcript_get"];
         put?: never;
@@ -238,10 +215,7 @@ export interface paths {
         get?: never;
         /**
          * Register this device for escalation notifications
-         * @description Record this device's push token for the signed-in user.
-         *
-         *     Idempotent: the app calls it on every launch and whenever its platform issues a new token. A
-         *     token previously registered to another account moves to this one.
+         * @description Record this device's push token for the signed-in user, idempotently.
          */
         put: operations["register_device_v1_devices_put"];
         post?: never;
@@ -262,10 +236,7 @@ export interface paths {
         put?: never;
         /**
          * Stop sending escalation notifications to this device
-         * @description Forget this device for the signed-in user. Succeeds whether or not it was registered.
-         *
-         *     A POST with a body rather than a DELETE with the token in the path: a push token identifies a
-         *     handset, and a path is what access logs keep.
+         * @description Forget this device for the signed-in user; a POST so the token stays out of access logs.
          */
         post: operations["unregister_device_v1_devices_unregister_post"];
         delete?: never;
@@ -284,9 +255,6 @@ export interface paths {
         /**
          * The context of an escalation
          * @description What the user was, or would have been, told about this escalation.
-         *
-         *     For the app opened without a notification, or opened long after one: the same words, from
-         *     the backend rather than from the lock screen.
          */
         get: operations["read_escalation_v1_escalations__call_id__get"];
         put?: never;
@@ -310,22 +278,14 @@ export interface paths {
         post?: never;
         /**
          * Delete the account
-         * @description Delete the signed-in user's account and everything held because of it, now.
-         *
-         *     Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
-         *     and the sign-in codes sent to the number. A call in progress is ended first. Every token the
-         *     account held stops working with it.
+         * @description Delete the signed-in account and everything held for it, ending any call in progress.
          */
         delete: operations["delete_me_v1_me_delete"];
         options?: never;
         head?: never;
         /**
          * Update the profile
-         * @description Change what the assistant knows about the person it represents.
-         *
-         *     A field that is absent is left alone rather than cleared. A client sending only what it
-         *     changed is the ordinary case, and reading absence as "set to nothing" would quietly erase
-         *     everything it did not mention.
+         * @description Change the fields sent and leave absent ones alone (D-023).
          */
         patch: operations["update_me_v1_me_patch"];
         trace?: never;
@@ -342,14 +302,7 @@ export interface paths {
         put?: never;
         /**
          * Record a step
-         * @description Record a step as answered, or deliberately passed over.
-         *
-         *     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
-         *     where somebody was instead of asking them everything again.
-         *
-         *     A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
-         *     deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
-         *     `step_not_asked`, and nothing is recorded.
+         * @description Record a step as answered or skipped; a step this deployment does not ask is refused.
          */
         post: operations["record_onboarding_step_v1_onboarding_post"];
         delete?: never;
@@ -369,11 +322,7 @@ export interface paths {
         get: operations["read_preferences_v1_preferences_get"];
         /**
          * Replace preferences
-         * @description Set everything the request mentions, from the defaults.
-         *
-         *     Distinct from the patch below: this starts from the defaults rather than from what is
-         *     stored, so a section left out is reset rather than kept. That is what a client means when
-         *     it says "replace".
+         * @description Set everything the request mentions, starting from the defaults.
          */
         put: operations["replace_preferences_v1_preferences_put"];
         post?: never;
@@ -382,9 +331,7 @@ export interface paths {
         head?: never;
         /**
          * Change some of it
-         * @description Change the sections that were sent and leave the rest exactly as they were.
-         *
-         *     The ordinary case: one screen saves one section, and has no idea what the others hold.
+         * @description Change the sections that were sent and leave the rest exactly as they were (D-023).
          */
         patch: operations["update_preferences_v1_preferences_patch"];
         trace?: never;
@@ -400,15 +347,7 @@ export interface paths {
         get: operations["read_selection_v1_preferences_voice_get"];
         /**
          * Choose a voice
-         * @description Set or clear the chosen voice.
-         *
-         *     A voice the provider does not offer is refused rather than stored. Storing it would
-         *     mean a selection that silently falls through to the default on every call, which looks
-         *     to the user exactly like their choice being ignored.
-         *
-         *     Only the half this request is about is sent. The cloned voice is left to the service to
-         *     carry, under the lock it takes: read here instead, a clone revoked while this request
-         *     was in flight would be written back from a read taken before it.
+         * @description Set or clear the chosen voice, refusing one the provider does not offer.
          */
         put: operations["choose_voice_v1_preferences_voice_put"];
         post?: never;
@@ -428,12 +367,6 @@ export interface paths {
         /**
          * The voices on offer
          * @description What the configured provider offers, and what it can do with it.
-         *
-         *     The client renders from this rather than from a bundled list, so a deployment that
-         *     changes provider changes the screen without shipping an app.
-         *
-         *     Behind a token like everything else: this is a signed-in screen, and which provider a
-         *     deployment runs is not something to tell whoever asks.
          */
         get: operations["read_catalogue_v1_voices_get"];
         put?: never;
@@ -458,11 +391,7 @@ export interface components {
         };
         /**
          * CallDetailResponse
-         * @description One call in full.
-         *
-         *     `transcript_retention_days` is the user's setting as it stands, which is the one the purge
-         *     applies. `transcript_expires_at` is when the last of the transcript is due to go — null when
-         *     there is none to go, or while the call is still going.
+         * @description One call in full, with the user's current retention and when its transcript is due to go.
          */
         CallDetailResponse: {
             caller: components["schemas"]["CallerPayload"];
@@ -562,10 +491,7 @@ export interface components {
         CallIntent: "undetermined" | "delivery_in_progress" | "appointment" | "enquiry" | "personal" | "service_issue" | "sales" | "suspected_fraud";
         /**
          * CallListItem
-         * @description One call in the list.
-         *
-         *     `outcome` and `headline` are null until the call has a summary: while it is in progress, and
-         *     for the moment between its end and its summary being written.
+         * @description One call in the list; `outcome` and `headline` are null until it has a summary.
          */
         CallListItem: {
             caller: components["schemas"]["CallerPayload"];
@@ -626,10 +552,7 @@ export interface components {
         };
         /**
          * CallReportReceipt
-         * @description What became of each report in a batch. The handset forgets every one it is told about.
-         *
-         *     `accepted` were stored now and `duplicates` had been already; `rejected` never will be,
-         *     because something in them cannot have happened or cannot be read.
+         * @description What became of each report in a batch; the handset forgets every one listed.
          */
         CallReportReceipt: {
             /** Accepted */
@@ -641,7 +564,7 @@ export interface components {
         };
         /**
          * CallStatus
-         * @description Whether a call is still going. An ended call's summary can arrive a moment after it ends.
+         * @description Whether a call is still going.
          * @enum {string}
          */
         CallStatus: "in_progress" | "ended";
@@ -723,13 +646,7 @@ export interface components {
         DevicePlatform: "ios" | "android";
         /**
          * EscalationContextResponse
-         * @description An escalation as the app shows it — the same words the notification carried.
-         *
-         *     `title`, `caller_label` and `body` are exactly what a notification would display, untrimmed.
-         *     The structured fields beside them are for the app to lay out itself: `caller` is absent when
-         *     nobody knows who is calling, where `caller_label` says so in words. `status` says whether the
-         *     call is still going; an `ended` escalation is shown as what happened, not as a call to join.
-         *     `delivery` says what became of the push, so a failure can be surfaced rather than hidden.
+         * @description An escalation as the app shows it: the untrimmed notification words and their fields.
          */
         EscalationContextResponse: {
             /** Body */
@@ -868,11 +785,7 @@ export interface components {
         };
         /**
          * OnboardingResponse
-         * @description Where somebody is in the flow, and what is left.
-         *
-         *     Every list holds only the steps this deployment asks, in the order they are asked.
-         *     `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
-         *     and an answer recorded to it elsewhere is not listed.
+         * @description Where somebody is in the flow, listing only the steps this deployment asks, in order.
          */
         OnboardingResponse: {
             /** Completed */
@@ -934,10 +847,7 @@ export interface components {
         };
         /**
          * PreferencesUpdate
-         * @description A change to some of it.
-         *
-         *     Every section is optional, and an omitted section is left exactly as it was. That is what
-         *     lets one screen save one section without knowing or caring what the others hold.
+         * @description A change to some of it; an omitted section is left exactly as it was.
          */
         PreferencesUpdate: {
             authority?: components["schemas"]["AuthorityPayload"] | null;
@@ -961,10 +871,7 @@ export interface components {
         };
         /**
          * PrivacyResponse
-         * @description What is kept, and for how long, as stored.
-         *
-         *     Unbounded above, unlike the request: a deployment with a higher ceiling may have stored a
-         *     longer retention, and it is reported as it is rather than refused or quietly lowered.
+         * @description What is kept, and for how long, as stored and unbounded above.
          */
         PrivacyResponse: {
             /** Transcript Retention Days */
@@ -985,18 +892,7 @@ export interface components {
         };
         /**
          * Readiness
-         * @description Readiness: can this process do its job.
-         *
-         *     ``checks`` names each dependency and whether it answered. It carries no configuration —
-         *     not a host, not a user, not a URL — because a readiness endpoint is usually the most
-         *     exposed thing an application has.
-         *
-         *     ``dependencies`` is where each provider's circuit stands, by role — telephony, speech, the
-         *     model, each push platform — and never by vendor. An open circuit does not make the process
-         *     unready: every process shares the same providers, so taking this one out of rotation would
-         *     move its calls to another that fails them the same way, while this one still does what the
-         *     degraded path allows. ``rate_limits`` says whether limits are counted across processes or in
-         *     each one alone.
+         * @description Readiness: each dependency's answer, each circuit by role, and how limits are counted.
          */
         Readiness: {
             /** Checks */
@@ -1025,10 +921,7 @@ export interface components {
         };
         /**
          * RegisterDeviceRequest
-         * @description This device's current push token.
-         *
-         *     `previous_token` is the token the platform rotated away from, when the app knows it. It is
-         *     removed from this user's devices so the old one does not linger until a delivery fails.
+         * @description This device's current push token, and the one the platform rotated away from if known.
          */
         RegisterDeviceRequest: {
             platform: components["schemas"]["DevicePlatform"];
@@ -1079,11 +972,7 @@ export interface components {
         Speaker: "caller" | "agent" | "human";
         /**
          * TimeWindowPayload
-         * @description A daily window, in the user's own zone.
-         *
-         *     The zone travels with the window rather than being applied later. A window compared in the
-         *     wrong zone is off by hours, and the mistake shows up as calls handled at the wrong time of
-         *     day rather than as anything that looks like a bug.
+         * @description A daily window, with the zone it is read in.
          */
         TimeWindowPayload: {
             /** End */
@@ -1171,11 +1060,7 @@ export interface components {
         };
         /**
          * VoiceCapabilitiesPayload
-         * @description What the configured provider can do.
-         *
-         *     The interface renders from these. Everything absent means the control is not drawn at all —
-         *     not disabled, not labelled as unavailable — because a control that cannot work teaches
-         *     people to distrust the ones that can.
+         * @description What the configured provider can do; a control it cannot serve is not drawn.
          */
         VoiceCapabilitiesPayload: {
             /** Builtin Voices */
@@ -1207,10 +1092,6 @@ export interface components {
         /**
          * VoicePayload
          * @description One voice, and whether this one in particular can be heard.
-         *
-         *     Per voice rather than per provider: a provider holding a sample for one voice and not
-         *     another declares the capability and can still serve only the one, and a client drawing a
-         *     control from the capability alone draws two that fail.
          */
         VoicePayload: {
             /** Id */
@@ -1224,12 +1105,7 @@ export interface components {
         };
         /**
          * VoiceSelectionResponse
-         * @description What the user has chosen, and what a call would actually use.
-         *
-         *     `resolved_voice_id` is the answer the fallback chain gives right now — the cloned voice if
-         *     it is still available, otherwise the chosen one, otherwise the provider's default. It is
-         *     returned alongside the choice because those differ exactly when something has gone wrong
-         *     with a voice, and that is the moment a user should be able to see it.
+         * @description What the user has chosen, and the voice the fallback chain resolves to now.
          */
         VoiceSelectionResponse: {
             /** Cloned Voice Id */
@@ -1241,12 +1117,7 @@ export interface components {
         };
         /**
          * VoiceSelectionUpdate
-         * @description A change to the chosen voice.
-         *
-         *     The field is required and may be `null`, and the difference from optional is the point.
-         *     `null` clears the choice and returns to the provider's default, which somebody must be able
-         *     to do; a request that simply left the field out would otherwise mean the same thing, and a
-         *     client reading the schema could not tell "clear it" from "I forgot to send it".
+         * @description A change to the chosen voice: required, with `null` returning to the provider's default.
          */
         VoiceSelectionUpdate: {
             /** Persona Voice Id */
