@@ -320,19 +320,20 @@ class TestQuiet:
     async def test_a_frame_played_during_the_pause_starts_it_again(
         self, session: EchoSpeechSession
     ) -> None:
+        pause = self.PAUSE * 10
         parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
         conversation = parts.conversation()
         running = asyncio.create_task(conversation.run())
         loop = asyncio.get_running_loop()
 
-        quiet = asyncio.create_task(conversation.quiet(self.PAUSE * 2))
+        quiet = asyncio.create_task(conversation.quiet(pause))
         await asyncio.sleep(self.PAUSE)
+        emitted = loop.time()
         await session.emit(AudioProduced(tone_frame(0)))
         await parts.sink.until_written(1)
-        played = loop.time()
         await quiet
 
-        assert loop.time() - played >= self.PAUSE * 2
+        assert loop.time() - emitted >= pause
         running.cancel()
         await asyncio.gather(running, return_exceptions=True)
 
