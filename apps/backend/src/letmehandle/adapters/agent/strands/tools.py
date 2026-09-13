@@ -91,7 +91,7 @@ class UnknownToolRefusals(HookProvider):
         refusal = ToolRefusal(event.tool_use["name"], NO_SUCH_TOOL)
         self._ledger.notes.refused(refusal)
         # Cancelled, so the model reads a refusal like any other rather than the SDK's own error.
-        event.cancel_tool = f"Refused: {refusal.reason}"
+        event.cancel_tool = _refusal_text(refusal)
 
 
 def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgentTool:
@@ -101,15 +101,9 @@ def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgent
     async def run(tool_use: ToolUse, **_invocation_state: object) -> SDKToolResult:
         arguments = tool_use["input"]
         if not isinstance(arguments, Mapping):
-            # The SDK hands on whatever JSON the model wrote. A list or a bare string is a
-            # malformed call like any other, refused like one and written down like one.
-            refusal = ToolRefusal(spec.name, "the arguments must be a JSON object")
-            ledger.notes.refused(refusal)
-            return _result(tool_use, f"Refused: {refusal.reason}", succeeded=False)
+            return _refused(tool_use, ledger, spec.name, "the arguments must be a JSON object")
         if ledger.failure is not None and tool.acts_on_the_call:
-            refusal = ToolRefusal(spec.name, AFTER_A_FAILURE)
-            ledger.notes.refused(refusal)
-            return _result(tool_use, f"Refused: {refusal.reason}", succeeded=False)
+            return _refused(tool_use, ledger, spec.name, AFTER_A_FAILURE)
         try:
             outcome = await tool.invoke(call, arguments)
         except Exception as error:  # noqa: BLE001 - kept, and raised by the agent once the model stops
@@ -119,7 +113,7 @@ def present(tool: AgentTool, call: CallSoFar, ledger: ToolLedger) -> PythonAgent
 
         if isinstance(outcome, ToolRefusal):
             # Already in the notes: the tool that refused wrote it there.
-            return _result(tool_use, f"Refused: {outcome.reason}", succeeded=False)
+            return _result(tool_use, _refusal_text(outcome), succeeded=False)
         return _result(tool_use, outcome.content, succeeded=True)
 
     return PythonAgentTool(
@@ -139,3 +133,14 @@ def _result(tool_use: ToolUse, text: str, *, succeeded: bool) -> SDKToolResult:
         "status": "success" if succeeded else "error",
         "content": [{"text": text}],
     }
+
+
+def _refused(tool_use: ToolUse, ledger: ToolLedger, tool: str, reason: str) -> SDKToolResult:
+    """Record a refusal the wrapper gives, and answer the model with it."""
+    refusal = ToolRefusal(tool, reason)
+    ledger.notes.refused(refusal)
+    return _result(tool_use, _refusal_text(refusal), succeeded=False)
+
+
+def _refusal_text(refusal: ToolRefusal) -> str:
+    return f"Refused: {refusal.reason}"

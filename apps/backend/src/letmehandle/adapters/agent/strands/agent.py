@@ -30,7 +30,6 @@ from letmehandle.application.agent.conclusion import (
     NOT_ENDED_AFTER_A_FAILURE,
     NOT_ENDED_WITHOUT_AN_ASSESSMENT,
 )
-from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import CallAgent
 from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -111,7 +110,7 @@ class StrandsCallAgent(CallAgent):
         and somebody else's to handle — the model misbehaving is this method's to absorb.
         """
         prompts = load_prompts(call.preferences.locale)
-        ledger = ToolLedger(JudgementNotes())
+        ledger = ToolLedger()
         agent = single_use_agent(
             self._model,
             tools=[present(tool, call, ledger) for tool in self._tools(ledger.notes)],
