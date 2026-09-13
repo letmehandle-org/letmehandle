@@ -340,6 +340,10 @@ class CallRun:
             case CallState.HUMAN_RINGING:
                 self._ring.cancel()
                 await ledger.move(CallState.HUMAN_JOINED)
+                # The assistant was on the call before the user was rung, even when the callback
+                # saying so is still on its way: record it first, so the order is the true one.
+                if not any(each.role is ParticipantRole.AGENT for each in ledger.call.participants):
+                    await ledger.joined(ParticipantRole.AGENT)
                 await ledger.joined(ParticipantRole.HUMAN)
                 if self._handed_over:
                     await self._speaking.stop()
