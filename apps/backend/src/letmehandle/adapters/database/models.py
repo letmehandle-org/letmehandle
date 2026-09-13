@@ -37,6 +37,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql.expression import false, text
 
+# A call's identifier is longer than a user's. A call a handset reports is stored as the account's
+# identifier and the handset's joined together (`scoped_call_id`), so it must hold both at once:
+# 64 for the account, one separator, and the 48 the reporting route accepts.
+CALL_ID_LENGTH = 128
+
 
 class Base(DeclarativeBase):
     """The declarative base. Alembic reads its metadata to find drift."""
@@ -178,7 +183,7 @@ class CallRow(Base):
 
     __tablename__ = "calls"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(CALL_ID_LENGTH), primary_key=True)
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -229,7 +234,7 @@ class CallParticipantRow(Base):
     __tablename__ = "call_participants"
 
     call_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("calls.id", ondelete="CASCADE"), primary_key=True
+        String(CALL_ID_LENGTH), ForeignKey("calls.id", ondelete="CASCADE"), primary_key=True
     )
     position: Mapped[int] = mapped_column(Integer, primary_key=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -248,7 +253,7 @@ class CallTimelineMarkRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     call_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+        String(128), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
     )
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -271,7 +276,7 @@ class TranscriptEntryRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(CALL_ID_LENGTH), nullable=False)
     # The line's place in its call, in the order lines were written, bound into the seal.
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     speaker: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -305,7 +310,7 @@ class CallSummaryRow(Base):
 
     __tablename__ = "call_summaries"
 
-    call_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    call_id: Mapped[str] = mapped_column(String(CALL_ID_LENGTH), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     outcome: Mapped[str] = mapped_column(String(32), nullable=False)
     intent: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -346,7 +351,7 @@ class EscalationContextRow(Base):
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(CALL_ID_LENGTH), nullable=False)
     reason: Mapped[str] = mapped_column(String(64), nullable=False)
     key_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
