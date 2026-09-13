@@ -151,6 +151,25 @@ async def test_a_call_with_no_escalation_summary_or_marks_is_outlined_as_what_it
     assert (outline.escalation, outline.outcome, outline.marks) == (None, None, ())
 
 
+async def test_the_outline_reads_only_its_owners_escalation(session: AsyncSession) -> None:
+    await a_stored_call(session)
+    someone_else = UserId("user-2")
+    await SqlUserRepository(session, FixedClock(NOW)).add(
+        User(id=someone_else, phone_number=PhoneNumber.parse("+12025550150"))
+    )
+    await SqlEscalationContextRepository(session, CIPHER).claim(
+        someone_else,
+        EscalationContext(
+            call_id=CALL, reason=EscalationReason.CALLER_ASKED_FOR_THE_USER, raised_at=later(5)
+        ),
+    )
+
+    outline = await SqlCallTimelineRepository(session).outline(CALL)
+
+    assert outline is not None
+    assert outline.escalation is None
+
+
 async def test_no_call_is_no_outline(session: AsyncSession) -> None:
     assert await SqlCallTimelineRepository(session).outline(CallId("never-stored")) is None
 
