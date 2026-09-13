@@ -218,6 +218,7 @@ def main() -> None:
         # The catalogue as well as the settings: every request for voices needs it, and a service
         # that starts without it fails in front of somebody instead of here.
         settings = get_settings()
+        settings.require_signing_key()
         settings.require_voice_catalogue()
         settings.require_telephony_configuration()
     except ConfigurationError as error:

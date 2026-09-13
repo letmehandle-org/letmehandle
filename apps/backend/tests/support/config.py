@@ -48,6 +48,7 @@ EXAMPLE_DEFAULT_VOICE: Final = "example-voice-a"
 
 # The variables a process needs before it will start at all, for tests that read the environment.
 REQUIRED_ENVIRONMENT: Final = {
+    "AUTH_SIGNING_KEY": TEST_SIGNING_KEY,
     "SPEECH_VOICES": EXAMPLE_VOICES_TEXT,
     "SPEECH_DEFAULT_VOICE": EXAMPLE_DEFAULT_VOICE,
 }

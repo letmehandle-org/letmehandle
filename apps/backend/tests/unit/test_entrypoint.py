@@ -60,11 +60,26 @@ def test_main_refuses_to_start_on_invalid_configuration(
 
 
 def test_main_refuses_to_start_without_a_voice_catalogue(
-    recorded_uvicorn: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch, recorded_uvicorn: dict[str, object]
 ) -> None:
-    """Nothing is set, so the one variable with no possible default is the one named."""
+    monkeypatch.setenv("AUTH_SIGNING_KEY", REQUIRED_ENVIRONMENT["AUTH_SIGNING_KEY"])
+
     with pytest.raises(SystemExit) as exit_info:
         main()
 
     assert "SPEECH_VOICES" in str(exit_info.value)
+    assert recorded_uvicorn == {}
+
+
+def test_main_refuses_to_start_without_a_signing_key(
+    monkeypatch: pytest.MonkeyPatch, recorded_uvicorn: dict[str, object]
+) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("AUTH_SIGNING_KEY", raising=False)
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert "AUTH_SIGNING_KEY" in str(exit_info.value)
     assert recorded_uvicorn == {}
