@@ -95,6 +95,13 @@ const font = {
 const type = {
   /** The number in the middle of the ring. */
   figure: { fontFamily: font.light, fontSize: 52, lineHeight: 58 },
+  /** The welcome screen's promise, and nothing else: one headline, as large as a phone allows. */
+  display: {
+    fontFamily: font.strong,
+    fontSize: 54,
+    lineHeight: 58,
+    letterSpacing: -1.4,
+  },
   title: { fontFamily: font.strong, fontSize: 28, lineHeight: 35 },
   heading: { fontFamily: font.strong, fontSize: 21, lineHeight: 28 },
   body: { fontFamily: font.regular, fontSize: 17, lineHeight: 24 },
