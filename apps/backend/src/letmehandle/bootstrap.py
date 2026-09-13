@@ -201,6 +201,7 @@ def build_container(
     """
     clock = SystemClock()
     signing_key = settings.require_signing_key()
+    refresh_token_lifetime = timedelta(seconds=settings.auth_refresh_token_ttl_seconds)
 
     return Container(
         clock=clock,
@@ -216,7 +217,7 @@ def build_container(
         otp=_build_otp_provider(settings),
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
-        refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+        refresh_token_lifetime=refresh_token_lifetime,
         transcript_cipher=(
             None
             if settings.transcript_encryption_keys is None
@@ -226,7 +227,7 @@ def build_container(
         reported_calls=reported_calls,
         forwarding=build_call_forwarding(settings),
         auth_limits=AuthenticationPolicy(
-            refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+            refresh_token_lifetime=refresh_token_lifetime,
             allowed_calling_codes=settings.otp_allowed_calling_codes,
             challenges_per_hour=settings.otp_challenges_per_hour,
             challenges_per_hour_per_calling_code=settings.otp_challenges_per_hour_per_calling_code,
@@ -266,38 +267,41 @@ def build_notification_providers(
     """
     providers: list[NotificationProvider] = []
     if settings.apns_configured:
-        apns = settings.require_apns()
-        try:
-            token = APNsProviderToken(
-                key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
-            )
-        except CredentialError as error:
-            raise ConfigurationError(
-                f"APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID: {error}"
-            ) from None
-        providers.append(
-            APNsNotificationProvider(
-                token=token,
-                topic=apns.topic,
-                environment=_APNS_ENVIRONMENTS[apns.environment],
-                clock=clock,
-            )
-        )
+        providers.append(_apns_provider(settings, clock=clock))
     if settings.fcm_configured:
-        credentials = settings.require_fcm()
-        try:
-            account = ServiceAccount.parse(credentials.service_account_json)
-        except CredentialError as error:
-            raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
-        client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
-        providers.append(
-            fcm.FCMNotificationProvider(
-                project_id=credentials.project_id,
-                tokens=AccessTokenSource(account, client=client, clock=clock),
-                client=client,
-            )
-        )
+        providers.append(_fcm_provider(settings, clock=clock))
     return tuple(providers)
+
+
+def _apns_provider(settings: Settings, *, clock: Clock) -> NotificationProvider:
+    apns = settings.require_apns()
+    try:
+        token = APNsProviderToken(
+            key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
+        )
+    except CredentialError as error:
+        variables = "APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID"
+        raise ConfigurationError(f"{variables}: {error}") from None
+    return APNsNotificationProvider(
+        token=token,
+        topic=apns.topic,
+        environment=_APNS_ENVIRONMENTS[apns.environment],
+        clock=clock,
+    )
+
+
+def _fcm_provider(settings: Settings, *, clock: Clock) -> NotificationProvider:
+    credentials = settings.require_fcm()
+    try:
+        account = ServiceAccount.parse(credentials.service_account_json)
+    except CredentialError as error:
+        raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
+    client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
+    return fcm.FCMNotificationProvider(
+        project_id=credentials.project_id,
+        tokens=AccessTokenSource(account, client=client, clock=clock),
+        client=client,
+    )
 
 
 _APNS_ENVIRONMENTS: Final = {
