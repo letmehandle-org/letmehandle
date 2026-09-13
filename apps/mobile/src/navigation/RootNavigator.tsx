@@ -239,6 +239,9 @@ function SignedIn({
             onOpenCall={callId => {
               navigation.navigate(APP_ROUTES.call, { callId });
             }}
+            onOpenEscalation={callId => {
+              navigation.navigate(APP_ROUTES.escalation, { callId });
+            }}
             historyVersion={historyVersion}
           />
         )}
