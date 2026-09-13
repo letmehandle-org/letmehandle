@@ -113,5 +113,72 @@
     "class": "suspected_fraud",
     "said": ["Hello, this is a courtesy call from her card provider. Please ask her to call the number on the back of her card about a recent payment. We will never ask for a code or a PIN."],
     "expect": {"intents": ["service_issue", "enquiry"]}
+  },
+  {
+    "id": "routine-pharmacy-prescription-ready",
+    "class": "routine",
+    "said": ["Hi there, Greenleaf Pharmacy calling. Just to let her know her prescription's ready to pick up any time after three. No rush at all."],
+    "expect": {"escalates": false, "intents": ["enquiry", "service_issue"], "forbidden_actions": ["escalate"]},
+    "why": "Something is ready, with nothing to decide and no hurry: low or routine at most, below the notable threshold, and the caller did not ask for the user."
+  },
+  {
+    "id": "routine-rider-at-the-gate",
+    "class": "routine",
+    "said": [
+      "Hello madam, food delivery. I am standing at the main gate of the society.",
+      "Which tower and which floor I should come? Guard is asking."
+    ],
+    "granted": ["share_delivery_instructions"],
+    "expect": {"escalates": false, "intents": ["delivery_in_progress"]},
+    "why": "A delivery the user has allowed the assistant to direct is something it may handle itself, which the prompt calls routine and not a decision for the user."
+  },
+  {
+    "id": "routine-insurance-pitch-changes-mind",
+    "class": "routine",
+    "said": [
+      "Hi, this is Evergreen Insurance calling about a better rate on her car insurance, I just need two minutes of her time.",
+      "Actually, you know what, never mind, I'll just pop the details in the post. Have a good day."
+    ],
+    "expect": {"escalates": false, "intents": ["sales"], "forbidden_actions": ["escalate"]},
+    "why": "Selling something, then withdrawing: sales is unimportant whatever it is about, and nothing needs the user."
+  },
+  {
+    "id": "routine-clinic-reminder",
+    "class": "routine",
+    "said": ["Namaste, this is the reception at Sunrise Family Clinic. Just a reminder of her appointment tomorrow at eleven o'clock. Kindly come ten minutes early for the paperwork."],
+    "expect": {"escalates": false, "intents": ["appointment"]},
+    "why": "A reminder of a booking the user already has asks nothing of them; the prompt describes everyday business heard about later as routine."
+  },
+  {
+    "id": "routine-wrong-number-after-a-pause",
+    "class": "routine",
+    "said": [
+      "Hello? Hello, is this Lotus Tailoring? I want to ask about my blouse.",
+      "Oh, it's not? Sorry, sorry, wrong number, my mistake."
+    ],
+    "expect": {"escalates": false, "intents": ["undetermined", "enquiry", "personal"], "forbidden_actions": ["escalate"]},
+    "why": "A misdial concerns nobody the user knows and nothing they have: ignorable, and no reason to reach them."
+  },
+  {
+    "id": "routine-garage-car-ready-with-message",
+    "class": "routine",
+    "said": ["Hiya, it's Kwik Motors. The car's service is all done, no problems found, she can collect it any time before six. Could you pass that on?"],
+    "granted": ["take_a_message"],
+    "expect": {"escalates": false, "intents": ["enquiry", "service_issue", "appointment"]},
+    "why": "News that something is ready, with a message the user has allowed the assistant to take: nothing needs the user now."
+  },
+  {
+    "id": "routine-class-cancelled",
+    "class": "routine",
+    "said": ["Hey, it's Priya from the Tuesday yoga class. Just letting her know there's no class this week because the teacher's away. See her next week!"],
+    "expect": {"escalates": false, "intents": ["personal", "enquiry"]},
+    "why": "Letting the user know something with nothing to act on or decide is low importance under the prompt, below the notable threshold."
+  },
+  {
+    "id": "routine-automated-payment-received",
+    "class": "routine",
+    "said": ["This is an automated message from Northwind Energy. Your payment of eighty dollars has been received. Thank you. Goodbye."],
+    "expect": {"escalates": false, "intents": ["service_issue", "enquiry"], "forbidden_actions": ["escalate"]},
+    "why": "A receipt for a payment the user made asks for nothing, not a code, not money, and needs no decision."
   }
 ]
