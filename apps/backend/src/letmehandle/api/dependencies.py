@@ -10,7 +10,8 @@ It is also the one place allowed to name a provider. A test asserts that no modu
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from datetime import timedelta
+from typing import TYPE_CHECKING, Annotated, Final
 
 from fastapi import Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -62,6 +63,12 @@ def container_of(request: Request) -> Container:
     container: Container = request.app.state.container
     return container
 
+
+# How many requests one signed-in user may make in a window. The app makes a handful per screen and
+# a few more per call; this is far beyond that, and what it stops is one account, or one stolen
+# token, driving the database as fast as a loop can. Counted per process, as the limiter says.
+SIGNED_IN_REQUESTS_PER_WINDOW: Final = 300
+SIGNED_IN_WINDOW: Final = timedelta(minutes=1)
 
 # auto_error=False so that a missing header produces this module's own 401 rather than
 # FastAPI's, which would have a different body from every other error the API returns.
@@ -140,10 +147,27 @@ async def get_authenticated_user(
     if credentials is None or not credentials.credentials:
         raise unauthorised
 
+    container = container_of(request)
     try:
-        return container_of(request).signer.verify(credentials.credentials)
+        authenticated = container.signer.verify(credentials.credentials)
     except DomainError as error:
         raise unauthorised from error
+
+    # After the token is proved, so the count belongs to an account rather than to whatever an
+    # anonymous caller writes in a header, and before anything touches the database.
+    decision = await container.rate_limiter.check(
+        f"signed-in:{authenticated.user_id.value}",
+        limit=SIGNED_IN_REQUESTS_PER_WINDOW,
+        window=SIGNED_IN_WINDOW,
+    )
+    if not decision.allowed:
+        raise ApiError(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many requests. Try again shortly.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+    return authenticated
 
 
 async def get_current_user(

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from letmehandle.adapters.database.repositories import SqlRefreshTokenRepository
+from letmehandle.api.dependencies import SIGNED_IN_REQUESTS_PER_WINDOW
 from tests.integration.conftest import ANOTHER_NUMBER, NUMBER, bearer, code_for, sign_in
 
 if TYPE_CHECKING:
@@ -118,6 +119,28 @@ class TestLimits:
 
         other = await api.client.post("/v1/auth/challenge", json={"phone_number": ANOTHER_NUMBER})
         assert other.status_code == 202
+
+    async def test_a_signed_in_user_sending_more_than_any_app_does_is_refused(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        for _ in range(SIGNED_IN_REQUESTS_PER_WINDOW):
+            allowed = await api.client.get("/v1/me", headers=bearer(tokens))
+            assert allowed.status_code == 200
+
+        refused = await api.client.get("/v1/me", headers=bearer(tokens))
+
+        assert refused.status_code == 429
+        assert refused.json()["error"] == "rate_limited"
+        assert int(refused.headers["Retry-After"]) > 0
+
+    async def test_one_user_at_the_limit_does_not_block_another(self, api: Api) -> None:
+        busy = await sign_in(api)
+        quiet = await sign_in(api, ANOTHER_NUMBER)
+        for _ in range(SIGNED_IN_REQUESTS_PER_WINDOW):
+            await api.client.get("/v1/me", headers=bearer(busy))
+
+        assert (await api.client.get("/v1/me", headers=bearer(quiet))).status_code == 200
 
 
 class TestSessions:
