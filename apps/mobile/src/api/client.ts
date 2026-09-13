@@ -92,7 +92,7 @@ export class ApiClient {
   // ------------------------------------------------------------- signing in
 
   requestChallenge(phoneNumber: string): Promise<ChallengeResponse> {
-    return this.send<ChallengeResponse>({
+    return this.send({
       method: 'POST',
       path: '/v1/auth/challenge',
       body: { phone_number: phoneNumber },
@@ -100,7 +100,7 @@ export class ApiClient {
   }
 
   verify(challengeId: string, code: string): Promise<TokenPair> {
-    return this.send<TokenPair>({
+    return this.send({
       method: 'POST',
       path: '/v1/auth/verify',
       body: { challenge_id: challengeId, code },
@@ -108,7 +108,7 @@ export class ApiClient {
   }
 
   refresh(refreshToken: string): Promise<TokenPair> {
-    return this.send<TokenPair>({
+    return this.send({
       method: 'POST',
       path: '/v1/auth/refresh',
       body: { refresh_token: refreshToken },
@@ -126,143 +126,69 @@ export class ApiClient {
   // --------------------------------------------------------------- profile
 
   me(): Promise<Profile> {
-    return this.send<Profile>({
-      method: 'GET',
-      path: '/v1/me',
-      authenticated: true,
-    });
+    return this.authorised('GET', '/v1/me');
   }
 
   updateMe(changes: UpdateProfileRequest): Promise<Profile> {
-    return this.send<Profile>({
-      method: 'PATCH',
-      path: '/v1/me',
-      body: changes,
-      authenticated: true,
-    });
+    return this.authorised('PATCH', '/v1/me', changes);
+  }
+
+  /** The account and everything held because of it, now. Live calls are ended first. */
+  deleteAccount(): Promise<void> {
+    return this.authorised('DELETE', '/v1/me');
   }
 
   // ----------------------------------------------------------- preferences
 
   preferences(): Promise<Preferences> {
-    return this.send<Preferences>({
-      method: 'GET',
-      path: '/v1/preferences',
-      authenticated: true,
-    });
+    return this.authorised('GET', '/v1/preferences');
   }
 
-  /**
-   * Change some of it.
-   *
-   * PATCH rather than PUT throughout: PUT starts from the defaults, so a screen that saves one
-   * section would reset every section it did not mention.
-   */
+  /** Change some of it; PATCH, because PUT would reset every section not mentioned. */
   updatePreferences(changes: PreferencesUpdate): Promise<Preferences> {
-    return this.send<Preferences>({
-      method: 'PATCH',
-      path: '/v1/preferences',
-      body: changes,
-      authenticated: true,
-    });
+    return this.authorised('PATCH', '/v1/preferences', changes);
   }
 
   // ----------------------------------------------------------------- voice
 
-  /**
-   * The voices on offer, and what the configured provider can do with them.
-   *
-   * Asked of the backend rather than bundled with the app, because which provider a deployment
-   * runs decides both the list and which controls may be drawn at all (D-009).
-   */
+  /** The voices on offer and what the deployment's provider can do with them (D-009). */
   voices(): Promise<VoiceCatalogue> {
-    return this.send<VoiceCatalogue>({
-      method: 'GET',
-      path: '/v1/voices',
-      authenticated: true,
-    });
+    return this.authorised('GET', '/v1/voices');
   }
 
   voiceSelection(): Promise<VoiceSelection> {
-    return this.send<VoiceSelection>({
-      method: 'GET',
-      path: '/v1/preferences/voice',
-      authenticated: true,
-    });
+    return this.authorised('GET', '/v1/preferences/voice');
   }
 
-  /**
-   * Choose a voice, or hand the choice back to the provider with null.
-   *
-   * PUT rather than PATCH, unlike the preferences: there is one field, so starting from the
-   * default cannot reset a section nobody was editing.
-   *
-   * The field is sent even when it is null rather than left out. The wire type makes it
-   * optional, so an omitted field and a cleared one would be the same request, and saying null
-   * out loud is what keeps "use the default" from ever being read as "leave it alone".
-   */
+  /** Choose a voice, or hand the choice back to the provider with an explicit null. */
   chooseVoice(voiceId: string | null): Promise<VoiceSelection> {
-    return this.send<VoiceSelection>({
-      method: 'PUT',
-      path: '/v1/preferences/voice',
-      body: { persona_voice_id: voiceId },
-      authenticated: true,
-    });
-  }
-
-  // ----------------------------------------------------------------- calls
-
-  /**
-   * Tell the backend what this handset observed about its own calls.
-   *
-   * The backend answers for every report by its event id, as newly stored or already stored, and
-   * both mean the handset may forget it.
-   */
-  reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
-    return this.send<CallReportReceipt>({
-      method: 'POST',
-      path: '/v1/calls/reports',
-      body: batch,
-      authenticated: true,
+    return this.authorised('PUT', '/v1/preferences/voice', {
+      persona_voice_id: voiceId,
     });
   }
 
   // ------------------------------------------------------------ onboarding
 
   onboarding(): Promise<Onboarding> {
-    return this.send<Onboarding>({
-      method: 'GET',
-      path: '/v1/onboarding',
-      authenticated: true,
-    });
+    return this.authorised('GET', '/v1/onboarding');
   }
 
-  /**
-   * Record a step as answered, or deliberately passed over.
-   *
-   * `skipped` is sent rather than inferred from an empty body, because the backend refuses to
-   * skip a step that has no safe default and needs to be told which of the two this is.
-   */
+  /** Record a step as answered, or deliberately passed over. */
   recordOnboardingStep(
     step: OnboardingStep,
     skipped: boolean,
   ): Promise<Onboarding> {
-    return this.send<Onboarding>({
-      method: 'POST',
-      path: '/v1/onboarding',
-      body: { step, skipped },
-      authenticated: true,
-    });
+    return this.authorised('POST', '/v1/onboarding', { step, skipped });
   }
 
-  // ---------------------------------------------------------------- calls
+  // ----------------------------------------------------------------- calls
 
-  /**
-   * One page of call history, newest first.
-   *
-   * `outcome` and `humanJoined` narrow it to calls that have a summary; the cursor carries on
-   * from where the previous page ended, and is null when there is nothing older.
-   */
+  /** What this handset observed about its own calls; accepted and duplicate ids may be forgotten. */
+  reportCalls(batch: CallReportBatch): Promise<CallReportReceipt> {
+    return this.authorised('POST', '/v1/calls/reports', batch);
+  }
+
+  /** One page of call history, newest first; the cursor is null when nothing is older. */
   calls(query: CallQuery = {}): Promise<CallPage> {
     const params = new URLSearchParams();
     if (query.outcome !== undefined) {
@@ -281,58 +207,46 @@ export class ApiClient {
       params.set('cursor', query.cursor);
     }
     const search = params.toString();
-    return this.send<CallPage>({
-      method: 'GET',
-      path: search === '' ? '/v1/calls' : `/v1/calls?${search}`,
-      authenticated: true,
-    });
+    return this.authorised(
+      'GET',
+      search === '' ? '/v1/calls' : `/v1/calls?${search}`,
+    );
   }
 
   call(callId: string): Promise<CallDetail> {
-    return this.send<CallDetail>({
-      method: 'GET',
-      path: `/v1/calls/${encodeURIComponent(callId)}`,
-      authenticated: true,
-    });
+    return this.authorised('GET', `/v1/calls/${encodeURIComponent(callId)}`);
   }
 
   /** What was said. `404 transcript_not_recorded` and `410 transcript_purged` are answers, not faults. */
   transcript(callId: string): Promise<Transcript> {
-    return this.send<Transcript>({
-      method: 'GET',
-      path: `/v1/calls/${encodeURIComponent(callId)}/transcript`,
-      authenticated: true,
-    });
+    return this.authorised(
+      'GET',
+      `/v1/calls/${encodeURIComponent(callId)}/transcript`,
+    );
   }
 
-  /** Gone for good: the summary and the words. Succeeds whether or not there was anything to delete. */
+  /** The summary and the words, gone; succeeds whether or not there was anything to delete. */
   deleteCall(callId: string): Promise<void> {
-    return this.send<void>({
-      method: 'DELETE',
-      path: `/v1/calls/${encodeURIComponent(callId)}`,
-      authenticated: true,
-    });
+    return this.authorised('DELETE', `/v1/calls/${encodeURIComponent(callId)}`);
   }
 
   /** Why the assistant wanted the user on a call, in the words the notification carried. */
   escalation(callId: string): Promise<Escalation> {
-    return this.send<Escalation>({
-      method: 'GET',
-      path: `/v1/escalations/${encodeURIComponent(callId)}`,
-      authenticated: true,
-    });
-  }
-
-  /** The account and everything held because of it, now. Live calls are ended first. */
-  deleteAccount(): Promise<void> {
-    return this.send<void>({
-      method: 'DELETE',
-      path: '/v1/me',
-      authenticated: true,
-    });
+    return this.authorised(
+      'GET',
+      `/v1/escalations/${encodeURIComponent(callId)}`,
+    );
   }
 
   // ---------------------------------------------------------------- sending
+
+  private authorised<T>(
+    method: RequestOptions['method'],
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    return this.send<T>({ method, path, body, authenticated: true });
+  }
 
   private async send<T>(options: RequestOptions): Promise<T> {
     const sent = this.session.accessToken();
