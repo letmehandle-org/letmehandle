@@ -131,7 +131,7 @@ class TestPartialUpdates:
         assert (await read(api, tokens))["hours"] == {"active": None}
 
     async def test_the_two_windows_of_the_old_shape_are_refused(self, api: Api) -> None:
-        # D-027. Accepting and ignoring them would tell an old client its quiet hours saved.
+        # D-029. Accepting and ignoring them would tell an old client its quiet hours saved.
         tokens = await sign_in(api)
         response = await api.client.patch(
             "/v1/preferences",
@@ -501,7 +501,7 @@ class TestOnboarding:
 
     @pytest.mark.parametrize("removed", ["introduction", "important_contacts", "personality"])
     async def test_a_step_setup_no_longer_asks_is_refused(self, api: Api, removed: str) -> None:
-        # D-029: these are settings now, and recording one would be recording nothing.
+        # D-031: these are settings now, and recording one would be recording nothing.
         tokens = await sign_in(api)
         response = await api.client.post(
             "/v1/onboarding", headers=bearer(tokens), json={"step": removed}

@@ -225,7 +225,7 @@ def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
 
 
 def _active_hours_from_document(rules_document: dict[str, Any]) -> TimeWindow | None:
-    """The assistant's hours, including from a document written before there were any (D-027).
+    """The assistant's hours, including from a document written before there were any (D-029).
 
     A version 3 document says so directly. An older one has quiet or working hours, and neither
     meant "the assistant answers now": outside a window of assistant hours calls ring the user,
@@ -275,7 +275,7 @@ def _notifications_from_document(document: dict[str, Any]) -> NotificationPrefer
             document.get("on_missed_escalation", defaults.on_missed_escalation)
         ),
         daily_summary=bool(document.get("daily_summary", defaults.daily_summary)),
-        # The older name for the same boundary (D-027), read when the newer one is absent.
+        # The older name for the same boundary (D-029), read when the newer one is absent.
         respect_active_hours=bool(
             document.get(
                 "respect_active_hours",

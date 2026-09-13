@@ -437,7 +437,7 @@ export interface components {
         };
         /**
          * HoursPayload
-         * @description When the assistant works. `null` means around the clock, which is the default (D-027).
+         * @description When the assistant answers; outside it, calls ring the user. `null` is always (D-029).
          */
         HoursPayload: {
             active?: components["schemas"]["TimeWindowPayload"] | null;

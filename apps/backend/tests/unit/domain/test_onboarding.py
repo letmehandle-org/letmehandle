@@ -30,7 +30,7 @@ class TestTheOrder:
         assert OnboardingStep.CALL_HANDLING not in SKIPPABLE
 
     def test_setup_asks_the_four_things_the_design_draws(self) -> None:
-        # D-029. Contacts and personality are edited from settings, not asked before anything
+        # D-031. Contacts and personality are edited from settings, not asked before anything
         # works; adding a step back is a decision, so it should break a test.
         assert ORDER == (
             OnboardingStep.CALL_HANDLING,

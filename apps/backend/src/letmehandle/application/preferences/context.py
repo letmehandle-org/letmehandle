@@ -166,7 +166,7 @@ class PreferenceContext:
     posture_by_category: tuple[tuple[CallerCategory, HandlingPosture], ...]
     blocked_categories: tuple[CallerCategory, ...]
     escalate_at_or_above: CallImportance
-    # Whether the user asked the assistant to be working right now (D-027). Resolved here, so the
+    # Whether the user asked the assistant to be working right now (D-029). Resolved here, so the
     # model is told an answer rather than handed a window to do timezone arithmetic on.
     in_active_hours: bool
     capabilities: tuple[CapabilityStatement, ...]

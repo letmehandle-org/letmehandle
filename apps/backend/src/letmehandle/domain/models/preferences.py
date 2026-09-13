@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # provider's default and the second would mean silence.
 #
 # 3 replaced working hours and quiet hours with one window of hours the assistant answers in
-# (D-027). A document written earlier is read as around the clock: neither older window meant
+# (D-029). A document written earlier is read as around the clock: neither older window meant
 # "the assistant answers now", and the one that is closest to the user's intent at night is the
 # assistant still answering rather than their phone ringing.
 PREFERENCES_VERSION: Final = 3
@@ -276,7 +276,7 @@ class CallRules:
     blocked_categories: frozenset[CallerCategory] = field(default_factory=frozenset)
     anonymous_posture: HandlingPosture = HandlingPosture.HANDLE_WITH_AGENT
     # When the assistant answers. Outside it, calls ring the user as if there were no assistant.
-    # Nothing means always (D-027): a user who never set hours has an assistant that answers
+    # Nothing means always (D-029): a user who never set hours has an assistant that answers
     # around the clock, which is what the product promises by default.
     active_hours: TimeWindow | None = None
     escalate_at_or_above: CallImportance = CallImportance.NOTABLE
@@ -299,7 +299,7 @@ class CallRules:
         """Whether this instant is inside the hours the user asked the assistant to answer in.
 
         No window is every instant. Outside the window the assistant answers nothing and calls
-        ring the user; what was rejected is still rejected (D-027, D-028).
+        ring the user; what was rejected is still rejected (D-029, D-030).
         """
         return self.active_hours is None or self.active_hours.contains(instant)
 

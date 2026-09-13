@@ -22,7 +22,7 @@ The decision runs in three steps, each written once:
    as important always clears it. Below the threshold the user is not reached at all: a note in
    the call history is how they hear about a call that did not matter enough.
 
-Urgency is immediate. The user's hours do not defer it (D-027): outside them the assistant answers
+Urgency is immediate. The user's hours do not defer it (D-029): outside them the assistant answers
 nothing and calls ring the user, so the only call it is still on then is one that ran past the
 end of its hours — and by then the user is somebody whose phone rings anyway.
 """

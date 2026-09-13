@@ -79,7 +79,7 @@ class CallHandlingPayload(Request):
 
 
 class HoursPayload(Request):
-    """When the assistant works. `null` means around the clock, which is the default (D-027)."""
+    """When the assistant answers; outside it, calls ring the user. `null` is always (D-029)."""
 
     active: TimeWindowPayload | None = None
 

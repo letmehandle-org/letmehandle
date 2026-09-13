@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
 
-# Midday on a weekday. The user sets no hours, so the assistant is answering (D-027).
+# Midday on a weekday. The user sets no hours, so the assistant is answering (D-029).
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
 
 # Reserved for fiction, never routable.

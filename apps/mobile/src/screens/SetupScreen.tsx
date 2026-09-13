@@ -29,7 +29,7 @@ interface Props {
   readonly step: OnboardingStep;
 }
 
-/** The steps setup asks, in the order the server asks them (D-029). */
+/** The steps setup asks, in the order the server asks them (D-031). */
 export const SETUP_STEPS = [
   'call_handling',
   'hours',

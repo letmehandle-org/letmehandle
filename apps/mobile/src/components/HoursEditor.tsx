@@ -26,7 +26,7 @@ interface Props {
 type End = 'start' | 'end';
 
 /**
- * When the assistant answers, as one ring on a clock (D-027).
+ * When the assistant answers, as one ring on a clock (D-029).
  *
  * Around the clock is a full ring and nothing else to decide. Set hours draw the window where it
  * falls in the day, with the two times as the only inputs and one line saying what happens

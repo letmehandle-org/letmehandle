@@ -141,7 +141,7 @@ class TestTheInstant:
         assert in_london == in_utc
 
     def test_no_window_means_the_assistant_is_always_active(self) -> None:
-        # Hours nobody set are around the clock (D-027), including in the middle of the night.
+        # Hours nobody set are around the clock (D-029), including in the middle of the night.
         context = build_preference_context(UserPreferences(), now=MIDNIGHT)
         assert context.in_active_hours
 

@@ -306,7 +306,7 @@ class TestOnboardingRepository:
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
     ) -> None:
-        # A step removed from the flow should not stop somebody signing in (D-029: introduction
+        # A step removed from the flow should not stop somebody signing in (D-031: introduction
         # was), and one added by a newer deployment means nothing here.
         from sqlalchemy import insert
 

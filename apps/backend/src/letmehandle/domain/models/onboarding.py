@@ -37,7 +37,7 @@ class OnboardingStep(StrEnum):
 # rest descend by how much the answer changes, so somebody who stops halfway has still answered
 # the questions that mattered most.
 #
-# Four, as the design draws them (D-029). Important contacts and personality are preferences
+# Four, as the design draws them (D-031). Important contacts and personality are preferences
 # edited from settings rather than questions somebody must get through before the product works.
 ORDER: Final[tuple[OnboardingStep, ...]] = (
     OnboardingStep.CALL_HANDLING,
