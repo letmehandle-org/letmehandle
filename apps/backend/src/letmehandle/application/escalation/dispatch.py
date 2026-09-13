@@ -15,6 +15,11 @@ In order, for one escalation:
   3. Tokens a platform reported dead are removed, and what became of the notification is
      recorded on the context.
 
+A dispatch started in the background can claim its context after the call it is for has ended,
+when storage answers the claim late. The dispatcher remembers when each call ended, so a context
+claimed for a call already over is marked ended as soon as it is stored, and `call_ended` never
+waits on a notification to find out.
+
 Storage is reached through a scope that opens and commits its own unit of work, so no database
 transaction is held open while a push is in flight.
 """
@@ -22,6 +27,7 @@ transaction is held open while a push is in flight.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import StrEnum
@@ -59,6 +65,10 @@ DEFAULT_TIMEOUT: Final = timedelta(seconds=5)
 
 DISPATCH_METRIC: Final = "escalation.dispatch"
 DELIVERY_METRIC: Final = "escalation.delivery"
+# How many ended calls are remembered, so a context claimed after its call ended is marked ended.
+# Bounded: a process runs for weeks, and a claim arrives within moments of its call or not at all.
+REMEMBERED_ENDINGS: Final = 10_000
+
 TOKEN_REMOVED_METRIC: Final = "escalation.token_removed"  # noqa: S105 - a metric name
 
 
@@ -144,6 +154,7 @@ class EscalationDispatcher:
         self._timeout = timeout
         self._locale = locale
         self._background: set[asyncio.Task[DispatchReport]] = set()
+        self._ended: OrderedDict[tuple[UserId, CallId], datetime] = OrderedDict()
 
     async def dispatch(self, user_id: UserId, context: EscalationContext) -> DispatchReport:
         """Notify every device this user has about this escalation. Never raises.
@@ -163,6 +174,7 @@ class EscalationDispatcher:
 
         if not first:
             return self._finish(DispatchReport(DispatchResult.DEDUPLICATED))
+        await self._end_if_over(user_id, claimed.call_id)
         if not tokens:
             report = DispatchReport(
                 DispatchResult.NO_DEVICES, delivery=NotificationDelivery.NO_DEVICES
@@ -199,6 +211,19 @@ class EscalationDispatcher:
         Returns whether a context was marked; false for a call that never escalated, and false
         when storage could not be reached, which is logged and counted.
         """
+        # Remembered before marking: a claim committed from here on finds the call over and marks
+        # its own context, and one committed before is there for the mark below to find.
+        self._ended[(user_id, call_id)] = at_instant
+        while len(self._ended) > REMEMBERED_ENDINGS:
+            self._ended.popitem(last=False)
+        return await self._mark_ended(user_id, call_id, at_instant)
+
+    async def _end_if_over(self, user_id: UserId, call_id: CallId) -> None:
+        at_instant = self._ended.get((user_id, call_id))
+        if at_instant is not None:
+            await self._mark_ended(user_id, call_id, at_instant)
+
+    async def _mark_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
         try:
             async with self._stores() as stores:
                 return await stores.contexts.mark_ended(user_id, call_id, at_instant)

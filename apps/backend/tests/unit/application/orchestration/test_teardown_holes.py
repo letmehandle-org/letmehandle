@@ -93,11 +93,6 @@ async def test_a_speech_session_that_fails_to_close_as_the_assistant_goes_still_
         assert running.stores.call(CALL).state is CallState.FAILED
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="call_ended can run before the background dispatch claims the context, "
-    "which is then stored open for a call that is over",
-)
 async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marked_ended() -> None:
     line = StreamingLine()
     async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
