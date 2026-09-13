@@ -7,6 +7,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArraySet
 import org.letmehandle.app.calls.events.CallEventLedger
 import org.letmehandle.app.calls.events.CallStateTracker
+import org.letmehandle.app.calls.events.StoreUnavailable
 import org.letmehandle.app.calls.events.TextStore
 import org.letmehandle.app.calls.rules.CallRulesSnapshot
 import org.letmehandle.app.calls.rules.CallRulesSnapshotCodec
@@ -91,7 +92,7 @@ class CallScreeningGraph private constructor(context: Context) {
     override fun write(changes: Map<String, String?>) {
       val editor = preferences.edit()
       changes.forEach { (key, value) -> if (value == null) editor.remove(key) else editor.putString(key, value) }
-      check(editor.commit()) { "call screening state could not be written" }
+      if (!editor.commit()) throw StoreUnavailable()
     }
   }
 

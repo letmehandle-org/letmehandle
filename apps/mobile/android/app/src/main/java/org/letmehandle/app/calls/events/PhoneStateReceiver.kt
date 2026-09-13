@@ -4,8 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
+import android.util.Log
 import java.time.Instant
 import org.letmehandle.app.calls.CallScreeningGraph
+import org.letmehandle.app.calls.FailureSummary
 
 /**
  * The handset's call state, without being the phone app.
@@ -21,7 +23,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
       return
     }
     val state = stateOf(intent.getStringExtra(TelephonyManager.EXTRA_STATE)) ?: return
-    CallScreeningGraph.get(context).ledger.phoneState(state, Instant.now())
+    try {
+      CallScreeningGraph.get(context).ledger.phoneState(state, Instant.now())
+    } catch (unavailable: StoreUnavailable) {
+      Log.e(CallScreeningGraph.TAG, "a phone state could not be recorded: ${FailureSummary.of(unavailable)}")
+    }
   }
 
   companion object {

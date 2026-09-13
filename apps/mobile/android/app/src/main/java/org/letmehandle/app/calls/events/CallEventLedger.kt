@@ -9,11 +9,14 @@ import org.letmehandle.app.calls.rules.ScreeningDecision
 interface TextStore {
   fun read(key: String): String?
 
-  /** Applies every change in one atomic write, or none of them. */
+  /** Applies every change in one atomic write, or none of them; throws [StoreUnavailable] when it cannot. */
   fun write(changes: Map<String, String?>)
 
   fun write(key: String, value: String?) = write(mapOf(key to value))
 }
+
+/** The handset's storage refused a write. */
+class StoreUnavailable : IllegalStateException("call screening state could not be written")
 
 /**
  * The handset's record of call events not yet acknowledged by the backend, and the call being
