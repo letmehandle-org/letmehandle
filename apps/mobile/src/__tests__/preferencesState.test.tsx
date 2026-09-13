@@ -228,6 +228,51 @@ describe('saving a change', () => {
     expect(view.result.current.preferences).toEqual(DEFAULT_PREFERENCES);
   });
 
+  it('keeps a later change that was saved when an earlier one is refused', async () => {
+    let refuseFirst: (() => void) | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (init?.method === 'PATCH') {
+        const changes = JSON.parse(String(init.body)) as Partial<Preferences>;
+        if (changes.hours !== undefined) {
+          await new Promise<void>(resolve => {
+            refuseFirst = resolve;
+          });
+          return jsonResponse(422, { error: 'invalid_request', message: 'no' });
+        }
+        return jsonResponse(200, { ...DEFAULT_PREFERENCES, ...changes });
+      }
+      const bodies: Record<string, unknown> = {
+        '/v1/me': PROFILE,
+        '/v1/preferences': DEFAULT_PREFERENCES,
+        '/v1/onboarding': ONBOARDING_COMPLETE,
+      };
+      return jsonResponse(200, bodies[path]);
+    }) as unknown as typeof fetch;
+    const view = await loaded();
+
+    let first: Promise<void> | null = null;
+    await act(async () => {
+      first = view.result.current.save({
+        hours: { active: { start: '07:00', end: '22:00', zone: 'UTC' } },
+      });
+    });
+    await act(async () => {
+      await view.result.current.save({
+        privacy: { transcript_retention_days: 30 },
+      });
+    });
+    await act(async () => {
+      refuseFirst?.();
+      await expect(first).rejects.toThrow();
+    });
+
+    expect(view.result.current.preferences.hours.active).toBeNull();
+    expect(
+      view.result.current.preferences.privacy.transcript_retention_days,
+    ).toBe(30);
+  });
+
   it('sends only the section that changed', async () => {
     const calls: string[] = [];
     globalThis.fetch = (async (url: string, init?: RequestInit) => {

@@ -154,37 +154,34 @@ function LoadedPreferences({
   readonly initial: Loaded;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
-  const [preferences, setPreferencesState] = useState(initial.preferences);
+  const [preferences, setPreferences] = useState(initial.preferences);
   const [onboarding, setOnboarding] = useState(initial.onboarding);
 
-  // A ref beside the state, for the same reason the session keeps one: a save reads the value
-  // that is current now, and a closure over the state would read the one from the render the
-  // button was drawn in — which, for two saves in a row, is the value before the first.
-  const snapshot = useRef(initial.preferences);
+  // What the server last answered, and the changes still on their way, in the order they were made.
+  const confirmed = useRef(initial.preferences);
+  const inFlight = useRef(new Map<number, PreferencesUpdate>());
+  const lastSave = useRef(0);
 
-  const setPreferences = useCallback((next: Preferences): void => {
-    snapshot.current = next;
-    setPreferencesState(next);
+  const show = useCallback((): void => {
+    setPreferences(
+      [...inFlight.current.values()].reduce(applyChanges, confirmed.current),
+    );
   }, []);
 
   const save = useCallback(
     async (changes: PreferencesUpdate): Promise<void> => {
-      const previous = snapshot.current;
-
-      // Only what changed is sent. The server leaves every section it was not given exactly as
-      // it was, so sending the rest would mean overwriting them with whatever this client last
-      // read — which is the same lost update from the other direction.
-      // Shown before it is saved, so the control the user just moved stays where they moved it.
-      setPreferences(applyChanges(previous, changes));
-
+      lastSave.current += 1;
+      const id = lastSave.current;
+      inFlight.current.set(id, changes);
+      show();
       try {
-        setPreferences(await api.updatePreferences(changes));
-      } catch (failure) {
-        setPreferences(previous);
-        throw failure;
+        confirmed.current = await api.updatePreferences(changes);
+      } finally {
+        inFlight.current.delete(id);
+        show();
       }
     },
-    [api, setPreferences],
+    [api, show],
   );
 
   const recordStep = useCallback(
