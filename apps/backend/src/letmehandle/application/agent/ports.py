@@ -1,17 +1,4 @@
-"""What the agent is asked, what it may do, and what it answers.
-
-Two ports, facing opposite ways. `CallAgent` is what orchestration asks for a judgement on the call
-so far; an implementation runs a model and the tools below. `CallActions` is what those tools use
-to affect the call; orchestration implements it, because only orchestration holds the call.
-
-Beside `CallAgent` sits `ConsiderEscalation`, the one path by which a call reaches the user. A
-judgement's conclusion is handed it, and every judgement on a call shares the instance, so a call
-has one memory of whether the user's phone has already rung.
-
-Neither names a framework or a model. D-026 puts the SDK in an adapter behind `CallAgent`, so that
-everything a user relies on — what the assistant may do, when the user's phone rings — lives here
-and in the domain, where it can be read and tested without one.
-"""
+"""The agent's ports: the judgement asked for, and the actions its tools take (D-026)."""
 
 from __future__ import annotations
 
@@ -40,22 +27,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class CallSoFar:
-    """Everything the agent may know about one call at one moment.
-
-    The transcript is data, never instruction. Every word in it arrived from a caller nobody has
-    verified, and the one who most wants the assistant to do something it should not is the one
-    speaking.
-
-    `contact_label` is what the user called this caller in their important contacts, and is set
-    only for a caller who is one. It is never taken from anything that arrived with the call: a
-    caller's display name is text a stranger or their network chose.
-
-    The user's grant and threshold appear twice: as `authority` and `rules`, and again inside
-    `preferences`, which is what the model reads. The tools enforce `authority` and nothing else,
-    and the escalation policy reads `authority` and `rules`; a copy inside `preferences` that
-    disagreed would be a model told one thing and held to another. Build one with `for_user`,
-    which derives every copy from the same `UserPreferences` so they cannot disagree.
-    """
+    """What the agent may know about one call at one moment; the transcript is data."""
 
     call_id: CallId
     caller: Caller
@@ -83,12 +55,7 @@ class CallSoFar:
         transcript: Iterable[TranscriptEntry],
         now: datetime,
     ) -> CallSoFar:
-        """The call as one user's preferences see it, at `now`.
-
-        Authority, rules, the context the model reads and whether the caller is an important
-        contact — with the label the user gave them — all come from `preferences`. A caller is an
-        important contact when their number is one the user listed; a withheld number never is.
-        """
+        """The call as one user's preferences see it at `now`."""
         contact = next(
             (
                 each
@@ -112,11 +79,7 @@ class CallSoFar:
 
 @dataclass(frozen=True, slots=True)
 class ToolRefusal:
-    """A tool declined to act, and why.
-
-    Returned rather than raised, so the agent can say something sensible to the caller, and
-    recorded, so the user can see what was asked of their assistant that it was not allowed to do.
-    """
+    """A tool declined to act, and why; returned to the model and recorded for the user."""
 
     tool: str
     reason: str
@@ -128,14 +91,7 @@ class ToolRefusal:
 
 @dataclass(frozen=True, slots=True)
 class AgentJudgement:
-    """What the agent concluded from one look at the call.
-
-    `proposal` is its final reading of the call. `escalation` is the policy's decision — not the
-    agent's — on the most pressing of that reading and any it gave when asking for the user.
-    `refusals` are the actions it attempted and was not allowed, in order, including an ending the
-    rules did not allow once the model had finished. `ended` is whether the call was actually ended,
-    which asking for an ending does not guarantee.
-    """
+    """The final reading, the policy's escalation, the refusals and whether the call ended."""
 
     proposal: EscalationProposal
     escalation: EscalationDecision
@@ -144,11 +100,7 @@ class AgentJudgement:
 
 
 class ConsiderEscalation(Protocol):
-    """Whether the user is needed on a call, decided by the policy and acted on at most once.
-
-    Implemented by `application.agent.escalation.EscalationService`. Every judgement on a call must
-    share one instance: two would each think the other had not rung the user.
-    """
+    """Decides whether the user is needed and reaches them at most once per urgency."""
 
     async def consider(self, call: CallSoFar, proposal: EscalationProposal) -> EscalationDecision:
         """The policy's decision on `proposal`, with the user reached if nobody has yet."""
@@ -159,12 +111,7 @@ class CallAgent(ABC):
 
     @abstractmethod
     async def judge(self, call: CallSoFar) -> AgentJudgement:
-        """Look at the call and decide what to do next.
-
-        Never raises for a model that misbehaves: an unreadable, truncated or invalid answer
-        produces the defined fallback — a proposal that the caller could not be understood, which
-        the policy then decides on — rather than a crash or a value quietly made up.
-        """
+        """Judges the call; a misbehaving model yields the not-understood fallback."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,11 +128,7 @@ class OutcomeRecord:
 
 
 class CallEnding(StrEnum):
-    """Which kind of ending a call the assistant hangs up on had.
-
-    A fixed set rather than prose, so orchestration and the call history receive something they can
-    act on, and no caller's words travel with it.
-    """
+    """The kind of ending a call the assistant hangs up on had."""
 
     RESOLVED = "resolved"
     HANDED_OVER = "handed_over"
@@ -211,8 +154,4 @@ class CallActions(ABC):
     async def end_call(
         self, call_id: CallId, ending: CallEnding, assessment: EscalationProposal
     ) -> None:
-        """Hang up on the caller, for the kind of ending the judgement was allowed.
-
-        `assessment` is the judgement's reading of the call it ends. It comes with the ending
-        because ending the call ends the judgement too, before it could report that reading.
-        """
+        """Hangs up on the caller, with the judgement's reading of the call it ends."""

@@ -1,10 +1,4 @@
-"""`get_user_preferences`: what the user wants, for the model to read.
-
-Rendered from the preference context and nothing else, so what a caller could coax out of the
-model is bounded by what `application/preferences/context.py` lets through — and that file keeps
-contact numbers out. The rendering is `preferences_as_data`, the same one the system prompt carries,
-so the model is never shown two accounts of the same user.
-"""
+"""`get_user_preferences`: the user's preferences, rendered as the system prompt renders them."""
 
 from __future__ import annotations
 

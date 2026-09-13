@@ -1,8 +1,4 @@
-"""`take_a_message`: keep what the caller wants the user to hear.
-
-Needs `TAKE_A_MESSAGE`. A message is a promise made to the caller that the user will read it, and a
-user who has not agreed to receive messages from strangers has not agreed to that promise.
-"""
+"""`take_a_message`: keeps what the caller wants the user to hear, under `TAKE_A_MESSAGE`."""
 
 from __future__ import annotations
 
@@ -24,8 +20,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.ports import CallActions, CallSoFar
     from letmehandle.application.agent.tool import ToolOutcome
 
-# A message, not a monologue. Long enough for a name, a reason and a way back; short enough that
-# nobody fills the user's history with a speech they were paid to leave.
+# Long enough for a name, a reason and a way back.
 MAX_MESSAGE_CHARACTERS: Final = 1000
 
 _SPEC: Final = ToolSpec(

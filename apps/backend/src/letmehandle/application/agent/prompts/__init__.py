@@ -1,23 +1,4 @@
-"""What the agent is told, read from versioned template files.
-
-The words live in files under a version and a language — `v1/en/system.md` — rather than in code,
-so that a change to what the model is told is a change somebody can read as prose, review as a
-diff, and measure with the evaluation suite before it ships. A new version is a new directory; an
-old one stays, so a stored judgement can be read against the words that produced it.
-
-Nothing about a particular user is written in a template. The user arrives through the preference
-context (Phase 3), rendered here as data, and the caller arrives as a transcript rendered the same
-way and sent in a message of its own. Neither is ever pasted into the instructions as prose.
-
-The preferences are rendered by `preferences_as_data` and by nothing else: the system prompt and the
-`get_user_preferences` tool both show the model its bytes, so the two can never describe the user
-differently. What the assistant may and may not do is said from the grant the tools enforce.
-
-Everything is rendered as JSON with the angle brackets escaped. The delimiters around the data are
-the only `<transcript>` and `</transcript>` the model sees, however hard somebody on the line tries
-to say one: a caller who speaks a closing tag produces an escaped string inside the data, not the
-end of it.
-"""
+"""What the agent is told, from versioned template files, with the user and the call as data."""
 
 from __future__ import annotations
 
@@ -42,13 +23,10 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.authority import AgentAuthority
     from letmehandle.domain.models.call import TranscriptEntry
 
-# The version every judgement uses unless told otherwise. Changing it is a prompt change, and the
-# evaluation suite is how a prompt change earns its place.
+# The prompt version every judgement uses; changing it needs an evaluation run.
 PROMPT_VERSION: Final = "v4"
 
-# Each template, and exactly the placeholders it may use. Checked when the templates are read, so
-# a stray `$` or a misspelt placeholder stops a process from loading them rather than failing on
-# somebody's call.
+# Each template and exactly the placeholders it may use, checked when read.
 _PLACEHOLDERS: Final = {
     "system.md": frozenset({"assessment_tool", "preferences"}),
     "transcript.md": frozenset({"transcript"}),
@@ -94,11 +72,7 @@ class Prompts:
         *,
         situation: Mapping[str, str],
     ) -> str:
-        """What the assistant speaking on a call is told: the user, and where reaching them stands.
-
-        The same rendering of the user as the judging agent reads, so the voice on the line and the
-        judgement behind it are never told different things about who they act for.
-        """
+        """What the voice on the call is told: the user and where reaching them stands."""
         return self.conversation.substitute(
             preferences=preferences_as_data(preferences, authority),
             situation=as_data(dict(situation)),
@@ -113,22 +87,12 @@ class Prompts:
 
 @lru_cache(maxsize=16)
 def load_prompts(locale: str, version: str = PROMPT_VERSION) -> Prompts:
-    """The templates of `version` closest to `locale`, narrowing to its language, then English.
-
-    The closest rather than an exact match, for the reason the phrasebook gives: which language a
-    template was written in and which language the user speaks are different questions, and a
-    user whose language has no templates yet still gets a judgement.
-    """
+    """The templates of `version` closest to `locale`, narrowing to its language, then English."""
     return read_prompts(files(__name__), locale, version)
 
 
 def read_prompts(templates: Traversable, locale: str, version: str) -> Prompts:
-    """`load_prompts`, from a directory of versions other than the one shipped with the code.
-
-    Each template is read from the closest language that has it, so a language can be translated a
-    template at a time: a greeting of its own, say, before instructions of its own. `language` is
-    the language the instructions were read in.
-    """
+    """`load_prompts` from another directory, each template in its closest language."""
     found = TemplateVersion.open(
         templates, kind="agent prompts", locale=locale, version=version, placeholders=_PLACEHOLDERS
     )
@@ -145,15 +109,7 @@ def read_prompts(templates: Traversable, locale: str, version: str) -> Prompts:
 
 
 def preferences_as_data(context: PreferenceContext, authority: AgentAuthority) -> str:
-    """The user's preferences as the model reads them, wherever it reads them.
-
-    Deterministic, over tuples the context already sorted, and free of any phone number because the
-    context is. What the assistant may do is read from `authority`, the grant the tools enforce,
-    rather than from the copy the context was built with: a model told it may do something a tool
-    then refuses is a model that promises the caller something and has to take it back. An
-    importance goes by its name rather than its number, because `notable` is something a model can
-    compare a call against and `40` is not.
-    """
+    """The user's preferences as the model reads them, with permissions from `authority`."""
     return as_data(
         {
             "locale": context.locale,

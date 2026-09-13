@@ -1,15 +1,4 @@
-"""`request_human_escalation`: the model says what it thinks is going on, and the policy decides.
-
-The model is asked for its reading of the call, never for a reason or an urgency. Those are the
-policy's to give, from the user's rules: a model that could name its own urgency is a model a
-caller can talk into naming it.
-
-Asking reaches nobody yet. The reading is written down, and the model is told in words what the
-rules make of it, so the rest of its judgement can take that into account. The user is reached
-once the model has finished, by the conclusion, on the most pressing of every reading it gave —
-never from inside the model's turn, where a slow ring would be cut off by the bound on the model's
-time and a ring could be followed by a hang-up that cancels it.
-"""
+"""`request_human_escalation`: the model's reading of the call, which the policy decides on."""
 
 from __future__ import annotations
 
@@ -47,8 +36,7 @@ IMPORTANCE: Final = options_by_name(CallImportance)
 INTENT: Final = options_by_value(CallIntent)
 CAPABILITY: Final = options_by_value(Capability)
 
-# Why the user is being reached, in words the model reads. Every reason has one, and the test
-# that walks the enum is what keeps it that way.
+# Why the user is being reached, in words the model reads.
 REASON_IN_WORDS: Final[Mapping[EscalationReason, str]] = {
     EscalationReason.CALLER_ASKED_FOR_THE_USER: "the caller asked for them",
     EscalationReason.ACTION_NOT_AUTHORISED: "the caller wants something you are not allowed to do",

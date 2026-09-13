@@ -1,13 +1,4 @@
-"""The order every tool runs in, written once.
-
-Read the arguments, check the grant, then act. A tool that acts before it checks has already done
-the thing it was not allowed to do by the time it finds out, and a check that each tool writes for
-itself is a check one of them gets in the wrong order. So the order is here, and a tool supplies
-only the three steps.
-
-Every refusal passes through `refuse`, which is what records it. A tool cannot produce a refusal
-the user does not get to see.
-"""
+"""The order every tool runs in: parse the arguments, check the grant, then act."""
 
 from __future__ import annotations
 
@@ -41,12 +32,9 @@ class CheckedTool[Parsed](AgentTool):
         except MalformedArgumentsError as error:
             return self.refuse(str(error))
         required = self._requires(parsed)
-        # The grant is read from the call's authority and nothing else. Not the transcript, not
-        # the arguments, not anything the model was told: a caller can put words in all of those,
-        # and the user's settings are the one input they cannot reach.
+        # The grant comes from the call's authority alone, which no caller can reach.
         if required is not None and not call.authority.allows(required):
-            # Worded from the user's phrasebook, in their language, because the user reads this
-            # in their call history.
+            # Worded in the user's language, because the user reads it in their call history.
             action = phrasebook_for(call.preferences.locale).capability[required]
             return self.refuse(f"the assistant is not authorised to {action}")
         return await self._act(call, parsed)

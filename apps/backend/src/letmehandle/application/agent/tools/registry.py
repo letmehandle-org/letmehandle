@@ -1,9 +1,4 @@
-"""Every tool the agent is given on a call, assembled in one place.
-
-The adapter asks for the set and presents it; it never picks tools or wires their dependencies.
-A tool that exists but is missing from here is a tool no model can reach, and a tool an adapter
-built for itself is one whose checks nobody reviewed in this package.
-"""
+"""Every tool the agent is given on a call, assembled in one place."""
 
 from __future__ import annotations
 
@@ -24,12 +19,7 @@ if TYPE_CHECKING:
 
 
 def tools_for_a_judgement(actions: CallActions, notes: JudgementNotes) -> tuple[AgentTool, ...]:
-    """The tools for one judgement, all writing to the same notes, which are new for each judgement.
-
-    Only the tools that keep something for the user are handed `actions`. Asking for the user and
-    asking to end the call are written to `notes`, for the conclusion to act on once the model has
-    finished.
-    """
+    """The tools for one judgement, all writing to its notes."""
     return (
         GetUserPreferences(notes),
         GetCallerContext(notes),

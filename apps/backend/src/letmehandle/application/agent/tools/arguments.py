@@ -1,13 +1,4 @@
-"""Reading what a model sent, and describing what it may send, in one place.
-
-A model's arguments are untrusted text shaped like JSON. The model wrote them, and a caller nobody
-has verified was talking to the model while it did. Every reader here checks the type, the range
-and the length before a value becomes a domain type, and says what was wrong in words a model can
-correct itself from.
-
-The schema a model is shown and the reader that checks what came back are built from the same
-option tables, so a value one of them accepts and the other refuses cannot be written.
-"""
+"""Reads a model's untrusted tool arguments and describes them, from the same option tables."""
 
 from __future__ import annotations
 
@@ -25,8 +16,7 @@ class MalformedArgumentsError(ValueError):
     """The arguments do not have the shape the tool described."""
 
 
-# How much text a model may put in one short field. Generous for a sentence, useless for carrying
-# a transcript into somewhere it will be stored.
+# How much text a model may put in one short field.
 SHORT_TEXT_CHARACTERS: Final = 280
 
 
@@ -36,20 +26,12 @@ def options_by_value[E: Enum](kind: type[E]) -> Mapping[str, E]:
 
 
 def options_by_name[E: Enum](kind: type[E]) -> Mapping[str, E]:
-    """Every member, keyed by its lower-case name — for an ordered enum whose values are numbers.
-
-    A model shown "notable" says what it means. A model shown 40 is doing arithmetic on a scale it
-    cannot see the ends of.
-    """
+    """Every member, keyed by its lower-case name, for an ordered enum whose values are numbers."""
     return {member.name.lower(): member for member in kind}
 
 
 def expect_only(arguments: Mapping[str, object], accepted: Iterable[str]) -> None:
-    """Refuse a field the tool never described.
-
-    Ignoring it would be kinder and worse. A model that sends `"authorised": true` believes it
-    means something, and the one thing it must learn is that it does not.
-    """
+    """Refuses a field the tool never described."""
     unknown = sorted(set(arguments) - set(accepted))
     if unknown:
         raise MalformedArgumentsError(f"unexpected arguments: {', '.join(unknown)}")

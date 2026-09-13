@@ -1,8 +1,4 @@
-"""`record_call_outcome`: write down how the call went, in the terms the summary keeps.
-
-The limits are the summary's own. A headline this tool accepts is one `CallSummary` will accept
-later, so an outcome the agent recorded cannot fail to become the summary the user reads.
-"""
+"""`record_call_outcome`: how the call went, within the limits the summary itself keeps."""
 
 from __future__ import annotations
 
@@ -36,7 +32,7 @@ if TYPE_CHECKING:
 
 OUTCOME: Final = options_by_value(CallOutcome)
 
-# Enough for a reference number, a time, a name and an address; past that it is a transcript.
+# Enough for a reference number, a time, a name and an address.
 MAX_DETAILS: Final = 12
 MAX_DETAIL_LABEL_CHARACTERS: Final = 80
 

@@ -1,10 +1,4 @@
-"""The shape every tool has, whatever framework presents it to a model.
-
-A tool is described by a name, a sentence and a JSON schema — which is what any model that calls
-tools is shown — and invoked with the arguments the model produced. Those arguments are untrusted
-text shaped like JSON: a tool parses them into domain types itself, and a malformed or unauthorised
-call is a `ToolRefusal`, not an exception, so the model can recover and the refusal is recorded.
-"""
+"""The shape every tool has, whatever framework presents it to a model."""
 
 from __future__ import annotations
 
@@ -56,23 +50,13 @@ class AgentTool(ABC):
 
     @property
     def acts_on_the_call(self) -> bool:
-        """Whether using it changes something for the caller or the user, rather than reading or
-        asking.
-
-        A judgement that has already had a tool fail runs no more of these: whatever it does next
-        rests on something that did not happen.
-        """
+        """Whether using it changes something for the caller or the user."""
         return False
 
     @abstractmethod
     async def invoke(self, call: CallSoFar, arguments: Mapping[str, object]) -> ToolOutcome:
-        """Validate, check the user's grant, then act — in that order, every time.
-
-        A refusal is written to the judgement's notes by the tool that gives it, as well as
-        returned. The notes are the one record of what was refused; nothing else keeps a copy.
-        """
+        """Validates, checks the grant, then acts; a refusal goes to the judgement's notes."""
 
 
-# The tools for one judgement, given the notes that judgement's tools all write to. A function
-# rather than a list, because the notes are new for every judgement and the tools hold them.
+# The tools for one judgement, built around that judgement's notes.
 type ToolsForAJudgement = Callable[[JudgementNotes], Sequence[AgentTool]]

@@ -1,13 +1,4 @@
-"""What the tools did during one judgement that the judgement has to report, or act on afterwards.
-
-The adapter cannot read this from the model. A model that was refused may say nothing about it,
-and a model that asked for the user or for the call to end may not mention that either, so the
-tools write all of it down as it happens. One instance per judgement.
-
-Asking is not doing. A model asks for the user and for an ending while it is still working the call
-out, and neither happens until it has finished: the conclusion reads what was asked for here and
-acts on it once, in an order that lets the user's rules overrule a hang-up.
-"""
+"""What one judgement's tools refused and asked for, for the conclusion to report and act on."""
 
 from __future__ import annotations
 
