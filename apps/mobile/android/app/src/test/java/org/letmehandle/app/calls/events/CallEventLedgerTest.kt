@@ -14,11 +14,13 @@ import org.letmehandle.app.calls.rules.ScreeningDecision
 class CallEventLedgerTest {
   private class MemoryStore : TextStore {
     val values = mutableMapOf<String, String>()
+    var writesBeforeCrash = Int.MAX_VALUE
 
     override fun read(key: String): String? = values[key]
 
-    override fun write(key: String, value: String?) {
-      if (value == null) values.remove(key) else values[key] = value
+    override fun write(changes: Map<String, String?>) {
+      check(writesBeforeCrash-- > 0) { "the process died" }
+      changes.forEach { (key, value) -> if (value == null) values.remove(key) else values[key] = value }
     }
   }
 
@@ -91,6 +93,46 @@ class CallEventLedgerTest {
     ledger.clear()
     assertTrue(ledger.pending().isEmpty())
     assertTrue(store.values.isEmpty())
+  }
+
+  @Test
+  fun `a sign-out that dies after its first write never hands the leaving account's calls to the next`() {
+    val ledger = ledger()
+    ledger.screened(null, ScreeningDecision.REJECT, now)
+    store.writesBeforeCrash = 1
+    try {
+      ledger.clear(alsoRemoving = listOf("rules"))
+    } catch (died: IllegalStateException) {
+      // The process ends here; the next ledger reads what was stored.
+    } finally {
+      store.writesBeforeCrash = Int.MAX_VALUE
+    }
+    ledger.startRecording()
+    assertTrue(ledger.pending().isEmpty())
+  }
+
+  @Test
+  fun `sign-out removes the keys it is given in the same write`() {
+    store.values["rules"] = "{}"
+    ledger().clear(alsoRemoving = listOf("rules"))
+    assertTrue(store.values.isEmpty())
+  }
+
+  @Test
+  fun `a transition that fails to store leaves neither the call nor its events half written`() {
+    val ledger = ledger()
+    ledger.screened(null, ScreeningDecision.ALLOW, now)
+    ledger.phoneState(PhoneState.RINGING, now.plusSeconds(1))
+    store.writesBeforeCrash = 1
+    try {
+      ledger.phoneState(PhoneState.IDLE, now.plusSeconds(20))
+    } catch (died: IllegalStateException) {
+      // The process ends here; the next ledger reads what was stored.
+    } finally {
+      store.writesBeforeCrash = Int.MAX_VALUE
+    }
+    ledger.phoneState(PhoneState.IDLE, now.plusSeconds(21))
+    assertEquals(listOf(CallEventKind.INCOMING, CallEventKind.ENDED), ledger.pending().map { it.kind })
   }
 
   @Test

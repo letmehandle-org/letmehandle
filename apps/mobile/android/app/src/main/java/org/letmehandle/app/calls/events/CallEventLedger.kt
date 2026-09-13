@@ -7,12 +7,14 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.letmehandle.app.calls.rules.ScreeningDecision
 
-/** Durable text, by key. Backed by shared preferences on a handset and by a map in tests. */
+/** Durable text by key, written before returning; a null value removes the key. */
 interface TextStore {
   fun read(key: String): String?
 
-  /** Writes before returning. A broadcast receiver's process may be gone a moment later. */
-  fun write(key: String, value: String?)
+  /** Applies every change in one atomic write, or none of them. */
+  fun write(changes: Map<String, String?>)
+
+  fun write(key: String, value: String?) = write(mapOf(key to value))
 }
 
 /**
@@ -69,11 +71,9 @@ class CallEventLedger(
    * Forget everything and stop recording, for a sign-out: these calls belong to the account that
    * is leaving, and the next ones to nobody until another signs in.
    */
-  fun clear() {
+  fun clear(alsoRemoving: Collection<String> = emptyList()) {
     synchronized(lock) {
-      store.write(RECORDING, null)
-      store.write(PENDING, null)
-      store.write(TRACKED, null)
+      store.write((listOf(RECORDING, PENDING, TRACKED) + alsoRemoving).associateWith { null })
     }
   }
 
@@ -83,12 +83,12 @@ class CallEventLedger(
           if (store.read(RECORDING) != RECORDING_ON) {
             return
           }
-          val tracked = readTracked()
-          val transition = step(tracked)
-          store.write(TRACKED, transition.call?.toJson()?.toString())
+          val transition = step(readTracked())
+          val changes = mutableMapOf<String, String?>(TRACKED to transition.call?.toJson()?.toString())
           if (transition.events.isNotEmpty()) {
-            writePending(readPending() + transition.events)
+            changes += pendingChange(readPending() + transition.events)
           }
+          store.write(changes)
           transition.events.isNotEmpty()
         }
     if (changed) {
@@ -146,11 +146,15 @@ class CallEventLedger(
   }
 
   private fun writePending(events: List<CallEventRecord>) {
+    store.write(mapOf(pendingChange(events)))
+  }
+
+  private fun pendingChange(events: List<CallEventRecord>): Pair<String, String> {
     val dropped = (events.size - capacity).coerceAtLeast(0)
     if (dropped > 0) {
       onOverflow(dropped)
     }
-    store.write(PENDING, JSONArray(events.drop(dropped).map { it.toJson() }).toString())
+    return PENDING to JSONArray(events.drop(dropped).map { it.toJson() }).toString()
   }
 
   companion object {

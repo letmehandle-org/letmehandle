@@ -73,8 +73,7 @@ class CallScreeningGraph private constructor(context: Context) {
 
   /** Forget the account's rules and its unreported calls, and stop recording, for a sign-out. */
   fun forgetAccount() {
-    store.write(SNAPSHOT, null)
-    ledger.clear()
+    ledger.clear(alsoRemoving = listOf(SNAPSHOT))
   }
 
   fun addListener(listener: () -> Unit) {
@@ -89,9 +88,9 @@ class CallScreeningGraph private constructor(context: Context) {
       TextStore {
     override fun read(key: String): String? = preferences.getString(key, null)
 
-    override fun write(key: String, value: String?) {
+    override fun write(changes: Map<String, String?>) {
       val editor = preferences.edit()
-      if (value == null) editor.remove(key) else editor.putString(key, value)
+      changes.forEach { (key, value) -> if (value == null) editor.remove(key) else editor.putString(key, value) }
       check(editor.commit()) { "call screening state could not be written" }
     }
   }
