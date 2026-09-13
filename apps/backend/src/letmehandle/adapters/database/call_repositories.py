@@ -63,7 +63,7 @@ from .models import (
     EscalationContextRow,
     TranscriptEntryRow,
 )
-from .repositories import _affected
+from .statements import affected_rows
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -156,7 +156,7 @@ class SqlCallRepository(CallRepository):
                 ),
             )
         )
-        if _affected(result) == 0:
+        if affected_rows(result) == 0:
             owner = await self._session.scalar(
                 select(CallRow.user_id).where(CallRow.id == call.id.value)
             )
@@ -505,7 +505,7 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
                 TranscriptEntryRow.id.in_(select(chosen.c.id)),
             )
         )
-        return _affected(result)
+        return affected_rows(result)
 
 
 def _summary_context(
@@ -590,7 +590,7 @@ class SqlSummaryRepository(SummaryRepository):
             )
             .on_conflict_do_nothing(index_elements=[CallSummaryRow.call_id])
         )
-        if _affected(result) == 0:
+        if affected_rows(result) == 0:
             raise AlreadyRecordedError("summary", call_id.value)
         await self._session.flush()
 

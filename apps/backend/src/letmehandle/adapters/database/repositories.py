@@ -9,9 +9,9 @@ what a column is called, and a row never carries a rule.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
-from sqlalchemy import CursorResult, case, delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
@@ -47,24 +47,14 @@ from .preference_mapping import (
     preferences_to_document,
     progress_to_document,
 )
+from .statements import affected_rows
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy.engine import Result
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from letmehandle.domain.ports.clock import Clock
-
-
-def _affected(result: Result[Any]) -> int:
-    """How many rows a statement changed.
-
-    `Session.execute` is typed as returning a `Result`, which has no row count; a data
-    modification actually returns a `CursorResult`, which does. The cast says so once here
-    rather than at each of the four call sites, where it would read as a workaround.
-    """
-    return int(cast("CursorResult[Any]", result).rowcount or 0)
 
 
 class SqlUserRepository(UserRepository):
@@ -209,7 +199,7 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
             )
             .values(superseded_at=instant)
         )
-        return _affected(result)
+        return affected_rows(result)
 
     async def count_all_issued_since(self, since: datetime, calling_code: str | None = None) -> int:
         query = (
@@ -227,7 +217,7 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         result = await self._session.execute(
             delete(OTPChallengeRow).where(OTPChallengeRow.expires_at < before)
         )
-        return _affected(result)
+        return affected_rows(result)
 
     async def delete_for_number(self, number: PhoneNumber) -> None:
         await self._session.execute(
@@ -297,7 +287,7 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
             .values(revoked_at=at_instant)
         )
         await self._session.flush()
-        return _affected(result)
+        return affected_rows(result)
 
     async def revoke_all_for_user(self, user_id: UserId, at_instant: datetime) -> int:
         result = await self._session.execute(
@@ -309,7 +299,7 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
             .values(revoked_at=at_instant)
         )
         await self._session.flush()
-        return _affected(result)
+        return affected_rows(result)
 
 
 class SqlPreferencesRepository(PreferencesRepository):
@@ -462,7 +452,7 @@ class SqlCallReportRepository(CallReportRepository):
             .on_conflict_do_nothing(index_elements=[CallReportRow.user_id, CallReportRow.event_id])
         )
         await self._session.flush()
-        return _affected(result) == 1
+        return affected_rows(result) == 1
 
     async def has_ended(self, user_id: UserId, call_id: CallId) -> bool:
         result = await self._session.execute(
