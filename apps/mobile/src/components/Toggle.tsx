@@ -48,10 +48,10 @@ export function Toggle({
           onValueChange={onChange}
           trackColor={{
             true: theme.colour.accent,
-            false: theme.colour.dialRest,
+            false: theme.colour.textGhost,
           }}
           thumbColor={theme.colour.surface}
-          ios_backgroundColor={theme.colour.dialRest}
+          ios_backgroundColor={theme.colour.textGhost}
         />
       }
     />

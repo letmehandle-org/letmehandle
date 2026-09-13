@@ -49,7 +49,10 @@ export function TabBar<K extends string>({
             }}
             style={styles.tab}
           >
-            <View style={[styles.pill, selected && styles.pillOn]}>
+            <View style={styles.pill}>
+              {/* Mounted rather than restyled: Android loses the corner radius of a view whose
+                  background is added after it was drawn, and the pill turns square. */}
+              {selected && <View style={styles.pillOn} />}
               <Icon name={tab.icon} colour={ink} size={22} />
             </View>
             <Text
@@ -76,9 +79,12 @@ const styles = StyleSheet.create({
   pill: {
     paddingHorizontal: 18,
     paddingVertical: 4,
-    borderRadius: theme.radius.pill,
   },
-  pillOn: { backgroundColor: theme.colour.accentWash },
+  pillOn: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colour.accentWash,
+  },
   label: { ...theme.type.caption, fontSize: 12 },
   labelOn: { fontFamily: theme.font.strong },
 });
