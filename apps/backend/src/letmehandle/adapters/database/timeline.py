@@ -1,8 +1,4 @@
-"""Call timelines, and the outline diagnostics reads of a call, implemented against PostgreSQL.
-
-Apart from the other call repositories because it holds no cipher and needs none: it reads only the
-columns that are structure, and never the sealed caller, transcript or summary beside them.
-"""
+"""Call timelines and diagnostic outlines, reading only structural columns, nothing sealed."""
 
 from __future__ import annotations
 
@@ -69,6 +65,7 @@ class SqlCallTimelineRepository(CallTimelineRepository):
         call = (
             await self._session.execute(
                 select(
+                    CallRow.user_id,
                     CallRow.state,
                     CallRow.handling,
                     CallRow.started_at,
@@ -87,7 +84,7 @@ class SqlCallTimelineRepository(CallTimelineRepository):
             ended_at=call.ended_at,
             escalated_at=call.escalated_at,
             participants=await self._participants(call_id),
-            escalation=await self._escalation(call_id),
+            escalation=await self._escalation(call.user_id, call_id),
             outcome=await self._outcome(call_id),
             marks=await self._marks(call_id),
         )
@@ -104,14 +101,17 @@ class SqlCallTimelineRepository(CallTimelineRepository):
             Participant(ParticipantRole(row.role), row.joined_at, row.left_at) for row in rows
         )
 
-    async def _escalation(self, call_id: CallId) -> EscalationOutline | None:
+    async def _escalation(self, user_id: str, call_id: CallId) -> EscalationOutline | None:
         row = (
             await self._session.execute(
                 select(
                     EscalationContextRow.reason,
                     EscalationContextRow.status,
                     EscalationContextRow.delivery,
-                ).where(EscalationContextRow.call_id == call_id.value)
+                ).where(
+                    EscalationContextRow.user_id == user_id,
+                    EscalationContextRow.call_id == call_id.value,
+                )
             )
         ).one_or_none()
         if row is None:

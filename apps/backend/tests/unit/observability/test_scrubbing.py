@@ -20,20 +20,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 NUMBER = "+12025550123"
-# Assembled rather than written out: a token-shaped literal is exactly what the secret scan looks
-# for, and this one is three made-up parts in the shape of a signed token, not a credential.
+# Three made-up parts joined, so no token-shaped literal appears in source.
 TOKEN = ".".join(("eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ1c2VyIn0", "c2lnbmF0dXJl"))
 SAID = "my account number is in the drawer"
 
 
 @pytest.fixture
 def written() -> Iterator[Callable[[], list[dict[str, object]]]]:
-    """Logging as a deployment configures it, written where the test can read it, then put back.
-
-    Both of its outputs are pointed at one buffer after configuring, leaving every processor as
-    configured: the stream standard error was when configured may be closed by the time a test
-    writes, which a capture of the process's output cannot help with.
-    """
+    """Configures logging as a deployment does, with both outputs pointed at one readable buffer."""
     configure_logging(make_settings(log_format=LogFormat.JSON, log_level="debug"))
     buffer = io.StringIO()
     structlog.configure(logger_factory=structlog.PrintLoggerFactory(file=buffer))

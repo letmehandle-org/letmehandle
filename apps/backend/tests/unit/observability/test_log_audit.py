@@ -1,10 +1,4 @@
-"""Every log call in the product is read for a field that could carry a number, a token or words.
-
-The scrubber removes such a field wherever it is logged, which is the guarantee. This is the review
-the scrubber stands behind, made mechanical: a log call that passes one by name fails here, where
-it is written, instead of being quietly scrubbed into a line that no longer says what its author
-meant. An event name must be written out, never built, since a built one can carry anything.
-"""
+"""Every log call names its event literally and passes no field that could carry content."""
 
 from __future__ import annotations
 
@@ -60,7 +54,7 @@ LOG_CALLS: Final = _log_calls()
 
 
 def test_the_audit_finds_the_products_log_calls() -> None:
-    # An audit that found nothing would pass everything below for the wrong reason.
+    # Guards against an empty audit passing every test below.
     assert len(LOG_CALLS) >= 40
     assert any(call.where.startswith("application/orchestration/run.py") for call in LOG_CALLS)
 

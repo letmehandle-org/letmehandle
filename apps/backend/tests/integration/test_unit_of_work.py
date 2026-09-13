@@ -33,11 +33,7 @@ NUMBER = PhoneNumber.parse("+12025550143")
 
 @pytest.fixture
 async def engine(session: object, database_url: str, schema: str) -> AsyncIterator[AsyncEngine]:
-    """A schema of its own.
-
-    Depends on `session` only to inherit its skip when no database is reachable, and because
-    it has already created the schema.
-    """
+    """A schema of its own, depending on `session` for its skip and its created schema."""
     built = create_async_engine(
         database_url, connect_args={"server_settings": {"search_path": schema}}
     )
@@ -65,9 +61,7 @@ async def test_work_that_succeeds_is_committed(engine: AsyncEngine) -> None:
 
 
 async def test_work_that_raises_leaves_nothing_behind(engine: AsyncEngine) -> None:
-    # The property that makes a handler atomic without every handler remembering to be. A
-    # half-written sign-in is worse than a failed one: the user gets an error and an account
-    # they cannot use.
+    # A failing handler commits nothing, so no half-written sign-in remains.
     factory = create_session_factory(engine)
 
     with pytest.raises(RuntimeError, match="deliberate"):
@@ -83,9 +77,7 @@ async def test_work_that_raises_leaves_nothing_behind(engine: AsyncEngine) -> No
 
 
 async def test_objects_stay_readable_after_the_commit(engine: AsyncEngine) -> None:
-    # Without expire_on_commit=False, reading an attribute of something just written triggers a
-    # refresh against a closed transaction — which surfaces in the response serialiser, a long
-    # way from the cause.
+    # Attributes stay readable after commit (expire_on_commit=False).
     factory = create_session_factory(engine)
 
     async with unit_of_work(factory) as work:

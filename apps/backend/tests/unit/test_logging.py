@@ -68,8 +68,7 @@ def test_logger_is_bound_to_its_module() -> None:
 
 
 def test_the_http_client_does_not_log_request_urls_at_the_default_level() -> None:
-    # The client logs every request's full URL at info, and a provider's URL carries the account
-    # it authenticates as and the identifiers of the calls it is acting on.
+    # The HTTP client's request URLs carry account and call identifiers.
     configure_logging(make_settings(log_level="info"))
     try:
         for name in ("httpx", "httpcore"):

@@ -1,13 +1,4 @@
-"""Calls, transcripts, summaries and escalation contexts, implemented against PostgreSQL.
-
-In a module of their own because all four hold a cipher, and nothing else in the database
-adapter does: whatever a transcript, a summary or an escalation says, and who the caller was, is
-sealed before it reaches a statement and opened after it leaves one, so none of it ever becomes a
-bound parameter.
-
-Every read filters by the owner, and every write against a call first proves the call is the
-writer's. The composite foreign keys underneath enforce the same thing a second time.
-"""
+"""Calls, transcripts, summaries and escalations, sealed before they become bound parameters."""
 
 from __future__ import annotations
 
@@ -63,7 +54,7 @@ from .models import (
     EscalationContextRow,
     TranscriptEntryRow,
 )
-from .repositories import _affected
+from .statements import affected_rows
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -108,12 +99,7 @@ def _caller_context(user_id: str, call_id: str) -> tuple[str, ...]:
 
 
 class SqlCallRepository(CallRepository):
-    """Calls, with who called sealed.
-
-    The number and the name are sealed together, under the same key and bound to the owner and
-    the call; the category stays a column, being a classification rather than an identity. A
-    withheld caller is sealed too, so a dump cannot tell which calls had a number.
-    """
+    """Calls, with the caller's number and name sealed together, even when withheld."""
 
     def __init__(self, session: AsyncSession, cipher: TranscriptCipher, clock: Clock) -> None:
         self._session = session
@@ -139,12 +125,7 @@ class SqlCallRepository(CallRepository):
             id=call.id.value, user_id=call.user_id.value, started_at=call.started_at, **values
         )
         excluded = statement.excluded
-        # One statement, and conditional on the owner. An identifier that already belongs to
-        # somebody else's call updates nothing rather than taking the row over. Nor does a call
-        # that has ended take a write that would move it anywhere: the same call announced again
-        # after its ending must not turn a finished record back into a live one. The same ending
-        # written again is let through, because a write that was stored but reported as failed is
-        # tried again.
+        # Updates only the owner's call, and an ended call only with the same ending.
         result = await self._session.execute(
             statement.on_conflict_do_update(
                 index_elements=[CallRow.id],
@@ -156,7 +137,7 @@ class SqlCallRepository(CallRepository):
                 ),
             )
         )
-        if _affected(result) == 0:
+        if affected_rows(result) == 0:
             owner = await self._session.scalar(
                 select(CallRow.user_id).where(CallRow.id == call.id.value)
             )
@@ -164,8 +145,7 @@ class SqlCallRepository(CallRepository):
                 raise AlreadyRecordedError("call", call.id.value)
             raise RecordNotFoundError("call", call.id.value)
 
-        # Participants are written whole with the call: the list is short, and replacing it is
-        # the one write that cannot leave a departure recorded against the wrong entry.
+        # Participants are replaced whole with the call.
         await self._session.execute(
             delete(CallParticipantRow).where(CallParticipantRow.call_id == call.id.value)
         )
@@ -239,16 +219,11 @@ class SqlCallRepository(CallRepository):
         return tuple(self._to_call(row, participants.get(row.id, ())) for row in rows)
 
     async def delete(self, user_id: UserId, call_id: CallId) -> None:
-        # One statement. The participants, transcript lines and summary are removed by the
-        # foreign keys' cascades within it, so there is no moment — and no failure part-way —
-        # at which the call is gone and something said on it is not. A transcript being appended
-        # holds the call's row, so this waits for those lines and takes them too.
+        # One statement; cascades remove the call's participants, transcript and summary.
         await self._session.execute(
             delete(CallRow).where(CallRow.id == call_id.value, CallRow.user_id == user_id.value)
         )
-        # Not a cascade: the escalation service stores the context on its own, naming the call by
-        # identifier and holding no key to its row. It repeats who called and what they wanted,
-        # so it goes in the same transaction as the call it describes.
+        # The escalation context has no foreign key, so it is deleted in the same transaction.
         await self._session.execute(
             delete(EscalationContextRow).where(
                 EscalationContextRow.user_id == user_id.value,
@@ -300,8 +275,7 @@ def _matching(query: Select[tuple[CallRow]], matching: CallFilter) -> Select[tup
         query = query.where(CallRow.started_at < matching.started_before)
     if matching.outcome is None and matching.human_joined is None:
         return query
-    # An inner join: a call with no summary has no outcome, so it matches no filter on one. The
-    # owner is joined on as well as the call, as the foreign key underneath already insists.
+    # An inner join on owner and call: a call without a summary matches no outcome filter.
     query = query.join(
         CallSummaryRow,
         (CallSummaryRow.call_id == CallRow.id) & (CallSummaryRow.user_id == CallRow.user_id),
@@ -317,13 +291,7 @@ def _matching(query: Select[tuple[CallRow]], matching: CallFilter) -> Select[tup
 def _transcript_context(
     user_id: str, call_id: str, sequence: int, speaker: str, said_at: datetime
 ) -> tuple[str, ...]:
-    """What a transcript entry's ciphertext is bound to.
-
-    The speaker and the moment as well as the owner and the call: a row whose speaker column is
-    changed — so that the caller's "yes" becomes the assistant's — no longer opens. And its place
-    in the call: a row copied under another number no longer opens either, so a line said once
-    cannot be made to appear twice.
-    """
+    """What a transcript entry's ciphertext is bound to: owner, call, position, speaker, moment."""
     return ("transcript", user_id, call_id, str(sequence), speaker, _moment(said_at))
 
 
@@ -338,18 +306,7 @@ def _moment(instant: datetime) -> str:
 
 
 class SqlTranscriptRepository(TranscriptRepository):
-    """Transcripts, sealed line by line and numbered within their call.
-
-    The numbers are what make a missing line visible. Every entry is bound to its number, and a
-    read refuses a transcript whose numbers skip or repeat, so a row deleted from the middle or
-    copied within the call is detected rather than silently changing what was said.
-
-    Two deletions are not detectable, by design. The oldest lines going is exactly what the
-    purge does, so a transcript may start at any number. The newest line going leaves nothing
-    after it to disagree. Both need write access to the database, which is already a breach
-    this cannot repair; what it does guarantee is that what is read was said, in that order,
-    with nothing taken out of the middle.
-    """
+    """Transcripts, sealed line by line and numbered, so a read refuses gaps or repeats."""
 
     def __init__(self, session: AsyncSession, cipher: TranscriptCipher) -> None:
         self._session = session
@@ -358,8 +315,7 @@ class SqlTranscriptRepository(TranscriptRepository):
     async def append(
         self, user_id: UserId, call_id: CallId, entries: Sequence[TranscriptEntry]
     ) -> None:
-        # The call's row is locked, so two appends to one call number their lines one after the
-        # other instead of both reading the same last number and one failing on the constraint.
+        # The call's row is locked, so concurrent appends number their lines in sequence.
         if not await _owns_call(self._session, user_id, call_id, lock=True):
             raise RecordNotFoundError("call", call_id.value)
         if not entries:
@@ -439,8 +395,7 @@ class SqlTranscriptRepository(TranscriptRepository):
         row = result.one_or_none()
         if row is None or not row[0]:
             return TranscriptStatus.NOT_RECORDED
-        # Recorded and nothing left can only be the purge: nothing else deletes a line and keeps
-        # the call.
+        # Recorded lines with none left means the purge removed them.
         return TranscriptStatus.RETAINED if row[1] else TranscriptStatus.PURGED
 
 
@@ -464,22 +419,7 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
 
     async def delete_expired(self, user_id: UserId, *, at_or_before: datetime, limit: int) -> int:
         check_page_size(limit, MAX_PURGE_BATCH)
-        # The rows are chosen and locked first, skipping any another purge has already locked.
-        # Two purges running together therefore never wait on each other, never deadlock, and
-        # never both delete — or both count — the same row: a row is either locked by one of
-        # them or already gone from the other's snapshot.
-        #
-        # A materialised CTE rather than `id IN (subquery)`, and not for style. PostgreSQL may
-        # evaluate a locking subquery more than once inside the delete's plan; each evaluation
-        # skips what the last one locked and returns fresh rows, so the LIMIT stops bounding
-        # anything. Measured here: a batch of ten deleted thirty. Materialising runs it once.
-        #
-        # Only a call's leading lines go. Lines are numbered in the order they were written, which
-        # is not always the order they were said, and a read refuses a transcript with a line
-        # missing from its middle; so an expired line waits while a line numbered before it is
-        # kept, and goes when that one does. Oldest numbers first, so that a batch committed
-        # part-way through a call leaves it readable. Two purges racing can still leave a gap
-        # between their batches until the slower one commits.
+        # One bounded batch (MATERIALIZED, SKIP LOCKED) of each call's leading expired lines.
         earlier = aliased(TranscriptEntryRow)
         kept_before_it = exists().where(
             earlier.call_id == TranscriptEntryRow.call_id,
@@ -505,7 +445,7 @@ class SqlTranscriptRetentionRepository(TranscriptRetentionRepository):
                 TranscriptEntryRow.id.in_(select(chosen.c.id)),
             )
         )
-        return _affected(result)
+        return affected_rows(result)
 
 
 def _summary_context(
@@ -520,13 +460,7 @@ def _summary_context(
     ended_at: datetime,
     human_joined_at: datetime | None,
 ) -> tuple[str, ...]:
-    """What a summary's ciphertext is bound to: its owner, its call, and every readable column.
-
-    The columns are what the summary says happened, kept readable only so history can filter on
-    them. Bound here, a row changed to make an urgent call routine, to erase an escalation or to
-    move when somebody joined no longer opens. An absent value is the empty string, which no
-    present one can be.
-    """
+    """What a summary's ciphertext is bound to: its owner, its call, and every readable column."""
     return (
         "summary",
         user_id,
@@ -590,7 +524,7 @@ class SqlSummaryRepository(SummaryRepository):
             )
             .on_conflict_do_nothing(index_elements=[CallSummaryRow.call_id])
         )
-        if _affected(result) == 0:
+        if affected_rows(result) == 0:
             raise AlreadyRecordedError("summary", call_id.value)
         await self._session.flush()
 
@@ -658,12 +592,7 @@ class SqlSummaryRepository(SummaryRepository):
 def _escalation_context(
     user_id: str, call_id: str, *, reason: str, raised_at: datetime
 ) -> tuple[str, ...]:
-    """What an escalation's sealed words are bound to: its owner, its call, and why and when.
-
-    The reason and the moment are the columns that never change once the escalation is claimed.
-    Bound here, words moved onto another escalation, or an escalation changed to say it was about
-    something else, no longer open.
-    """
+    """What an escalation's sealed words are bound to: its owner, its call, and why and when."""
     return ("escalation", user_id, call_id, reason, _moment(raised_at))
 
 
@@ -693,8 +622,7 @@ class SqlEscalationContextRepository(EscalationContextRepository):
                 ),
             )
         )
-        # One statement, so two dispatches racing for the same call cannot both win: the database
-        # decides which insert happened, and the other sees nothing returned.
+        # One statement, so only one of two racing dispatches for a call inserts.
         statement = (
             insert(EscalationContextRow)
             .values(

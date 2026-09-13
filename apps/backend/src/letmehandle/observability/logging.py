@@ -20,9 +20,7 @@ from letmehandle.domain.failures import classify
 from letmehandle.observability.scrubbing import outline_exception, scrub_event
 from letmehandle.observability.tracing import traceable_call_id
 
-# The identifier that ties every line produced while handling one request together. A context
-# variable rather than an argument, because threading it through every call signature is how
-# it ends up omitted from the line that mattered.
+# The id tying together every line logged while handling one request.
 correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
@@ -34,8 +32,7 @@ def add_correlation_id(_logger: WrappedLogger, _method: str, event_dict: EventDi
     return event_dict
 
 
-# Libraries that log what passes through them, and the lowest level each may log at whatever the
-# process is set to. A debugging session is exactly when a log is copied somewhere it should not go.
+# Libraries that log sensitive data, each with the lowest level it may log at.
 _CONTENT_LOGGERS: Final[Mapping[str, int]] = {
     # Request headers and frame text at debug: the speech service's key and what somebody said.
     "websockets": logging.WARNING,
@@ -43,25 +40,17 @@ _CONTENT_LOGGERS: Final[Mapping[str, int]] = {
     "openai": logging.WARNING,
     # Requests and their headers at debug.
     "httpx": logging.WARNING,
-    # The connection layer beneath it, which logs response headers at debug: a provider's request
-    # and account identifiers ride in those.
+    # The connection layer, whose debug response headers carry provider account ids.
     "httpcore": logging.WARNING,
-    # The formatted request at debug, and up to 200 characters of a tool's unparseable arguments
-    # at warning, which a model may have filled with the caller's words.
+    # Formatted requests at debug and a tool's raw arguments at warning.
     "strands": logging.ERROR,
-    # A tool name the model asked for and the registry does not have, verbatim, at error. The model
-    # wrote that name, and a caller can dictate it. The agent records the request itself, as a
-    # refusal, and raises any tool that failed, so nothing below critical here is lost.
+    # Unknown tool names, which a caller can dictate, logged verbatim at error.
     "strands.tools.executors": logging.CRITICAL,
 }
 
 
 def configure_logging(settings: Settings) -> None:
-    """Set up logging for the process.
-
-    Called once, at startup. Configuring it lazily or in more than one place is how two halves
-    of an application end up logging in two different formats.
-    """
+    """Set up logging for the process, once, at startup."""
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         add_correlation_id,
@@ -76,8 +65,7 @@ def configure_logging(settings: Settings) -> None:
     if settings.log_format is LogFormat.JSON:
         renderer: Processor = structlog.processors.JSONRenderer()
     else:
-        # The console renderer reads `exception` as preformatted text, and a failure here is an
-        # outline, a mapping, so it is written out as a line first.
+        # The console renderer expects text, so the exception outline is written as a line first.
         finishing = [*finishing, _exception_as_text]
         renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
     level = logging.getLevelNamesMapping()[settings.log_level.upper()]
@@ -89,9 +77,7 @@ def configure_logging(settings: Settings) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Anything logging through the standard library — uvicorn, sqlalchemy, a dependency — goes
-    # through the same processors, so one call cannot arrive in two formats, and no library's line
-    # passes the scrubber by not being structlog's.
+    # Standard-library logging goes through the same processors, including the scrubber.
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
@@ -111,12 +97,7 @@ def configure_logging(settings: Settings) -> None:
 
 
 def bind_call(call_id: str, request: str | None) -> None:
-    """Put a call's id, and the id of the request it arrived on, on every line this task logs.
-
-    For the task that runs one call, at its start. A task begins with a copy of the context it was
-    created in, so what is bound here stays with that call's run and the tasks the run starts, and
-    never reaches another call's lines.
-    """
+    """Bind a call's id and its request's id to every line this task and its children log."""
     structlog.contextvars.bind_contextvars(call_id=traceable_call_id(call_id))
     if request is not None:
         correlation_id.set(request)
@@ -125,13 +106,7 @@ def bind_call(call_id: str, request: str | None) -> None:
 def log_failure(
     logger: structlog.stdlib.BoundLogger, event: str, error: BaseException, **fields: object
 ) -> None:
-    """Log a failure that was caught and handled, at the level its kind deserves.
-
-    An error when somebody running the deployment has to act on it — a defect, a record that will
-    not open — and a warning otherwise, since a timeout on one call is counted, and a dependency
-    failing on every call opens a circuit that says so at error. Never the message or a traceback:
-    the type and the kind find it, and a message can carry anything.
-    """
+    """Log a handled failure by type and kind, at error when actionable, never its message."""
     failure = classify(error)
     write = logger.error if failure.needs_attention else logger.warning
     write(event, error=type(error).__name__, kind=failure.kind.value, **fields)

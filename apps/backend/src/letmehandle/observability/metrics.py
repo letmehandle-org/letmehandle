@@ -1,15 +1,4 @@
-"""Metrics, written as structured log lines, and checked against what was declared.
-
-A log line is the one channel every environment already collects, and a baseline recorded there is
-a baseline that exists. `InProcessMetrics` beside it keeps the same measurements as percentiles for
-diagnostics; either can be joined by an exporter without touching a call site.
-
-The port says labels are dimensions and never content. Here that is enforced rather than hoped
-for, because the call site that puts a caller's words into a label will not look like it: it will
-look like `reason=failure.reason`. So every metric is declared with the values its labels may take
-(see `catalogue.py`), and a recording that strays from its declaration fails loudly, in the test
-that first exercises the call site, rather than quietly in a dashboard kept for a year.
-"""
+"""Metrics written as structured log lines, checked against their catalogue declarations."""
 
 from __future__ import annotations
 
@@ -47,8 +36,7 @@ def checked_labels(
             else value in allowed
         )
         if not known:
-            # The value is deliberately left out of the message. If it is content, repeating
-            # it in an exception is the disclosure this check exists to stop.
+            # The value is left out of the message, since it may be content.
             raise MetricLabelError(
                 f"the value of {key!r} on {name} is not one it was declared with: a listed value, "
                 f"or for a name written in code a lower-case token of at most "
@@ -60,8 +48,7 @@ def checked_labels(
 def checked_value(name: str, value: float) -> float:
     """`value`, once it is known to be a measurement, or `MetricLabelError`."""
     if not math.isfinite(value):
-        # A latency of infinity is a bug at the call site, and a JSON renderer writes it as a
-        # token no log pipeline parses, so the line would be lost along with the evidence.
+        # Non-finite values are refused, since a JSON renderer cannot write them parseably.
         raise MetricLabelError(f"{name} was observed as {value}, which is not a measurement")
     return value
 

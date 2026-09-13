@@ -54,6 +54,15 @@ async def test_stopping_the_application_flushes_what_it_traced() -> None:
     assert closed == [True]
 
 
+async def test_what_the_application_records_is_what_diagnostics_reads() -> None:
+    settings = make_settings()
+    observability = build_observability(settings)
+    app = create_app(settings, observability=observability)
+
+    async with app.router.lifespan_context(app):
+        assert app.state.container.metrics is observability.metrics
+
+
 def test_a_diagnostics_token_too_short_to_guard_anything_is_refused() -> None:
     with pytest.raises(ValidationError, match="DIAGNOSTICS_TOKEN"):
         make_settings(diagnostics_token="short")

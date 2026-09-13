@@ -191,6 +191,11 @@ class TestTheAccessToken:
                 DeliveryStatus.FAILED,
             ),
             (
+                (200, {"access_token": "issued-token", "expires_in": 0}),
+                "authorisation: token endpoint answered without a token",
+                DeliveryStatus.FAILED,
+            ),
+            (
                 (200, ["not", "an", "object"]),
                 "authorisation: token endpoint answered without a token",
                 DeliveryStatus.FAILED,

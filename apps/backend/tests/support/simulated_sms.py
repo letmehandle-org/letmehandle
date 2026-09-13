@@ -1,12 +1,4 @@
-"""A text-message API in this process, answering the sign-in code provider's requests.
-
-It answers the one request the provider makes — create a message — the way the documented API does:
-authenticated as the account, refusing a number it cannot deliver to with a 400 and the numeric code
-for why, throttling with a 429, failing with a 5xx, or not answering at all. What it accepted is
-kept, so a test reads a code the way a person reads the message on their phone.
-
-Every identifier says it is simulated, and every number is in a range reserved for fiction.
-"""
+"""An in-process text-message API answering the sign-in code provider's requests."""
 
 from __future__ import annotations
 
@@ -28,8 +20,7 @@ SMS_SENDER: Final = PhoneNumber.parse("+12025550101")
 
 _MESSAGES_PATH: Final = f"/2010-04-01/Accounts/{SMS_ACCOUNT}/Messages.json"
 
-# The provider's own codes for a number it will not deliver to: not a number, not one that can
-# receive a text, one whose owner asked for no more, one no carrier routes.
+# The provider's codes for a number it will not deliver to.
 NOT_A_NUMBER: Final = 21211
 NOT_A_MOBILE: Final = 21614
 UNSUBSCRIBED: Final = 21610

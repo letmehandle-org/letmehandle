@@ -1,21 +1,4 @@
-"""Sign-in codes the telephony provider's verification service makes, texts and checks.
-
-For a country whose operators deliver application texts only from registered templates, a message
-the application composes may never arrive, while the provider's verification service sends its own
-registered one. That service chooses the code, so this provider owns the code for every number it
-serves: it asks the service to text one, and later asks whether a code is right (D-042). The
-application still decides whether a code may be sent, how many, how long it lasts and how many
-guesses it takes; only the comparison happens here.
-
-This provider keeps nothing: not the code, not the number. Its logs say that a code was sent,
-refused or checked and why, never to whom or what it was.
-
-A number the service will not deliver to is an `UnreachableNumberError`, because that is the one
-failure the person signing in can fix. Every other failure is a `ProviderError` saying whether
-another attempt could help, and a request the service may have acted on without answering is a
-`DeliveryUncertainError`. A check that finds nothing to check — expired, already approved, or never
-sent — is a wrong code, not a failure.
-"""
+"""Sign-in codes the verification service makes, texts and checks (D-042)."""
 
 from __future__ import annotations
 
@@ -55,8 +38,7 @@ _BAD_REQUEST: Final = 400
 _NOT_FOUND: Final = 404
 _TOO_MANY_REQUESTS: Final = 429
 
-# The service's codes for a number it will not deliver to: an invalid number, not a number at all,
-# not a mobile, and a landline that cannot receive a text.
+# Service error codes for a number that cannot receive a text.
 UNDELIVERABLE_CODES: Final = frozenset({60200, 21211, 21614, 60205})
 
 # The verification has taken as many wrong codes as the service allows; it will never approve one.

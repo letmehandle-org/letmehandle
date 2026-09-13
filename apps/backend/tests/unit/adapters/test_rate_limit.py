@@ -34,7 +34,7 @@ async def test_the_attempt_after_the_limit_is_refused(limiter: InMemoryRateLimit
 
     decision = await limiter.check("a-key", limit=3, window=WINDOW)
     assert not decision.allowed
-    # Told when to come back. A client told only "no" retries immediately and makes it worse.
+    # The refusal says when to retry.
     assert 0 < decision.retry_after_seconds <= WINDOW.total_seconds() + 1
 
 
@@ -55,8 +55,6 @@ async def test_the_window_slides(limiter: InMemoryRateLimiter, clock: FixedClock
 async def test_a_refused_attempt_is_not_counted_again(
     limiter: InMemoryRateLimiter, clock: FixedClock
 ) -> None:
-    # Otherwise an attacker holding the limit open indefinitely would extend their own
-    # punishment for free, and a legitimate user would never get back in.
     await limiter.check("a-key", limit=1, window=WINDOW)
     for _ in range(5):
         await limiter.check("a-key", limit=1, window=WINDOW)
@@ -67,16 +65,14 @@ async def test_a_refused_attempt_is_not_counted_again(
 
 
 async def test_it_admits_that_it_is_not_shared(limiter: InMemoryRateLimiter) -> None:
-    # An operator running several processes needs to know their limits have quietly become
-    # per process.
+    # An in-memory limiter reports that its limits are per process.
     assert not limiter.is_shared
 
 
 async def test_it_forgets_old_keys_rather_than_growing_without_bound(
     clock: FixedClock,
 ) -> None:
-    # The keys come from outside: a number or an address an attacker chooses. Unbounded, this
-    # is a way to exhaust the process's memory with requests that are all being refused.
+    # Keys are attacker-chosen, so their number is bounded to protect memory.
     limiter = InMemoryRateLimiter(clock, max_keys=10)
     for number in range(50):
         await limiter.check(f"key-{number}", limit=5, window=WINDOW)

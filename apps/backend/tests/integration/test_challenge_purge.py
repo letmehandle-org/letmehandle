@@ -1,9 +1,4 @@
-"""Sign-in challenges are forgotten by the scheduled purge once nothing can use them.
-
-A challenge holds the number a code was sent to, and anybody can make one for any number. Kept
-forever, the table becomes a list of every number anyone ever typed into the sign-in screen,
-whether or not it belongs to an account.
-"""
+"""Sign-in challenges are deleted by the scheduled purge once nothing can use them."""
 
 from __future__ import annotations
 
@@ -83,8 +78,7 @@ async def test_a_challenge_outside_the_counting_window_is_deleted(engine: AsyncE
 async def test_an_expired_challenge_still_counted_against_its_number_is_kept(
     engine: AsyncEngine,
 ) -> None:
-    # The per-number limits count the challenges issued within their windows, the longest a day.
-    # Deleting one as soon as it expires would hand a number its limits back minutes after.
+    # Rate limits count challenges within their windows, the longest a day, so those are kept.
     await issued(engine, "expired-but-counted", NOW - COUNTING_WINDOW + timedelta(minutes=1))
 
     deleted = await purge_expired_challenges(make_settings(), engine=engine, clock=FixedClock(NOW))

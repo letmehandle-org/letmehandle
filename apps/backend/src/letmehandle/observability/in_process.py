@@ -1,12 +1,4 @@
-"""Metrics kept in this process: counts since it started, and recent measurements as percentiles.
-
-What diagnostics reads, so that somebody investigating a slow deployment can see the latency at
-every provider boundary without a metrics backend. Percentiles rather than averages, because a
-reply that is slow for one caller in fifty is a product problem an average hides entirely.
-
-Measurements are kept per series in a window of the most recent, so memory is bounded by the
-window times the number of series, and the number of series is bounded by the catalogue.
-"""
+"""Metrics kept in this process: counts since start, recent measurements as percentiles."""
 
 from __future__ import annotations
 
@@ -22,8 +14,7 @@ from letmehandle.observability.metrics import checked_labels, checked_value
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-# How many recent measurements each series keeps. Enough that the 99th percentile is ten real
-# measurements rather than one.
+# How many recent measurements each series keeps.
 WINDOW: Final = 1_000
 
 type Series = tuple[str, tuple[tuple[str, str], ...]]

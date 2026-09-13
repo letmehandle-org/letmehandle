@@ -20,11 +20,11 @@ def test_it_needs_no_transcript_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE)
     ran: list[bool] = []
 
-    async def succeed(settings: object) -> PurgeResult:
+    async def succeed(settings: object, **_: object) -> PurgeResult:
         ran.append(True)
         return PurgeResult(users_examined=2, users_skipped=0, entries_deleted=5, batches=2)
 
-    async def forget(settings: object) -> int:
+    async def forget(settings: object, **_: object) -> int:
         ran.append(True)
         return 3
 
@@ -37,10 +37,10 @@ def test_it_needs_no_transcript_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_run_that_skipped_somebody_exits_non_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE)
 
-    async def incomplete(settings: object) -> PurgeResult:
+    async def incomplete(settings: object, **_: object) -> PurgeResult:
         return PurgeResult(users_examined=2, users_skipped=1, entries_deleted=5, batches=2)
 
-    async def forget(settings: object) -> int:
+    async def forget(settings: object, **_: object) -> int:
         return 0
 
     monkeypatch.setattr(command, "purge_transcripts", incomplete)
@@ -53,7 +53,7 @@ def test_a_run_that_skipped_somebody_exits_non_zero(monkeypatch: pytest.MonkeyPa
 def test_a_failed_run_exits_non_zero_without_its_message(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE)
 
-    async def fail(settings: object) -> PurgeResult:
+    async def fail(settings: object, **_: object) -> PurgeResult:
         raise RuntimeError("a statement parameter that must not be printed")
 
     monkeypatch.setattr(command, "purge_transcripts", fail)
@@ -63,7 +63,6 @@ def test_a_failed_run_exits_non_zero_without_its_message(monkeypatch: pytest.Mon
 
 
 async def test_an_engine_it_made_is_released_even_when_the_run_fails() -> None:
-    # Unreachable, so the first statement fails; the engine made for the run is disposed of in
-    # the same breath rather than leaking a pool on every scheduled failure.
+    # Unreachable, so the first statement fails and the run's engine is disposed of.
     with pytest.raises(StorageUnavailableError):
         await command.purge_transcripts(make_settings(database_url=UNREACHABLE_DATABASE))

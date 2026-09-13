@@ -1,17 +1,9 @@
-"""Between a preference document and the domain's own types.
-
-One module, both directions, so that the two halves cannot drift: a field added to the writer
-and forgotten in the reader is a preference that saves and silently disappears.
-
-The document is the wire between two versions of this application, not between this application
-and a person. It is written by whatever is deployed and read by whatever is deployed next, so
-reading is deliberately forgiving — an unknown key is ignored and a missing one takes the
-domain's default — while writing is exact.
-"""
+"""Between a preference document and the domain types: forgiving on read, exact on write."""
 
 from __future__ import annotations
 
 from datetime import time
+from enum import Enum
 from typing import Any
 
 from letmehandle.domain.errors import InvariantError
@@ -39,17 +31,9 @@ from letmehandle.domain.models.voice import VoiceSelection
 
 
 def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
-    """Everything, in a shape that survives a round trip.
-
-    Sets are written sorted. A `frozenset` iterates in hash order, which differs between runs,
-    and an unsorted list makes two identical preference sets produce different documents — which
-    turns every save into a change and makes a diff between two versions unreadable.
-    """
+    """Everything, in a shape that survives a round trip, with sets written sorted."""
     return {
-        # Today's version, not the one this set was read at. The field describes the shape
-        # of the document being written, and a row that gains a version-2 field while still
-        # labelled 1 is a row no future migration can reason about: it cannot tell a value
-        # the user chose from one that did not exist when they answered.
+        # Always today's version: it describes the shape being written.
         "version": PREFERENCES_VERSION,
         "locale": preferences.locale,
         "formality": preferences.formality.value,
@@ -96,18 +80,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
 
 
 def document_to_preferences(document: object) -> UserPreferences:
-    """Back into the domain, with every value validated on the way.
-
-    A document written by an older version is read with today's defaults for anything it does
-    not mention. That is the point of the version field beside it: what a reader cannot supply
-    from the document it supplies from the defaults, and a migration can tell which is which.
-
-    Every shape is checked before it is used. A section stored as the wrong kind of value — a
-    list where an object belongs, a number where text does — is corruption, and it arrives as
-    `InvariantError` like every other corruption here. Left to Python, it would arrive as
-    whichever of `AttributeError`, `TypeError` or `ValueError` the first misused value happened
-    to raise, and no caller can tell those apart from a bug.
-    """
+    """Back into the domain: absent values default, malformed shapes raise `InvariantError`."""
     if not isinstance(document, dict):
         raise InvariantError("stored preferences are not an object")
     rules_document = _section(document, "rules")
@@ -125,7 +98,7 @@ def document_to_preferences(document: object) -> UserPreferences:
             frozenset(
                 capability
                 for value in _items(document, "authority")
-                if (capability := _enum(Capability, value, None)) is not None
+                if (capability := _known(Capability, value)) is not None
             )
         ),
         notifications=_notifications_from_document(_section(document, "notifications")),
@@ -150,13 +123,13 @@ def document_to_preferences(document: object) -> UserPreferences:
                 for raw_category, raw_posture in _section(
                     rules_document, "posture_by_category"
                 ).items()
-                if (category := _enum(CallerCategory, raw_category, None)) is not None
-                and (posture := _enum(HandlingPosture, raw_posture, None)) is not None
+                if (category := _known(CallerCategory, raw_category)) is not None
+                and (posture := _known(HandlingPosture, raw_posture)) is not None
             },
             blocked_categories=frozenset(
                 category
                 for raw in _items(rules_document, "blocked_categories")
-                if (category := _enum(CallerCategory, raw, None)) is not None
+                if (category := _known(CallerCategory, raw)) is not None
             ),
             escalate_at_or_above=_importance(rules_document.get("escalate_at_or_above")),
             active_hours=_active_hours_from_document(rules_document),
@@ -217,27 +190,19 @@ def progress_to_document(progress: OnboardingProgress) -> dict[str, list[str]]:
 
 
 def document_to_progress(completed: list[str], skipped: list[str]) -> OnboardingProgress:
-    """A step this version does not recognise is dropped.
-
-    A step removed from the flow should not stop somebody signing in, and one added by a newer
-    deployment means nothing here. Either way the worst outcome is being asked a question again.
-    """
+    """Progress from a document, dropping any step this version does not recognise."""
     return OnboardingProgress(
         completed=frozenset(
-            step for raw in completed if (step := _enum(OnboardingStep, raw, None)) is not None
+            step for raw in completed if (step := _known(OnboardingStep, raw)) is not None
         ),
         skipped=frozenset(
-            step for raw in skipped if (step := _enum(OnboardingStep, raw, None)) is not None
+            step for raw in skipped if (step := _known(OnboardingStep, raw)) is not None
         ),
     )
 
 
 def _contact_from_document(entry: object) -> ImportantContact:
-    """One stored contact, or the domain's own error rather than a bare `KeyError`.
-
-    A missing key is corruption, and it should arrive as the failure everything else in this
-    module raises — otherwise it escapes as a server fault with nothing naming the cause.
-    """
+    """One stored contact, or the domain's own error rather than a bare `KeyError`."""
     if not isinstance(entry, dict):
         raise InvariantError("a stored contact is not an object")
     for key in ("number", "label"):
@@ -263,18 +228,10 @@ def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
 
 
 def _window_from_document(document: object) -> TimeWindow | None:
-    """No window at all is `None`; a window that is there and unreadable raises.
-
-    `None` and `{}` are not the same thing. The first is a user who set no hours; the
-    second is a row that lost them, and treating it as the first is exactly the silent
-    disappearance this module argues against everywhere else.
-    """
+    """No window at all is `None`; a window that is there and unreadable raises."""
     if document is None:
         return None
-    # Raised, not dropped. This is corruption rather than a value from a newer deployment, and
-    # the two want opposite handling: an unknown enum member is safely ignored, while quiet hours
-    # that silently disappear mean a phone ringing at three in the morning with nothing anywhere
-    # to say why.
+    # Raised rather than dropped: a corrupt window is not an unknown value from a newer version.
     if not isinstance(document, dict):
         raise InvariantError("stored hours could not be read: they are not an object")
     parts = [document.get(key) for key in ("start", "end", "zone")]
@@ -288,17 +245,7 @@ def _window_from_document(document: object) -> TimeWindow | None:
 
 
 def _active_hours_from_document(rules_document: dict[str, Any]) -> TimeWindow | None:
-    """The assistant's hours, including from a document written before there were any (D-030).
-
-    A version 4 document says so directly. An older one has quiet or working hours, and neither
-    meant "the assistant answers now": outside a window of assistant hours calls ring the user,
-    so turning quiet hours into one would ring somebody through exactly the nights they asked to
-    be left alone. Around the clock is the reading that keeps the assistant answering then. An
-    older window that is present but corrupt still raises, because it is corruption either way.
-
-    Keyed on the field being present rather than on the version number, so a document that has
-    both (written by this version, read after a rollback and a save) is read by what it says.
-    """
+    """The assistant's hours; a document without them reads as around the clock (D-030)."""
     if "active_hours" in rules_document:
         return _window_from_document(rules_document["active_hours"])
     for older in ("quiet_hours", "working_hours"):
@@ -312,12 +259,7 @@ def _parse_time(value: str) -> time:
 
 
 def _voice_from_document(document: dict[str, Any]) -> VoiceSelection:
-    """What the user chose, as far as this version can tell.
-
-    A document written before voices existed has none, which reads as "has not chosen" — and
-    that resolves to the provider's default rather than to silence. The version beside the
-    document is what makes the distinction readable later.
-    """
+    """The user's chosen voice, or none when the document has no voice."""
     return VoiceSelection(
         cloned_voice_id=_optional_text(document.get("cloned")),
         persona_voice_id=_optional_text(document.get("persona")),
@@ -330,17 +272,7 @@ def _optional_text(value: object) -> str | None:
 
 
 def _retention_days(raw: object) -> int:
-    """How long this user keeps transcripts, as stored.
-
-    Absent — a document from before retention was a setting — is the default. Below the floor
-    is raised to it: keeping a transcript a day longer is recoverable, and refusing would lock
-    somebody out of every other setting over this one. Above the ceiling is kept exactly as
-    stored, never lowered: a deployment with a higher ceiling wrote it, and reading it as this
-    version's ceiling would purge transcripts earlier than the user chose and write the lower
-    number back on the next unrelated save. Anything that is not a whole number is corruption
-    and raises, because a retention silently reset is a transcript kept for a length of time
-    nobody chose.
-    """
+    """Retention in days: absent is the default, below the floor is raised, a non-integer raises."""
     if raw is None:
         return TRANSCRIPT_RETENTION_DEFAULT_DAYS
     if not isinstance(raw, int) or isinstance(raw, bool):
@@ -377,15 +309,15 @@ def _importance(raw: object) -> CallImportance:
         return CallImportance.NOTABLE
 
 
-def _enum[E](kind: type[E], raw: object, fallback: E | None) -> E:
-    """Read a value this version understands, or fall back.
-
-    A value written by a newer deployment means nothing here, and refusing to load somebody's
-    settings because of one unrecognised string would lock them out of their own account over a
-    field they never set. Where there is no sensible fallback the caller passes `None` and drops
-    the entry instead.
-    """
+def _known[E: Enum](kind: type[E], raw: object) -> E | None:
+    """The member of `kind` that `raw` is, or None for a value this version does not know."""
     try:
-        return kind(raw)  # type: ignore[call-arg]
-    except (ValueError, KeyError):
-        return fallback  # type: ignore[return-value]
+        return kind(raw)
+    except ValueError:
+        return None
+
+
+def _enum[E: Enum](kind: type[E], raw: object, fallback: E) -> E:
+    """The member of `kind` that `raw` is, or `fallback` for a value this version does not know."""
+    known = _known(kind, raw)
+    return fallback if known is None else known

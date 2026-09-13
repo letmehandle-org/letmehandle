@@ -1,9 +1,4 @@
-"""The purge, against a real database, committing for real.
-
-Each test is one way a purge goes wrong without anybody noticing: deleting a moment too early or
-too late, deleting a summary, deleting somebody else's words, honouring the wrong user's setting,
-or two purges tripping over each other.
-"""
+"""The purge against a real database, committing for real."""
 
 from __future__ import annotations
 
@@ -73,10 +68,7 @@ def ago(days: float = 0, *, microseconds: int = 0) -> datetime:
 async def engine(
     session: AsyncSession, database_url: str, schema: str
 ) -> AsyncIterator[AsyncEngine]:
-    """An engine on the test's schema whose transactions commit, as the purge's do.
-
-    Depends on `session` for the schema, the tables and the skip when there is no database.
-    """
+    """An engine on the test's schema whose transactions commit, as the purge's do."""
     engine = create_async_engine(
         database_url, connect_args={"server_settings": {"search_path": schema}}
     )
@@ -239,9 +231,7 @@ class TestWhatIsDeleted:
     async def test_an_expired_line_appended_after_a_kept_one_waits_for_it(
         self, engine: AsyncEngine
     ) -> None:
-        # Lines are numbered in the order they were written, which is not always the order they
-        # were said. Deleting an expired line from between two kept ones would leave a gap that
-        # makes the whole transcript unreadable; it goes when the line before it does.
+        # An expired line written after a kept one is deleted only with the line before it.
         world = World(engine)
         await world.user(ALICE)
         await world.call(ALICE, "call-1", [ago(1), ago(10), ago(0.5)])
@@ -299,8 +289,7 @@ class TestConcurrency:
         for user in users:
             await world.user(user)
 
-        # Repeated with fresh rows each round, because an interleaving that happens to be kind
-        # once proves little.
+        # Repeated with fresh rows each round to exercise several interleavings.
         for round_number in range(4):
             for user in users:
                 await world.call(

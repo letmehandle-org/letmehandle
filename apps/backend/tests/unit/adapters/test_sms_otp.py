@@ -120,8 +120,7 @@ async def test_nothing_personal_is_logged_whether_it_is_sent_or_refused(
 ) -> None:
     service = SimulatedSms()
     sms = provider(service)
-    # An earlier test's level would filter the events before the capture sees them, and a logger
-    # bound earlier is cached; so the level is set here and the logger rebound inside the capture.
+    # Level set here and logger rebound inside the capture, so nothing earlier filters events.
     configure_logging(make_settings(log_level="debug"))
     try:
         with structlog.testing.capture_logs() as logs:

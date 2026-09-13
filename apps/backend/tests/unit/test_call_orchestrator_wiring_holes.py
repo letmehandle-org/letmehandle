@@ -1,7 +1,4 @@
-"""What a deployment carrying calls does when nothing is there to orchestrate them.
-
-Each test here reproduced a defect before its fix, and keeps it fixed.
-"""
+"""What a deployment carrying calls does when nothing is there to orchestrate them."""
 
 from __future__ import annotations
 

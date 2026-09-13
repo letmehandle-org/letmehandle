@@ -1,11 +1,4 @@
-"""The composition root.
-
-The one place that decides which implementation each port gets. Nothing above this learns which
-it was given, which is what makes a provider replaceable by editing one file.
-
-It is also the only module permitted to name a provider. A test asserts that no module under
-`domain/` does, and the reason this file is exempt is that choosing is precisely its job.
-"""
+"""The composition root: the one module that chooses, and names, each port's implementation."""
 
 from __future__ import annotations
 
@@ -143,13 +136,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Container:
-    """Everything chosen at startup, held for the life of the process.
-
-    Two hashers, deliberately. A one-time code is salted and slow, because it is checked against
-    one row and a cheap hash is one worth attacking offline. A refresh token is hashed with a
-    keyed, deterministic hash, because it has to be *found* — and a salted hash would turn that
-    lookup into a scan of every row in the table.
-    """
+    """Everything chosen at startup; codes hash salted, refresh tokens keyed to be looked up."""
 
     clock: Clock
     ids: IdGenerator
@@ -161,42 +148,31 @@ class Container:
     voices: VoiceProvider
     rate_limiter: RateLimiter
     refresh_token_lifetime: timedelta
-    # None when no transcript keys are configured. Call history cannot be read without them, and
-    # its routes say so; everything else, which never opens a sealed record, runs regardless.
+    # None when no transcript keys are configured.
     transcript_cipher: TranscriptCipher | None
-    # Where a handset's reports about its own calls become call events. The transport that
-    # represents handsets is that sink, so the one instance is both what the reporting route
-    # feeds and what anything consuming that transport's events reads.
+    # The handset transport, which turns handsets' reports into call events.
     reported_calls: CallEventSink
-    # The numbers users forward their unanswered and busy calls to, by region, and none where
-    # nothing needs forwarding. Decided here once, so the profile and setup cannot disagree.
+    # The numbers users forward their unanswered and busy calls to, by region.
     forwarding: ForwardingNumbers
-    # One per configured platform, possibly none. A platform without one is an outcome at
-    # dispatch, not a startup failure: escalation works without push (D-016).
+    # One per configured platform, possibly none: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
-    # Where sign-in codes may go and how many the deployment sends: see AuthenticationPolicy.
     auth_limits: AuthenticationPolicy = field(default_factory=AuthenticationPolicy)
-    # Proxies whose forwarding headers are believed when counting what one client asks for.
+    # Proxies whose forwarding headers are believed.
     trusted_proxies: tuple[IPv4Network | IPv6Network, ...] = ()
     metrics: MetricsRecorder | None = None
 
 
 def build_container(
-    settings: Settings, *, voices: VoiceProvider, reported_calls: CallEventSink
+    settings: Settings,
+    *,
+    voices: VoiceProvider,
+    reported_calls: CallEventSink,
+    metrics: MetricsRecorder | None = None,
 ) -> Container:
-    """Choose the implementations for this configuration.
-
-    The voice provider is passed in rather than chosen here because it is needed earlier
-    than the rest: which routes the application has depends on what it can do, and routing
-    is settled before anything starts. Handing the same instance on is what stops a second
-    one being built that could answer differently.
-
-    Where handsets' reports go is passed in for the same reason: the call transports are chosen
-    before routing too, and when it is the handset transport it must be this very instance, or
-    the reports would feed one feed while the product read another.
-    """
+    """The implementations for this configuration, around the voices and handset feed given."""
     clock = SystemClock()
     signing_key = settings.require_signing_key()
+    refresh_token_lifetime = timedelta(seconds=settings.auth_refresh_token_ttl_seconds)
 
     return Container(
         clock=clock,
@@ -212,7 +188,7 @@ def build_container(
         otp=_build_otp_provider(settings),
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
-        refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+        refresh_token_lifetime=refresh_token_lifetime,
         transcript_cipher=(
             None
             if settings.transcript_encryption_keys is None
@@ -222,24 +198,18 @@ def build_container(
         reported_calls=reported_calls,
         forwarding=build_call_forwarding(settings),
         auth_limits=AuthenticationPolicy(
-            refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+            refresh_token_lifetime=refresh_token_lifetime,
             allowed_calling_codes=settings.otp_allowed_calling_codes,
             challenges_per_hour=settings.otp_challenges_per_hour,
             challenges_per_hour_per_calling_code=settings.otp_challenges_per_hour_per_calling_code,
         ),
         trusted_proxies=settings.trusted_proxy_cidrs,
-        metrics=LoggingMetricsRecorder(),
+        metrics=metrics or LoggingMetricsRecorder(),
     )
 
 
 def build_call_forwarding(settings: Settings) -> ForwardingNumbers:
-    """Which number, if any, each user must forward their calls to for any to arrive.
-
-    A streaming call reaches the product only when the user's carrier forwards it to one of a
-    line's numbers, and the users a line serves are told its first. A line for every region is
-    the number for anybody no line of their own region serves. A handset screens its own calls
-    and needs nothing forwarded, and a deployment with no transport takes no calls at all.
-    """
+    """Each region's line's first number, and the every-region line's for everybody else."""
     by_region: dict[TelephonyRegion, PhoneNumber] = {}
     elsewhere: PhoneNumber | None = None
     for line in settings.require_telephony_lines():
@@ -253,47 +223,44 @@ def build_call_forwarding(settings: Settings) -> ForwardingNumbers:
 def build_notification_providers(
     settings: Settings, *, clock: Clock
 ) -> tuple[NotificationProvider, ...]:
-    """A provider for each platform the deployment has credentials for.
-
-    A platform is built when any of its variables is set, and then every one is required: a
-    half-configured platform stops the process naming what is missing rather than starting and
-    silently never delivering. Credentials are parsed here, so an unreadable key fails at startup
-    too — with a message that names the variable and never repeats the key.
-    """
+    """A provider for each platform with any variable set, credentials parsed and complete."""
     providers: list[NotificationProvider] = []
     if settings.apns_configured:
-        apns = settings.require_apns()
-        try:
-            token = APNsProviderToken(
-                key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
-            )
-        except CredentialError as error:
-            raise ConfigurationError(
-                f"APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID: {error}"
-            ) from None
-        providers.append(
-            APNsNotificationProvider(
-                token=token,
-                topic=apns.topic,
-                environment=_APNS_ENVIRONMENTS[apns.environment],
-                clock=clock,
-            )
-        )
+        providers.append(_apns_provider(settings, clock=clock))
     if settings.fcm_configured:
-        credentials = settings.require_fcm()
-        try:
-            account = ServiceAccount.parse(credentials.service_account_json)
-        except CredentialError as error:
-            raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
-        client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
-        providers.append(
-            fcm.FCMNotificationProvider(
-                project_id=credentials.project_id,
-                tokens=AccessTokenSource(account, client=client, clock=clock),
-                client=client,
-            )
-        )
+        providers.append(_fcm_provider(settings, clock=clock))
     return tuple(providers)
+
+
+def _apns_provider(settings: Settings, *, clock: Clock) -> NotificationProvider:
+    apns = settings.require_apns()
+    try:
+        token = APNsProviderToken(
+            key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
+        )
+    except CredentialError as error:
+        variables = "APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID"
+        raise ConfigurationError(f"{variables}: {error}") from None
+    return APNsNotificationProvider(
+        token=token,
+        topic=apns.topic,
+        environment=_APNS_ENVIRONMENTS[apns.environment],
+        clock=clock,
+    )
+
+
+def _fcm_provider(settings: Settings, *, clock: Clock) -> NotificationProvider:
+    credentials = settings.require_fcm()
+    try:
+        account = ServiceAccount.parse(credentials.service_account_json)
+    except CredentialError as error:
+        raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
+    client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
+    return fcm.FCMNotificationProvider(
+        project_id=credentials.project_id,
+        tokens=AccessTokenSource(account, client=client, clock=clock),
+        client=client,
+    )
 
 
 _APNS_ENVIRONMENTS: Final = {
@@ -304,11 +271,7 @@ _APNS_ENVIRONMENTS: Final = {
 
 @dataclass(frozen=True, slots=True)
 class Observability:
-    """How the process reports on itself, chosen once: where metrics and spans go, and circuits.
-
-    `metrics` is what everything records to; `in_process` is the part of it diagnostics reads back.
-    `close` flushes spans not yet exported, once, as the process stops.
-    """
+    """Where metrics and spans go, the in-process metrics diagnostics reads, circuits, and close."""
 
     metrics: MetricsRecorder
     in_process: InProcessMetrics
@@ -347,15 +310,7 @@ def build_escalation_dispatcher(
     *,
     observability: Observability,
 ) -> EscalationDispatcher:
-    """The dispatcher, storing through its own short units of work.
-
-    This is the object the call orchestration asks to notify a user. It opens a unit of work to
-    claim the context and read devices, closes it, sends, and opens another to record the result,
-    so no transaction is held open across a push.
-
-    What the user is told about an escalation is sealed like the call it is about, so the
-    transcript keys are required, as they are to carry calls at all.
-    """
+    """The escalation dispatcher, storing sealed through short units of work."""
     clock = container.clock
     cipher = _sealing(container, "escalate: what the user is told about a call is sealed")
 
@@ -385,16 +340,12 @@ def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
 
 
 async def close_providers(container: Container) -> None:
-    """Close each provider's connection. Called once, as the application stops."""
+    """Close each provider's connection, once, as the application stops."""
     await close_each((container.otp, *container.notifications))
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
-    """Which voices this deployment offers: the catalogue its speech service speaks.
-
-    Read from configuration rather than written anywhere in code, because the service decides
-    which voices exist and a list of its own here would offer voices it cannot speak.
-    """
+    """The voices this deployment offers: the configured catalogue its speech service speaks."""
     voices, default_voice = settings.require_voice_catalogue()
     return BuiltInVoiceProvider(voices, default_voice_id=default_voice)
 
@@ -409,28 +360,19 @@ def build_speech_provider(
     metrics: MetricsRecorder,
     wrap_connection: Callable[[ConnectionOpener], ConnectionOpener] | None = None,
 ) -> SpeechProvider:
-    """The speech service this deployment talks to, by the protocol it speaks.
-
-    `wrap_connection` lets a caller stand between the session and the network — the harness uses
-    it to drop a connection on command and watch the session recover — without that caller
-    constructing the adapter itself.
-
-    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives: a protocol
-    added to the settings without an adapter chosen here fails to type-check.
-    """
+    """The speech service by its protocol; `wrap_connection` stands between session and network."""
     wrap = wrap_connection or _unwrapped
     key = settings.speech_api_key
     api_key = None if key is None else key.get_secret_value()
     match settings.speech_provider:
         case SpeechProviderName.REALTIME:
-            endpoint, model = settings.require_speech_service()
+            endpoint, model = settings.require_speech_model()
             return RealtimeSpeechProvider(
                 wrap(realtime_opener(endpoint, model=model, api_key=api_key)),
                 metrics,
                 languages=settings.speech_languages,
                 input_formats=_SPEECH_INPUT_FORMATS,
-                # The protocol's own wire format, so that nothing is converted twice on its way
-                # out. A sink converts to what it plays.
+                # The protocol's own wire format, so nothing is converted twice on the way out.
                 output_format=REALTIME_WIRE_FORMAT,
                 transcription_model=settings.speech_transcription_model,
             )
@@ -441,20 +383,18 @@ def build_speech_provider(
                 metrics,
                 languages=settings.speech_languages,
                 input_formats=_SPEECH_INPUT_FORMATS,
-                # What an agent speaks unless configured otherwise, so that an agent left at its
-                # default is not converted twice on the way out either.
+                # What an agent speaks by default, so nothing is converted twice on the way out.
                 output_format=ELEVENLABS_WIRE_FORMAT,
             )
         case SpeechProviderName.GPT_LIVE:
-            endpoint, model = settings.require_speech_live_model()
+            endpoint, model = settings.require_speech_model()
             return GptLiveSpeechProvider(
                 wrap(gpt_live_opener(endpoint, api_key=api_key)),
                 metrics,
                 model=model,
                 languages=settings.speech_languages,
                 input_formats=_SPEECH_INPUT_FORMATS,
-                # A call's own format. A session speaks the format its audio arrives in, so a phone
-                # call's is neither converted on the way in nor on the way out.
+                # A phone call's own format, so its audio is converted neither in nor out.
                 output_format=TELEPHONY_NARROWBAND,
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
@@ -467,14 +407,7 @@ type FindUser = Callable[[PhoneNumber], Awaitable[UserId | None]]
 
 @dataclass(frozen=True, slots=True)
 class CallTransportBinding:
-    """A call transport, its provider's routes, how to release it, and whose calls are whose.
-
-    One per line calls arrive on. Handed to the application as one value so that what mounts the
-    routes, what closes the transport and what orchestrates its calls never have to know which
-    transport it is.
-    `ownership` is given how to find a user by number, which needs storage the binding is chosen
-    before.
-    """
+    """One line's transport, its routes, how to release it, and whose calls are whose."""
 
     transport: CallTransport
     router: APIRouter
@@ -483,13 +416,7 @@ class CallTransportBinding:
 
 
 def build_reported_calls() -> AndroidNativeCallTransport:
-    """Where handsets' reports about their own calls become call events.
-
-    Built once per application and handed both to the container, whose reporting route feeds
-    it, and to `build_call_transports`, which offers it as the transport when handsets are the
-    configured one. A deployment carrying streaming calls still accepts handsets' reports: they
-    are stored either way, and only which feed the product reads changes.
-    """
+    """The application's one handset transport, which handsets' reports feed."""
     return AndroidNativeCallTransport()
 
 
@@ -500,19 +427,10 @@ def build_call_transports(
     observability: Observability,
     http_transport: httpx.AsyncBaseTransport | None = None,
 ) -> tuple[CallTransportBinding, ...]:
-    """The call transports this deployment is configured for: one for each line, if any.
-
-    None is a supported answer: a deployment configured with no transport carries no calls,
-    and no provider's routes exist in it. `reported_calls` is the application's one handset
-    transport, offered rather than built here so that there is never a second. `http_transport`
-    lets a test put a simulated provider where the provider's API would be, without
-    constructing the adapter.
-    """
+    """A binding for each configured line, possibly none; `http_transport` stands in for the API."""
     match settings.telephony_provider:
         case TelephonyProviderName.ANDROID_NATIVE:
-            # The handset reports over the application's own authenticated route, which exists
-            # whichever transport is chosen, so this transport brings no routes of its own and
-            # holds nothing that needs releasing.
+            # Handsets report over the application's own route, so this brings no routes.
             return (
                 CallTransportBinding(
                     transport=reported_calls,
@@ -535,17 +453,12 @@ def build_call_transports(
             assert_never(unknown)
 
 
-# Where a named line's callbacks are, under the service's own path: `/lines/<name>/telephony/...`.
+# Where a named line's callbacks are: `/lines/<name>/telephony/...`.
 _LINES_PATH: Final = "/lines"
 
 
 def _path_prefix(line: TelephonyLine) -> str:
-    """What every path a line's provider calls begins with.
-
-    Nothing for the one line `TELEPHONY_PROVIDER` configures, whose provider was set up with paths
-    at the root before there could be a second line; its own name for any other, so two lines of
-    one provider each receive only their own callbacks.
-    """
+    """What a line's callback paths begin with: nothing for the unnamed line, else its name."""
     return "" if line.name is None else f"{_LINES_PATH}/{line.name}"
 
 
@@ -556,10 +469,7 @@ def _line_binding(
     observability: Observability,
     http_transport: httpx.AsyncBaseTransport | None,
 ) -> CallTransportBinding:
-    """A streaming line's transport, routes and ownership, by the provider it is an account with.
-
-    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives.
-    """
+    """A streaming line's transport, routes and ownership, by the provider it is an account with."""
     match line.provider:
         case LineProviderName.TWILIO:
             transport = TwilioCallTransport(
@@ -612,16 +522,7 @@ def build_call_orchestrator(
     assistant: AssistantServices | None = None,
     summariser: CallSummariser | None = None,
 ) -> CallOrchestrator:
-    """The orchestrator for this deployment's lines, storing through short units of work.
-
-    Every write is its own unit of work, so a call holds no transaction open while it rings. Calls
-    are recorded with who called sealed, so the transcript keys are required. The speech service
-    and the agent are built only where the assistant can take calls on some line; `assistant` lets
-    a caller supply them instead, the way `build_call_transports` takes a simulated provider.
-
-    Calls the assistant took are summarised by a model when one is configured, and `summariser`
-    stands in for it the same way; with neither, every call is summarised from its facts.
-    """
+    """The orchestrator for these lines; `assistant` and `summariser` override what is built."""
     clock = container.clock
     cipher = _sealing(container, "carry calls: every call is recorded, sealed")
 
@@ -653,7 +554,7 @@ def build_call_orchestrator(
             voices=container.voices,
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
-    # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
+    # One set of bounds, shared by the summariser and teardown.
     bounds = call_bounds(settings)
     if summariser is None and settings.llm_configured:
         summariser = build_call_summariser(
@@ -679,11 +580,7 @@ def call_bounds(settings: Settings) -> Bounds:
 
 
 def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:
-    """The agent that judges calls, on the model this deployment is configured with.
-
-    The call's actions are handed in rather than built here, because only orchestration holds a
-    call. What is chosen here is the framework and the model.
-    """
+    """The agent that judges calls, on the configured model, acting through `actions`."""
     endpoint = settings.require_llm()
     return call_judging_on(
         openai_compatible_model(endpoint),
@@ -693,13 +590,7 @@ def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudgi
 
 
 def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallJudging:
-    """The agent on `model`, with its tools and the conclusion that acts on what they asked for.
-
-    Built once, here, so every judgement on a call goes through one escalation service and one
-    memory of whether the user was reached — and so the one thing that may release that memory,
-    the service's `forget`, is handed to orchestration beside the agent rather than dug out of it.
-    Tests reach the same wiring with a scripted model.
-    """
+    """The agent on `model`, with its tools, conclusion and one escalation service for the call."""
     escalation = EscalationService(actions)
     return CallJudging(
         agent=StrandsCallAgent(
@@ -715,12 +606,7 @@ def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -
 def build_call_summariser(
     settings: Settings, *, timeout: timedelta, metrics: MetricsRecorder
 ) -> CallSummariser:
-    """What writes a call's summary when it ends, on the same model the agent judges with.
-
-    Bounded by `timeout`, which is teardown's own bound on a summary: nobody is waiting on the line
-    by then, but a teardown that waits minutes for a summary is a call whose history appears
-    minutes late, and a summariser given longer than teardown waits would be abandoned mid-draft.
-    """
+    """What summarises an ended call, on the agent's model, within teardown's `timeout`."""
     return call_summariser_on(
         openai_compatible_model(settings.require_llm()), timeout=timeout, metrics=metrics
     )
@@ -729,7 +615,7 @@ def build_call_summariser(
 def call_summariser_on(
     model: Model, *, timeout: timedelta, metrics: MetricsRecorder
 ) -> CallSummariser:
-    """The summariser on `model`. Tests reach the same wiring with a scripted model."""
+    """The summariser on `model`."""
     return ModelCallSummariser(StrandsSummaryDrafter(model), timeout=timeout, metrics=metrics)
 
 
@@ -738,11 +624,7 @@ def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:
-    """Which provider delivers sign-in codes: the default, and any a country has of its own.
-
-    Each provider named is built once, however many calling codes it serves, so one account's
-    connections are shared rather than opened per country.
-    """
+    """The sign-in code provider: the default, and each calling code's own, each built once."""
     routes = settings.otp_provider_by_calling_code
     built = {
         name: _otp_provider_named(name, settings)
@@ -757,12 +639,7 @@ def _build_otp_provider(settings: Settings) -> OTPProvider:
 
 
 def _otp_provider_named(name: OTPProviderName, settings: Settings) -> OTPProvider:
-    """The provider called `name`, built from its own settings.
-
-    A match with an exhaustiveness check rather than a dictionary with a default: adding a
-    provider without deciding what it is called here fails to type-check, instead of quietly
-    falling through to the mock — which is the one failure that must never happen silently.
-    """
+    """The provider called `name`, built from its own settings."""
     match name:
         case OTPProviderName.MOCK:
             return MockOTPProvider(is_production=settings.is_production)
@@ -781,6 +658,5 @@ def _otp_provider_named(name: OTPProviderName, settings: Settings) -> OTPProvide
                 service_id=verify.service_id,
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
-            # Not dead code: it is what makes the type checker reject a new provider that has
-            # not been wired in here. Unreachable at run time is exactly the point.
+            # Makes the type checker reject a provider that has no case here.
             assert_never(unknown)

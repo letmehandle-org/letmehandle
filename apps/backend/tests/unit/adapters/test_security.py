@@ -32,8 +32,7 @@ class TestScryptHasher:
         assert not hasher.verify("000000", hasher.hash("424242"))
 
     def test_the_same_secret_hashes_differently_every_time(self) -> None:
-        # Each secret gets its own salt, so two people with the same code produce different
-        # rows and a precomputed table is worth nothing.
+        # Each secret gets its own salt, so equal codes produce different rows.
         hasher = ScryptHasher()
         assert hasher.hash("424242") != hasher.hash("424242")
 
@@ -51,8 +50,7 @@ class TestScryptHasher:
 
 class TestDeterministicHasher:
     def test_the_same_input_always_gives_the_same_output(self) -> None:
-        # The property a lookup needs: a refresh token is found by its hash, and a salted hash
-        # would turn that index into a scan of every row.
+        # Equal inputs hash equally, so a refresh token can be looked up by its hash.
         hasher = DeterministicHasher(A_KEY)
         assert hasher.hash("a-token") == hasher.hash("a-token")
 
@@ -121,9 +119,7 @@ class TestJWTTokenSigner:
             self.signer().verify(token)
 
     def test_expiry_is_judged_by_the_clock_the_application_was_given(self) -> None:
-        # Not the machine's. The library checks against the system clock by default, which
-        # means one part of the system disagrees with every other about what time it is — and
-        # makes this behaviour impossible to test without waiting.
+        # Expiry is checked against the injected clock, not the system clock.
         clock = FixedClock(NOW)
         signer = JWTTokenSigner(signing_key=A_KEY, lifetime=timedelta(minutes=15), clock=clock)
         token, _ = signer.issue(USER, NOW)
@@ -143,8 +139,7 @@ class TestJWTTokenSigner:
             signer.verify(token)
 
     def test_an_unsigned_token_is_refused(self) -> None:
-        # The algorithm-confusion attack: a token whose header asks to be trusted without a
-        # signature. Accepting the header's choice of algorithm is a one-word mistake.
+        # The algorithm-confusion attack: a token whose header asks to be trusted unsigned.
         forged = jwt.encode(
             {
                 "sub": USER.value,
@@ -160,8 +155,7 @@ class TestJWTTokenSigner:
             self.signer().verify(forged)
 
     def test_a_token_for_another_audience_is_refused(self) -> None:
-        # Same key, different purpose. Without the audience check, a token minted for one thing
-        # is accepted for another.
+        # Same key, different audience: a token minted for one purpose is refused for another.
         foreign = jwt.encode(
             {
                 "sub": USER.value,

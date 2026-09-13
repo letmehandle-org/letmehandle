@@ -7,7 +7,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import lru_cache
+from functools import lru_cache, partial
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING, Annotated, Final
 
@@ -25,6 +25,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from letmehandle.config.listing import entries, is_calling_code, repeated
 from letmehandle.config.telephony_lines import (
     LineDescription,
     LineProviderName,
@@ -37,7 +38,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 
 class Environment(StrEnum):
@@ -70,12 +71,7 @@ class SpeechProviderName(StrEnum):
 
 
 class APNsEnvironmentName(StrEnum):
-    """Which of Apple's push servers a deployment talks to.
-
-    No default. A device token belongs to one environment and is `BadDeviceToken` to the other,
-    and that response removes the token — so a production deployment left pointing at the sandbox
-    would quietly delete every user's device. It is safer to refuse to guess.
-    """
+    """Which of Apple's push servers a deployment talks to; it has no default."""
 
     SANDBOX = "sandbox"
     PRODUCTION = "production"
@@ -101,11 +97,7 @@ class FCMCredentials:
 
 
 class TelephonyProviderName(StrEnum):
-    """Which call transport carries this deployment's calls, if any.
-
-    Two kinds, not two suppliers of one kind: a programmable telephony account that streams a
-    call's audio, and the user's own handset screening calls before they ring.
-    """
+    """Which call transport carries calls: a streaming telephony account, or the handset."""
 
     TWILIO = "twilio"
     ANDROID_NATIVE = "android_native"
@@ -130,30 +122,21 @@ class VerifyAccount:
 
 
 class ConfigurationError(RuntimeError):
-    """Configuration is missing or invalid, and the process must not continue.
-
-    Raised at startup rather than at first use. A process that starts with bad configuration
-    fails later, somewhere unrelated, and the traceback points at the wrong thing.
-    """
+    """Configuration is missing or invalid, and the process must not continue."""
 
 
-# How SPEECH_VOICES is written, quoted in every error about it so the fix is in the message.
+# How SPEECH_VOICES is written, quoted in every error about it.
 VOICE_CATALOGUE_FORMAT: Final = "id:Display name:locale|locale,id:Display name:locale"
 
 
 def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
-    """The voices SPEECH_VOICES lists, in the order it lists them.
-
-    A compact string rather than JSON, because this is typed into an environment file by hand and
-    JSON quoting inside a shell variable is where a catalogue gets silently truncated. The price is
-    that a display name cannot contain a colon or a comma, which no voice name has needed.
-    """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    """The voices SPEECH_VOICES lists, in its order; a display name holds no colon or comma."""
+    listed = entries(text)
+    if not listed:
         raise ValueError(f"SPEECH_VOICES lists no voices; expected {VOICE_CATALOGUE_FORMAT!r}")
 
     voices: list[Voice] = []
-    for entry in entries:
+    for entry in listed:
         parts = [part.strip() for part in entry.split(":")]
         locales = tuple(locale.strip() for locale in parts[-1].split("|"))
         if len(parts) != 3 or not all(parts) or not all(locales):
@@ -162,12 +145,10 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
             )
         voices.append(Voice(id=parts[0], name=parts[1], locales=locales))
 
-    ids = [voice.id for voice in voices]
-    repeated = sorted({voice_id for voice_id in ids if ids.count(voice_id) > 1})
-    if repeated:
-        # Caught here as well as by the provider, so the message names the variable to fix rather
-        # than an invariant somebody has to trace back to a line in an environment file.
-        raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated}")
+    repeated_ids = repeated(voice.id for voice in voices)
+    if repeated_ids:
+        # Refused here too, so the message names the variable rather than a provider invariant.
+        raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated_ids}")
     return tuple(voices)
 
 
@@ -177,21 +158,17 @@ _LANGUAGE_CODE: Final = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})?")
 
 def parse_speech_languages(text: str) -> tuple[str, ...]:
     """The languages SPEECH_LANGUAGES lists, in its order: `en,hi`."""
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    languages = entries(text)
+    if not languages:
         raise ValueError("SPEECH_LANGUAGES lists no languages; expected codes such as 'en,hi'")
-    for position, entry in enumerate(entries, 1):
-        if not _LANGUAGE_CODE.fullmatch(entry):
+    for position, language in enumerate(languages, 1):
+        if not _LANGUAGE_CODE.fullmatch(language):
             raise ValueError(
                 f"SPEECH_LANGUAGES entry {position} is not a language code, such as en or hi"
             )
-    if len(set(entries)) != len(entries):
+    if repeated(languages):
         raise ValueError("SPEECH_LANGUAGES lists the same language more than once")
-    return tuple(entries)
-
-
-def _languages_from_text(value: object) -> object:
-    return parse_speech_languages(value) if isinstance(value, str) else value
+    return tuple(languages)
 
 
 # How TRANSCRIPT_ENCRYPTION_KEYS is written, quoted in every error about it.
@@ -201,19 +178,14 @@ _KEY_ID: Final = re.compile(r"[a-z0-9][a-z0-9_-]{0,15}")
 
 
 def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
-    """The transcript keys, newest first, each as its id and its 32 bytes.
-
-    Every error names the entry by position and never repeats what it contains: an entry that
-    fails to parse is most often a key pasted without its id, and an error message is copied
-    into chat, tickets and logs far more readily than an environment file is.
-    """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    """The transcript keys, newest first, as id and 32 bytes; errors name a position, not a key."""
+    listed = entries(text)
+    if not listed:
         raise ValueError(
             f"TRANSCRIPT_ENCRYPTION_KEYS lists no keys; expected {TRANSCRIPT_KEYS_FORMAT!r}"
         )
     keys: list[tuple[str, bytes]] = []
-    for position, entry in enumerate(entries, start=1):
+    for position, entry in enumerate(listed, start=1):
         key_id, separator, encoded = (part.strip() for part in entry.partition(":"))
         if not separator or not _KEY_ID.fullmatch(key_id):
             raise ValueError(
@@ -221,9 +193,7 @@ def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
                 f"{TRANSCRIPT_KEYS_FORMAT!r}; an id is 1-16 lower-case letters, digits, - or _"
             )
         try:
-            # Strict: lenient decoding drops characters it does not recognise, so a key damaged
-            # in pasting could still come out as thirty-two bytes — just not the ones that
-            # sealed anything, which would surface as every transcript failing to open.
+            # Strict, so a key damaged in pasting is refused rather than decoded to other bytes.
             key = base64.b64decode(encoded.replace("-", "+").replace("_", "/"), validate=True)
         except (binascii.Error, ValueError):
             key = b""
@@ -235,84 +205,61 @@ def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
                 '.decode())"`'
             )
         keys.append((key_id, key))
-    ids = [key_id for key_id, _ in keys]
-    repeated = sorted({key_id for key_id in ids if ids.count(key_id) > 1})
-    if repeated:
-        raise ValueError(f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated}")
+    repeated_ids = repeated(key_id for key_id, _ in keys)
+    if repeated_ids:
+        raise ValueError(
+            f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated_ids}"
+        )
     return tuple(keys)
 
 
-def _catalogue_from_text(value: object) -> object:
-    # Text is what the environment supplies; a tuple of voices is what code constructing
-    # settings directly passes, and that needs no parsing.
-    return parse_voice_catalogue(value) if isinstance(value, str) else value
-
-
 def parse_number_list(text: str) -> tuple[PhoneNumber, ...]:
-    """The numbers a comma-separated variable lists, each in E.164 form.
-
-    The message names the position of a number it cannot read, never the number: an error
-    about configuration is printed where anyone running the process can see it.
-    """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    numbers: list[PhoneNumber] = []
-    for position, entry in enumerate(entries, 1):
-        try:
-            numbers.append(PhoneNumber.parse(entry))
-        except InvariantError:
-            raise ValueError(
-                f"TELEPHONY_NUMBERS entry {position} is not an international number in E.164 form"
-            ) from None
+    """The numbers TELEPHONY_NUMBERS lists in E.164 form; errors name a position, not a number."""
+    numbers = tuple(
+        _number(f"TELEPHONY_NUMBERS entry {position}", entry)
+        for position, entry in enumerate(entries(text), 1)
+    )
     if not numbers:
         raise ValueError("TELEPHONY_NUMBERS lists no numbers")
-    return tuple(numbers)
+    return numbers
 
 
-def _numbers_from_text(value: object) -> object:
-    return parse_number_list(value) if isinstance(value, str) else value
-
-
-def _lines_from_text(value: object) -> object:
-    return parse_telephony_lines(value) if isinstance(value, str) else value
-
-
-def _unforwarded_owner_from_text(value: object) -> object:
-    if not isinstance(value, str):
-        return value
+def _number(what: str, text: str) -> PhoneNumber:
+    """The number `text` is in E.164 form, or an error naming `what` and never the text."""
     try:
-        return PhoneNumber.parse(value)
+        return PhoneNumber.parse(text)
     except InvariantError:
-        raise ValueError(
-            "TELEPHONY_UNFORWARDED_CALLS_OWNER is not an international number in E.164 form"
-        ) from None
+        raise ValueError(f"{what} is not an international number in E.164 form") from None
 
 
-def _sender_from_text(value: object) -> object:
-    # The message names the variable and never repeats the value, as every number error here does.
-    if not isinstance(value, str):
-        return value
-    try:
-        return PhoneNumber.parse(value)
-    except InvariantError:
-        raise ValueError("SMS_FROM_NUMBER is not an international number in E.164 form") from None
+def _parsed(parse: Callable[[str], object], *, optional: bool = False) -> BeforeValidator:
+    """A validator parsing text with `parse`, blank text as None when `optional`; else unchanged."""
+
+    def read(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return None if optional and not value.strip() else parse(value)
+
+    return BeforeValidator(read)
+
+
+def _e164(variable: str) -> BeforeValidator:
+    """A validator reading one optional number in E.164 form, naming `variable` when it cannot."""
+    return _parsed(partial(_number, variable), optional=True)
 
 
 def parse_calling_codes(text: str) -> frozenset[str] | None:
     """Country calling codes, comma-separated and without the plus: "91,1,44". Blank is any."""
-    entries = [entry.strip().lstrip("+") for entry in text.split(",") if entry.strip()]
-    if not entries:
+    codes = [entry.lstrip("+") for entry in entries(text)]
+    if not codes:
         return None
-    for position, entry in enumerate(entries, 1):
-        if not entry.isdigit() or not 1 <= len(entry) <= 3 or entry.startswith("0"):
+    for position, code in enumerate(codes, 1):
+        if not is_calling_code(code):
             raise ValueError(
                 f"OTP_ALLOWED_CALLING_CODES entry {position} is not a country calling code, "
                 "such as 91 or 1"
             )
-    return frozenset(entries)
-
-
-def _calling_codes_from_text(value: object) -> object:
-    return parse_calling_codes(value) if isinstance(value, str) else value
+    return frozenset(codes)
 
 
 # How OTP_PROVIDER_BY_CALLING_CODE is written, quoted in every error about it.
@@ -322,17 +269,11 @@ OTP_PROVIDERS_FORMAT: Final = "91:twilio_verify,1:mock"
 def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
     """Which provider sends codes to each calling code, as `code:provider`, comma-separated."""
     routes: dict[str, OTPProviderName] = {}
-    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+    known = {provider.value for provider in OTPProviderName}
+    for position, entry in enumerate(entries(text), 1):
         code, separator, name = (part.strip() for part in entry.partition(":"))
         code = code.lstrip("+")
-        known = {provider.value for provider in OTPProviderName}
-        if (
-            not separator
-            or not code.isdigit()
-            or not 1 <= len(code) <= 3
-            or code.startswith("0")
-            or name not in known
-        ):
+        if not separator or not is_calling_code(code) or name not in known:
             raise ValueError(
                 f"OTP_PROVIDER_BY_CALLING_CODE entry {position} is not a calling code and one of "
                 f"{', '.join(sorted(known))}, as in {OTP_PROVIDERS_FORMAT!r}"
@@ -343,14 +284,10 @@ def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
     return tuple(routes.items())
 
 
-def _otp_providers_from_text(value: object) -> object:
-    return parse_otp_providers(value) if isinstance(value, str) else value
-
-
 def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
     """The networks whose forwarding headers are believed, comma-separated CIDRs. Blank is none."""
     networks: list[IPv4Network | IPv6Network] = []
-    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+    for position, entry in enumerate(entries(text), 1):
         try:
             networks.append(ip_network(entry, strict=False))
         except ValueError:
@@ -360,33 +297,17 @@ def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
     return tuple(networks)
 
 
-def _proxy_networks_from_text(value: object) -> object:
-    return parse_proxy_networks(value) if isinstance(value, str) else value
-
-
 # How LLM_HEADERS is written, quoted in every error about it.
 LLM_HEADERS_FORMAT: Final = "Header-Name=value;Other-Header=value"
 
-# What a header name may be made of (RFC 9110's token), so a typo is refused here rather than by
-# the HTTP client on the first call.
+# What a header name may be made of: RFC 9110's token.
 _HEADER_NAME: Final = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 
 
 def parse_llm_headers(text: str) -> tuple[tuple[str, SecretStr], ...]:
-    """The extra headers LLM_HEADERS lists, in the order it lists them.
-
-    Compact rather than JSON, for the reason the voice catalogue gives. A value cannot contain a
-    semicolon, which the headers aggregators and gateways ask for do not need. Values are secrets:
-    a header is as often a second credential as it is a label, and a setting printed in a traceback
-    should not decide which.
-
-    The authorisation header is refused. The key already travels in it, and two sources for one
-    header is a key that is silently not the one somebody configured.
-    """
+    """The extra headers LLM_HEADERS lists, values secret; Authorization is refused."""
     headers: list[tuple[str, SecretStr]] = []
-    for entry in (entry.strip() for entry in text.split(";")):
-        if not entry:
-            continue
+    for entry in entries(text, ";"):
         name, separator, value = (part.strip() for part in entry.partition("="))
         if not separator or not _HEADER_NAME.fullmatch(name) or not value:
             raise ValueError(
@@ -397,15 +318,10 @@ def parse_llm_headers(text: str) -> tuple[tuple[str, SecretStr], ...]:
             raise ValueError("LLM_HEADERS cannot set Authorization; the key is LLM_API_KEY")
         headers.append((name, SecretStr(value)))
 
-    names = [name.lower() for name, _ in headers]
-    repeated = sorted({name for name in names if names.count(name) > 1})
-    if repeated:
-        raise ValueError(f"LLM_HEADERS names the same header more than once: {repeated}")
+    repeated_names = repeated(name.lower() for name, _ in headers)
+    if repeated_names:
+        raise ValueError(f"LLM_HEADERS names the same header more than once: {repeated_names}")
     return tuple(headers)
-
-
-def _headers_from_text(value: object) -> object:
-    return parse_llm_headers(value) if isinstance(value, str) else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,19 +335,22 @@ class LLMEndpoint:
     timeout_seconds: float
 
 
-# The shortest diagnostics token accepted: as long as the shortest signing key, for the same reason.
-MIN_DIAGNOSTICS_TOKEN_LENGTH: Final = 32
+# The fewest characters a signing key or a bearer token may have.
+MIN_SECRET_LENGTH: Final = 32
 
 
-def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
-    if value is not None and len(value.get_secret_value()) < MIN_DIAGNOSTICS_TOKEN_LENGTH:
-        raise ValueError(
-            f"DIAGNOSTICS_TOKEN must be at least {MIN_DIAGNOSTICS_TOKEN_LENGTH} characters"
-        )
-    return value
+def _at_least_min_length(variable: str) -> AfterValidator:
+    """Refuse a secret shorter than `MIN_SECRET_LENGTH`, naming `variable` and never the value."""
+
+    def check(value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < MIN_SECRET_LENGTH:
+            raise ValueError(f"{variable} must be at least {MIN_SECRET_LENGTH} characters")
+        return value
+
+    return AfterValidator(check)
 
 
-# When a group of variables is required, named once so the generated reference says it one way.
+# When each group of variables is required, as the generated reference says it.
 _STREAMING_CALLS: Final = "`TELEPHONY_PROVIDER=twilio`"
 _LINES: Final = "`TELEPHONY_LINES` is set"
 _MODEL: Final = "the agent judges calls or a model writes summaries; all three together"
@@ -439,28 +358,36 @@ _APNS: Final = "any `APNS_` variable is set"
 _FCM: Final = "any `FCM_` variable is set"
 
 
+def _set_names(*variables: tuple[str, object]) -> list[str]:
+    """The names of the variables that are set, in the order given."""
+    return [name for name, value in variables if value is not None]
+
+
+def _unset_error(
+    *variables: tuple[str, object],
+    needed: str,
+    joiner: str = ", ",
+    remedy: str = "Set them in .env; see .env.example.",
+) -> ConfigurationError:
+    """A failure naming every variable left unset, and what they are needed for."""
+    unset = [name for name, value in variables if value is None]
+    return ConfigurationError(f"{joiner.join(unset)} must be set {needed}. {remedy}")
+
+
 def _blank_is_absent(value: object) -> object:
-    # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
-    # leave them unset, not set to an empty string that then fails as a malformed URL.
+    """None for blank text, as a copied `.env.example` supplies; any other value unchanged."""
     return None if isinstance(value, str) and not value.strip() else value
 
 
 class Settings(BaseSettings):
-    """Everything this application reads from its environment.
-
-    Adding a variable here is the only way to add one. Nothing else in the codebase touches
-    ``os.environ``, so this class is also the configuration reference: what it declares is
-    what ``.env.example`` documents, and a drift between them is a bug.
-    """
+    """Everything this application reads from its environment, and nothing else reads it."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
-        # A validation error otherwise quotes the value it refused, and a value here can be a
-        # signing key or an encryption key. The variable's name is what anybody needs to fix it;
-        # the message is copied into logs, tickets and chat far more readily than a .env file.
+        # Validation errors name the variable and never quote a value, which may be a key.
         hide_input_in_errors=True,
     )
 
@@ -483,15 +410,17 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Authentication. The signing key has no default: a default signing key is a signing key
-    # somebody forgets to change, and then anyone who has read this repository can mint a
-    # token for any account.
-    auth_signing_key: SecretStr | None = Field(
-        default=None,
-        description="Signs access tokens and keys the refresh-token hash. At least 32 characters, "
-        "fresh for every deployment; changing it signs everybody out.",
-        json_schema_extra={"required_when": "the API starts"},
-    )
+    # No default: a published default signing key would let anyone mint a token.
+    auth_signing_key: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        _at_least_min_length("AUTH_SIGNING_KEY"),
+        Field(
+            description="Signs access tokens and keys the refresh-token hash. At least 32 "
+            "characters, fresh for every deployment; changing it signs everybody out.",
+            json_schema_extra={"required_when": "the API starts"},
+        ),
+    ] = None
     auth_access_token_ttl_seconds: int = Field(
         default=900,
         ge=60,
@@ -512,12 +441,10 @@ class Settings(BaseSettings):
         "makes; `twilio_verify` has the verification service make, text and check its own "
         "(D-042).",
     )
-    # Who delivers codes to particular countries, where the default provider should not: a country
-    # whose operators accept messages only from a sender registered with a provider licensed there.
     otp_provider_by_calling_code: Annotated[
         tuple[tuple[str, OTPProviderName], ...],
         NoDecode,
-        BeforeValidator(_otp_providers_from_text),
+        _parsed(parse_otp_providers),
         Field(
             description="Who delivers sign-in codes to numbers with particular calling codes, as "
             "`code:provider`, comma-separated, such as `91:twilio_verify`. Every other number is "
@@ -527,7 +454,7 @@ class Settings(BaseSettings):
     otp_allowed_calling_codes: Annotated[
         frozenset[str] | None,
         NoDecode,
-        BeforeValidator(_calling_codes_from_text),
+        _parsed(parse_calling_codes),
         Field(
             description="Country calling codes sign-in codes may be sent to, comma-separated "
             "without the plus, such as 91,1,44. Blank sends anywhere; a production deployment "
@@ -548,16 +475,13 @@ class Settings(BaseSettings):
     trusted_proxy_cidrs: Annotated[
         tuple[IPv4Network | IPv6Network, ...],
         NoDecode,
-        BeforeValidator(_proxy_networks_from_text),
+        _parsed(parse_proxy_networks),
         Field(
             description="The proxies in front of the backend, as comma-separated CIDRs. Only "
             "their X-Forwarded-For is believed when counting what one client asks for.",
         ),
     ] = ()
-    # The account the text-message code provider sends from, required only when it is chosen.
-    # Its own variables rather than the telephony account's: a deployment whose calls arrive on a
-    # handset has no telephony account at all and still needs codes delivered, and a credential
-    # that can only send texts is revoked without touching the one that carries calls.
+    # The account sign-in codes are sent from, separate from any telephony account.
     sms_account_id: Annotated[
         str | None,
         BeforeValidator(_blank_is_absent),
@@ -576,15 +500,12 @@ class Settings(BaseSettings):
     ] = None
     sms_from_number: Annotated[
         PhoneNumber | None,
-        BeforeValidator(_sender_from_text),
-        BeforeValidator(_blank_is_absent),
+        _e164("SMS_FROM_NUMBER"),
         Field(
             description="The number sign-in texts come from, in E.164 form.",
             json_schema_extra={"required_when": "OTP_PROVIDER is twilio_sms"},
         ),
     ] = None
-    # The verification service on that same account, for the provider whose service makes, texts
-    # and checks the code. An identifier rather than a secret: the account's token is the secret.
     sms_verify_service_id: Annotated[
         str | None,
         BeforeValidator(_blank_is_absent),
@@ -595,23 +516,15 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
-    # is optional at startup: nothing opens a speech session in a request yet, and a process that
-    # refuses to start for want of a service it never calls is a process nobody can develop
-    # against. The shape is still checked when a value is present, so a typo fails here rather
-    # than on the first call. The model names what a realtime or GPT-Live service runs; the agent
-    # id names which ElevenLabs agent to talk to; each is required only by its own protocol.
+    # Speech: optional at startup, shape-checked when set, required by what takes calls.
     speech_provider: SpeechProviderName = Field(
         default=SpeechProviderName.REALTIME,
         description="Which protocol the speech service speaks.",
     )
-    # What the service speaks, which is the service's configuration: an ElevenLabs agent's languages
-    # are its own and its presets, a realtime model's are the model's. A call opens in the user's
-    # language when it is listed here, and the service is asked for nothing it does not list.
     speech_languages: Annotated[
         tuple[str, ...],
         NoDecode,
-        BeforeValidator(_languages_from_text),
+        _parsed(parse_speech_languages),
         Field(
             description="The languages the speech service speaks, comma-separated, such as "
             "`en,hi`. A call opens in the user's language when it is one of them (D-039).",
@@ -643,9 +556,6 @@ class Settings(BaseSettings):
             json_schema_extra={"required_when": "the assistant takes calls over `elevenlabs`"},
         ),
     ] = None
-    # Which model transcribes the caller, for a protocol that is told. Optional, and consequential:
-    # without it the service answers the caller without writing down what they said, so the
-    # conversation's record holds only one side of it.
     speech_transcription_model: Annotated[
         str | None,
         BeforeValidator(_blank_is_absent),
@@ -660,18 +570,11 @@ class Settings(BaseSettings):
         Field(description="The speech service's key. Empty for a service that needs none."),
     ] = None
 
-    # The voices this deployment offers, and the one a call gets when nobody chose. No default: a
-    # compatible server decides its own voices, so any list written here would be a list of voices
-    # that some server cannot speak — which is the exact thing that went wrong before this was
-    # configuration. `NoDecode` keeps pydantic from reading the text as JSON.
-    #
-    # Optional here and required by what serves voices, like the database URL: the API refuses to
-    # start without them, while a migration, which has no use for a voice, does not.
+    # The voices offered and the default one: no default, since the speech service decides them.
     speech_voices: Annotated[
         tuple[Voice, ...] | None,
         NoDecode,
-        BeforeValidator(_blank_is_absent),
-        BeforeValidator(_catalogue_from_text),
+        _parsed(parse_voice_catalogue, optional=True),
         Field(
             description="The voices offered, as `id:Display name:locale|locale`, comma-separated, "
             "such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices "
@@ -688,11 +591,7 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # The keys transcripts are encrypted under, newest first (D-014). Optional at startup, like
-    # the database URL: call history cannot be read without them and answers 503 instead, while
-    # a migration or the purge, which never read a sealed record, must not need them. Checked
-    # for shape whenever present, so a truncated key fails at startup rather than on the first
-    # call.
+    # Optional at startup: only what opens a sealed record needs them (D-014).
     transcript_encryption_keys: Annotated[
         SecretStr | None,
         BeforeValidator(_blank_is_absent),
@@ -703,11 +602,7 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Telephony. All optional at startup, like the speech service. The provider chooses the call
-    # transport; the rest is the streaming transport's account, which a deployment without one
-    # needs none of, and one with it is refused by what builds the transport, naming every
-    # variable that is missing. The token is a secret and is never
-    # rendered; the numbers are the ones calls are placed from, never anybody's own.
+    # Telephony: the call transport and the single streaming line's account, all optional here.
     telephony_provider: Annotated[
         TelephonyProviderName | None,
         BeforeValidator(_blank_is_absent),
@@ -732,9 +627,7 @@ class Settings(BaseSettings):
     telephony_numbers: Annotated[
         tuple[PhoneNumber, ...] | None,
         NoDecode,
-        # Validators run last-listed first: a blank is set aside before anything parses it.
-        BeforeValidator(_numbers_from_text),
-        BeforeValidator(_blank_is_absent),
+        _parsed(parse_number_list, optional=True),
         Field(
             description="The numbers calls are placed from, comma-separated, in E.164 form.",
             json_schema_extra={"required_when": _STREAMING_CALLS},
@@ -748,9 +641,7 @@ class Settings(BaseSettings):
             json_schema_extra={"required_when": _STREAMING_CALLS},
         ),
     ] = None
-    # The URL the provider reaches this service on, and the one its signatures are computed
-    # over. Configured rather than read from a request, because behind a proxy or a tunnel the
-    # Host a request arrives with is not the URL the provider signed.
+    # Configured, not read from a request: signatures are computed over the URL the provider called.
     telephony_webhook_base_url: Annotated[
         AnyHttpUrl | None,
         BeforeValidator(_blank_is_absent),
@@ -761,15 +652,11 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Lines by region: the alternative to the single account above, for a deployment whose users are
-    # in more than one country and should each forward to, and be rung from, a local number. The
-    # structure and the tokens are two variables, so the one holding secrets is never the one
-    # somebody reads out to find which line is misconfigured.
+    # Lines by region instead of the single line above; their tokens are a variable of their own.
     telephony_lines: Annotated[
         tuple[LineDescription, ...] | None,
         NoDecode,
-        BeforeValidator(_lines_from_text),
-        BeforeValidator(_blank_is_absent),
+        _parsed(parse_telephony_lines, optional=True),
         Field(
             description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
             "account: `name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
@@ -786,22 +673,15 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Whose a call dialled straight at the account's number is, for trying a deployment from a
-    # phone without setting up forwarding. Development only: in production such a call belongs to
-    # nobody, because anybody can dial the number and must not reach a user's assistant by it.
     telephony_unforwarded_calls_owner: Annotated[
         PhoneNumber | None,
-        BeforeValidator(_unforwarded_owner_from_text),
-        BeforeValidator(_blank_is_absent),
+        _e164("TELEPHONY_UNFORWARDED_CALLS_OWNER"),
         Field(
             description="Development only: the signed-in number whose calls dialled straight at "
             "the account's number are. Refused in production.",
         ),
     ] = None
 
-    # How long a call may last before its run ends it as failed. Generous, because a long call is a
-    # real call; bounded, because a call whose ending is never reported is otherwise held for as
-    # long as the process runs. Between a minute and a day.
     call_max_duration_seconds: int = Field(
         default=14_400,
         ge=60,
@@ -819,10 +699,7 @@ class Settings(BaseSettings):
             raise ValueError("TELEPHONY_WEBHOOK_BASE_URL must not carry a query or a fragment")
         return value
 
-    # The model the agent judges calls with: any OpenAI-compatible endpoint (D-007). Optional at
-    # startup, like the speech service and for the same reason: nothing in a request asks the agent
-    # for a judgement yet. The timeout bounds a whole judgement — every model turn and every tool —
-    # because a caller is waiting on the line while it runs.
+    # The model the agent and the summariser use: any OpenAI-compatible endpoint (D-007).
     llm_base_url: Annotated[
         AnyHttpUrl | None,
         BeforeValidator(_blank_is_absent),
@@ -847,7 +724,7 @@ class Settings(BaseSettings):
     llm_headers: Annotated[
         tuple[tuple[str, SecretStr], ...],
         NoDecode,
-        BeforeValidator(_headers_from_text),
+        _parsed(parse_llm_headers),
         Field(
             description="Extra headers some gateways ask for, as "
             "`Header-Name=value;Other-Header=value`. Cannot set `Authorization`."
@@ -860,14 +737,7 @@ class Settings(BaseSettings):
         description="How long one judgement may take, in seconds, every model turn and tool "
         "included.",
     )
-    # Push notifications for escalations (D-015). Each platform is optional and independent: a
-    # deployment with neither still escalates, because the phone ringing is the escalation (D-016)
-    # and the app fetches the context when no push arrives. Setting any variable of a platform
-    # commits to that platform, and a missing companion stops the process naming it.
-    #
-    # Keys are given as their content rather than a path. A secret store or a container runtime
-    # injects a value, not a file; a path would need a mounted volume as well as a variable, and a
-    # second place for the secret to be left behind.
+    # Push, per platform: any variable set requires the rest; keys are content, not paths (D-015).
     apns_key_id: Annotated[
         str | None,
         BeforeValidator(_blank_is_absent),
@@ -922,21 +792,15 @@ class Settings(BaseSettings):
         ),
     ] = None
 
-    # Observability. Spans are exported over OTLP's HTTP protocol to this URL, a collector's traces
-    # endpoint, and to nowhere without one: a deployment with no tracing backend runs with none and
-    # loses nothing else. The URL is the collector's, never a credential; one that needs a key is
-    # reached through a collector beside the service rather than configured here.
     tracing_otlp_endpoint: Annotated[
         AnyHttpUrl | None,
         BeforeValidator(_blank_is_absent),
         Field(description="An OTLP/HTTP collector spans are exported to. Blank exports none."),
     ] = None
-    # The bearer token the diagnostics routes require. Without one they do not exist: they list live
-    # calls and every provider's latency, which no signed-in user of the app is owed.
     diagnostics_token: Annotated[
         SecretStr | None,
         BeforeValidator(_blank_is_absent),
-        AfterValidator(_long_enough_to_guard),
+        _at_least_min_length("DIAGNOSTICS_TOKEN"),
         Field(
             description="The bearer token the diagnostics routes require, at least 32 characters. "
             "Blank leaves those routes unmounted.",
@@ -955,27 +819,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _production_must_have_a_signing_key(self) -> Settings:
-        """Refuse to start in production without one.
-
-        Checked at startup rather than at first use, because the first use is somebody signing
-        in: a service that starts and then cannot authenticate anybody is worse than one that
-        does not start at all.
-
-        The other production guard — that a mock is not the thing delivering sign-in codes —
-        lives in the mock itself. It is the mock's business to refuse, and putting it here
-        would mean this file learns something new about every provider ever added.
-        """
+        """Refuse production without a signing key; the mock provider refuses production itself."""
         if self.app_env is Environment.PRODUCTION and self.auth_signing_key is None:
             raise ValueError("AUTH_SIGNING_KEY is required in production")
         return self
 
     @model_validator(mode="after")
     def _codes_are_routed_only_where_they_may_be_sent(self) -> Settings:
-        """Refuse a provider for a calling code sign-in codes are never sent to.
-
-        It could never be used, and a deployment that lists one most likely meant to allow the
-        country too and will find its users there refused at sign-in.
-        """
+        """Refuse a provider for a calling code sign-in codes are never sent to."""
         allowed = self.otp_allowed_calling_codes
         unsent = sorted(
             code for code, _ in self.otp_provider_by_calling_code if allowed and code not in allowed
@@ -989,11 +840,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _default_voice_is_in_the_catalogue(self) -> Settings:
-        """A default outside the catalogue leaves a call nobody configured with no voice at all.
-
-        Checked whenever either is given, so half a catalogue is refused at startup rather than
-        passing here and failing at the first request for voices.
-        """
+        """Refuse half a catalogue, or a default voice the catalogue does not list."""
         if self.speech_voices is None and self.speech_default_voice is None:
             return self
         if self.speech_voices is None or self.speech_default_voice is None:
@@ -1018,12 +865,7 @@ class Settings(BaseSettings):
     @field_validator("transcript_encryption_keys", mode="after")
     @classmethod
     def _transcript_keys_are_well_formed(cls, value: SecretStr | None) -> SecretStr | None:
-        """Check the keys' shape once they are already a `SecretStr`.
-
-        A field validator after the secret is wrapped, rather than a model validator: an error
-        raised from the model sees the whole raw input, and an error that carries its input
-        carries every key in it.
-        """
+        """Check the keys' shape once they are a `SecretStr`, so no error carries the raw input."""
         if value is not None:
             parse_transcript_keys(value.get_secret_value())
         return value
@@ -1051,35 +893,22 @@ class Settings(BaseSettings):
             )
         return self.speech_voices, self.speech_default_voice
 
-    def require_speech_service(self) -> tuple[str, str]:
-        """The speech endpoint and model, or a failure naming whichever is missing.
-
-        Optional at startup because nothing in the running service opens a speech session yet;
-        required by whatever does, so that it fails naming the variable rather than connecting to
-        nothing.
-        """
-        return self._require_speech(("SPEECH_MODEL", self.speech_model))
-
-    def require_speech_live_model(self) -> tuple[str, str]:
-        """The speech endpoint and GPT-Live model, or a failure naming whichever is missing."""
-        return self._require_speech(("SPEECH_MODEL", self.speech_model))
+    def require_speech_model(self) -> tuple[str, str]:
+        """The speech endpoint and the model it runs, or a failure naming whichever is missing."""
+        return self._require_speech("SPEECH_MODEL", self.speech_model)
 
     def require_speech_agent(self) -> tuple[str, str]:
         """The speech endpoint and ElevenLabs agent id, or a failure naming whichever is missing."""
-        return self._require_speech(("SPEECH_AGENT_ID", self.speech_agent_id))
+        return self._require_speech("SPEECH_AGENT_ID", self.speech_agent_id)
 
-    def _require_speech(self, target: tuple[str, str | None]) -> tuple[str, str]:
+    def _require_speech(self, name: str, value: str | None) -> tuple[str, str]:
         endpoint = self.speech_endpoint_url
-        name, value = target
         if endpoint is None or value is None:
-            missing = [
-                each
-                for each, present in (("SPEECH_ENDPOINT_URL", endpoint), (name, value))
-                if present is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set to hold a spoken conversation with "
-                f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SPEECH_ENDPOINT_URL", endpoint),
+                (name, value),
+                needed=f"to hold a spoken conversation with SPEECH_PROVIDER={self.speech_provider}",
+                joiner=" and ",
             )
         return str(endpoint), value
 
@@ -1096,18 +925,11 @@ class Settings(BaseSettings):
         """What the text-message code provider needs, or a failure naming every variable missing."""
         account_id, token, sender = self.sms_account_id, self.sms_auth_token, self.sms_from_number
         if account_id is None or token is None or sender is None:
-            missing = [
-                name
-                for name, value in (
-                    ("SMS_ACCOUNT_ID", account_id),
-                    ("SMS_AUTH_TOKEN", token),
-                    ("SMS_FROM_NUMBER", sender),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"{OTPProviderName.TWILIO_SMS}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SMS_ACCOUNT_ID", account_id),
+                ("SMS_AUTH_TOKEN", token),
+                ("SMS_FROM_NUMBER", sender),
+                needed=f"to send sign-in codes with {OTPProviderName.TWILIO_SMS}",
             )
         return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
@@ -1116,31 +938,18 @@ class Settings(BaseSettings):
         account_id, token = self.sms_account_id, self.sms_auth_token
         service_id = self.sms_verify_service_id
         if account_id is None or token is None or service_id is None:
-            missing = [
-                name
-                for name, value in (
-                    ("SMS_ACCOUNT_ID", account_id),
-                    ("SMS_AUTH_TOKEN", token),
-                    ("SMS_VERIFY_SERVICE_ID", service_id),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"{OTPProviderName.TWILIO_VERIFY}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SMS_ACCOUNT_ID", account_id),
+                ("SMS_AUTH_TOKEN", token),
+                ("SMS_VERIFY_SERVICE_ID", service_id),
+                needed=f"to send sign-in codes with {OTPProviderName.TWILIO_VERIFY}",
             )
         return VerifyAccount(
             account_id=account_id, auth_token=token.get_secret_value(), service_id=service_id
         )
 
     def require_telephony_configuration(self) -> None:
-        """Refuse a chosen call transport that is missing what it needs, before anything starts.
-
-        Only streaming lines need an account. A handset transport is configured on the handset,
-        and no transport at all needs nothing. Either needs storage and the transcript keys: calls
-        are owned, recorded and sealed by an orchestrator that is built only with them, and a
-        transport with no orchestrator answers callers into a call that nothing will ever act on.
-        """
+        """Refuse a call transport missing its lines, storage or transcript keys."""
         if self.is_production and self.telephony_unforwarded_calls_owner is not None:
             raise ConfigurationError(
                 "TELEPHONY_UNFORWARDED_CALLS_OWNER is for trying a deployment and is refused in "
@@ -1149,28 +958,15 @@ class Settings(BaseSettings):
         if self.telephony_provider is None and self.telephony_lines is None:
             return
         self.require_telephony_lines()
-        missing = [
-            name
-            for name, value in (
+        if self.database_url is None or self.transcript_encryption_keys is None:
+            raise _unset_error(
                 ("DATABASE_URL", self.database_url),
                 ("TRANSCRIPT_ENCRYPTION_KEYS", self.transcript_encryption_keys),
-            )
-            if value is None
-        ]
-        if missing:
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to carry calls. "
-                "Set them in .env; see .env.example."
+                needed="to carry calls",
             )
 
     def require_telephony_lines(self) -> tuple[TelephonyLine, ...]:
-        """The streaming lines calls arrive on, or a failure naming what is missing or at odds.
-
-        None where calls arrive on a handset or not at all. `TELEPHONY_PROVIDER=twilio` is one line
-        serving every region, from the `TELEPHONY_` account variables; `TELEPHONY_LINES` is lines by
-        region, and the two are refused together, because which of them a deployment meant is a
-        guess that decides where every user forwards their calls.
-        """
+        """The streaming lines calls arrive on, or a failure naming what is missing or at odds."""
         if self.telephony_lines is not None:
             return self._lines_by_region(self.telephony_lines)
         if self.telephony_provider is TelephonyProviderName.TWILIO:
@@ -1178,18 +974,14 @@ class Settings(BaseSettings):
         return ()
 
     def _lines_by_region(self, lines: tuple[LineDescription, ...]) -> tuple[TelephonyLine, ...]:
-        single = [
-            name
-            for name, value in (
-                ("TELEPHONY_PROVIDER", self.telephony_provider),
-                ("TELEPHONY_ACCOUNT_ID", self.telephony_account_id),
-                ("TELEPHONY_AUTH_TOKEN", self.telephony_auth_token),
-                ("TELEPHONY_NUMBERS", self.telephony_numbers),
-                ("TELEPHONY_APP_ID", self.telephony_app_id),
-                ("TELEPHONY_WEBHOOK_BASE_URL", self.telephony_webhook_base_url),
-            )
-            if value is not None
-        ]
+        single = _set_names(
+            ("TELEPHONY_PROVIDER", self.telephony_provider),
+            ("TELEPHONY_ACCOUNT_ID", self.telephony_account_id),
+            ("TELEPHONY_AUTH_TOKEN", self.telephony_auth_token),
+            ("TELEPHONY_NUMBERS", self.telephony_numbers),
+            ("TELEPHONY_APP_ID", self.telephony_app_id),
+            ("TELEPHONY_WEBHOOK_BASE_URL", self.telephony_webhook_base_url),
+        )
         if single:
             raise ConfigurationError(
                 f"{', '.join(single)} configure a single line and cannot be set with "
@@ -1226,20 +1018,13 @@ class Settings(BaseSettings):
             or app_id is None
             or base_url is None
         ):
-            missing = [
-                name
-                for name, value in (
-                    ("TELEPHONY_ACCOUNT_ID", account_id),
-                    ("TELEPHONY_AUTH_TOKEN", token),
-                    ("TELEPHONY_NUMBERS", numbers),
-                    ("TELEPHONY_APP_ID", app_id),
-                    ("TELEPHONY_WEBHOOK_BASE_URL", base_url),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to carry streaming calls. "
-                "Set them in .env; see .env.example."
+            raise _unset_error(
+                ("TELEPHONY_ACCOUNT_ID", account_id),
+                ("TELEPHONY_AUTH_TOKEN", token),
+                ("TELEPHONY_NUMBERS", numbers),
+                ("TELEPHONY_APP_ID", app_id),
+                ("TELEPHONY_WEBHOOK_BASE_URL", base_url),
+                needed="to carry streaming calls",
             )
         return TelephonyLine(
             name=None,
@@ -1253,26 +1038,15 @@ class Settings(BaseSettings):
         )
 
     def require_llm(self) -> LLMEndpoint:
-        """The agent's model endpoint, or a failure naming whichever variables are missing.
-
-        The key is required even for a server that checks none. Such a server accepts any value;
-        leaving it unset would have the model client look for one in its own environment variable,
-        which is a second place configuration comes from.
-        """
+        """The agent's model endpoint, key included even for a server that checks none."""
         base_url, api_key, model = self.llm_base_url, self.llm_api_key, self.llm_model
         if base_url is None or api_key is None or model is None:
-            missing = [
-                name
-                for name, present in (
-                    ("LLM_BASE_URL", base_url),
-                    ("LLM_API_KEY", api_key),
-                    ("LLM_MODEL", model),
-                )
-                if present is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set for the agent to judge a call. "
-                "Set them in .env; see .env.example."
+            raise _unset_error(
+                ("LLM_BASE_URL", base_url),
+                ("LLM_API_KEY", api_key),
+                ("LLM_MODEL", model),
+                needed="for the agent to judge a call",
+                joiner=" and ",
             )
         return LLMEndpoint(
             base_url=str(base_url),
@@ -1285,22 +1059,26 @@ class Settings(BaseSettings):
     @property
     def llm_configured(self) -> bool:
         """Whether any model variable is set, which commits the deployment to all of them."""
-        return any(
-            value is not None for value in (self.llm_base_url, self.llm_api_key, self.llm_model)
+        return bool(
+            _set_names(
+                ("LLM_BASE_URL", self.llm_base_url),
+                ("LLM_API_KEY", self.llm_api_key),
+                ("LLM_MODEL", self.llm_model),
+            )
         )
 
     @property
     def apns_configured(self) -> bool:
         """Whether any APNs variable is set, which commits the deployment to all of them."""
-        return any(
-            value is not None
-            for value in (
-                self.apns_key_id,
-                self.apns_team_id,
-                self.apns_private_key,
-                self.apns_topic,
-                self.apns_environment,
-            )
+        return any(value is not None for _, value in self._apns_variables())
+
+    def _apns_variables(self) -> tuple[tuple[str, object], ...]:
+        return (
+            ("APNS_KEY_ID", self.apns_key_id),
+            ("APNS_TEAM_ID", self.apns_team_id),
+            ("APNS_PRIVATE_KEY", self.apns_private_key),
+            ("APNS_TOPIC", self.apns_topic),
+            ("APNS_ENVIRONMENT", self.apns_environment),
         )
 
     @property
@@ -1311,25 +1089,17 @@ class Settings(BaseSettings):
     def require_apns(self) -> APNsCredentials:
         """Direct delivery to iOS, or a failure naming every variable still missing."""
         key = self.apns_private_key
-        named = (
-            ("APNS_KEY_ID", self.apns_key_id),
-            ("APNS_TEAM_ID", self.apns_team_id),
-            ("APNS_PRIVATE_KEY", key),
-            ("APNS_TOPIC", self.apns_topic),
-            ("APNS_ENVIRONMENT", self.apns_environment),
-        )
-        missing = [name for name, value in named if value is None]
         if (
-            missing
-            or self.apns_key_id is None
+            self.apns_key_id is None
             or self.apns_team_id is None
             or key is None
             or self.apns_topic is None
             or self.apns_environment is None
         ):
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to deliver notifications to iOS devices. "
-                "Set every APNS_ variable or none; see .env.example."
+            raise _unset_error(
+                *self._apns_variables(),
+                needed="to deliver notifications to iOS devices",
+                remedy="Set every APNS_ variable or none; see .env.example.",
             )
         return APNsCredentials(
             key_id=self.apns_key_id,
@@ -1343,28 +1113,19 @@ class Settings(BaseSettings):
         """Direct delivery to Android, or a failure naming whichever variable is missing."""
         account = self.fcm_service_account_json
         if self.fcm_project_id is None or account is None:
-            missing = [
-                name
-                for name, value in (
-                    ("FCM_PROJECT_ID", self.fcm_project_id),
-                    ("FCM_SERVICE_ACCOUNT_JSON", account),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set to deliver notifications to Android "
-                "devices. Set both or neither; see .env.example."
+            raise _unset_error(
+                ("FCM_PROJECT_ID", self.fcm_project_id),
+                ("FCM_SERVICE_ACCOUNT_JSON", account),
+                needed="to deliver notifications to Android devices",
+                joiner=" and ",
+                remedy="Set both or neither; see .env.example.",
             )
         return FCMCredentials(
             project_id=self.fcm_project_id, service_account_json=account.get_secret_value()
         )
 
     def require_database_url(self) -> str:
-        """The database URL, or a failure that names what is missing.
-
-        Readiness and the session factory need this; liveness does not. Asking for it
-        explicitly keeps the optionality visible instead of scattering ``if url is None``.
-        """
+        """The database URL, or a failure that names what is missing."""
         if self.database_url is None:
             raise ConfigurationError(
                 "DATABASE_URL is required to reach the database. Set it in .env; see .env.example."
@@ -1374,11 +1135,7 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Load and validate the settings once per process.
-
-    Cached because configuration does not change while a process runs, and because reading it
-    repeatedly would make it possible for two parts of the application to disagree about it.
-    """
+    """The settings, loaded and validated once per process."""
     try:
         return Settings()
     except ValidationError as error:

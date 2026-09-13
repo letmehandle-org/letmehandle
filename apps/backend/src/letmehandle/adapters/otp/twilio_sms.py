@@ -1,15 +1,4 @@
-"""Sign-in codes delivered as a text message, through the telephony provider's Messaging API.
-
-The application generates the code, stores only its hash, and hands it here to be sent (D-037).
-This provider makes one request per code and keeps nothing: not the code, not the number, not the
-message. Its logs say that a code was sent or refused and why, never to whom or what it was.
-
-Every failure becomes a `ProviderError` saying whether another attempt could help, and a number the
-provider will not deliver to — not a number, not one that receives texts, one whose owner has
-opted out — is an `UnreachableNumberError`, because that is the one failure the person signing in
-can fix. A refusal about the account itself, such as a destination the account is not enabled for,
-is not blamed on the number.
-"""
+"""Sign-in codes sent as a text message through the Messaging API, keeping nothing (D-037)."""
 
 from __future__ import annotations
 
@@ -41,12 +30,10 @@ MESSAGES_PATH: Final = "/Messages.json"
 
 _BAD_REQUEST: Final = 400
 
-# The provider's codes for a number it will not deliver to: not a valid number, not a number at
-# all, one whose owner replied to opt out, one no carrier routes a text to, and not a mobile.
+# Provider error codes for a number that cannot receive the text.
 UNDELIVERABLE_CODES: Final = frozenset({21211, 21217, 21610, 21612, 21614})
 
-# What the message says, per locale (D-017). A number signing in has no account and so no locale
-# yet, which is why the default is the one read today; a second language is a translation here.
+# The message text per locale (D-017); a number signing in gets the default.
 SIGN_IN_MESSAGES: Final[Mapping[str, str]] = {
     DEFAULT_LOCALE: "Your LetMeHandle sign-in code is {code}. It expires in {minutes} minutes.",
 }

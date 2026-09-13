@@ -1,9 +1,4 @@
-"""A metrics recorder that keeps what it is given, so a test can read it back.
-
-It refuses the same labels the real recorder refuses. A recorder that accepted anything is how
-a label the production recorder rejects — and raises on — reached a stream-error path with
-every test still passing.
-"""
+"""A metrics recorder that keeps what it is given and refuses what the real recorder refuses."""
 
 from __future__ import annotations
 

@@ -65,8 +65,7 @@ def test_the_mock_stays_the_default() -> None:
 
 
 async def test_a_production_configuration_with_a_real_provider_starts() -> None:
-    # The whole lifespan, not only the container: this is the deployment that could not start
-    # before a provider that delivers codes existed.
+    # The whole lifespan, not only the container.
     app = create_app(make_settings(app_env=Environment.PRODUCTION, **SMS))
     async with app.router.lifespan_context(app):
         assert app.state.container.otp.is_safe_for_production
