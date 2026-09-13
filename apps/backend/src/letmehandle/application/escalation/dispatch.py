@@ -342,7 +342,7 @@ class EscalationDispatcher:
         return report
 
     def _failed(self, stage: str, error: Exception) -> None:
-        logger.error("escalation.storage_failed", stage=stage, error=type(error).__name__)
+        log_failure(logger, "escalation.storage_failed", error, stage=stage)
         self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": classify(error).kind})
 
 

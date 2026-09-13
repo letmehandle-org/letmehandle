@@ -16,7 +16,7 @@ from letmehandle.application.preferences.context import DEFAULT_LOCALE
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.ports.repositories import MAX_CALL_PAGE
 from letmehandle.observability import catalogue
-from letmehandle.observability.logging import get_logger
+from letmehandle.observability.logging import get_logger, log_failure
 
 if TYPE_CHECKING:
     from letmehandle.application.escalation.dispatch import EscalationDispatcher
@@ -77,7 +77,7 @@ class Recovery:
         # A process that cannot read its calls still starts: the calls stay unfinished in storage,
         # and the next start tries again. Logged and counted by kind, never raised into startup.
         except Exception as error:  # noqa: BLE001
-            logger.error("call.recovery_unavailable", error=type(error).__name__)  # noqa: TRY400
+            log_failure(logger, "call.recovery_unavailable", error)
             self._metrics.increment(RECOVERED, {"outcome": "unavailable"})
             return ()
 
@@ -88,7 +88,7 @@ class Recovery:
         # Ended here whether or not the transport could let it go: the call is over either way,
         # because nothing holds it any more.
         except Exception as error:  # noqa: BLE001
-            logger.warning("call.recovery_terminate_failed", error=type(error).__name__)
+            log_failure(logger, "call.recovery_terminate_failed", error)
         ledger = CallLedger(
             call, stores=self._stores, clock=self._clock, bounds=self._bounds, metrics=self._metrics
         )

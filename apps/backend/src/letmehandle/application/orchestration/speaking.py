@@ -23,7 +23,7 @@ from letmehandle.application.speech.conversation import (
 from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.ports.voice import resolve_voice
 from letmehandle.observability import catalogue
-from letmehandle.observability.logging import get_logger
+from letmehandle.observability.logging import get_logger, log_failure
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -135,7 +135,7 @@ class Speaking:
                 await session.update_context(self._context(preferences, situation))
         # The assistant keeps talking on what it knew; the call is not worth ending for this.
         except Exception as error:  # noqa: BLE001
-            logger.warning("call.context_update_failed", error=type(error).__name__)
+            log_failure(logger, "call.context_update_failed", error)
 
     async def stop(self) -> None:
         """End the conversation and close the session. Safe to call again, and never raises."""
@@ -152,7 +152,7 @@ class Speaking:
         # more will be sent on it, and whatever stops it — a teardown, the assistant gone — must
         # go on past it rather than leave the call half ended. Logged by kind and counted.
         except Exception as error:  # noqa: BLE001
-            logger.warning("call.speech_close_failed", error=type(error).__name__)
+            log_failure(logger, "call.speech_close_failed", error)
             self._metrics.increment(SPEECH_CLOSE_FAILED, {"kind": classify(error).kind})
 
     async def _converse(self, conversation: Conversation) -> None:
@@ -161,7 +161,7 @@ class Speaking:
         # Every way a conversation can fail ends the same way for the call — the assistant is gone
         # — so each is one input rather than an exception nobody is awaiting.
         except Exception as error:  # noqa: BLE001
-            logger.warning("call.conversation_failed", error=type(error).__name__)
+            log_failure(logger, "call.conversation_failed", error)
             self._post(ConversationStopped(None))
         else:
             self._post(ConversationStopped(end))

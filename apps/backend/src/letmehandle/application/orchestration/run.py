@@ -327,7 +327,7 @@ class CallRun:
         # rather than held: logged and counted by kind, not raised past the run.
         except Exception as error:  # noqa: BLE001
             # Without a traceback: its frames can hold who called.
-            logger.error("call.owner_unavailable", error=type(error).__name__)  # noqa: TRY400
+            log_failure(logger, "call.owner_unavailable", error)
             self._context.metrics.increment(
                 PROVIDER_FAILED, {"stage": "owner", "kind": classify(error).kind}
             )
