@@ -118,3 +118,9 @@ def test_only_ascii_digits_and_nothing_after_them_make_the_stored_form(value: st
 )
 def test_the_calling_code_is_read_from_the_numbering_zones(code: str, rest: str) -> None:
     assert PhoneNumber("+" + code + rest).calling_code == code
+
+
+@pytest.mark.parametrize("value", ["+12", "+1234", "+123456"])
+def test_a_number_too_short_to_keep_its_ends_is_masked_whole(value: str) -> None:
+    masked = PhoneNumber(value).masked
+    assert masked == "+" + "*" * (len(value) - 1)

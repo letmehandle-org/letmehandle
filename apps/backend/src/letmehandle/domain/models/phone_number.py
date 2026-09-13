@@ -70,6 +70,9 @@ _TWO_DIGIT_CODES = frozenset(
     }
 )
 
+# The fewest digits a mask hides before it keeps a number's first and last digits visible.
+_MIN_HIDDEN_DIGITS = 4
+
 # Everything people put in a phone number that is not part of it.
 _DECORATION = re.compile(r"[\s\-().]")
 
@@ -130,7 +133,10 @@ class PhoneNumber:
         error. The last two digits are kept because they are what someone uses to recognise
         their own number, and two digits identify nobody.
         """
-        return f"{self.value[:3]}{'*' * (len(self.value) - 5)}{self.value[-2:]}"
+        hidden = len(self.value) - 5
+        if hidden < _MIN_HIDDEN_DIGITS:
+            return "+" + "*" * (len(self.value) - 1)
+        return f"{self.value[:3]}{'*' * hidden}{self.value[-2:]}"
 
     def __str__(self) -> str:
         """Masked on purpose.
