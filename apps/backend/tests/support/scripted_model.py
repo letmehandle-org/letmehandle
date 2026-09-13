@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from strands.models.model import Model
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterable, Sequence
+    from collections.abc import AsyncGenerator, AsyncIterable, Mapping, Sequence
 
     from pydantic import BaseModel
     from strands.types.content import ContentBlockStartToolUse, Messages
@@ -79,6 +79,20 @@ def assess(**fields: object) -> CallTool:
     }
     assessment.update(fields)
     return CallTool("CallAssessment", assessment)
+
+
+def write_summary(
+    headline: str,
+    *,
+    outcome: str = "resolved_by_agent",
+    intent: str = "enquiry",
+    details: Sequence[Mapping[str, str]] = (),
+) -> CallTool:
+    """Write a call summary, with the fields its schema requires."""
+    return CallTool(
+        "CallSummaryAnswer",
+        {"headline": headline, "intent": intent, "outcome": outcome, "details": list(details)},
+    )
 
 
 @dataclass(frozen=True, slots=True)

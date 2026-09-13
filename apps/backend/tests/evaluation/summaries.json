@@ -1,0 +1,257 @@
+[
+  {
+    "id": "extraction-dentist-confirms",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hello, this is Brightside Dental calling to confirm the check-up on Thursday at ten. If that doesn't suit, please call us back."],
+      ["agent", "Thank you, I'll make sure she gets the message."]
+    ],
+    "intents": ["appointment"],
+    "reference": {
+      "headline": "Brightside Dental confirmed your check-up on Thursday at ten, and your assistant said you would get the message.",
+      "details": [
+        {"kind": "name", "value": "Brightside Dental", "evidence": "this is Brightside Dental"},
+        {"kind": "time", "value": "Thursday at ten", "evidence": "the check-up on Thursday at ten"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"]
+  },
+  {
+    "id": "extraction-courier-left-it-next-door",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hi, it's Swift Parcels. I've left the parcel with the neighbour at 14 Alder Close because nobody answered."],
+      ["caller", "The tracking reference is SP 58213 if you need it."],
+      ["agent", "Thanks, I'll pass that on."]
+    ],
+    "intents": ["delivery_in_progress"],
+    "reference": {
+      "headline": "Swift Parcels left your parcel next door at 14 Alder Close, and your assistant noted the tracking reference.",
+      "details": [
+        {"kind": "name", "value": "Swift Parcels", "evidence": "it's Swift Parcels"},
+        {"kind": "address", "value": "14 Alder Close", "evidence": "the neighbour at 14 Alder Close"},
+        {"kind": "reference_number", "value": "SP 58213", "evidence": "The tracking reference is SP 58213"}
+      ]
+    },
+    "absent": ["amount"]
+  },
+  {
+    "id": "extraction-bank-agrees-a-refund",
+    "class": "extraction",
+    "said": [
+      ["caller", "This is Harbour Bank about the disputed charge of forty two pounds on the card."],
+      ["caller", "We've agreed to refund it within five working days, and the case number is HB 7731."],
+      ["agent", "Thank you, I'll let him know."]
+    ],
+    "intents": ["service_issue"],
+    "reference": {
+      "headline": "Harbour Bank agreed to refund the disputed charge of forty two pounds within five working days, and your assistant took the case number.",
+      "details": [
+        {"kind": "amount", "value": "forty two pounds", "evidence": "the disputed charge of forty two pounds"},
+        {"kind": "commitment_made", "value": "refund it within five working days", "evidence": "We've agreed to refund it within five working days"},
+        {"kind": "reference_number", "value": "HB 7731", "evidence": "the case number is HB 7731"}
+      ]
+    },
+    "absent": ["address"]
+  },
+  {
+    "id": "extraction-plumber-cannot-come-today",
+    "class": "extraction",
+    "said": [
+      ["caller", "It's Dan from Clearflow Plumbing. I can't come out today, the earliest I can do is Monday morning."],
+      ["caller", "The call-out fee will be sixty pounds."],
+      ["agent", "Understood, I'll pass that on."]
+    ],
+    "intents": ["appointment", "service_issue"],
+    "reference": {
+      "headline": "Dan from Clearflow Plumbing cannot come today but can visit on Monday morning for sixty pounds, and your assistant will pass that on.",
+      "details": [
+        {"kind": "name", "value": "Dan from Clearflow Plumbing", "evidence": "It's Dan from Clearflow Plumbing"},
+        {"kind": "commitment_declined", "value": "can't come out today", "evidence": "I can't come out today"},
+        {"kind": "time", "value": "Monday morning", "evidence": "the earliest I can do is Monday morning"},
+        {"kind": "amount", "value": "sixty pounds", "evidence": "The call-out fee will be sixty pounds"}
+      ]
+    },
+    "absent": ["reference_number", "address"]
+  },
+  {
+    "id": "absent-reference-promised-by-email",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hello, it's Northwind Energy about the recent meter reading."],
+      ["caller", "I don't have the reference in front of me, but we'll send it by email."],
+      ["agent", "Thank you, I'll let her know to look out for it."]
+    ],
+    "intents": ["enquiry", "service_issue"],
+    "reference": {
+      "headline": "Northwind Energy called about your meter reading and will email you the reference, which your assistant said you would look out for.",
+      "details": [
+        {"kind": "name", "value": "Northwind Energy", "evidence": "it's Northwind Energy"},
+        {"kind": "commitment_made", "value": "send it by email", "evidence": "we'll send it by email"}
+      ]
+    },
+    "absent": ["reference_number", "amount"]
+  },
+  {
+    "id": "absent-no-time-offered-yet",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "This is the Riverside Clinic. We need to rebook the appointment, but I can't give you a time yet."],
+      ["caller", "Someone will ring back once the diary is open."],
+      ["agent", "Thank you, I'll pass that on."]
+    ],
+    "intents": ["appointment"],
+    "reference": {
+      "headline": "Riverside Clinic needs to rebook your appointment and will ring back with a time; your assistant took the message.",
+      "details": [
+        {"kind": "name", "value": "Riverside Clinic", "evidence": "This is the Riverside Clinic"},
+        {"kind": "commitment_made", "value": "ring back once the diary is open", "evidence": "Someone will ring back once the diary is open"}
+      ]
+    },
+    "absent": ["time", "reference_number"]
+  },
+  {
+    "id": "absent-no-price-until-a-visit",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hi, it's Oak and Pine Roofing following up on the repair he asked about."],
+      ["caller", "I can't price it until I've seen the roof, so could someone tell me when he's home?"],
+      ["agent", "I'll ask him to get back to you."]
+    ],
+    "intents": ["enquiry", "service_issue"],
+    "reference": {
+      "headline": "Oak and Pine Roofing wants to see the roof before pricing the repair, and your assistant said you would get back to them.",
+      "details": [
+        {"kind": "name", "value": "Oak and Pine Roofing", "evidence": "it's Oak and Pine Roofing"}
+      ]
+    },
+    "absent": ["amount", "time", "address"]
+  },
+  {
+    "id": "absent-scammer-wants-the-account-number",
+    "class": "absent_detail",
+    "ending": "caller_hung_up",
+    "said": [
+      ["caller", "This is the security team from the bank. The account is compromised, read me the account number and PIN now."],
+      ["agent", "I can't share that. I'll let her know you called."]
+    ],
+    "intents": ["suspected_fraud"],
+    "reference": {
+      "headline": "A caller claiming to be from your bank demanded your account details and hung up when your assistant refused.",
+      "details": [
+        {"kind": "commitment_declined", "value": "can't share that", "evidence": "I can't share that"}
+      ]
+    },
+    "absent": ["reference_number", "amount"]
+  },
+  {
+    "id": "ending-school-handed-over",
+    "class": "ending",
+    "ending": "handed_over",
+    "said": [
+      ["caller", "This is Maple Primary School. Leo has a high temperature and needs collecting."],
+      ["agent", "I'm trying to reach her for you now."],
+      ["human", "Hi, it's me, I'm on my way."]
+    ],
+    "intents": ["personal", "enquiry"],
+    "reference": {
+      "headline": "Maple Primary School called because Leo has a high temperature, and your assistant handed the call to you.",
+      "details": [
+        {"kind": "name", "value": "Maple Primary School", "evidence": "This is Maple Primary School"},
+        {"kind": "commitment_made", "value": "on my way", "evidence": "I'm on my way"}
+      ]
+    },
+    "absent": ["amount", "reference_number"]
+  },
+  {
+    "id": "ending-neighbour-not-answered",
+    "class": "ending",
+    "ending": "unanswered",
+    "said": [
+      ["caller", "It's Sam from next door. The alarm at yours has been going off for an hour."],
+      ["agent", "I've tried to reach her but she isn't answering. I'll tell her as soon as I can."]
+    ],
+    "intents": ["personal"],
+    "reference": {
+      "headline": "Sam from next door rang because your alarm has been going off for an hour, but you did not answer.",
+      "details": [
+        {"kind": "name", "value": "Sam from next door", "evidence": "It's Sam from next door"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"]
+  },
+  {
+    "id": "ending-sales-caller-hangs-up",
+    "class": "ending",
+    "ending": "caller_hung_up",
+    "said": [
+      ["caller", "Hello, I'm calling about an offer on solar panels for the home."],
+      ["agent", "She isn't interested in sales calls, thank you."],
+      ["caller", "Fine, goodbye."]
+    ],
+    "intents": ["sales"],
+    "reference": {
+      "headline": "A sales caller offering solar panels hung up after your assistant said you were not interested.",
+      "details": []
+    },
+    "absent": ["amount", "reference_number", "time", "name"]
+  },
+  {
+    "id": "ending-pharmacy-when-handling-failed",
+    "class": "ending",
+    "ending": "failed",
+    "said": [
+      ["caller", "Hi, it's Greenleaf Pharmacy, the prescription is ready to collect after four."]
+    ],
+    "intents": ["enquiry", "service_issue"],
+    "reference": {
+      "headline": "Greenleaf Pharmacy said your prescription is ready to collect after four, but handling the call failed.",
+      "details": [
+        {"kind": "name", "value": "Greenleaf Pharmacy", "evidence": "it's Greenleaf Pharmacy"},
+        {"kind": "time", "value": "after four", "evidence": "ready to collect after four"}
+      ]
+    },
+    "absent": ["amount", "reference_number"]
+  },
+  {
+    "id": "nothing-wrong-number",
+    "class": "no_details",
+    "said": [
+      ["caller", "Oh, sorry, I think I've dialled the wrong number."],
+      ["agent", "No problem, goodbye."]
+    ],
+    "intents": ["undetermined", "personal", "enquiry"],
+    "reference": {
+      "headline": "Somebody dialled the wrong number, and your assistant let them go.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"]
+  },
+  {
+    "id": "nothing-automated-warranty-call",
+    "class": "no_details",
+    "said": [
+      ["caller", "Press one now to hear about the extended warranty on your car."]
+    ],
+    "intents": ["sales", "suspected_fraud"],
+    "reference": {
+      "headline": "An automated call about a car warranty, which your assistant ignored.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"]
+  },
+  {
+    "id": "nothing-just-saying-hello",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hi, just calling to say hello, nothing important."],
+      ["agent", "Thank you, I'll tell her you rang."]
+    ],
+    "intents": ["personal"],
+    "reference": {
+      "headline": "Somebody rang just to say hello, and your assistant said it would tell you.",
+      "details": []
+    },
+    "absent": ["time", "reference_number", "address", "amount", "commitment_declined"]
+  }
+]
