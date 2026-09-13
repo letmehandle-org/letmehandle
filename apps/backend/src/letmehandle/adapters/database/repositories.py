@@ -147,7 +147,10 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         await self._session.flush()
 
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        row = await self._session.get(OTPChallengeRow, challenge_id)
+        # Locked, because the attempt count is read, checked and written back. Two guesses that
+        # both read it before either writes it back are counted as one, and a burst of them
+        # makes the attempt limit no limit at all.
+        row = await self._session.get(OTPChallengeRow, challenge_id, with_for_update=True)
         if row is None:
             return None
         return OTPChallenge(

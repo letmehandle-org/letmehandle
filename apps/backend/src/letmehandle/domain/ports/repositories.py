@@ -63,7 +63,11 @@ class OTPChallengeRepository(ABC):
 
     @abstractmethod
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        """The challenge, or nothing. Nothing is what an invented identifier gets."""
+        """The challenge, or nothing. Nothing is what an invented identifier gets.
+
+        Held for the rest of the unit of work, so that two attempts at one challenge are counted
+        one after the other rather than both from the same starting count.
+        """
 
     @abstractmethod
     async def update(self, challenge: OTPChallenge) -> None:

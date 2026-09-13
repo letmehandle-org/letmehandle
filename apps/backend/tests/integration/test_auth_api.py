@@ -7,6 +7,7 @@ that would send a text message.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
@@ -303,3 +304,42 @@ class TestIsolation:
 
         their_profile = await api.client.get("/v1/me", headers=bearer(theirs))
         assert their_profile.json()["display_name"] is None
+
+
+class TestConcurrentAttempts:
+    """Limits that hold when the requests arrive together, not only one after another."""
+
+    async def test_guesses_sent_at_once_still_exhaust_the_challenge(self, api: Api) -> None:
+        # An attempt counter read by every request before any of them writes it back counts
+        # a burst of guesses as one, and the five-guess limit becomes unlimited.
+        challenge_id, code = await code_for(api)
+        wrong = [f"{guess:06d}" for guess in range(20) if f"{guess:06d}" != code][:10]
+
+        guesses = await asyncio.gather(
+            *(
+                api.client.post(
+                    "/v1/auth/verify", json={"challenge_id": challenge_id, "code": guess}
+                )
+                for guess in wrong
+            )
+        )
+        assert all(guess.status_code == 401 for guess in guesses)
+
+        correct = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": challenge_id, "code": code}
+        )
+        assert correct.status_code == 401
+
+    async def test_a_code_presented_twice_at_once_signs_in_once(self, api: Api) -> None:
+        challenge_id, code = await code_for(api)
+
+        both = await asyncio.gather(
+            *(
+                api.client.post(
+                    "/v1/auth/verify", json={"challenge_id": challenge_id, "code": code}
+                )
+                for _ in range(2)
+            )
+        )
+
+        assert sorted(response.status_code for response in both) == [200, 401]
