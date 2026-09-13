@@ -19,16 +19,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
-from string import Template
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.agent.prompts import as_data
+from letmehandle.application.agent.prompts.templates import (
+    TemplateVersion,
+    as_data,
+    transcript_as_data,
+)
 from letmehandle.application.calls.summary_checks import vocabulary_for
-from letmehandle.application.preferences.context import DEFAULT_LOCALE, normalise_locale
+from letmehandle.application.preferences.context import normalise_locale
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
+    from string import Template
 
     from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
@@ -77,10 +81,9 @@ class SummaryPrompts:
             # The user reads the summary, so it is written in their language, not the caller's.
             "write_for_locale": normalise_locale(request.locale),
         }
-        spoken = [
-            {"speaker": entry.speaker.value, "text": entry.text} for entry in request.transcript
-        ]
-        return self.call.substitute(call=as_data(call), transcript=as_data(spoken))
+        return self.call.substitute(
+            call=as_data(call), transcript=transcript_as_data(request.transcript)
+        )
 
     def answer_request(self, *, answer_tool: str) -> str:
         """What the model is told when it stops without writing the summary."""
@@ -121,35 +124,19 @@ def load_summary_prompts(locale: str, version: str = SUMMARY_PROMPT_VERSION) -> 
 
 def read_summary_prompts(templates: Traversable, locale: str, version: str) -> SummaryPrompts:
     """`load_summary_prompts`, from a directory of versions other than the one shipped."""
-    root = templates.joinpath(version)
-    if not root.is_dir():
-        raise InvariantError(f"there are no summary prompts of version {version!r}")
-    normalised = normalise_locale(locale)
-    for language in (normalised, normalised.split("-", 1)[0], DEFAULT_LOCALE):
-        directory = root.joinpath(language)
-        if directory.is_dir():
-            return SummaryPrompts(
-                version=version,
-                language=language,
-                instructions=_template(directory, "instructions.md"),
-                call=_template(directory, "call.md"),
-                answer=_template(directory, "answer.md"),
-                correction=_optional_template(directory, "correction.md"),
-            )
-    raise InvariantError(f"version {version!r} of the summary prompts has no {DEFAULT_LOCALE} text")
-
-
-def _optional_template(directory: Traversable, name: str) -> Template | None:
-    # Optional only because the versions before v3 were written without it.
-    return _template(directory, name) if directory.joinpath(name).is_file() else None
-
-
-def _template(directory: Traversable, name: str) -> Template:
-    template = Template(directory.joinpath(name).read_text(encoding="utf-8"))
-    used = frozenset(template.get_identifiers())
-    if not template.is_valid() or used != _PLACEHOLDERS[name]:
-        raise InvariantError(
-            f"the summary template {name} must use exactly the placeholders "
-            f"{', '.join(sorted(_PLACEHOLDERS[name]))}; it uses {', '.join(sorted(used)) or 'none'}"
-        )
-    return template
+    found = TemplateVersion.open(
+        templates,
+        kind="summary prompts",
+        locale=locale,
+        version=version,
+        placeholders=_PLACEHOLDERS,
+    )
+    language, instructions = found.required("instructions.md")
+    return SummaryPrompts(
+        version=version,
+        language=language,
+        instructions=instructions,
+        call=found.required("call.md")[1],
+        answer=found.required("answer.md")[1],
+        correction=found.optional("correction.md"),
+    )

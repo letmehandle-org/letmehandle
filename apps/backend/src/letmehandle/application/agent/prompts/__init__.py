@@ -21,19 +21,22 @@ end of it.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
-from string import Template
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.preferences.context import DEFAULT_LOCALE, normalise_locale
+from letmehandle.application.agent.prompts.templates import (
+    TemplateVersion,
+    as_data,
+    transcript_as_data,
+)
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from importlib.resources.abc import Traversable
+    from string import Template
 
     from letmehandle.application.preferences.context import PreferenceContext
     from letmehandle.domain.models.authority import AgentAuthority
@@ -78,8 +81,7 @@ class Prompts:
 
     def transcript_message(self, transcript: Sequence[TranscriptEntry]) -> str:
         """The call so far, delimited and labelled as what was said rather than what to do."""
-        spoken = [{"speaker": entry.speaker.value, "text": entry.text} for entry in transcript]
-        return self.transcript.substitute(transcript=as_data(spoken))
+        return self.transcript.substitute(transcript=transcript_as_data(transcript))
 
     def assessment_request(self, *, assessment_tool: str) -> str:
         """What the model is told when it stops without recording an assessment."""
@@ -127,57 +129,19 @@ def read_prompts(templates: Traversable, locale: str, version: str) -> Prompts:
     template at a time: a greeting of its own, say, before instructions of its own. `language` is
     the language the instructions were read in.
     """
-    root = templates.joinpath(version)
-    if not root.is_dir():
-        raise InvariantError(f"there are no agent prompts of version {version!r}")
-
-    normalised = normalise_locale(locale)
-    languages = (normalised, normalised.split("-", 1)[0], DEFAULT_LOCALE)
-
-    def closest(name: str) -> tuple[str, Template] | None:
-        for language in languages:
-            directory = root.joinpath(language)
-            if directory.joinpath(name).is_file():
-                return language, _template(directory, name)
-        return None
-
-    def required(name: str) -> tuple[str, Template]:
-        found = closest(name)
-        if found is None:
-            raise InvariantError(
-                f"version {version!r} of the agent prompts has no {DEFAULT_LOCALE} text"
-            )
-        return found
-
-    language, system = required("system.md")
-    # Optional only because the versions before v3 were written without it.
-    opening = closest("greeting.md")
+    found = TemplateVersion.open(
+        templates, kind="agent prompts", locale=locale, version=version, placeholders=_PLACEHOLDERS
+    )
+    language, system = found.required("system.md")
     return Prompts(
         version=version,
         language=language,
         system=system,
-        transcript=required("transcript.md")[1],
-        assessment=required("assessment.md")[1],
-        conversation=required("conversation.md")[1],
-        opening=None if opening is None else opening[1],
+        transcript=found.required("transcript.md")[1],
+        assessment=found.required("assessment.md")[1],
+        conversation=found.required("conversation.md")[1],
+        opening=found.optional("greeting.md"),
     )
-
-
-def _template(directory: Traversable, name: str) -> Template:
-    template = Template(directory.joinpath(name).read_text(encoding="utf-8"))
-    used = frozenset(template.get_identifiers())
-    if not template.is_valid() or used != _PLACEHOLDERS[name]:
-        raise InvariantError(
-            f"the prompt template {name} must use exactly the placeholders "
-            f"{', '.join(sorted(_PLACEHOLDERS[name]))}; it uses {', '.join(sorted(used)) or 'none'}"
-        )
-    return template
-
-
-def as_data(value: object) -> str:
-    """JSON for a model to read, with nothing in it that could close a delimiter around it."""
-    rendered = json.dumps(value, ensure_ascii=False, indent=2)
-    return rendered.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 def preferences_as_data(context: PreferenceContext, authority: AgentAuthority) -> str:

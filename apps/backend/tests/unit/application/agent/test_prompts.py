@@ -11,11 +11,11 @@ import pytest
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.prompts import (
     PROMPT_VERSION,
-    as_data,
     load_prompts,
     preferences_as_data,
     read_prompts,
 )
+from letmehandle.application.agent.prompts.templates import as_data
 from letmehandle.application.agent.tool import ToolResult
 from letmehandle.application.agent.tools.preferences import GetUserPreferences
 from letmehandle.application.preferences.context import build_preference_context
