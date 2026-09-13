@@ -49,20 +49,25 @@ at platform.openai.com.
 
 from __future__ import annotations
 
-import base64
-import binascii
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
+from letmehandle.adapters.speech.session_support.fields import (
+    MalformedEventError,
+    as_number,
+    base64_audio,
+    encode_audio,
+    mapping,
+    text,
+)
 from letmehandle.adapters.speech.session_support.history import Speaker
 from letmehandle.domain.models.audio import AudioEncoding, AudioFormat
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from letmehandle.adapters.speech.session_support.fields import Event
     from letmehandle.adapters.speech.session_support.history import Turn
-
-type Event = Mapping[str, Any]
 
 # The formats the protocol can carry, as it names them, and the one it speaks unless told.
 _WIRE_NAMES: Final = {
@@ -85,20 +90,6 @@ def wire_format_for(input_format: AudioFormat) -> AudioFormat:
     and a wideband source is not resampled on its way in.
     """
     return input_format if input_format in _WIRE_NAMES else DEFAULT_WIRE_FORMAT
-
-
-class MalformedEventError(Exception):
-    """An event this adapter recognises, missing something it cannot do without.
-
-    Adapter-internal. Distinct from an unrecognised event, which is ignored: a known event with a
-    missing field means the service and this adapter disagree about the protocol, and that is worth
-    counting rather than a `KeyError` in the middle of a conversation.
-    """
-
-    def __init__(self, event_type: str, field: str) -> None:
-        super().__init__(f"{event_type} arrived without a usable {field}")
-        self.event_type = event_type
-        self.field = field
 
 
 # ---------------------------------------------------------------------------------- inbound
@@ -178,17 +169,13 @@ def parse(event: Event) -> Inbound | None:
         case "session.started":
             return SessionStarted()
         case "session.output_audio.delta":
-            try:
-                audio = base64.b64decode(_text(event, "delta", event_type), validate=True)
-            except binascii.Error as error:
-                raise MalformedEventError(event_type, "delta") from error
-            return OutputAudio(audio)
+            return OutputAudio(base64_audio(event, "delta", event_type))
         case "session.delegation.created":
-            delegation = _mapping(event, "delegation", event_type)
-            return DelegationRequested(_text(delegation, "id", event_type))
+            delegation = mapping(event, "delegation", event_type)
+            return DelegationRequested(text(delegation, "id", event_type))
         case "session.closed":
             usage = event.get("usage")
-            seconds = _number(usage.get("seconds")) if isinstance(usage, dict) else None
+            seconds = as_number(usage.get("seconds")) if isinstance(usage, dict) else None
             reason = event.get("reason")
             return SessionClosed(reason if isinstance(reason, str) else "", seconds)
         case "error":
@@ -200,14 +187,14 @@ def parse(event: Event) -> Inbound | None:
                 code if isinstance(code, str) else None, kind if isinstance(kind, str) else None
             )
         case str() if event_type in _TRANSCRIPTS:
-            text = _text(event, "delta", event_type, allow_empty=True)
-            if not text.strip():
+            words = text(event, "delta", event_type, allow_empty=True)
+            if not words.strip():
                 # A fragment of whitespace is a real thing for a service to send and nothing for
                 # a caller.
                 return None
             return TranscriptFragment(
                 _TRANSCRIPTS[event_type],
-                text,
+                words,
                 _milliseconds(event, "start_ms", event_type),
                 _milliseconds(event, "end_ms", event_type),
             )
@@ -215,32 +202,11 @@ def parse(event: Event) -> Inbound | None:
             return None
 
 
-def _mapping(event: Event, field: str, event_type: str) -> Event:
-    value = event.get(field)
-    if not isinstance(value, dict):
-        raise MalformedEventError(event_type, field)
-    return value
-
-
-def _text(event: Event, field: str, event_type: str, *, allow_empty: bool = False) -> str:
-    value = event.get(field)
-    if not isinstance(value, str) or (not allow_empty and not value):
-        raise MalformedEventError(event_type, field)
-    return value
-
-
 def _milliseconds(event: Event, field: str, event_type: str) -> int:
-    value = _number(event.get(field))
+    value = as_number(event.get(field))
     if value is None:
         raise MalformedEventError(event_type, field)
     return int(value)
-
-
-def _number(value: object) -> float | None:
-    # A boolean is an integer to Python and never a timestamp to anybody else.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
 
 
 # ---------------------------------------------------------------------------------- outbound
@@ -273,7 +239,7 @@ def append_audio(audio: bytes) -> dict[str, Any]:
     """Caller audio, already in the session's wire format."""
     return {
         "type": "session.input_audio.append",
-        "audio": base64.b64encode(audio).decode("ascii"),
+        "audio": encode_audio(audio),
     }
 
 

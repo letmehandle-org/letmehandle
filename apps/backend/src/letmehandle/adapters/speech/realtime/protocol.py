@@ -50,16 +50,21 @@ because a compatible server is entitled to send events this adapter has no use f
 
 from __future__ import annotations
 
-import base64
-import binascii
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
+from letmehandle.adapters.speech.session_support.fields import (
+    base64_audio,
+    encode_audio,
+    integer,
+    mapping,
+    text,
+)
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.domain.models.audio import AudioEncoding, AudioFormat
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from letmehandle.adapters.speech.session_support.fields import Event
 
 # The one linear format the protocol speaks. Everything else is converted to and from this.
 WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
@@ -67,23 +72,6 @@ WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
 # The error a cancel earns when the response had already finished. Expected, because a cancel is
 # sent whenever there might be a response and the service is the only one who knows for certain.
 NOTHING_TO_CANCEL: Final = "response_cancel_not_active"
-
-type Event = Mapping[str, Any]
-
-
-class MalformedEventError(Exception):
-    """An event this adapter recognises, missing something it cannot do without.
-
-    Adapter-internal. Distinct from an unrecognised event, which is ignored: a known event with a
-    missing field means the server and this adapter disagree about the protocol, and that is worth
-    counting rather than a `KeyError` from somewhere in the middle of a conversation.
-    """
-
-    def __init__(self, event_type: str, field: str) -> None:
-        super().__init__(f"{event_type} arrived without a usable {field}")
-        self.event_type = event_type
-        self.field = field
-
 
 # ---------------------------------------------------------------------------------- inbound
 
@@ -182,18 +170,18 @@ def parse(event: Event) -> Inbound | None:
         case "input_audio_buffer.speech_stopped":
             return CallerStoppedSpeaking()
         case "response.created":
-            return ResponseStarted(_text(_mapping(event, "response", event_type), "id", event_type))
+            return ResponseStarted(text(mapping(event, "response", event_type), "id", event_type))
         case "response.done":
-            response = _mapping(event, "response", event_type)
+            response = mapping(event, "response", event_type)
             return ResponseFinished(
-                _text(response, "id", event_type), _text(response, "status", event_type)
+                text(response, "id", event_type), text(response, "status", event_type)
             )
         case "conversation.item.input_audio_transcription.delta":
             return _delta(Speaker.CALLER, event, event_type)
         case "conversation.item.input_audio_transcription.completed":
             return _settled(Speaker.CALLER, event, event_type)
         case "error":
-            code = _mapping(event, "error", event_type).get("code")
+            code = mapping(event, "error", event_type).get("code")
             return ServiceError(code if isinstance(code, str) else None)
         case str() if event_type in _AUDIO_DELTAS:
             return _audio(event, event_type)
@@ -206,45 +194,25 @@ def parse(event: Event) -> Inbound | None:
 
 
 def _audio(event: Event, event_type: str) -> AudioDelta:
-    try:
-        audio = base64.b64decode(_text(event, "delta", event_type), validate=True)
-    except binascii.Error as error:
-        raise MalformedEventError(event_type, "delta") from error
-    content_index = event.get("content_index")
-    if not isinstance(content_index, int) or isinstance(content_index, bool):
-        raise MalformedEventError(event_type, "content_index")
+    audio = base64_audio(event, "delta", event_type)
     return AudioDelta(
-        response_id=_text(event, "response_id", event_type),
-        item_id=_text(event, "item_id", event_type),
-        content_index=content_index,
+        response_id=text(event, "response_id", event_type),
+        item_id=text(event, "item_id", event_type),
+        content_index=integer(event, "content_index", event_type),
         audio=audio,
     )
 
 
 def _delta(speaker: Speaker, event: Event, event_type: str) -> TranscriptDelta | None:
-    text = _text(event, "delta", event_type, allow_empty=True)
+    words = text(event, "delta", event_type, allow_empty=True)
     # A fragment of whitespace is a real thing for a service to send and nothing for a caller.
-    return TranscriptDelta(speaker, text) if text.strip() else None
+    return TranscriptDelta(speaker, words) if words.strip() else None
 
 
 def _settled(speaker: Speaker, event: Event, event_type: str) -> TranscriptSettled | None:
-    text = _text(event, "transcript", event_type, allow_empty=True)
+    words = text(event, "transcript", event_type, allow_empty=True)
     # An utterance recognised as nothing — a cough, a door — settles as an empty transcript.
-    return TranscriptSettled(speaker, text) if text.strip() else None
-
-
-def _mapping(event: Event, field: str, event_type: str) -> Event:
-    value = event.get(field)
-    if not isinstance(value, dict):
-        raise MalformedEventError(event_type, field)
-    return value
-
-
-def _text(event: Event, field: str, event_type: str, *, allow_empty: bool = False) -> str:
-    value = event.get(field)
-    if not isinstance(value, str) or (not allow_empty and not value):
-        raise MalformedEventError(event_type, field)
-    return value
+    return TranscriptSettled(speaker, words) if words.strip() else None
 
 
 # ---------------------------------------------------------------------------------- outbound
@@ -290,7 +258,7 @@ def update_instructions(instructions: str) -> dict[str, Any]:
 
 def append_audio(audio: bytes) -> dict[str, Any]:
     """Caller audio, already in `WIRE_FORMAT`."""
-    return {"type": "input_audio_buffer.append", "audio": base64.b64encode(audio).decode("ascii")}
+    return {"type": "input_audio_buffer.append", "audio": encode_audio(audio)}
 
 
 def cancel_response() -> dict[str, Any]:

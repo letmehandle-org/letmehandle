@@ -43,11 +43,11 @@ from letmehandle.adapters.speech.elevenlabs.protocol import (
     CallerSaid,
     ConversationBegan,
     Interrupted,
-    MalformedEventError,
     Ping,
     ServiceError,
     ToolRequested,
 )
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.adapters.speech.session_support.outbox import Outbox
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
@@ -75,7 +75,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from letmehandle.adapters.speech.elevenlabs.context import ConversationContext
-    from letmehandle.adapters.speech.elevenlabs.protocol import Event, Inbound
+    from letmehandle.adapters.speech.elevenlabs.protocol import Inbound
+    from letmehandle.adapters.speech.session_support.fields import Event
     from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
     from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
     from letmehandle.adapters.speech.session_support.timing import Timekeeping

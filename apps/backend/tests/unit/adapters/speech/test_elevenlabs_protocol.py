@@ -15,11 +15,11 @@ from letmehandle.adapters.speech.elevenlabs.protocol import (
     CallerSaid,
     ConversationBegan,
     Interrupted,
-    MalformedEventError,
     Ping,
     ServiceError,
     ToolRequested,
 )
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.domain.models.audio import AudioEncoding, AudioFormat
 
 

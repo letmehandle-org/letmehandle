@@ -12,13 +12,13 @@ from letmehandle.adapters.speech.realtime.protocol import (
     AudioDelta,
     CallerStartedSpeaking,
     CallerStoppedSpeaking,
-    MalformedEventError,
     ResponseFinished,
     ResponseStarted,
     ServiceError,
     TranscriptDelta,
     TranscriptSettled,
 )
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from tests.support.scripted_realtime_connection import audio_delta
 

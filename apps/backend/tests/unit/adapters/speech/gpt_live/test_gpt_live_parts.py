@@ -14,7 +14,6 @@ from letmehandle.adapters.speech.gpt_live.context import (
 )
 from letmehandle.adapters.speech.gpt_live.protocol import (
     DelegationRequested,
-    MalformedEventError,
     OutputAudio,
     ServiceError,
     SessionClosed,
@@ -22,6 +21,7 @@ from letmehandle.adapters.speech.gpt_live.protocol import (
     TranscriptFragment,
 )
 from letmehandle.adapters.speech.gpt_live.turns import TurnAssembler
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.audio import TELEPHONY_NARROWBAND

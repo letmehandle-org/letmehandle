@@ -51,7 +51,6 @@ from letmehandle.adapters.audio.conversion import AudioConverter
 from letmehandle.adapters.speech.gpt_live import language, protocol
 from letmehandle.adapters.speech.gpt_live.protocol import (
     DelegationRequested,
-    MalformedEventError,
     OutputAudio,
     ServiceError,
     SessionClosed,
@@ -59,6 +58,7 @@ from letmehandle.adapters.speech.gpt_live.protocol import (
     TranscriptFragment,
 )
 from letmehandle.adapters.speech.gpt_live.turns import TurnAssembler
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker
 from letmehandle.adapters.speech.session_support.outbox import Outbox
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
@@ -88,7 +88,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
     from letmehandle.adapters.speech.gpt_live.context import SessionContext
-    from letmehandle.adapters.speech.gpt_live.protocol import Event, Inbound
+    from letmehandle.adapters.speech.gpt_live.protocol import Inbound
+    from letmehandle.adapters.speech.session_support.fields import Event
     from letmehandle.adapters.speech.session_support.history import Turn
     from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
     from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry

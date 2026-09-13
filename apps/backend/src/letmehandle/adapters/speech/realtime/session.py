@@ -41,13 +41,13 @@ from letmehandle.adapters.speech.realtime.protocol import (
     AudioDelta,
     CallerStartedSpeaking,
     CallerStoppedSpeaking,
-    MalformedEventError,
     ResponseFinished,
     ResponseStarted,
     ServiceError,
     TranscriptDelta,
     TranscriptSettled,
 )
+from letmehandle.adapters.speech.session_support.fields import MalformedEventError
 from letmehandle.adapters.speech.session_support.history import Speaker, Turn
 from letmehandle.adapters.speech.session_support.outbox import Outbox
 from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
@@ -74,7 +74,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from letmehandle.adapters.speech.realtime.context import SessionContext
-    from letmehandle.adapters.speech.realtime.protocol import Event, Inbound
+    from letmehandle.adapters.speech.realtime.protocol import Inbound
+    from letmehandle.adapters.speech.session_support.fields import Event
     from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
     from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
     from letmehandle.adapters.speech.session_support.timing import Timekeeping
