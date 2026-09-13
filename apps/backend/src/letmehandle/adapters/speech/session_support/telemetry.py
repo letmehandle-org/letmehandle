@@ -1,12 +1,4 @@
-"""What a speech session measures about itself.
-
-Latency is the product here — a reply that arrives a second late is a caller talking over it —
-and a regression in it is invisible without a baseline, so these are recorded from the first
-session rather than added when somebody complains.
-
-Every label is a dimension: which provider, which kind of failure. Nothing said in a call and no
-identifier of a call or a person is ever passed in, and nothing here accepts one.
-"""
+"""What a speech session measures about itself, labelled by dimensions only (D-038)."""
 
 from __future__ import annotations
 

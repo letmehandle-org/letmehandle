@@ -1,12 +1,4 @@
-"""What a conversation is opened with, and what a replacement is told of the one that dropped.
-
-ElevenLabs cannot resume a conversation, so a reconnect starts another, and all it can be told of
-the first is what fits in its prompt: the instructions, what was added to them since, and a
-bounded record of what was said. It is a reminder written in words, not the service's own memory
-restored, and the model treats it as such — which is the limitation the provider declares.
-
-Held in memory only, and bounded, for the reasons the history itself gives (D-013).
-"""
+"""What a conversation is opened with, and the prompt a replacement is told of the one dropped."""
 
 from __future__ import annotations
 
@@ -21,9 +13,7 @@ if TYPE_CHECKING:
 
     from letmehandle.adapters.speech.session_support.history import Turn
 
-# Context updates kept for a resumed conversation. Few are sent in a call — the user joining is
-# the one this exists for — so the bound is there to make a loop sending them harmless, not to
-# ration them.
+# Context updates kept for a resumed conversation, bounded so a loop sending them is harmless.
 CONTEXT_UPDATES_KEPT: Final = 8
 
 _UPDATES_HEADING: Final = "Information added during the conversation, oldest first:"
@@ -35,12 +25,7 @@ _LABELS: Final = {Speaker.CALLER: "Caller", Speaker.ASSISTANT: "You"}
 
 
 def switching(languages: Sequence[str]) -> str:
-    """What an agent speaking several languages is told about changing between them.
-
-    The service changes an agent's language, and its voice, only when the agent's model calls its
-    language detection tool, and a model given instructions of the client's own does not call it
-    unprompted: on the real service it went on answering a Hindi caller in English until told.
-    """
+    """What an agent of several languages is told: call its language tool to switch (D-039)."""
     return (
         f"This conversation can be held in these languages: {', '.join(languages)}. When the "
         "caller speaks one of them other than the language you are speaking, call the "
@@ -50,11 +35,7 @@ def switching(languages: Sequence[str]) -> str:
 
 
 class ConversationContext:
-    """Instructions, voice, greeting, the updates sent since, and a bounded memory of settled turns.
-
-    `voice_id` is `None` for an agent that chooses its voice per language itself, and `switching`
-    is what that agent is told about changing language.
-    """
+    """Instructions, voice (`None` lets the agent choose), greeting, updates and settled turns."""
 
     def __init__(
         self,
@@ -79,11 +60,7 @@ class ConversationContext:
         self._updates.append(text)
 
     def opening(self, *, resuming: bool) -> dict[str, Any]:
-        """The event that opens a conversation as this session.
-
-        A resumed conversation is asked not to greet the caller: they have been talking for a
-        while, and a cheerful hello halfway through is the clearest sign something broke.
-        """
+        """The event opening a conversation as this session; a resumed one is told not to greet."""
         return protocol.begin_conversation(
             prompt=self._prompt(resuming=resuming),
             language=self._language,

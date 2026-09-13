@@ -1,8 +1,4 @@
-"""What a provider offers, checked once when it is built and again for each session asked of it.
-
-Refused at construction rather than at the first connect wherever it can be, so a
-misconfiguration stops the application starting instead of failing the first call that uses it.
-"""
+"""What a provider offers, checked when it is built and again for each session asked of it."""
 
 from __future__ import annotations
 

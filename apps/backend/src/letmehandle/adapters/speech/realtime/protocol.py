@@ -1,52 +1,4 @@
-"""The OpenAI Realtime-compatible protocol, as data.
-
-No I/O. Outbound, domain intentions become protocol events; inbound, protocol events become the
-signals the session acts on. Everything the session knows about the wire passes through here, so
-a dialect difference is one edit in one file.
-
-What the protocol is, as far as this adapter uses it. JSON events over one connection, each
-with a `type`.
-
-Sent:
-- `session.update` configures the session. The current shape nests everything under
-  `session`: `type` is `realtime` for speech to speech, `instructions` is the system context,
-  and `audio.input` / `audio.output` each carry a `format` of `{type, rate}`. `audio/pcm` is
-  16-bit little-endian mono at 24 kHz, the only rate it accepts; `audio/pcmu` and `audio/pcma`
-  are G.711 at 8 kHz. Turn detection (`audio.input.turn_detection`, `server_vad`) and input
-  transcription (`audio.input.transcription`) live beside the input format, and the voice at
-  `audio.output.voice`. It can be sent again at any time to change anything except the voice.
-- `input_audio_buffer.append` carries base64 audio in `audio`. Under server VAD the service
-  decides where a turn ends; the client never commits.
-- `response.cancel` stops the response in progress. Sent with no `response_id` it cancels
-  whatever is in progress, and answers with an error when nothing is.
-- `conversation.item.truncate` tells the service how much of an assistant item was heard:
-  `item_id`, `content_index` and `audio_end_ms`. The service discards the unheard audio and the
-  transcript that went with it, so the model does not believe it said what nobody heard.
-- `conversation.item.create` inserts a `message` item with a `role` and `content`, which is how
-  a reconnected session is told what was already said: `input_text` for the user's words and
-  `output_text` for the assistant's.
-
-Received:
-- `input_audio_buffer.speech_started` / `speech_stopped`: server VAD heard the caller begin
-  or stop. Barge-in is built on the first.
-- `response.created` and `response.done` bracket a response, each carrying `response.id`;
-  `response.done` also carries `response.status`, which is `cancelled` for one that was stopped.
-- `response.output_audio.delta`: base64 audio in `delta`, with `response_id`, `item_id` and
-  `content_index`.
-- `response.output_audio_transcript.delta` / `.done`: the assistant's words, in `delta` and
-  then the settled `transcript`.
-- `conversation.item.input_audio_transcription.delta` / `.completed`: the caller's words, in
-  `delta` and then `transcript`, when input transcription is configured.
-- `error`: `error.type`, `error.code` and `error.message`. The connection stays open; a failure
-  that ends it arrives as the connection closing.
-
-Dialects. The earlier, beta form of the protocol named the output events
-`response.audio.delta` and `response.audio_transcript.delta` / `.done`; servers built against it
-still send those, so both spellings are accepted. Only the current shape is sent: the beta
-`session.update` put formats and voice at the top of `session`, and a server that still wants
-that is a server this adapter does not claim to speak to. Anything unrecognised is ignored,
-because a compatible server is entitled to send events this adapter has no use for.
-"""
+"""The OpenAI Realtime-compatible protocol as data, reading beta event names too: no I/O."""
 
 from __future__ import annotations
 
@@ -69,8 +21,7 @@ if TYPE_CHECKING:
 # The one linear format the protocol speaks. Everything else is converted to and from this.
 WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
 
-# The error a cancel earns when the response had already finished. Expected, because a cancel is
-# sent whenever there might be a response and the service is the only one who knows for certain.
+# The error a cancel earns when no response was in progress, which is expected.
 NOTHING_TO_CANCEL: Final = "response_cancel_not_active"
 
 # ---------------------------------------------------------------------------------- inbound
@@ -129,11 +80,7 @@ class TranscriptSettled:
 
 @dataclass(frozen=True, slots=True)
 class ServiceError:
-    """The service refused something.
-
-    Only the code is kept, and not every error has one. The message is dropped because a service
-    is free to quote the request back, and the request may be somebody's words.
-    """
+    """The service refused something; only the code is kept, since a message may quote words."""
 
     code: str | None
 
@@ -159,10 +106,7 @@ _ASSISTANT_SETTLED: Final = frozenset(
 
 
 def parse(event: Event) -> Inbound | None:
-    """What an inbound event means, or `None` for one this adapter has no use for.
-
-    Raises `MalformedEventError` for a recognised event missing a field it needs.
-    """
+    """What an inbound event means, `None` when unused; raises `MalformedEventError`."""
     event_type = event.get("type")
     match event_type:
         case "input_audio_buffer.speech_started":
@@ -225,12 +169,7 @@ def configure_session(
     language: str,
     transcription_model: str | None,
 ) -> dict[str, Any]:
-    """Everything a session needs to begin, or to begin again after a reconnect.
-
-    Input transcription is only requested when a model for it is named: which transcription
-    models a server offers is the server's business, and asking for one it does not have is an
-    error on every session.
-    """
+    """Configuration beginning a session, asking for transcription only when a model is named."""
     audio_input: dict[str, Any] = {
         "format": _wire_format(),
         "turn_detection": {"type": "server_vad"},

@@ -1,51 +1,4 @@
-"""The GPT-Live session protocol, as data.
-
-No I/O. Outbound, domain intentions become protocol events; inbound, protocol events become the
-signals the session acts on. Everything the session knows about the wire passes through here.
-
-What the protocol is, as far as this adapter uses it. JSON events over one websocket to
-`/v1/live/sessions`, with no query parameters and the key as an `Authorization: Bearer` header.
-Every event has a `type`.
-
-Sent:
-- `session.start` must be the first message. Its `session` carries `model`, `instructions` (the
-  system context), `input` (earlier text messages, up to 128 of them and 8,192 tokens, as `message`
-  items with a `role` and one text part), `audio.format` and `audio.output.voice`, and
-  `delegation`. The format is one of `audio/pcm` at 24000 or 16000 Hz (16-bit little-endian mono),
-  `audio/pcmu` or `audio/pcma` at 8000 Hz, and applies to both directions for the whole session.
-  None of these can be changed once the session has started.
-- `session.input_audio.append` carries base64 audio in `audio`, with no acknowledgment. Audio is
-  streamed continuously, silence included: the service decides when to listen and when to speak.
-- `session.instructions.append`, `session.thinking.append` and `session.commentary.append` feed
-  text into the running model: trusted instructions, which may interrupt speech in progress; quiet
-  context; and something to say aloud, paraphrased. Each takes a plain-string `content` of up to
-  500 tokens and a required `delegation_id`, null for the whole session. Each is acknowledged by the
-  same name ending `appended`, carrying the `client_event_id` of the `event_id` it was sent with.
-- `session.close` asks for the session to be finalised.
-
-Received:
-- `session.started`: the session is ready. Nothing but `session.start` may be sent before it.
-- `session.output_audio.delta`: base64 audio in `delta`, in the session's format. The service sends
-  it at about the pace it plays, silence included, and there is no event for the end of speech.
-- `session.input_transcript.delta` / `session.output_transcript.delta`: the caller's and the
-  assistant's words as fragments in `delta`, each with `start_ms` and `end_ms` on the session's own
-  timeline. There is no event that settles a turn; grouping fragments is the client's business.
-- `session.delegation.created`: the model asked the client for help, naming it by `delegation.id`.
-  The event carries no task text.
-- `session.usage.updated`: cumulative voice seconds so far. Not read.
-- `session.closed`: the session is final, with `reason` (`close_requested`, `expired`, `content`,
-  `remote_hangup` or `connection_lost`) and `usage.seconds`, the voice time it is billed for.
-- `error`: `error.type`, `error.code` (possibly null) and `error.client_event_id` when the error
-  refuses a command. Moderation may cut the assistant's current speech off with an error and go on.
-
-There is no event that stops the model speaking and none that says the caller began to. The model
-listens while it speaks and yields when talked over, which is the protocol's barge-in; a client can
-only stop playing what arrives. Anything unrecognised is ignored, because the service is entitled
-to add events.
-
-Sources: the GPT-Live WebSocket, session management, delegation and prompting guides, as published
-at platform.openai.com.
-"""
+"""The GPT-Live session protocol as data: events in, signals out, no I/O."""
 
 from __future__ import annotations
 
@@ -78,17 +31,12 @@ _WIRE_NAMES: Final = {
 }
 DEFAULT_WIRE_FORMAT: Final = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
 
-# The session is closed because what was said broke the service's content policy. The one reason
-# for a close that a replacement session would meet again.
+# The close reason for content policy, the one a replacement session would meet again.
 CONTENT_CLOSE: Final = "content"
 
 
 def wire_format_for(input_format: AudioFormat) -> AudioFormat:
-    """The format a session opened for `input_format` speaks: the same one, wherever it can be.
-
-    A phone line's G.711 audio then passes through in both directions without being converted,
-    and a wideband source is not resampled on its way in.
-    """
+    """The format a session opened for `input_format` speaks: the same one wherever it can be."""
     return input_format if input_format in _WIRE_NAMES else DEFAULT_WIRE_FORMAT
 
 
@@ -134,11 +82,7 @@ class SessionClosed:
 
 @dataclass(frozen=True, slots=True)
 class ServiceError:
-    """The service refused something.
-
-    Only the code and type are kept. The message is dropped because a service is free to quote the
-    request back, and the request may be somebody's words.
-    """
+    """The service refused something; only code and type are kept, as a message may quote words."""
 
     code: str | None
     error_type: str | None
@@ -160,10 +104,7 @@ _TRANSCRIPTS: Final = {
 
 
 def parse(event: Event) -> Inbound | None:
-    """What an inbound event means, or `None` for one this adapter has no use for.
-
-    Raises `MalformedEventError` for a recognised event missing a field it needs.
-    """
+    """What an inbound event means, `None` when unused; raises `MalformedEventError`."""
     event_type = event.get("type")
     match event_type:
         case "session.started":
@@ -189,8 +130,7 @@ def parse(event: Event) -> Inbound | None:
         case str() if event_type in _TRANSCRIPTS:
             words = text(event, "delta", event_type, allow_empty=True)
             if not words.strip():
-                # A fragment of whitespace is a real thing for a service to send and nothing for
-                # a caller.
+                # A fragment of whitespace is nothing for a caller.
                 return None
             return TranscriptFragment(
                 _TRANSCRIPTS[event_type],
@@ -254,10 +194,7 @@ def append_commentary(content: str) -> dict[str, Any]:
 
 
 def append_thinking(content: str, *, delegation_id: str | None = None) -> dict[str, Any]:
-    """Quiet context, for one delegation or the whole session, which the model is not asked to say.
-
-    Unlike instructions, it does not interrupt speech in progress.
-    """
+    """Quiet context for one delegation or the whole session, which does not interrupt speech."""
     return {"type": "session.thinking.append", "delegation_id": delegation_id, "content": content}
 
 

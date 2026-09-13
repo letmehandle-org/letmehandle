@@ -1,18 +1,4 @@
-"""A connection that speaks protocol events, over a real websocket.
-
-Shared by every speech adapter whose service is a websocket carrying JSON events. What differs
-between services — where the key goes, how a model or an agent is named — is each adapter's
-handshake; what happens once connected is the same, and lives here once.
-
-Every exception the library can raise is translated here, and each translation decides one
-thing: whether trying again could help. That decision is the whole value of this module to the
-session above it. A refused key retried with backoff is a loop that never ends and looks, from
-outside, exactly like an outage.
-
-Nothing here logs. The failures it raises carry status and close codes, never the key and never
-a message payload, and the session — which knows whether a failure matters — is the one that
-reports them.
-"""
+"""A connection speaking JSON events over a real websocket, its failures typed by retryability."""
 
 from __future__ import annotations
 
@@ -45,19 +31,13 @@ if TYPE_CHECKING:
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener, EventConnection
 
 
-# How long closing waits for the service before the socket is simply dropped. A service that has
-# stopped reading otherwise turns closing into half a minute during which a cancelled call, or a
-# harness told to quit, hangs.
+# How long closing waits for the service before the socket is dropped.
 CLOSE_TIMEOUT_SECONDS: Final = 1.0
 
-# Refusals at the handshake that another attempt will not change: bad request, bad key, not
-# allowed, no such model. Everything else a server answers with — a timeout, a rate limit, a
-# fault of its own — is its condition rather than ours, and may have passed by the next attempt.
+# HTTP statuses at the handshake that are the service's passing condition; 5xx is too.
 _RETRYABLE_STATUSES: Final = frozenset({408, 425, 429})
 
-# Close codes that say the service will refuse the same connection again: a protocol or data it
-# does not accept, a policy it enforces (which is where a key refused after the handshake lands),
-# or a message too large to take. An abrupt drop, a server error or a restart is none of these.
+# Close codes after which the service would refuse the same connection again.
 _PERMANENT_CLOSE_CODES: Final = frozenset({1002, 1003, 1007, 1008, 1009, 1010})
 
 
@@ -102,13 +82,12 @@ class WebsocketConnection:
                 retryable=status in _RETRYABLE_STATUSES or status >= 500,
             ) from None
         except InvalidURI:
-            # Configuration, not weather. Suppressed rather than chained: the library's message
-            # repeats the URL, and the URL is not this module's to put in a traceback.
+            # Not chained, because the library's message repeats the URL.
             raise ConnectionFailedError(
                 "the speech endpoint is not a websocket URL", retryable=False
             ) from None
         except InvalidMessage:
-            # The connection went away mid-handshake, which is what a restarting service does.
+            # The connection went away mid-handshake, as a restarting service does.
             raise ConnectionFailedError(
                 "the connection was lost during the handshake", retryable=True
             ) from None
@@ -151,26 +130,18 @@ class WebsocketConnection:
         return _parse(frame)
 
     async def close(self) -> None:
-        # The library's close is idempotent too; the flag is what makes a send after it a typed
-        # error of ours rather than whatever the library happens to say.
+        # The flag makes a send after closing our typed error.
         self._closed = True
         try:
             async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
                 await self._socket.close()
         except TimeoutError:
-            # The library's own close waits behind a send that cannot finish before its timeout
-            # even starts, so it is bounded here as well. A service that will not take a close
-            # frame gets its socket dropped instead.
+            # Bounded here too, since the library's close waits behind a stuck send.
             self._socket.transport.abort()
 
 
 def _parse(frame: str | bytes) -> Mapping[str, Any]:
-    """One protocol event from one frame.
-
-    A frame that is not a JSON object means the other end is not speaking this protocol, and a
-    reconnect lands on the same server speaking the same thing — so it is not retryable. The
-    frame's contents never reach the message: it may be a transcript.
-    """
+    """One protocol event from one frame; the frame's contents never reach an error message."""
     if isinstance(frame, bytes):
         raise ConnectionFailedError("the service sent a binary frame", retryable=False)
     try:

@@ -1,18 +1,4 @@
-"""Settling transcript fragments into turns, on a protocol that never says a turn is over.
-
-The service sends each speaker's words as fragments stamped with where they fall on the session's
-timeline, and nothing more. A turn is settled here when its speaker has been quiet for `gap_ms` of
-that timeline, or when the session ends.
-
-The timeline moves with every fragment's timestamps and with the assistant's audio, which the
-service streams at the pace it plays, silence included; so a caller who stops speaking is settled
-while the assistant is still thinking of an answer, not only once it gives one.
-
-Quiet is the only signal, deliberately. Both speakers' fragments arrive late and in bursts, a
-second or more behind the audio, and the two overlap: the assistant often begins before the last of
-the caller's words has been written down. Settling one speaker because the other began splits
-utterances, even words, whenever a late fragment turns up; quiet on the timeline does not.
-"""
+"""Settling transcript fragments into turns after a quiet gap on the session's timeline (D-040)."""
 
 from __future__ import annotations
 
@@ -25,9 +11,7 @@ from letmehandle.domain.errors import InvariantError
 if TYPE_CHECKING:
     from letmehandle.adapters.speech.gpt_live.protocol import TranscriptFragment
 
-# How long a speaker is quiet, on the session's timeline, before their words are a settled turn.
-# Longer than the pause between two sentences and the lateness of a fragment, short enough that
-# what the caller said reaches the rest of the call a moment after the reply to it begins.
+# How long a speaker is quiet on the timeline before their words are a settled turn.
 DEFAULT_GAP_MS: Final = 1_500
 
 

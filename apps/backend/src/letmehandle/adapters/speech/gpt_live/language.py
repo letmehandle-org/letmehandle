@@ -1,20 +1,4 @@
-"""Which language the model is told to speak, told in that language, and which one a caller spoke.
-
-The model follows a language rule written in the language it names far better than one written in
-English. Told in English to answer in the caller's language, it answered a Hindi caller mostly in
-English; told the same thing in Hindi, it held the conversation in Hindi. So every rule this adapter
-sends is written in the language it asks for, from the table below, and a language the table does
-not have is asked for in English, by its code.
-
-A caller's words often mix scripts — a Hindi sentence with an English name or brand in it — so the
-language is the script of most of the letters, not all of them.
-
-Which language a caller spoke is decided from the script their words were written down in, and only
-among the languages the deployment lists (D-039). It is deterministic and deliberately modest: a
-script that more than one listed language writes in decides nothing, and so does an utterance too
-short to be sure of — "OK" in the middle of a Hindi call is not a request to switch to English. A
-caller speaking Hindi that is written down in Latin letters is heard as English.
-"""
+"""Language rules written in the language they ask for, and the language a caller spoke (D-040)."""
 
 from __future__ import annotations
 
@@ -64,8 +48,7 @@ _PHRASINGS: Final = {
 # What the model is told to begin with once its instructions for the opening are in.
 BEGIN: Final = "Begin the conversation now, following the instructions provided."
 
-# The Unicode blocks each script is written in, and the languages written in it. Latin counts only
-# letters, since its block also holds the digits and punctuation every script shares.
+# Each script's Unicode blocks and its languages; Latin counts only letters.
 _SCRIPTS: Final = (
     ("latin", ((0x41, 0x5A), (0x61, 0x7A), (0xC0, 0x24F)), ("en", "es", "fr", "de", "pt", "it")),
     ("devanagari", ((0x900, 0x97F), (0xA8E0, 0xA8FF)), ("hi", "mr", "ne")),
