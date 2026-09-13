@@ -62,7 +62,7 @@ router = APIRouter(
 
 
 def _source_of(request: Request) -> str | None:
-    """Something to count attempts against, per origin: see `client_address`."""
+    """The key attempts from this request's origin are counted under."""
     return client_source(request, container_of(request).trusted_proxies)
 
 
@@ -71,11 +71,7 @@ def _rate_limited(error: RateLimitedError) -> ApiError:
 
 
 def _not_valid(message: str) -> ApiError:
-    """One shape for every sign-in failure.
-
-    Expired, wrong, already used and never existed are the same response. The differences are
-    exactly what an attacker needs to narrow down what they are holding.
-    """
+    """One response for every sign-in failure: expired, wrong, used and unknown alike."""
     return ApiError(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", message)
 
 
@@ -88,7 +84,6 @@ def _tokens(pair: TokenPair) -> TokenResponse:
 
 
 def _profile(user: User, locale: str, forwarding: CallForwarding | None) -> ProfileResponse:
-    # The locale is the preferences' own: the one calls, summaries and notifications are in.
     return ProfileResponse(
         id=user.id.value,
         phone_number=user.phone_number.value,
@@ -109,12 +104,7 @@ def _profile(user: User, locale: str, forwarding: CallForwarding | None) -> Prof
 async def request_challenge(
     body: ChallengeRequest, request: Request, service: AuthService
 ) -> ChallengeResponse:
-    """Send a code to a number.
-
-    Answers the same way whether or not the number has an account. Telling them apart is the
-    expensive half of attacking a phone-number identity, and this is where it would be given
-    away for nothing.
-    """
+    """Send a code to a number, answering alike whether or not it has an account."""
     try:
         issued = await service.request_challenge(
             PhoneNumber(body.phone_number), source=_source_of(request)
@@ -128,14 +118,10 @@ async def request_challenge(
             "Sign-in codes are not sent to numbers in this country.",
         ) from error
     except CodeMayHaveBeenSentError as error:
-        # Committed rather than rolled back, so the code counts; the client is told when to ask
-        # again instead of asking straight away.
+        # Committed, so the code counts against the number (D-037).
         raise provider_unavailable(error.retry_after_seconds) from error
     except UnreachableNumberError as error:
-        # The one delivery failure the person signing in can fix. It says nothing about whether
-        # the number has an account, only that no text reaches it. Every other provider failure
-        # is left to the application's handler, which rolls the challenge back: a code that was
-        # never sent must not use up the number's allowance.
+        # Other provider failures reach the application's handler, which rolls the challenge back.
         raise ApiError(
             UNPROCESSABLE,
             "number_unreachable",
@@ -159,8 +145,7 @@ async def verify(body: VerifyRequest, request: Request, service: AuthService) ->
     except AuthenticationError as error:
         raise _not_valid("That code is not valid.") from error
     except CodeNotCheckedError as error:
-        # The provider holding the code could not say whether it was right. Nothing was counted,
-        # so the same code may be offered again once the wait has passed.
+        # No attempt is counted, so the same code may be offered again after the wait (D-042).
         logger.warning("provider_failed", provider=error.provider, reason=error.reason)
         raise provider_unavailable(error.retry_after_seconds) from error
 
@@ -169,11 +154,7 @@ async def verify(body: VerifyRequest, request: Request, service: AuthService) ->
 
 @router.post("/auth/refresh", response_model=TokenResponse, summary="Renew a session")
 async def refresh(body: RefreshRequest, service: AuthService) -> TokenResponse:
-    """Exchange a refresh token for a new pair.
-
-    The old one stops working immediately. Presenting it again means a copy exists somewhere
-    it should not, and every session from that sign-in ends.
-    """
+    """Exchange a refresh token for a new pair, retiring the old one (D-036)."""
     try:
         pair = await service.refresh(body.refresh_token)
     except AuthenticationError as error:
@@ -184,14 +165,7 @@ async def refresh(body: RefreshRequest, service: AuthService) -> TokenResponse:
 
 @router.post("/auth/signout", status_code=status.HTTP_204_NO_CONTENT, summary="End this session")
 async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices) -> Response:
-    """End the session this refresh token belongs to, and forget the device signing out.
-
-    Always succeeds. Somebody signing out has nothing to gain from being told their token was
-    already invalid, and saying so would tell an attacker whether a token they hold is real.
-
-    The device is removed only from the account the refresh token belonged to, so a request can
-    never remove somebody else's device by naming it.
-    """
+    """End this refresh token's session and forget the device on its account; always succeeds."""
     owner = await service.sign_out(body.refresh_token)
     if owner is not None and body.device is not None:
         await devices.remove(owner, DeviceToken(body.device.platform, body.device.token))
@@ -214,12 +188,7 @@ async def update_me(
     preferences: Preferences,
     forwarding: Forwarding,
 ) -> ProfileResponse:
-    """Change what the assistant knows about the person it represents.
-
-    A field that is absent is left alone rather than cleared. A client sending only what it
-    changed is the ordinary case, and reading absence as "set to nothing" would quietly erase
-    everything it did not mention.
-    """
+    """Change the fields sent and leave absent ones alone (D-023)."""
     try:
         stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
     except InvariantError as error:
@@ -234,11 +203,6 @@ async def update_me(
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")
 async def delete_me(user: CurrentUser, deletion: Deletion) -> Response:
-    """Delete the signed-in user's account and everything held because of it, now.
-
-    Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
-    and the sign-in codes sent to the number. A call in progress is ended first. Every token the
-    account held stops working with it.
-    """
+    """Delete the signed-in account and everything held for it, ending any call in progress."""
     await deletion.delete(user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

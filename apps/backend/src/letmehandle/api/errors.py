@@ -19,11 +19,7 @@ logger = get_logger(__name__)
 
 
 class ApiError(Exception):
-    """A failure with a status code and a stable machine-readable code.
-
-    The code is what a client branches on. A message is for a person and will be rewritten;
-    anything that parses one has turned prose into an interface.
-    """
+    """A failure with a status and a stable code clients branch on; the message is for people."""
 
     def __init__(
         self,
@@ -80,14 +76,7 @@ def database_unavailable() -> ApiError:
 
 
 def resolve_correlation_id(request: Request | None) -> str | None:
-    """Find the correlation id for this request, wherever it is still reachable.
-
-    The request's state is tried first and the context variable second, and the order is not
-    arbitrary. An unhandled exception is turned into a response by Starlette's outermost
-    error middleware, which runs *after* our own middleware has unwound and reset the context
-    variable — so on the one response where the id matters most, the context variable is
-    already gone. The request scope is not: it outlives the middleware that populated it.
-    """
+    """The request's correlation id, from its state first, since that outlives the middleware."""
     if request is not None:
         from_state = getattr(request.state, "correlation_id", None)
         if isinstance(from_state, str):
@@ -96,11 +85,7 @@ def resolve_correlation_id(request: Request | None) -> str | None:
 
 
 def error_body(code: str, message: str, request: Request | None = None) -> dict[str, str]:
-    """The one error shape this application returns.
-
-    The correlation id is included so that someone reporting a failure gives us the single
-    string that finds every log line for it, without needing anything else from them.
-    """
+    """The one error shape this application returns, with the correlation id when there is one."""
     body = {"error": code, "message": message}
     identifier = resolve_correlation_id(request)
     if identifier is not None:
@@ -109,13 +94,7 @@ def error_body(code: str, message: str, request: Request | None = None) -> dict[
 
 
 def _readable_detail(exception: Exception) -> list[dict[str, str]]:
-    """What was wrong with the request, as plain strings.
-
-    Rebuilt rather than passed through. pydantic puts the original exception object into each
-    error's context, which is not serialisable — handing the raw list to a JSON response turns
-    every malformed request into a 500, which is how a validation bug becomes an outage. It is
-    also more than a caller needs: the field and the reason, nothing from inside the process.
-    """
+    """Each invalid field and its problem, as plain serialisable strings."""
     if not isinstance(exception, RequestValidationError):  # pragma: no cover - by registration
         return []
     return [
@@ -150,12 +129,7 @@ async def handle_api_error(request: Request, exception: Exception) -> JSONRespon
 
 
 async def handle_provider_error(request: Request, exception: Exception) -> JSONResponse:
-    """A provider the request depended on failed, and the application did not handle it.
-
-    Unavailable rather than an internal error: the process is well, and asking again later is what
-    somebody can do about it. Logged by provider and kind; the reason names a status and the
-    provider's error code, never anything the request carried.
-    """
+    """An unhandled provider failure, answered 503 and logged by provider and reason only."""
     if not isinstance(exception, ProviderError):  # pragma: no cover - registered by type
         raise exception
     logger.warning(
@@ -171,14 +145,8 @@ async def handle_provider_error(request: Request, exception: Exception) -> JSONR
 
 
 async def handle_unexpected_error(request: Request, exception: Exception) -> JSONResponse:
-    """Anything not otherwise mapped.
-
-    The response carries a correlation id and nothing else. A stack trace tells an attacker
-    about the inside of the process and tells the caller nothing they can act on.
-    """
-    # Where it happened and what kind of failure it was, never its message. A database error's
-    # detail repeats the values it refused, and a domain error's message can repeat a caller's
-    # number; a log line is kept longer and shared more widely than the request that caused it.
+    """Anything not otherwise mapped: a 500 carrying only the correlation id."""
+    # The outline only, never the message, which can repeat a refused value or a number.
     logger.error("unhandled_exception", exception=exception_outline(exception))
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

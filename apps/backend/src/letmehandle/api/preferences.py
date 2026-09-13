@@ -1,10 +1,4 @@
-"""Preferences and onboarding, over HTTP.
-
-The layer that turns a wire payload into a domain object and back. It holds no rules of its
-own: every constraint is the domain's, and this constructs domain types so that a value the
-domain would refuse is refused here — with a field name attached, which is the one thing the
-domain cannot give a client.
-"""
+"""Preferences and onboarding, over HTTP: wire payloads to domain values and back."""
 
 from __future__ import annotations
 
@@ -61,12 +55,7 @@ async def read_preferences(user: CurrentUser, service: Preferences) -> Preferenc
 async def replace_preferences(
     body: PreferencesUpdate, user: CurrentUser, service: Preferences
 ) -> PreferencesResponse:
-    """Set everything the request mentions, from the defaults.
-
-    Distinct from the patch below: this starts from the defaults rather than from what is
-    stored, so a section left out is reset rather than kept. That is what a client means when
-    it says "replace".
-    """
+    """Set everything the request mentions, starting from the defaults."""
     changes = _to_changes(body)
     try:
         return _to_response(await service.replace_all(user.id, changes))
@@ -78,16 +67,11 @@ async def replace_preferences(
 async def update_preferences(
     body: PreferencesUpdate, user: CurrentUser, service: Preferences
 ) -> PreferencesResponse:
-    """Change the sections that were sent and leave the rest exactly as they were.
-
-    The ordinary case: one screen saves one section, and has no idea what the others hold.
-    """
+    """Change the sections that were sent and leave the rest exactly as they were (D-023)."""
     try:
         return _to_response(await service.apply(user.id, _to_changes(body)))
     except InvariantError as error:
-        # The invariants on the whole set — how many contacts, duplicate numbers, a blank
-        # locale — run when the service composes it, which is outside `_to_changes`. Without
-        # this they escape as a 500, and a duplicate phone number becomes a server fault.
+        # Invariants on the whole set run when the service composes it.
         raise invalid_request(error) from error
 
 
@@ -105,25 +89,13 @@ async def read_onboarding(user: CurrentUser, service: Preferences) -> Onboarding
 async def record_onboarding_step(
     body: OnboardingUpdate, user: CurrentUser, service: Preferences
 ) -> OnboardingResponse:
-    """Record a step as answered, or deliberately passed over.
-
-    Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
-    where somebody was instead of asking them everything again.
-
-    A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
-    deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
-    `step_not_asked`, and nothing is recorded.
-    """
+    """Record a step as answered or skipped; a step this deployment does not ask is refused."""
     try:
         progress = await service.record_step(user.id, body.step, skipped=body.skipped)
     except StepNotAskedError as error:
-        # A 422 like any other step this deployment has no screen for, removed or invented:
-        # the request names something that does not exist here, rather than conflicting with
-        # a state somebody could change by trying again.
         raise ApiError(UNPROCESSABLE, "step_not_asked", str(error)) from error
     except InvariantError as error:
-        # The only way to reach this is skipping a step that has no safe default, which the
-        # client should not have offered — so it is a request problem rather than a fault.
+        # Skipping a step that cannot be skipped.
         raise invalid_request(error) from error
     return _progress_response(progress)
 
@@ -132,16 +104,7 @@ async def record_onboarding_step(
 
 
 def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
-    """Turn a payload into domain values, refusing anything the domain would refuse.
-
-    Every failure here is a 422 naming the section, because a domain error escaping this
-    function is a 500 — and "your hours are impossible" is not a server fault.
-
-    Call handling and hours are carried separately rather than combined into a `CallRules`.
-    Combining them here would mean filling the half that was not sent from the defaults, which
-    resets it: a user who blocked spam callers and then set their hours from another screen
-    would find the blocking gone.
-    """
+    """Turn a payload into domain values, refusing what the domain refuses as a 422."""
     try:
         return PreferenceChanges(
             locale=body.locale,
@@ -248,8 +211,7 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
         personality=PersonalityPayload(
             formality=preferences.formality,
             verbosity=preferences.verbosity,
-            # Sorted, so that two identical preference sets produce identical responses and a
-            # client comparing them does not see a change that is not one.
+            # Sorted, so identical sets answer identically.
             topics=sorted(topic.name for topic in preferences.topics),
             disclosable_facts=sorted(fact.text for fact in preferences.disclosable_facts),
         ),

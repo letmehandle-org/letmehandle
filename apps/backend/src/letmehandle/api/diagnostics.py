@@ -1,24 +1,4 @@
-"""Diagnostics for whoever runs the deployment: live calls, a call's timeline, every measurement.
-
-Guarded by a token of its own rather than by signing in, because nobody the app signs in is owed
-any of this, and absent altogether unless that token is configured: a route that does not exist is
-not one to protect. Out of the published schema for the same reason.
-
-Everything here is structure, by construction rather than by care. A call is named by its id; its
-timeline is states, stage failures and moments; its participants are roles. Nothing reads the
-sealed caller, transcript or summary, and no response carries a number or anything anybody said.
-
-  `GET /diagnostics/calls`            every live call: its state, and since when. A call a long
-                                      time in one state is a call stuck in it.
-  `GET /diagnostics/calls/{call_id}`  one call's outline and timeline, stored and live.
-  `GET /diagnostics/metrics`          counts, latency percentiles and each dependency's circuit.
-
-The error codes, stated once:
-
-  `404 not_found`                     diagnostics are not configured here, or no such call.
-  `401 not_authenticated`             the diagnostics token was missing or wrong.
-  `503 database_unavailable`          no database, so no stored timeline to read.
-"""
+"""Operator diagnostics behind their own token: live calls, call structure, metrics (D-038)."""
 
 from __future__ import annotations
 
@@ -134,8 +114,7 @@ def require_diagnostics_token(
     if configured is None:
         raise ApiError(status.HTTP_404_NOT_FOUND, "not_found", "Not found.")
     given = b"" if credentials is None else credentials.credentials.encode()
-    # Compared in constant time: a comparison that stops at the first wrong byte tells a patient
-    # attacker how many they have right.
+    # Compared in constant time.
     if not hmac.compare_digest(given, configured.get_secret_value().encode()):
         raise ApiError(
             status.HTTP_401_UNAUTHORIZED,

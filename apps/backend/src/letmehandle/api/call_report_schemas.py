@@ -12,19 +12,14 @@ from letmehandle.api.schemas import Request, Response
 from letmehandle.domain.ports.call_transport import ScreeningDecision
 from letmehandle.domain.ports.reported_calls import CallEnding
 
-# A handset holds what it could not send and sends it together. Bounded so that one request is
-# one reasonable transaction; a handset with more sends more than one.
+# The most reports one request carries.
 MAX_REPORTS_PER_REQUEST = 100
 
-# The identifiers a handset chooses. Shaped like the UUIDs the app generates, and bounded so the
-# user-scoped form still fits the columns it is stored in.
+# A handset's identifier, bounded so its user-scoped form fits the stored columns.
 _IDENTIFIER_PATTERN: Final = r"^[A-Za-z0-9-]+$"
 _IDENTIFIER = Annotated[str, Field(min_length=8, max_length=48, pattern=_IDENTIFIER_PATTERN)]
 
-# E.164 exactly as the handset writes it: a plus, a country code that does not start with zero,
-# and at most fifteen digits. The same rule on both sides, so the handset never sends a number it
-# believes is valid and has it refused here. Digits are spelled out because `\d` also matches
-# digits from other scripts, which no telephone network routes.
+# E.164 as the handset writes it, with ASCII digits only.
 E164_PATTERN: Final = r"^\+[1-9][0-9]{1,14}$"
 
 
@@ -44,8 +39,7 @@ class CallReportPayload(Request):
     call_id: _IDENTIFIER
     kind: ReportedCallKind
     occurred_at: AwareDatetime
-    # Absent when the caller withheld it, or when the handset only had a national form that
-    # cannot be written in E.164 without guessing the country.
+    # Absent when withheld, or known only in a national form.
     caller_number: Annotated[str, Field(pattern=E164_PATTERN)] | None = None
     screening: ScreeningDecision | None = None
     ending: CallEnding | None = None
@@ -79,8 +73,7 @@ def _event_id_of(value: object) -> str | None:
 
 
 def _reason(error: ValidationError) -> str:
-    """Which fields were wrong and how. Built from locations and messages, never from the input,
-    which can be somebody's phone number."""
+    """Which fields were wrong and how, never repeating the input."""
     return "; ".join(
         f"{'.'.join(str(part) for part in each['loc'])}: {each['msg']}"
         for each in error.errors(include_input=False, include_url=False)
@@ -88,13 +81,9 @@ def _reason(error: ValidationError) -> str:
 
 
 class CallReportBatch(Request):
-    # Each report is read on its own, so one a handset got wrong is rejected by itself and the
-    # rest are stored. A handset resends a batch it has not seen acknowledged, and refusing the
-    # whole batch for one report would resend the good ones with it forever. The schema still
-    # describes a report, which is what a client is generated from.
+    # Each report is read on its own, so one unreadable report is rejected alone.
     reports: Annotated[
-        # Typed as `object` here only so the schema has no second shape in it: what the
-        # validator produces is `CallReportPayload | UnreadableReport`, and `readings` says so.
+        # `object` keeps one shape in the schema; `readings` gives the validated type.
         list[
             Annotated[
                 object, PlainValidator(_read_report, json_schema_input_type=CallReportPayload)
@@ -113,19 +102,15 @@ class CallReportBatch(Request):
 class RejectedReport(Response):
     """A report that was not stored, and will not be however often it is sent."""
 
-    # Its place in the batch, counting from zero: the one thing every report has.
+    # Its zero-based place in the batch.
     index: int
-    # The handset's event identifier, when the report carried one that could be read.
+    # The handset's event identifier, when readable.
     event_id: str | None
     reason: str
 
 
 class CallReportReceipt(Response):
-    """What became of each report in a batch. The handset forgets every one it is told about.
-
-    `accepted` were stored now and `duplicates` had been already; `rejected` never will be,
-    because something in them cannot have happened or cannot be read.
-    """
+    """What became of each report in a batch; the handset forgets every one listed."""
 
     accepted: list[str]
     duplicates: list[str]

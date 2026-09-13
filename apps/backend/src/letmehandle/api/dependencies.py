@@ -1,12 +1,4 @@
-"""Wiring.
-
-The one place that knows which implementation each port gets. Everything above depends on the
-interfaces, so swapping a provider is an edit here and nowhere else — which is the property the
-whole architecture exists to have.
-
-It is also the one place allowed to name a provider. A test asserts that no module under
-`domain/` does.
-"""
+"""Wiring: which implementation each port gets, per request."""
 
 from __future__ import annotations
 
@@ -17,9 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Final
 from fastapi import Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-# Imported at run time, not under TYPE_CHECKING: FastAPI resolves these annotations while
-# building the dependency graph, and a forward reference it cannot resolve is an error at the
-# first request rather than at import.
+# Imported at run time: FastAPI resolves these annotations when it builds the dependency graph.
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from letmehandle.adapters.database.call_repositories import (
@@ -59,31 +49,21 @@ if TYPE_CHECKING:
 
 
 def container_of(request: Request) -> Container:
-    """The application's chosen implementations.
-
-    Read through one typed accessor rather than reaching into application state everywhere:
-    `app.state` is untyped, and untyped access spreads until nothing can be checked.
-    """
+    """The application's chosen implementations, typed."""
     container: Container = request.app.state.container
     return container
 
 
-# How many requests one signed-in user may make in a window. The app makes a handful per screen and
-# a few more per call; this is far beyond that, and what it stops is one account, or one stolen
-# token, driving the database as fast as a loop can. Counted per process, as the limiter says.
+# How many requests one signed-in account may make per window, counted per process.
 SIGNED_IN_REQUESTS_PER_WINDOW: Final = 300
 SIGNED_IN_WINDOW: Final = timedelta(minutes=1)
 
-# auto_error=False so that a missing header produces this module's own 401 rather than
-# FastAPI's, which would have a different body from every other error the API returns.
+# A missing header is this module's 401, in the API's own error shape.
 _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """One session per request, committed at the end if nothing raised.
-
-    Reached only through `RequestSession`, which ends it before the response is sent.
-    """
+    """One session per request, committed unless an unexpected error rolls it back."""
     factory: async_sessionmaker[AsyncSession] | None = request.app.state.session_factory
     if factory is None:
         raise database_unavailable()
@@ -91,13 +71,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         try:
             yield session
         except ApiError:
-            # Committed, not rolled back, and this is the important case. A deliberate refusal
-            # is a completed request whose side effects are part of the decision: detecting a
-            # replayed refresh token revokes the whole family and *then* refuses, and a
-            # rollback here would undo the revocation and leave the stolen token working.
-            #
-            # Anything else — an unexpected failure — rolls back, because a half-written
-            # sign-in is worse than a failed one.
+            # A deliberate refusal keeps its side effects, such as a revoked token family.
             await session.commit()
             raise
         except Exception:
@@ -107,10 +81,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
             await session.commit()
 
 
-# The session as routes receive it. Ended when the route function returns, before its response is
-# sent, rather than after as a dependency's teardown otherwise is: a client answered before the
-# commit could read back nothing of what it was told was written, and a commit that failed after
-# the answer would be a success nobody learned was undone.
+# The request's session, ended when the route returns and before its response is sent.
 type RequestSession = Annotated[AsyncSession, Depends(get_session, scope="function")]
 
 
@@ -143,11 +114,7 @@ def get_account_deletion(
     request: Request,
     session: RequestSession,
 ) -> AccountDeletion:
-    """Deleting an account, on this request's session, ending its calls through the orchestrator.
-
-    The orchestrator is the one owner of every live call, and there is none in a deployment that
-    carries no calls.
-    """
+    """Account deletion on this request's session, ending live calls through the orchestrator."""
     return AccountDeletion(
         users=SqlUserRepository(session, container_of(request).clock),
         challenges=SqlOTPChallengeRepository(session),
@@ -168,12 +135,7 @@ async def get_authenticated_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> AuthenticatedUser:
-    """Who this request is from, or a 401.
-
-    A dependency rather than middleware. Middleware decides from a path pattern, and a path
-    pattern is a rule somebody forgets to update when they add a route; a dependency is
-    declared by the route itself and cannot be forgotten without the route not compiling.
-    """
+    """Who this request's access token names, or a 401; rate limited per account."""
     if credentials is None or not credentials.credentials:
         raise _not_authenticated()
 
@@ -183,8 +145,6 @@ async def get_authenticated_user(
     except DomainError as error:
         raise _not_authenticated() from error
 
-    # After the token is proved, so the count belongs to an account rather than to whatever an
-    # anonymous caller writes in a header, and before anything touches the database.
     decision = await container.rate_limiter.check(
         f"signed-in:{authenticated.user_id.value}",
         limit=SIGNED_IN_REQUESTS_PER_WINDOW,
@@ -200,12 +160,7 @@ async def get_current_user(
     session: RequestSession,
     request: Request,
 ) -> User:
-    """The user this request is from.
-
-    A token can outlive the account it names — deleted, or issued before a restore. Treating
-    that as unauthenticated rather than as a missing row keeps the response the same as every
-    other failure to authenticate.
-    """
+    """The user this request is from; a token naming no account is a 401."""
     user = await SqlUserRepository(session, container_of(request).clock).get(authenticated.user_id)
     if user is None:
         raise _not_authenticated()
@@ -217,11 +172,7 @@ def get_preferences_service(
     session: RequestSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> PreferencesService:
-    """Preferences and onboarding, on this request's session, for the user making the request.
-
-    Setup asks where to forward calls only where there is a number for this user to forward them
-    to: on a deployment with lines by region, one in their own region or one for everyone else.
-    """
+    """Preferences and onboarding, asking about forwarding only where this user has a number."""
     container = container_of(request)
     clock = container.clock
     forwarded = container.forwarding.for_user(user.phone_number) is not None
@@ -236,11 +187,7 @@ def get_call_history_service(
     request: Request,
     session: RequestSession,
 ) -> CallHistoryService:
-    """A user's calls, on this request's session, or a 503 when nothing here can open them.
-
-    Every call record is sealed, down to who called, so without the keys there is no history to
-    serve — only rows nobody can read. Saying so beats a 500 on every call a user opens.
-    """
+    """A user's calls, on this request's session, or a 503 without transcript keys (D-014)."""
     container = container_of(request)
     cipher = container.transcript_cipher
     if cipher is None:
@@ -271,11 +218,7 @@ def get_call_reporting(
 
 
 def get_voice_provider(request: Request) -> VoiceProvider:
-    """The voices this deployment offers.
-
-    Held on the container rather than built per request: a catalogue does not change between
-    requests, and the routes that exist were decided from its capabilities at startup.
-    """
+    """The voices this deployment offers."""
     return container_of(request).voices
 
 
@@ -304,11 +247,7 @@ def get_escalation_contexts(
     request: Request,
     session: RequestSession,
 ) -> EscalationContextRepository:
-    """Stored escalation contexts, on this request's session, or a 503 as call history gives.
-
-    What the user was told is sealed like the call it was about, so without the keys there is
-    nothing here to read either.
-    """
+    """Stored escalation contexts, on this request's session, or a 503 without transcript keys."""
     cipher = container_of(request).transcript_cipher
     if cipher is None:
         raise ApiError(

@@ -1,9 +1,4 @@
-"""What the API accepts and returns.
-
-Separate from the domain types on purpose. The wire format is a contract with a mobile app that
-ships independently and cannot be updated in step; the domain is free to change. Tying them
-together means either the domain cannot move or the app breaks.
-"""
+"""What the API accepts and returns, kept apart from the domain types."""
 
 from __future__ import annotations
 
@@ -24,8 +19,7 @@ LocaleTag = Annotated[
 class Request(BaseModel):
     """Base for anything accepted from outside."""
 
-    # Unknown fields are rejected rather than ignored. A client sending `phone_numer` should be
-    # told, not silently given a default.
+    # Unknown fields are refused, not ignored.
     model_config = ConfigDict(extra="forbid")
 
 
@@ -49,7 +43,7 @@ class ChallengeRequest(Request):
 class ChallengeResponse(Response):
     challenge_id: str
     expires_in_seconds: int
-    # When another code may be asked for, so the app counts down instead of trying and being told.
+    # Seconds until another code may be asked for.
     resend_after_seconds: int
 
 
@@ -62,9 +56,7 @@ class RefreshRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
 
 
-# What a push token is made of on either platform: hex on iOS, and letters, digits, colons,
-# hyphens and underscores on Android. Nothing else is accepted, so a token can never carry a
-# path separator, a space or a control character into a request built from it.
+# The characters a push token is made of on either platform.
 PushTokenValue = Annotated[str, Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
@@ -77,15 +69,14 @@ class DevicePayload(Request):
 
 class SignOutRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
-    # The device signing out, when the app has one registered. It stops receiving the account's
-    # escalation notifications in the same request that ends the session.
+    # The device signing out, which stops receiving the account's notifications.
     device: DevicePayload | None = None
 
 
 class TokenResponse(Response):
     access_token: str
     refresh_token: str
-    # S105 reads the name as a password. It is the scheme name from RFC 6750.
+    # The scheme name from RFC 6750.
     token_type: str = "Bearer"  # noqa: S105
     expires_in_seconds: int
 

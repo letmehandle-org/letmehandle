@@ -1,10 +1,4 @@
-"""A handset reporting its own calls.
-
-The handset decides a call before it rings and cannot wait for this service to do it; it tells
-this service what happened afterwards. The route belongs to the signed-in user: the reports are
-stored against that user and no other, so a handset can only ever speak for its own account's
-calls, whatever identifiers it sends.
-"""
+"""A handset reporting its own calls, stored against the signed-in user only (D-028)."""
 
 from __future__ import annotations
 
@@ -58,8 +52,7 @@ async def report_calls(
         try:
             batch.append(_to_report(payload))
         except InvariantError as error:
-            # A screening decision on an ended call, or an ending on an incoming one: the handset
-            # reported something that cannot have happened, and that report alone is refused.
+            # A report that cannot have happened is refused alone.
             rejected.append(
                 RejectedReport(index=index, event_id=payload.event_id, reason=str(error))
             )
