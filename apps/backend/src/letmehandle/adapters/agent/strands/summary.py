@@ -15,11 +15,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Final
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field
 
-from letmehandle.adapters.agent.strands.assessment import one_of
 from letmehandle.adapters.agent.strands.model import single_use_agent
-from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
+from letmehandle.adapters.agent.strands.schema import Text, one_of
+from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS, options_by_value
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
 from letmehandle.application.calls.prompts import load_summary_prompts
 from letmehandle.application.calls.summariser import SummaryDrafter, SummaryNotWrittenError
@@ -33,22 +33,12 @@ if TYPE_CHECKING:
 
     from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
-# One turn to answer, one for a model that has to be asked for the answer, and one to correct an
-# answer the schema refused. A model still going after that is not going to write a summary.
+# One turn to answer, one to be asked for the answer, and one to correct a refused answer.
 MAX_TURNS: Final = 3
 
-
-def _says_something(value: str) -> str:
-    # Refused where the model can still hear why, rather than later, where it cannot.
-    if not value.strip():
-        raise ValueError("must not be blank")
-    return value
-
-
-type _Kind = Annotated[DetailKind, one_of([kind.value for kind in DetailKind])]
-type _Intent = Annotated[CallIntent, one_of([intent.value for intent in CallIntent])]
-type _Outcome = Annotated[CallOutcome, one_of([outcome.value for outcome in CallOutcome])]
-type _Text = Annotated[StrictStr, AfterValidator(_says_something)]
+type _Kind = Annotated[DetailKind, one_of(options_by_value(DetailKind))]
+type _Intent = Annotated[CallIntent, one_of(options_by_value(CallIntent))]
+type _Outcome = Annotated[CallOutcome, one_of(options_by_value(CallOutcome))]
 
 
 class SummaryDetail(BaseModel):
@@ -57,8 +47,8 @@ class SummaryDetail(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: _Kind
-    value: _Text = Field(max_length=SHORT_TEXT_CHARACTERS)
-    evidence: _Text = Field(max_length=SHORT_TEXT_CHARACTERS)
+    value: Text = Field(max_length=SHORT_TEXT_CHARACTERS)
+    evidence: Text = Field(max_length=SHORT_TEXT_CHARACTERS)
 
 
 class CallSummaryAnswer(BaseModel):
@@ -66,7 +56,7 @@ class CallSummaryAnswer(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    headline: _Text = Field(max_length=MAX_HEADLINE_CHARACTERS)
+    headline: Text = Field(max_length=MAX_HEADLINE_CHARACTERS)
     intent: _Intent
     outcome: _Outcome
     details: tuple[SummaryDetail, ...] = Field(default=(), max_length=MAX_DETAILS)
