@@ -15,8 +15,8 @@ from sqlalchemy import func, select, text
 
 from letmehandle.adapters.database.models import CallReportRow
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES
 from letmehandle.api.call_report_schemas import MAX_REPORTS_PER_REQUEST
-from letmehandle.api.call_reports import REPORTS_BODY_LIMIT_BYTES
 from letmehandle.application.calls.reports import ReportingPolicy
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
@@ -201,7 +201,7 @@ class TestSize:
         self, api: Api
     ) -> None:
         tokens = await sign_in(api)
-        size = REPORTS_BODY_LIMIT_BYTES + 1
+        size = JSON_BODY_LIMIT_BYTES + 1
 
         async def chunks() -> AsyncIterator[bytes]:
             for _ in range(size // 4_096 + 1):
