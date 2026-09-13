@@ -3,14 +3,20 @@
  *
  * The whole tree against a backend that remembers, because the properties worth proving are all
  * about what happens between requests: where somebody is put when they open the application,
- * what they are allowed to skip, and what they are told when a save is refused.
+ * which of the server's steps they are never shown, and what they are told when a save is
+ * refused.
  */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
-import { runningBackend, type RunningBackend } from './support/backend';
+import { twoLanes } from '../preferences/rules';
+import {
+  DEFAULT_PREFERENCES,
+  runningBackend,
+  type RunningBackend,
+} from './support/backend';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -23,31 +29,41 @@ jest.mock('../auth/tokenStore', () => ({
   clearSession: jest.fn(async () => undefined),
 }));
 
-async function open(backend: RunningBackend) {
-  const view = await render(<App />);
-  const step = backend.onboarding().next_step;
+type View = Awaited<ReturnType<typeof render>>;
+
+async function next(view: View, from: string, to: string): Promise<void> {
   await waitFor(() => {
-    expect(view.getByTestId(`onboarding-${step}`)).toBeOnTheScreen();
+    expect(view.getByTestId(from)).toBeOnTheScreen();
   });
-  return view;
+  await fireEvent.press(view.getByTestId('onboarding-continue'));
+  await waitFor(() => {
+    expect(view.getByTestId(to)).toBeOnTheScreen();
+  });
 }
 
 describe('where somebody lands', () => {
-  it('opens setup when there is still something to ask', async () => {
+  it('passes the introduction by and opens on how calls work', async () => {
+    // The welcome page before sign-in is the introduction; asking it again is a wasted step.
     const backend = runningBackend({ startAt: 'introduction' });
-    const view = await open(backend);
+    const view = await render(<App />);
 
-    expect(view.getByTestId('onboarding-introduction')).toBeOnTheScreen();
+    expect(
+      await view.findByTestId('onboarding-call_handling'),
+    ).toBeOnTheScreen();
+    expect(backend.onboarding().completed).toContain('introduction');
+    expect(view.getByTestId('lane-contacts')).toBeOnTheScreen();
+    expect(view.getByTestId('lane-unknown')).toBeOnTheScreen();
   });
 
   it('resumes at the step the server says is next, not at the beginning', async () => {
-    // Somebody who reinstalled, or signed in on a second phone. Asking them everything again is
-    // the reason the progress is held on the server at all.
-    const backend = runningBackend({ startAt: 'authority' });
-    const view = await open(backend);
+    // Somebody who reinstalled, or signed in on a second phone.
+    runningBackend({ startAt: 'authority' });
+    const view = await render(<App />);
 
-    expect(view.getByTestId('onboarding-authority')).toBeOnTheScreen();
-    expect(view.queryByTestId('onboarding-introduction')).toBeNull();
+    expect(await view.findByTestId('onboarding-authority')).toBeOnTheScreen();
+    expect(view.getByTestId('steps')).toHaveAccessibleName(
+      en.setup.progress.replace('{{done}}', '3').replace('{{total}}', '4'),
+    );
   });
 
   it('opens the application itself once there is nothing left to ask', async () => {
@@ -55,116 +71,107 @@ describe('where somebody lands', () => {
     const view = await render(<App />);
 
     expect(await view.findByTestId('home-screen')).toBeOnTheScreen();
+    // Setup was finished elsewhere, so the "all set" page is not for this person.
+    expect(view.queryByTestId('setup-done')).toBeNull();
   });
 });
 
-describe('answering', () => {
-  it('records the introduction without saving anything', async () => {
-    const backend = runningBackend({ startAt: 'introduction' });
-    const view = await open(backend);
-
-    await fireEvent.press(view.getByTestId('onboarding-continue'));
-
-    expect(
-      await view.findByTestId('onboarding-call_handling'),
-    ).toBeOnTheScreen();
-    expect(backend.patches).toHaveLength(0);
-  });
-
-  it('saves the answer and moves on', async () => {
+describe('the four steps', () => {
+  it('saves each answer, never asks the steps the design leaves out, and ends on "all set"', async () => {
     const backend = runningBackend({ startAt: 'call_handling' });
-    const view = await open(backend);
+    const view = await render(<App />);
 
-    await fireEvent.press(view.getByTestId('handling-default-reject'));
+    await next(view, 'onboarding-call_handling', 'onboarding-hours');
+    expect(backend.preferences().call_handling).toEqual(
+      twoLanes(DEFAULT_PREFERENCES.call_handling),
+    );
+    // Important contacts sits between the two on the server, and was passed over.
+    expect(backend.onboarding().completed).toContain('important_contacts');
+    expect(view.queryByTestId('onboarding-important_contacts')).toBeNull();
+
+    expect(view.getByTestId('hours-always')).toBeOnTheScreen();
+    await next(view, 'onboarding-hours', 'onboarding-authority');
+    expect(backend.preferences().hours).toEqual({ working: null, quiet: null });
+
+    await fireEvent(
+      view.getByTestId('capability-take_a_message'),
+      'valueChange',
+      true,
+    );
+    await next(view, 'onboarding-authority', 'onboarding-notifications');
+    expect(backend.preferences().authority.capabilities).toEqual([
+      'take_a_message',
+    ]);
+
+    expect(view.getByTestId('call-graph')).toBeOnTheScreen();
     await fireEvent.press(view.getByTestId('onboarding-continue'));
 
-    await waitFor(() => {
-      expect(backend.preferences().call_handling.default_posture).toBe(
-        'reject',
-      );
-    });
-    expect(
-      await view.findByTestId('onboarding-important_contacts'),
-    ).toBeOnTheScreen();
-  });
+    // Personality is the last step on the server and is passed over too.
+    expect(await view.findByTestId('setup-done')).toBeOnTheScreen();
+    expect(backend.onboarding().is_complete).toBe(true);
+    expect(await view.findByTestId('setup-done-voice')).toHaveTextContent(
+      en.setup.done.voice.replace('{{voice}}', 'Ash'),
+    );
 
-  it('walks the whole way through to the application', async () => {
-    const backend = runningBackend({ startAt: 'introduction' });
-    const view = await open(backend);
-
-    for (const step of [
-      'introduction',
-      'call_handling',
-      'important_contacts',
-      'hours',
-      'authority',
-      'notifications',
-      'personality',
-    ]) {
-      await waitFor(() => {
-        expect(view.getByTestId(`onboarding-${step}`)).toBeOnTheScreen();
-      });
-      await fireEvent.press(view.getByTestId('onboarding-continue'));
-    }
-
+    await fireEvent.press(view.getByTestId('setup-done-home'));
     expect(await view.findByTestId('home-screen')).toBeOnTheScreen();
   });
-});
 
-describe('skipping', () => {
-  it('is not offered for call handling, which has no safe default', async () => {
-    // The backend answers 422 for this step, so offering the button would be showing somebody a
-    // failure they could not have avoided.
+  it('stays on the step and says so when a save is refused', async () => {
     const backend = runningBackend({ startAt: 'call_handling' });
-    const view = await open(backend);
+    const view = await render(<App />);
+    await view.findByTestId('onboarding-call_handling');
 
-    expect(view.queryByTestId('onboarding-skip')).toBeNull();
-  });
-
-  it('is not offered for the introduction, which asks nothing', async () => {
-    const backend = runningBackend({ startAt: 'introduction' });
-    const view = await open(backend);
-
-    expect(view.queryByTestId('onboarding-skip')).toBeNull();
-  });
-
-  it('passes over a step the server allows, without saving it', async () => {
-    const backend = runningBackend({ startAt: 'hours' });
-    const view = await open(backend);
-
-    await fireEvent.press(view.getByTestId('onboarding-skip'));
-
-    expect(await view.findByTestId('onboarding-authority')).toBeOnTheScreen();
-    expect(backend.patches).toHaveLength(0);
-  });
-});
-
-describe('when a save is refused', () => {
-  it('stays on the step and says so', async () => {
-    const backend = runningBackend({ startAt: 'call_handling' });
     backend.refuseNextSave({
       status: 422,
       body: { error: 'invalid_request', message: 'no' },
     });
-    const view = await open(backend);
-
-    await fireEvent.press(view.getByTestId('handling-default-reject'));
     await fireEvent.press(view.getByTestId('onboarding-continue'));
 
-    expect(await view.findByText(en.onboarding.saveFailed)).toBeOnTheScreen();
+    expect(await view.findByTestId('onboarding-problem')).toHaveTextContent(
+      en.setup.saveFailed,
+    );
     expect(view.getByTestId('onboarding-call_handling')).toBeOnTheScreen();
+    expect(backend.onboarding().next_step).toBe('call_handling');
   });
 
-  it('says plainly when the service cannot be reached', async () => {
-    const backend = runningBackend({ startAt: 'notifications' });
-    const view = await open(backend);
+  it('offers no skip on any step the design shows', async () => {
+    runningBackend({ startAt: 'call_handling' });
+    const view = await render(<App />);
+    await view.findByTestId('onboarding-call_handling');
 
-    globalThis.fetch = (async () => {
-      throw new TypeError('Network request failed');
-    }) as unknown as typeof fetch;
+    expect(view.queryByText(en.setup.skip)).toBeNull();
+  });
+});
 
-    await fireEvent.press(view.getByTestId('onboarding-continue'));
+describe('a step that cannot be passed over', () => {
+  it('offers another try when recording it fails', async () => {
+    const backend: RunningBackend = runningBackend({ startAt: 'introduction' });
+    const original = globalThis.fetch;
+    let failed = false;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (
+        !failed &&
+        url.endsWith('/v1/onboarding') &&
+        init?.method === 'POST'
+      ) {
+        failed = true;
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: 'unavailable', message: 'x' }),
+        } as Response;
+      }
+      return original(url, init);
+    }) as typeof fetch;
 
-    expect(await view.findByText(en.common.noConnection)).toBeOnTheScreen();
+    const view = await render(<App />);
+    expect(await view.findByTestId('onboarding-retry')).toBeOnTheScreen();
+
+    await fireEvent.press(view.getByTestId('onboarding-retry'));
+    expect(
+      await view.findByTestId('onboarding-call_handling'),
+    ).toBeOnTheScreen();
+    expect(backend.onboarding().completed).toContain('introduction');
   });
 });

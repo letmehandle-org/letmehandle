@@ -186,7 +186,7 @@ describe('loading', () => {
       wrapper({ children: <Text>the application</Text> }),
     );
 
-    expect(await view.findByText(en.onboarding.loadFailed)).toBeOnTheScreen();
+    expect(await view.findByText(en.setup.loadFailed)).toBeOnTheScreen();
 
     await fireEvent.press(view.getByTestId('preferences-retry'));
 

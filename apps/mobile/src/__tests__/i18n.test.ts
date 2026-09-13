@@ -7,7 +7,7 @@ describe('i18n', () => {
   });
 
   it('resolves a known key', () => {
-    expect(i18n.t('home.title')).toBe(en.home.title);
+    expect(i18n.t('common.appName')).toBe(en.common.appName);
   });
 
   it('throws on a missing key rather than rendering it', () => {

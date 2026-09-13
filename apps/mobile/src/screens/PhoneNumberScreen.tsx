@@ -5,10 +5,12 @@ import { describeFailure } from '../api/messages';
 import { useSession } from '../auth/SessionProvider';
 import { Button } from '../components/Button';
 import { Field } from '../components/Field';
+import { HeadingBlock } from '../components/HeadingBlock';
 import { Screen } from '../components/Screen';
 
 interface Props {
   readonly onCodeSent: (challengeId: string, phoneNumber: string) => void;
+  readonly onBack: () => void;
 }
 
 /**
@@ -18,7 +20,10 @@ interface Props {
  * and the server cannot disagree about what counts as the same number — which is how one
  * person ends up with two accounts.
  */
-export function PhoneNumberScreen({ onCodeSent }: Props): React.JSX.Element {
+export function PhoneNumberScreen({
+  onCodeSent,
+  onBack,
+}: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { requestCode } = useSession();
 
@@ -49,10 +54,19 @@ export function PhoneNumberScreen({ onCodeSent }: Props): React.JSX.Element {
 
   return (
     <Screen
-      title={t('phone.title')}
-      subtitle={t('phone.subtitle')}
+      onBack={onBack}
       testID="phone-screen"
+      footer={
+        <Button
+          label={t('common.continue')}
+          onPress={submit}
+          busy={busy}
+          disabled={number.trim().length < 5}
+          testID="phone-continue"
+        />
+      }
     >
+      <HeadingBlock title={t('phone.title')} subtitle={t('phone.subtitle')} />
       <Field
         label={t('phone.label')}
         placeholder={t('phone.placeholder')}
@@ -64,13 +78,6 @@ export function PhoneNumberScreen({ onCodeSent }: Props): React.JSX.Element {
         autoComplete="tel"
         autoFocus
         testID="phone-input"
-      />
-      <Button
-        label={t('common.continue')}
-        onPress={submit}
-        busy={busy}
-        disabled={number.trim().length < 5}
-        testID="phone-continue"
       />
     </Screen>
   );

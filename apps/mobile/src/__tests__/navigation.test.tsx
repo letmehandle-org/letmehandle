@@ -41,11 +41,15 @@ describe('RootNavigator', () => {
       'VerifyCode',
     ]);
     expect(Object.values(APP_ROUTES)).toEqual([
-      'Home',
-      'Profile',
-      'Settings',
-      'SettingsSection',
-      'Voice',
+      'Tabs',
+      'Who',
+      'When',
+      'Hours',
+      'Authority',
+      'Say',
+      'Personalise',
+      'Topics',
+      'Account',
       'CallScreening',
     ]);
     expect(Object.values(ONBOARDING_ROUTES)).toEqual(['Step']);
