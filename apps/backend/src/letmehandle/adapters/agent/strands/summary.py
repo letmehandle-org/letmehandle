@@ -16,10 +16,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictStr
-from strands import Agent
-from strands.agent.conversation_manager import NullConversationManager
 
 from letmehandle.adapters.agent.strands.assessment import one_of
+from letmehandle.adapters.agent.strands.model import single_use_agent
 from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
 from letmehandle.application.calls.prompts import load_summary_prompts
@@ -107,16 +106,8 @@ class StrandsSummaryDrafter(SummaryDrafter):
         call: list[ContentBlock] = [{"text": prompts.call_message(request)}]
         if correction is not None:
             call.append({"text": prompts.correction_message(correction, answer_tool=ANSWER_TOOL)})
-        agent = Agent(
-            model=self._model,
-            tools=[],
-            system_prompt=prompts.instructions_prompt(answer_tool=ANSWER_TOOL),
-            # The default handler prints what the model streams, which quotes the call, to stdout.
-            callback_handler=None,
-            # Trimming would silently summarise part of a call; an overflow is a failure instead.
-            conversation_manager=NullConversationManager(),
-            # Retries belong inside the summariser's bound, and the default backs off for minutes.
-            retry_strategy=None,
+        agent = single_use_agent(
+            self._model, system_prompt=prompts.instructions_prompt(answer_tool=ANSWER_TOOL)
         )
         result = await agent.invoke_async(
             call,

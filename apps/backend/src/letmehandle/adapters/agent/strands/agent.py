@@ -23,11 +23,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
-from strands import Agent
-from strands.agent.conversation_manager import NullConversationManager
-from strands.tools.executors import SequentialToolExecutor
-
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
+from letmehandle.adapters.agent.strands.model import single_use_agent
 from letmehandle.adapters.agent.strands.tools import ToolLedger, UnknownToolRefusals, present
 from letmehandle.application.agent.conclusion import (
     NOT_ENDED_AFTER_A_FAILURE,
@@ -43,6 +40,7 @@ from letmehandle.observability.logging import get_logger
 if TYPE_CHECKING:
     from datetime import timedelta
 
+    from strands import Agent
     from strands.models.model import Model
 
     from letmehandle.application.agent.conclusion import JudgementConclusion
@@ -114,22 +112,13 @@ class StrandsCallAgent(CallAgent):
         """
         prompts = load_prompts(call.preferences.locale)
         ledger = ToolLedger(JudgementNotes())
-        agent = Agent(
-            model=self._model,
+        agent = single_use_agent(
+            self._model,
             tools=[present(tool, call, ledger) for tool in self._tools(ledger.notes)],
             hooks=[UnknownToolRefusals(ledger)],
             system_prompt=prompts.system_prompt(
                 call.preferences, call.authority, assessment_tool=ASSESSMENT_TOOL
             ),
-            # The default handler prints what the model streams, which is the call, to stdout.
-            callback_handler=None,
-            # The default manager trims history to fit, which would silently drop the start of a
-            # call. An overflow is a failure the fallback handles, not something to paper over.
-            conversation_manager=NullConversationManager(),
-            # One at a time, so refusals are recorded, and actions taken, in the order asked for.
-            tool_executor=SequentialToolExecutor(),
-            # Retries belong inside the time bound, and the default backs off for minutes.
-            retry_strategy=None,
         )
         assessment = await self._assess(agent, prompts, call)
         if ledger.failure is not None:
