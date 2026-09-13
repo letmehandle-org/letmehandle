@@ -59,14 +59,6 @@ export function withEveryCall(
   return { ...notifications, on_handled_call: on, on_blocked_call: on };
 }
 
-/** How many of the assistant's capabilities are granted, out of how many exist. */
-export function grantedCount(
-  preferences: Preferences,
-  total: number,
-): { granted: number; total: number } {
-  return { granted: preferences.authority.capabilities?.length ?? 0, total };
-}
-
 /**
  * The whole personality section with one part changed.
  *

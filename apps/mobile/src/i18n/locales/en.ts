@@ -448,17 +448,6 @@ export const en = {
    * are looked up here by the code that raises them.
    */
   preferences: {
-    important_contacts: {
-      invalidNumber: 'Enter the number in full, including the country code.',
-      invalidLabel: 'Give this person a name so you can recognise the entry.',
-      duplicate: 'That number is already on the list.',
-    },
-    hours: {
-      invalidTime: 'Use a 24-hour time, such as 09:00.',
-      emptyWindow:
-        'A window that starts and ends at the same time covers nothing.',
-      invalidZone: 'Name the timezone, such as Europe/London.',
-    },
     personality: {
       invalidTopic: 'A topic is a short phrase, not a sentence.',
       duplicateTopic: 'That is already on the list.',
