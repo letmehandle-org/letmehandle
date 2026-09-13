@@ -73,6 +73,9 @@ export const ERROR_CODES = {
   invalidCredentials: 'invalid_credentials',
   notAuthenticated: 'not_authenticated',
   rateLimited: 'rate_limited',
+  unservedCountry: 'unserved_country',
+  transcriptPurged: 'transcript_purged',
+  transcriptNotRecorded: 'transcript_not_recorded',
   databaseUnavailable: 'database_unavailable',
   internal: 'internal_error',
 } as const;

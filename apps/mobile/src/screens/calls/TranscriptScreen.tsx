@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { TranscriptLine } from '@letmehandle/api-client';
+import { ERROR_CODES, type TranscriptLine } from '@letmehandle/api-client';
 
 import { ApiError } from '../../api/errors';
 import { describeFailure } from '../../api/messages';
@@ -59,7 +59,7 @@ export function TranscriptScreen({
         <ActivityIndicator color={theme.colour.accent} style={styles.loading} />
       )}
 
-      {code === 'transcript_purged' && (
+      {code === ERROR_CODES.transcriptPurged && (
         <View style={styles.gone} testID="transcript-purged">
           <Disc icon="clock" tone="quiet" size={72} />
           <Text style={styles.goneText}>
@@ -80,15 +80,15 @@ export function TranscriptScreen({
           />
         </View>
       )}
-      {code === 'transcript_not_recorded' && (
+      {code === ERROR_CODES.transcriptNotRecorded && (
         <View style={styles.gone} testID="transcript-not-recorded">
           <Disc icon="mic" tone="quiet" size={72} />
           <Text style={styles.goneText}>{t('transcript.notRecorded')}</Text>
         </View>
       )}
       {loaded.state === 'failed' &&
-        code !== 'transcript_purged' &&
-        code !== 'transcript_not_recorded' && (
+        code !== ERROR_CODES.transcriptPurged &&
+        code !== ERROR_CODES.transcriptNotRecorded && (
           <>
             <Notice
               tone="problem"
