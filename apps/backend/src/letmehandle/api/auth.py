@@ -15,7 +15,7 @@ from letmehandle.api.dependencies import (
     Forwarding,
     Users,
 )
-from letmehandle.api.errors import ApiError
+from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.schemas import (
     CallForwardingResponse,
     ChallengeRequest,
@@ -28,6 +28,7 @@ from letmehandle.api.schemas import (
     VerifyRequest,
 )
 from letmehandle.application.auth.service import AuthenticationError, RateLimitedError
+from letmehandle.domain.errors import UnreachableNumberError
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -106,6 +107,16 @@ async def request_challenge(
             "rate_limited",
             "Too many attempts. Try again shortly.",
             headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
+    except UnreachableNumberError as error:
+        # The one delivery failure the person signing in can fix. It says nothing about whether
+        # the number has an account, only that no text reaches it. Every other provider failure
+        # is left to the application's handler, which rolls the challenge back: a code that was
+        # never sent must not use up the number's allowance.
+        raise ApiError(
+            UNPROCESSABLE,
+            "number_unreachable",
+            "That number cannot receive a sign-in code. Check it and try again.",
         ) from error
 
     return ChallengeResponse(
