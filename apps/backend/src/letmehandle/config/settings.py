@@ -7,7 +7,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import lru_cache
+from functools import lru_cache, partial
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING, Annotated, Final
 
@@ -25,6 +25,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from letmehandle.config.listing import entries, is_calling_code, repeated
 from letmehandle.config.telephony_lines import (
     LineDescription,
     LineProviderName,
@@ -37,7 +38,7 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 
 class Environment(StrEnum):
@@ -148,12 +149,12 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
     JSON quoting inside a shell variable is where a catalogue gets silently truncated. The price is
     that a display name cannot contain a colon or a comma, which no voice name has needed.
     """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    listed = entries(text)
+    if not listed:
         raise ValueError(f"SPEECH_VOICES lists no voices; expected {VOICE_CATALOGUE_FORMAT!r}")
 
     voices: list[Voice] = []
-    for entry in entries:
+    for entry in listed:
         parts = [part.strip() for part in entry.split(":")]
         locales = tuple(locale.strip() for locale in parts[-1].split("|"))
         if len(parts) != 3 or not all(parts) or not all(locales):
@@ -162,12 +163,11 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
             )
         voices.append(Voice(id=parts[0], name=parts[1], locales=locales))
 
-    ids = [voice.id for voice in voices]
-    repeated = sorted({voice_id for voice_id in ids if ids.count(voice_id) > 1})
-    if repeated:
+    repeated_ids = repeated(voice.id for voice in voices)
+    if repeated_ids:
         # Caught here as well as by the provider, so the message names the variable to fix rather
         # than an invariant somebody has to trace back to a line in an environment file.
-        raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated}")
+        raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated_ids}")
     return tuple(voices)
 
 
@@ -177,21 +177,17 @@ _LANGUAGE_CODE: Final = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})?")
 
 def parse_speech_languages(text: str) -> tuple[str, ...]:
     """The languages SPEECH_LANGUAGES lists, in its order: `en,hi`."""
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    languages = entries(text)
+    if not languages:
         raise ValueError("SPEECH_LANGUAGES lists no languages; expected codes such as 'en,hi'")
-    for position, entry in enumerate(entries, 1):
-        if not _LANGUAGE_CODE.fullmatch(entry):
+    for position, language in enumerate(languages, 1):
+        if not _LANGUAGE_CODE.fullmatch(language):
             raise ValueError(
                 f"SPEECH_LANGUAGES entry {position} is not a language code, such as en or hi"
             )
-    if len(set(entries)) != len(entries):
+    if repeated(languages):
         raise ValueError("SPEECH_LANGUAGES lists the same language more than once")
-    return tuple(entries)
-
-
-def _languages_from_text(value: object) -> object:
-    return parse_speech_languages(value) if isinstance(value, str) else value
+    return tuple(languages)
 
 
 # How TRANSCRIPT_ENCRYPTION_KEYS is written, quoted in every error about it.
@@ -207,13 +203,13 @@ def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
     fails to parse is most often a key pasted without its id, and an error message is copied
     into chat, tickets and logs far more readily than an environment file is.
     """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    listed = entries(text)
+    if not listed:
         raise ValueError(
             f"TRANSCRIPT_ENCRYPTION_KEYS lists no keys; expected {TRANSCRIPT_KEYS_FORMAT!r}"
         )
     keys: list[tuple[str, bytes]] = []
-    for position, entry in enumerate(entries, start=1):
+    for position, entry in enumerate(listed, start=1):
         key_id, separator, encoded = (part.strip() for part in entry.partition(":"))
         if not separator or not _KEY_ID.fullmatch(key_id):
             raise ValueError(
@@ -235,17 +231,12 @@ def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
                 '.decode())"`'
             )
         keys.append((key_id, key))
-    ids = [key_id for key_id, _ in keys]
-    repeated = sorted({key_id for key_id in ids if ids.count(key_id) > 1})
-    if repeated:
-        raise ValueError(f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated}")
+    repeated_ids = repeated(key_id for key_id, _ in keys)
+    if repeated_ids:
+        raise ValueError(
+            f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated_ids}"
+        )
     return tuple(keys)
-
-
-def _catalogue_from_text(value: object) -> object:
-    # Text is what the environment supplies; a tuple of voices is what code constructing
-    # settings directly passes, and that needs no parsing.
-    return parse_voice_catalogue(value) if isinstance(value, str) else value
 
 
 def parse_number_list(text: str) -> tuple[PhoneNumber, ...]:
@@ -254,65 +245,45 @@ def parse_number_list(text: str) -> tuple[PhoneNumber, ...]:
     The message names the position of a number it cannot read, never the number: an error
     about configuration is printed where anyone running the process can see it.
     """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    numbers: list[PhoneNumber] = []
-    for position, entry in enumerate(entries, 1):
-        try:
-            numbers.append(PhoneNumber.parse(entry))
-        except InvariantError:
-            raise ValueError(
-                f"TELEPHONY_NUMBERS entry {position} is not an international number in E.164 form"
-            ) from None
+    numbers = tuple(
+        _number(f"TELEPHONY_NUMBERS entry {position}", entry)
+        for position, entry in enumerate(entries(text), 1)
+    )
     if not numbers:
         raise ValueError("TELEPHONY_NUMBERS lists no numbers")
-    return tuple(numbers)
+    return numbers
 
 
-def _numbers_from_text(value: object) -> object:
-    return parse_number_list(value) if isinstance(value, str) else value
-
-
-def _lines_from_text(value: object) -> object:
-    return parse_telephony_lines(value) if isinstance(value, str) else value
-
-
-def _unforwarded_owner_from_text(value: object) -> object:
-    if not isinstance(value, str):
-        return value
+def _number(what: str, text: str) -> PhoneNumber:
+    """The number `text` is in E.164 form, or an error naming `what` and never the text."""
     try:
-        return PhoneNumber.parse(value)
+        return PhoneNumber.parse(text)
     except InvariantError:
-        raise ValueError(
-            "TELEPHONY_UNFORWARDED_CALLS_OWNER is not an international number in E.164 form"
-        ) from None
+        raise ValueError(f"{what} is not an international number in E.164 form") from None
 
 
-def _sender_from_text(value: object) -> object:
-    # The message names the variable and never repeats the value, as every number error here does.
-    if not isinstance(value, str):
-        return value
-    try:
-        return PhoneNumber.parse(value)
-    except InvariantError:
-        raise ValueError("SMS_FROM_NUMBER is not an international number in E.164 form") from None
+def _parsed(parse: Callable[[str], object]) -> BeforeValidator:
+    """A validator that parses text with `parse` and passes any other value through."""
+    return BeforeValidator(lambda value: parse(value) if isinstance(value, str) else value)
+
+
+def _e164(variable: str) -> BeforeValidator:
+    """A validator that reads one number in E.164 form, naming `variable` when it cannot."""
+    return _parsed(partial(_number, variable))
 
 
 def parse_calling_codes(text: str) -> frozenset[str] | None:
     """Country calling codes, comma-separated and without the plus: "91,1,44". Blank is any."""
-    entries = [entry.strip().lstrip("+") for entry in text.split(",") if entry.strip()]
-    if not entries:
+    codes = [entry.lstrip("+") for entry in entries(text)]
+    if not codes:
         return None
-    for position, entry in enumerate(entries, 1):
-        if not entry.isdigit() or not 1 <= len(entry) <= 3 or entry.startswith("0"):
+    for position, code in enumerate(codes, 1):
+        if not is_calling_code(code):
             raise ValueError(
                 f"OTP_ALLOWED_CALLING_CODES entry {position} is not a country calling code, "
                 "such as 91 or 1"
             )
-    return frozenset(entries)
-
-
-def _calling_codes_from_text(value: object) -> object:
-    return parse_calling_codes(value) if isinstance(value, str) else value
+    return frozenset(codes)
 
 
 # How OTP_PROVIDER_BY_CALLING_CODE is written, quoted in every error about it.
@@ -322,17 +293,11 @@ OTP_PROVIDERS_FORMAT: Final = "91:twilio_verify,1:mock"
 def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
     """Which provider sends codes to each calling code, as `code:provider`, comma-separated."""
     routes: dict[str, OTPProviderName] = {}
-    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+    known = {provider.value for provider in OTPProviderName}
+    for position, entry in enumerate(entries(text), 1):
         code, separator, name = (part.strip() for part in entry.partition(":"))
         code = code.lstrip("+")
-        known = {provider.value for provider in OTPProviderName}
-        if (
-            not separator
-            or not code.isdigit()
-            or not 1 <= len(code) <= 3
-            or code.startswith("0")
-            or name not in known
-        ):
+        if not separator or not is_calling_code(code) or name not in known:
             raise ValueError(
                 f"OTP_PROVIDER_BY_CALLING_CODE entry {position} is not a calling code and one of "
                 f"{', '.join(sorted(known))}, as in {OTP_PROVIDERS_FORMAT!r}"
@@ -343,14 +308,10 @@ def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
     return tuple(routes.items())
 
 
-def _otp_providers_from_text(value: object) -> object:
-    return parse_otp_providers(value) if isinstance(value, str) else value
-
-
 def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
     """The networks whose forwarding headers are believed, comma-separated CIDRs. Blank is none."""
     networks: list[IPv4Network | IPv6Network] = []
-    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+    for position, entry in enumerate(entries(text), 1):
         try:
             networks.append(ip_network(entry, strict=False))
         except ValueError:
@@ -358,10 +319,6 @@ def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
                 f"TRUSTED_PROXY_CIDRS entry {position} is not a network, such as 10.0.0.0/8"
             ) from None
     return tuple(networks)
-
-
-def _proxy_networks_from_text(value: object) -> object:
-    return parse_proxy_networks(value) if isinstance(value, str) else value
 
 
 # How LLM_HEADERS is written, quoted in every error about it.
@@ -384,9 +341,7 @@ def parse_llm_headers(text: str) -> tuple[tuple[str, SecretStr], ...]:
     header is a key that is silently not the one somebody configured.
     """
     headers: list[tuple[str, SecretStr]] = []
-    for entry in (entry.strip() for entry in text.split(";")):
-        if not entry:
-            continue
+    for entry in entries(text, ";"):
         name, separator, value = (part.strip() for part in entry.partition("="))
         if not separator or not _HEADER_NAME.fullmatch(name) or not value:
             raise ValueError(
@@ -397,15 +352,10 @@ def parse_llm_headers(text: str) -> tuple[tuple[str, SecretStr], ...]:
             raise ValueError("LLM_HEADERS cannot set Authorization; the key is LLM_API_KEY")
         headers.append((name, SecretStr(value)))
 
-    names = [name.lower() for name, _ in headers]
-    repeated = sorted({name for name in names if names.count(name) > 1})
-    if repeated:
-        raise ValueError(f"LLM_HEADERS names the same header more than once: {repeated}")
+    repeated_names = repeated(name.lower() for name, _ in headers)
+    if repeated_names:
+        raise ValueError(f"LLM_HEADERS names the same header more than once: {repeated_names}")
     return tuple(headers)
-
-
-def _headers_from_text(value: object) -> object:
-    return parse_llm_headers(value) if isinstance(value, str) else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,7 +474,7 @@ class Settings(BaseSettings):
     otp_provider_by_calling_code: Annotated[
         tuple[tuple[str, OTPProviderName], ...],
         NoDecode,
-        BeforeValidator(_otp_providers_from_text),
+        _parsed(parse_otp_providers),
         Field(
             description="Who delivers sign-in codes to numbers with particular calling codes, as "
             "`code:provider`, comma-separated, such as `91:twilio_verify`. Every other number is "
@@ -534,7 +484,7 @@ class Settings(BaseSettings):
     otp_allowed_calling_codes: Annotated[
         frozenset[str] | None,
         NoDecode,
-        BeforeValidator(_calling_codes_from_text),
+        _parsed(parse_calling_codes),
         Field(
             description="Country calling codes sign-in codes may be sent to, comma-separated "
             "without the plus, such as 91,1,44. Blank sends anywhere; a production deployment "
@@ -555,7 +505,7 @@ class Settings(BaseSettings):
     trusted_proxy_cidrs: Annotated[
         tuple[IPv4Network | IPv6Network, ...],
         NoDecode,
-        BeforeValidator(_proxy_networks_from_text),
+        _parsed(parse_proxy_networks),
         Field(
             description="The proxies in front of the backend, as comma-separated CIDRs. Only "
             "their X-Forwarded-For is believed when counting what one client asks for.",
@@ -583,7 +533,7 @@ class Settings(BaseSettings):
     ] = None
     sms_from_number: Annotated[
         PhoneNumber | None,
-        BeforeValidator(_sender_from_text),
+        _e164("SMS_FROM_NUMBER"),
         BeforeValidator(_blank_is_absent),
         Field(
             description="The number sign-in texts come from, in E.164 form.",
@@ -618,7 +568,7 @@ class Settings(BaseSettings):
     speech_languages: Annotated[
         tuple[str, ...],
         NoDecode,
-        BeforeValidator(_languages_from_text),
+        _parsed(parse_speech_languages),
         Field(
             description="The languages the speech service speaks, comma-separated, such as "
             "`en,hi`. A call opens in the user's language when it is one of them (D-039).",
@@ -678,7 +628,7 @@ class Settings(BaseSettings):
         tuple[Voice, ...] | None,
         NoDecode,
         BeforeValidator(_blank_is_absent),
-        BeforeValidator(_catalogue_from_text),
+        _parsed(parse_voice_catalogue),
         Field(
             description="The voices offered, as `id:Display name:locale|locale`, comma-separated, "
             "such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices "
@@ -740,7 +690,7 @@ class Settings(BaseSettings):
         tuple[PhoneNumber, ...] | None,
         NoDecode,
         # Validators run last-listed first: a blank is set aside before anything parses it.
-        BeforeValidator(_numbers_from_text),
+        _parsed(parse_number_list),
         BeforeValidator(_blank_is_absent),
         Field(
             description="The numbers calls are placed from, comma-separated, in E.164 form.",
@@ -775,7 +725,7 @@ class Settings(BaseSettings):
     telephony_lines: Annotated[
         tuple[LineDescription, ...] | None,
         NoDecode,
-        BeforeValidator(_lines_from_text),
+        _parsed(parse_telephony_lines),
         BeforeValidator(_blank_is_absent),
         Field(
             description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
@@ -798,7 +748,7 @@ class Settings(BaseSettings):
     # nobody, because anybody can dial the number and must not reach a user's assistant by it.
     telephony_unforwarded_calls_owner: Annotated[
         PhoneNumber | None,
-        BeforeValidator(_unforwarded_owner_from_text),
+        _e164("TELEPHONY_UNFORWARDED_CALLS_OWNER"),
         BeforeValidator(_blank_is_absent),
         Field(
             description="Development only: the signed-in number whose calls dialled straight at "
@@ -854,7 +804,7 @@ class Settings(BaseSettings):
     llm_headers: Annotated[
         tuple[tuple[str, SecretStr], ...],
         NoDecode,
-        BeforeValidator(_headers_from_text),
+        _parsed(parse_llm_headers),
         Field(
             description="Extra headers some gateways ask for, as "
             "`Header-Name=value;Other-Header=value`. Cannot set `Authorization`."
