@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextvars import ContextVar
@@ -72,11 +73,13 @@ def configure_logging(settings: Settings) -> None:
     # Last before rendering, on both paths, so nothing added along the way escapes them.
     finishing: list[Processor] = [outline_exception, scrub_event]
 
-    renderer: Processor = (
-        structlog.processors.JSONRenderer()
-        if settings.log_format is LogFormat.JSON
-        else structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
-    )
+    if settings.log_format is LogFormat.JSON:
+        renderer: Processor = structlog.processors.JSONRenderer()
+    else:
+        # The console renderer reads `exception` as preformatted text, and a failure here is an
+        # outline, a mapping, so it is written out as a line first.
+        finishing = [*finishing, _exception_as_text]
+        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
     level = logging.getLevelNamesMapping()[settings.log_level.upper()]
 
     structlog.configure(
@@ -138,3 +141,10 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """A logger bound to a module name."""
     logger: structlog.stdlib.BoundLogger = structlog.get_logger(name)
     return logger
+
+
+def _exception_as_text(_logger: object, _method: str, event_dict: EventDict) -> EventDict:
+    outline = event_dict.get("exception")
+    if isinstance(outline, dict):
+        event_dict["exception"] = json.dumps(outline)
+    return event_dict
