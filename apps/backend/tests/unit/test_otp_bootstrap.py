@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
+from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.bootstrap import (
@@ -20,6 +22,7 @@ from letmehandle.config.settings import (
     OTPProviderName,
     Settings,
     get_settings,
+    parse_otp_providers,
 )
 from letmehandle.domain.errors import InvariantError
 from letmehandle.main import create_app
@@ -122,3 +125,68 @@ def test_a_sender_that_is_not_a_number_is_refused_without_repeating_it(
     with pytest.raises(ConfigurationError, match="SMS_FROM_NUMBER") as caught:
         get_settings()
     assert "call-me-maybe" not in str(caught.value)
+
+
+# ------------------------------------------------------------------ a provider per country
+
+
+async def test_a_country_with_a_provider_of_its_own_is_sent_codes_by_it() -> None:
+    container = container_for(
+        make_settings(**SMS, otp_provider_by_calling_code="91:twilio_sms,44:mock")
+    )
+    assert isinstance(container.otp, OTPProviderByCallingCode)
+    assert container.otp.name == "twilio-sms+44:mock,91:twilio-sms"
+    # A country left on the mock makes the whole deployment unsafe to run in production.
+    assert not container.otp.is_safe_for_production
+    await close_providers(container)
+
+
+def test_without_a_provider_per_country_the_default_is_the_provider() -> None:
+    assert isinstance(container_for(make_settings(**SMS)).otp, SmsOTPProvider)
+
+
+def test_a_country_on_the_text_message_provider_needs_its_account_whatever_the_default() -> None:
+    with pytest.raises(ConfigurationError, match="SMS_ACCOUNT_ID"):
+        container_for(make_settings(otp_provider_by_calling_code="91:twilio_sms"))
+
+
+def test_production_refuses_a_country_left_on_the_mock() -> None:
+    settings = make_settings(
+        app_env=Environment.PRODUCTION, **SMS, otp_provider_by_calling_code="91:mock"
+    )
+    with pytest.raises(InvariantError, match="cannot run in production"):
+        container_for(settings)
+
+
+def test_providers_by_country_are_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("OTP_PROVIDER_BY_CALLING_CODE", "+91:twilio_sms, 1:mock")
+    assert get_settings().otp_provider_by_calling_code == (
+        ("91", OTPProviderName.TWILIO_SMS),
+        ("1", OTPProviderName.MOCK),
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ("91", "entry 1 is not a calling code and one of mock, twilio_sms"),
+        ("1:mock,091:mock", "entry 2 is not a calling code"),
+        ("91:carrier-pigeon", "entry 1 is not a calling code"),
+        ("91:mock,91:twilio_sms", "names calling code 91 twice"),
+    ],
+)
+def test_providers_by_country_that_cannot_be_used_are_refused(text: str, problem: str) -> None:
+    with pytest.raises(ValueError, match="OTP_PROVIDER_BY_CALLING_CODE") as caught:
+        parse_otp_providers(text)
+    assert problem in str(caught.value)
+
+
+def test_a_provider_for_a_country_codes_are_never_sent_to_is_refused() -> None:
+    with pytest.raises(ValidationError, match="names 44, which OTP_ALLOWED_CALLING_CODES"):
+        make_settings(
+            otp_provider_by_calling_code="91:mock,44:mock", otp_allowed_calling_codes="1,91"
+        )

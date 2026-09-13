@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from tests.contracts.other_ports import OTPProviderContract
@@ -31,6 +32,24 @@ class TestSmsOTPProvider(OTPProviderContract):
             auth_token=SMS_TOKEN,
             sender=SMS_SENDER,
             transport=SimulatedSms().transport,
+        )
+        yield provider
+        await provider.aclose()
+
+
+class TestOTPProviderByCallingCode(OTPProviderContract):
+    """The provider that chooses, over the text-message provider for one country and the mock."""
+
+    @pytest.fixture
+    async def otp(self) -> AsyncIterator[OTPProviderByCallingCode]:
+        texting = SmsOTPProvider(
+            account_id=SMS_ACCOUNT,
+            auth_token=SMS_TOKEN,
+            sender=SMS_SENDER,
+            transport=SimulatedSms().transport,
+        )
+        provider = OTPProviderByCallingCode(
+            default=MockOTPProvider(is_production=False), by_calling_code={"1": texting}
         )
         yield provider
         await provider.aclose()

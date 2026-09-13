@@ -305,6 +305,38 @@ def _calling_codes_from_text(value: object) -> object:
     return parse_calling_codes(value) if isinstance(value, str) else value
 
 
+# How OTP_PROVIDER_BY_CALLING_CODE is written, quoted in every error about it.
+OTP_PROVIDERS_FORMAT: Final = "91:twilio_sms,1:mock"
+
+
+def parse_otp_providers(text: str) -> tuple[tuple[str, OTPProviderName], ...]:
+    """Which provider sends codes to each calling code, as `code:provider`, comma-separated."""
+    routes: dict[str, OTPProviderName] = {}
+    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+        code, separator, name = (part.strip() for part in entry.partition(":"))
+        code = code.lstrip("+")
+        known = {provider.value for provider in OTPProviderName}
+        if (
+            not separator
+            or not code.isdigit()
+            or not 1 <= len(code) <= 3
+            or code.startswith("0")
+            or name not in known
+        ):
+            raise ValueError(
+                f"OTP_PROVIDER_BY_CALLING_CODE entry {position} is not a calling code and one of "
+                f"{', '.join(sorted(known))}, as in {OTP_PROVIDERS_FORMAT!r}"
+            )
+        if code in routes:
+            raise ValueError(f"OTP_PROVIDER_BY_CALLING_CODE names calling code {code} twice")
+        routes[code] = OTPProviderName(name)
+    return tuple(routes.items())
+
+
+def _otp_providers_from_text(value: object) -> object:
+    return parse_otp_providers(value) if isinstance(value, str) else value
+
+
 def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
     """The networks whose forwarding headers are believed, comma-separated CIDRs. Blank is none."""
     networks: list[IPv4Network | IPv6Network] = []
@@ -468,6 +500,18 @@ class Settings(BaseSettings):
         description="Who delivers sign-in codes. `mock` delivers nowhere, accepts the development "
         "code, and refuses to start in production.",
     )
+    # Who delivers codes to particular countries, where the default provider should not: a country
+    # whose operators accept messages only from a sender registered with a provider licensed there.
+    otp_provider_by_calling_code: Annotated[
+        tuple[tuple[str, OTPProviderName], ...],
+        NoDecode,
+        BeforeValidator(_otp_providers_from_text),
+        Field(
+            description="Who delivers sign-in codes to numbers with particular calling codes, as "
+            "`code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is "
+            "sent its code by `OTP_PROVIDER` (D-040).",
+        ),
+    ] = ()
     otp_allowed_calling_codes: Annotated[
         frozenset[str] | None,
         NoDecode,
@@ -903,6 +947,24 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _codes_are_routed_only_where_they_may_be_sent(self) -> Settings:
+        """Refuse a provider for a calling code sign-in codes are never sent to.
+
+        It could never be used, and a deployment that lists one most likely meant to allow the
+        country too and will find its users there refused at sign-in.
+        """
+        allowed = self.otp_allowed_calling_codes
+        unsent = sorted(
+            code for code, _ in self.otp_provider_by_calling_code if allowed and code not in allowed
+        )
+        if unsent:
+            raise ValueError(
+                f"OTP_PROVIDER_BY_CALLING_CODE names {', '.join(unsent)}, which "
+                "OTP_ALLOWED_CALLING_CODES does not allow codes to be sent to"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _default_voice_is_in_the_catalogue(self) -> Settings:
         """A default outside the catalogue leaves a call nobody configured with no voice at all.
 
@@ -1022,7 +1084,7 @@ class Settings(BaseSettings):
             ]
             raise ConfigurationError(
                 f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"OTP_PROVIDER={self.otp_provider}. Set them in .env; see .env.example."
+                f"{OTPProviderName.TWILIO_SMS}. Set them in .env; see .env.example."
             )
         return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 

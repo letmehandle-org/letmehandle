@@ -39,6 +39,7 @@ every paid provider unset.
 | `AUTH_ACCESS_TOKEN_TTL_SECONDS` | no | `900` | ≥ 60, ≤ 3600 |  | How long an access token lives. Short, because it cannot be revoked. |
 | `AUTH_REFRESH_TOKEN_TTL_SECONDS` | no | `7776000` | ≥ 3600 |  | How long a refresh token lives: ninety days, sliding, so a phone that opens the app within that long of the last time is never asked for its number again. Refresh tokens rotate on every use. |
 | `OTP_PROVIDER` | no | `mock` | `mock` or `twilio_sms` |  | Who delivers sign-in codes. `mock` delivers nowhere, accepts the development code, and refuses to start in production. |
+| `OTP_PROVIDER_BY_CALLING_CODE` | no | — | `mock` or `twilio_sms` |  | Who delivers sign-in codes to numbers with particular calling codes, as `code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is sent its code by `OTP_PROVIDER` (D-040). |
 | `OTP_ALLOWED_CALLING_CODES` | no | — |  |  | Country calling codes sign-in codes may be sent to, comma-separated without the plus, such as 91,1,44. Blank sends anywhere; a production deployment should list only the countries it serves (D-036). |
 | `OTP_CHALLENGES_PER_HOUR` | no | `500` | ≥ 1 |  | The most sign-in codes the deployment sends in an hour. Past it, codes stop for everybody until the hour rolls on (D-036). |
 | `OTP_CHALLENGES_PER_HOUR_PER_CALLING_CODE` | no | `100` | ≥ 1 |  | The most sign-in codes sent in an hour to numbers with any one calling code. |

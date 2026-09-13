@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
+from typing import TYPE_CHECKING, Final, assert_never
 
 from fastapi import APIRouter
 
@@ -22,6 +22,7 @@ from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.closing import close_each
 from letmehandle.adapters.database.call_repositories import (
     SqlCallRepository,
     SqlEscalationContextRepository,
@@ -43,6 +44,7 @@ from letmehandle.adapters.notification.apns.token import APNsProviderToken
 from letmehandle.adapters.notification.fcm import provider as fcm
 from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
 from letmehandle.adapters.notification.shared import CredentialError
+from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
@@ -381,17 +383,9 @@ def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
     return cipher
 
 
-@runtime_checkable
-class _Closable(Protocol):
-    async def aclose(self) -> None:
-        """Release what it holds."""
-
-
 async def close_providers(container: Container) -> None:
     """Close each provider's connection. Called once, as the application stops."""
-    for provider in (container.otp, *container.notifications):
-        if isinstance(provider, _Closable):
-            await provider.aclose()
+    await close_each((container.otp, *container.notifications))
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
@@ -420,7 +414,7 @@ def build_speech_provider(
     it to drop a connection on command and watch the session recover — without that caller
     constructing the adapter itself.
 
-    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives: a protocol
+    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives: a protocol
     added to the settings without an adapter chosen here fails to type-check.
     """
     wrap = wrap_connection or _unwrapped
@@ -563,7 +557,7 @@ def _line_binding(
 ) -> CallTransportBinding:
     """A streaming line's transport, routes and ownership, by the provider it is an account with.
 
-    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives.
+    A match with an exhaustiveness check, for the reason `_otp_provider_named` gives.
     """
     match line.provider:
         case LineProviderName.TWILIO:
@@ -743,13 +737,32 @@ def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
 
 
 def _build_otp_provider(settings: Settings) -> OTPProvider:
-    """Which provider delivers sign-in codes.
+    """Which provider delivers sign-in codes: the default, and any a country has of its own.
+
+    Each provider named is built once, however many calling codes it serves, so one account's
+    connections are shared rather than opened per country.
+    """
+    routes = settings.otp_provider_by_calling_code
+    built = {
+        name: _otp_provider_named(name, settings)
+        for name in {settings.otp_provider, *(name for _, name in routes)}
+    }
+    default = built[settings.otp_provider]
+    if not routes:
+        return default
+    return OTPProviderByCallingCode(
+        default=default, by_calling_code={code: built[name] for code, name in routes}
+    )
+
+
+def _otp_provider_named(name: OTPProviderName, settings: Settings) -> OTPProvider:
+    """The provider called `name`, built from its own settings.
 
     A match with an exhaustiveness check rather than a dictionary with a default: adding a
     provider without deciding what it is called here fails to type-check, instead of quietly
     falling through to the mock — which is the one failure that must never happen silently.
     """
-    match settings.otp_provider:
+    match name:
         case OTPProviderName.MOCK:
             return MockOTPProvider(is_production=settings.is_production)
         case OTPProviderName.TWILIO_SMS:
