@@ -115,7 +115,7 @@ Application runs:     yes      uvicorn on a scratch database migrated to 0010: /
 Manual verification:  make audit-deps against the live advisory databases: backend clean; the
                       three accepted workspace advisories reported as accepted; with uv off the
                       PATH it exits 2, "could not run, which is not a pass"
-Docs updated:         D-035; docs/operations/diagnosing-a-call.md and failure-handling.md;
+Docs updated:         D-038; docs/operations/diagnosing-a-call.md and failure-handling.md;
                       docs/security/data-inventory.md, review.md (suggestions 4 and 5 done);
                       docs/development/self-hosting-security.md; .env.example
 Known issues:         1. No real call has been investigated; the procedure is proven against the
@@ -147,7 +147,7 @@ Commits:              ff6c0d0 feat(observability): scrub sensitive fields and va
 | 2 | No observability output contains conversation content or personal data, proven across a full call | `tests/e2e/test_observability.py`: an escalated call's every log line, span attribute, metric, readiness and diagnostics response contain neither number, what was said, what the user was told, a device token nor the access token. The scrubber (`test_scrubbing.py`, nested and in exception context, standard library lines too), the metric registry (`test_catalogue.py`), span attribute checks (`test_tracing.py`) and the log call audit (`test_log_audit.py`) hold it for code not yet written. |
 | 3 | Latency measured at every provider boundary and reported as percentiles | `call.provider_seconds{stage}` (answer, dial, cancel, terminate), `call.speech_open_seconds`, the speech adapters' time to first audio and round trip, `call.judgement_seconds`, `call.summary_seconds`, `escalation.delivery_seconds`: `test_every_provider_boundary_and_every_state_a_call_passed_through_is_timed`. p50, p90, p99 and maximum in `/diagnostics/metrics`: `test_in_process.py`, `test_diagnostics_api.py`, and the e2e scenario. |
 | 4 | State transitions counted and timed, and a stuck call visible | `call.transition` counts and `call.state_seconds` by the state left; `/diagnostics/calls` lists each live call's state and seconds in it, oldest first (`TestStandings`); the stored timeline marks every transition (`TestTheTimeline`). |
-| 5 | Every provider has a documented, tested degraded mode | `docs/operations/failure-handling.md` and D-035, each row naming its tests: speech puts calls through (`TestSpeechFailing`), the model skips judgements and summarises from facts (`TestTheModelFailing`), telephony refuses at once (`TestTelephonyFailing`), push isolates the platform (`TestAPushServiceFailing`), storage carries on (`test_teardown_holes.py`, `test_health.py`). |
+| 5 | Every provider has a documented, tested degraded mode | `docs/operations/failure-handling.md` and D-038, each row naming its tests: speech puts calls through (`TestSpeechFailing`), the model skips judgements and summarises from facts (`TestTheModelFailing`), telephony refuses at once (`TestTelephonyFailing`), push isolates the platform (`TestAPushServiceFailing`), storage carries on (`test_teardown_holes.py`, `test_health.py`). |
 | 6 | Retries apply only where retrying is correct | `retry_idempotent` retries only a retryable kind (`test_retry.py`); used for ending a call and the final save; dialling is asked once while terminate is asked three times (`test_ending_a_call_at_the_transport_is_tried_again_and_dialling_never_is`). |
 | 7 | Circuit breakers isolate a failing provider | Opens, half-opens with one trial, closes, reopens (`test_circuit.py`); a failing transport's next call is not asked (`test_a_failing_transport_opens_its_circuit...`); one push platform failing leaves the other delivering (`test_its_circuit_opens_and_its_devices_are_not_sent_to_while_it_is_open`). |
 | 8 | Tracing is optional and the no-op default degrades nothing | `NoTracer` is the default without `TRACING_OTLP_ENDPOINT` (`test_observability_bootstrap.py`) and every suite but the tracing tests runs with a checking tracer that exports nothing; the OpenTelemetry adapter is behind the port and import-linter forbids the SDK outside it. |
@@ -160,7 +160,7 @@ Commits:              ff6c0d0 feat(observability): scrub sensitive fields and va
   by hand and recommended an audit. Both are built here: the scrubber on every line, and the audit.
 - **Degraded speech puts calls through.** Rather than failing a call the assistant cannot speak on,
   an open speech circuit removes the assistant from the call's plan and routing's existing fallback
-  rings the user. This changes product behaviour during an outage and is recorded in D-035.
+  rings the user. This changes product behaviour during an outage and is recorded in D-038.
 - **Timelines are stored**, in a new table with its call, rather than kept in process memory, so a
   call that went wrong is diagnosable after a restart and from any process.
 - **Readiness is not failed by an open circuit**, which would only move calls to processes failing

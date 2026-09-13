@@ -24,7 +24,7 @@ challenges sent to their number, after ending any call of theirs in progress (fi
 | `call_transcript_entries` | what was said, by which speaker, when | Text sealed; speaker and time clear | Context for the agent, the user's own review, diagnosing failures (D-014) | The user's retention: 7 days by default, within the documented floor and ceiling | The scheduled purge; call deletion |
 | `call_summaries` | outcome, intent, importance, extracted details, who the caller was taken to be | Detail sealed; outcome, intent, importance, times clear | The lasting record of a call once its transcript is gone | Until the user deletes the call or the account goes | Call deletion, cascade |
 | `escalation_contexts` | caller label, what was established, what the caller needs, notification delivery | Label and both sentences sealed together; reason, status, delivery and times clear | The words of an escalation, for the app when a push was not delivered (D-016) | Until the user deletes the call or the account goes | Call deletion, cascade from `users` |
-| `call_timeline_marks` | each state a call entered, each stage that failed and each dependency it went without, with when | Clear; a closed vocabulary of names, nothing from the caller, user or conversation | Diagnosing a call from its id alone (D-035) | With the call | Cascade from `calls` |
+| `call_timeline_marks` | each state a call entered, each stage that failed and each dependency it went without, with when | Clear; a closed vocabulary of names, nothing from the caller, user or conversation | Diagnosing a call from its id alone (D-038) | With the call | Cascade from `calls` |
 | `call_reports` | handset event and call identifiers, kind, screening decision, how it ended, when | Clear; no number since migration 0008 | Idempotent handset reporting (D-028) | Until the account goes | Cascade from `users` |
 
 Audio is never stored (D-013).
@@ -46,7 +46,7 @@ Counts, event names, identifiers of calls and requests, exception types and fail
 number appears only masked, and only from the development code provider. Push tokens appear
 truncated. Request paths are logged; no route takes personal data in its path or query. Every line
 passes a scrubber that removes fields named like a number, a token or words, and anything shaped
-like a number or a signed token in what remains (D-035); a call id that could be a number is logged
+like a number or a signed token in what remains (D-038); a call id that could be a number is logged
 as `untraceable`. Spans, when exported, carry the same identifiers and no more.
 
 ## Mobile

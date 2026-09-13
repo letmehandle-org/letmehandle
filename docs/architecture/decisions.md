@@ -625,7 +625,7 @@ including those who had finished: finished meant finished for calls that no long
 409: nothing about the user's state would make it succeed on another try. It is the same answer a
 removed or invented step gets — the request names something that does not exist here.
 
-## D-035 — Observability records structure, and a failing provider costs the feature that needs it
+## D-038 — Observability records structure, and a failing provider costs the feature that needs it
 
 **Accepted.** What the backend says about itself — log lines, metrics, spans, readiness and
 diagnostics — carries states, timings, stages, failure kinds and identifiers of calls and requests,

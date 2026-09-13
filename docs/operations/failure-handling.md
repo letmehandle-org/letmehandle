@@ -2,7 +2,7 @@
 
 What the backend does when something it depends on fails: how a failure is classified, where it is
 tried again, how a failing provider is isolated, and what the product still does without each one.
-The decision is D-035; how to investigate one call is `diagnosing-a-call.md`.
+The decision is D-038; how to investigate one call is `diagnosing-a-call.md`.
 
 ## One taxonomy
 

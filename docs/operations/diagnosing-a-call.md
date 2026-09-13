@@ -2,7 +2,7 @@
 
 How to find out what happened to one call, and why, from its identifiers alone — without reading
 what anybody said on it. Nothing below needs a transcript key, and nothing below shows a number,
-a name or a word of the conversation. D-035 records why that is enough, and how it is kept so.
+a name or a word of the conversation. D-038 records why that is enough, and how it is kept so.
 
 The procedure is run end to end, against the whole system, by the scenario in
 `apps/backend/tests/e2e/test_observability.py`.
