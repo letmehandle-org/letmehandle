@@ -1,9 +1,4 @@
-"""Every error the product defines has one meaning, decided once.
-
-The test over the whole package is what keeps it that way: an error added without saying what
-kind of failure it is fails here, rather than being retried, shown or ignored by whichever guess
-the first code to catch it makes.
-"""
+"""Every error the product defines states one kind of failure."""
 
 from __future__ import annotations
 
@@ -18,17 +13,15 @@ from letmehandle.application.speech.conversation import ConversationFailedError
 from letmehandle.domain.errors import DomainError, ProviderError
 from letmehandle.domain.failures import Failure, FailureKind, classify, failure_of
 
-# Errors whose kind depends on the instance: each is decided from whether trying again may work.
+# Errors whose kind is decided per instance from whether a retry may help.
 DECIDED_PER_INSTANCE: Final[frozenset[type[DomainError]]] = frozenset(
     {ProviderError, ConversationFailedError}
 )
 
-# The product's exceptions that are not domain errors, and why none needs a kind of its own. Each
-# is caught at the edge it belongs to and translated there, so one reaching `classify` is a defect,
-# which is what it is then classified as. Adding one here is the decision to make that claim.
+# Product exceptions translated at their own edge, so one reaching `classify` is a defect.
 NEVER_LEAVES_ITS_EDGE: Final = frozenset(
     {
-        # Adapters' own parse and protocol failures, turned into outcomes where they are raised.
+        # Adapters' own parse and protocol failures.
         "UnsupportedConversionError",
         "BodyTooLargeError",
         "AccessTokenError",
@@ -45,13 +38,13 @@ NEVER_LEAVES_ITS_EDGE: Final = frozenset(
         # The HTTP layer's own response, and the request refusals that become one.
         "ApiError",
         "ReportingRateLimitedError",
-        # A model's arguments that do not parse, which the agent reports as a refused tool call.
+        # A model's arguments that do not parse.
         "MalformedArgumentsError",
-        # A summary a model could not write, replaced by the one built from the call's facts.
+        # A summary a model could not write.
         "SummaryNotWrittenError",
-        # Startup refusing to begin, which ends the process rather than reaching anything.
+        # Startup refusing to begin.
         "ConfigurationError",
-        # A metric label or span attribute that could carry content: a defect at its call site.
+        # A metric label or span attribute that could carry content.
         "MetricLabelError",
         "SpanAttributeError",
     }

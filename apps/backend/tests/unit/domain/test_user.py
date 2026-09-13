@@ -1,4 +1,4 @@
-"""The phone number is the identity, not a detail hanging off it."""
+"""A user account and what it discloses when rendered."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ def test_a_user_may_choose_not_to_have_their_name_given_out() -> None:
 
 
 def test_a_blank_display_name_is_refused() -> None:
-    # The assistant would otherwise introduce the user as nobody.
     with pytest.raises(InvariantError):
         User(id=UserId("u1"), phone_number=NUMBER, display_name="  ")
 

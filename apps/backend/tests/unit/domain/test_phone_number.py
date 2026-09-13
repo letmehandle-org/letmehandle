@@ -1,4 +1,4 @@
-"""A number that is stored in two forms is two numbers, so parsing is where this is decided."""
+"""Phone numbers are parsed into one E.164 form and masked when rendered."""
 
 from __future__ import annotations
 
@@ -7,14 +7,11 @@ import pytest
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 
-# Every number here is from a range reserved for fiction. See CONTRIBUTING.
+# Every whole number here is from a range reserved for fiction.
 FICTIONAL = "+12025550143"
 FICTIONAL_UK = "+447700900123"
 
-# Assembled rather than written out. These are malformed on purpose, but they still have the
-# shape of a telephone number, and the disclosure audit rejects a number literal that is not
-# from a range reserved for fiction — correctly, since it cannot tell a deliberately broken
-# number from somebody's real one.
+# Malformed numbers are assembled so the disclosure audit does not read them as real.
 COUNTRY_CODE_STARTING_WITH_ZERO = "+" + "0123456789"
 SIXTEEN_DIGITS = "+" + "1234567890123456"
 
@@ -36,8 +33,6 @@ def test_decoration_and_the_international_prefix_are_normalised_away(raw: str) -
 
 
 def test_two_spellings_of_one_number_are_equal() -> None:
-    # The reason this type exists: a set, a dictionary key or an equality check must not depend
-    # on how somebody typed it.
     assert PhoneNumber.parse("+1 (202) 555-0143") == PhoneNumber.parse(FICTIONAL)
 
 
@@ -76,13 +71,10 @@ def test_construction_rejects_a_number_that_was_never_parsed() -> None:
 def test_masking_keeps_only_what_identifies_a_number_to_its_owner(raw: str, masked: str) -> None:
     masked_number = PhoneNumber.parse(raw).masked
     assert masked_number == masked
-    # The mask must not change the length, or it becomes a hint about the number.
     assert len(masked_number) == len(raw)
 
 
 def test_the_default_string_form_is_masked() -> None:
-    # Every accidental disclosure this project has to worry about arrives through an f-string.
-    # Reading the number has to be a deliberate act that a reviewer can see.
     number = PhoneNumber.parse(FICTIONAL)
     assert f"{number}" == number.masked
     assert number.value not in f"{number}"
@@ -100,8 +92,7 @@ def test_only_ascii_digits_and_nothing_after_them_make_the_stored_form(value: st
         PhoneNumber(value)
 
 
-# Numbers outside the fictional ranges are built from their calling code at run time, so no whole
-# real-looking number sits in the source (D-021). Only the code is being read.
+# Numbers outside the fictional ranges are assembled from their calling code (D-021).
 @pytest.mark.parametrize(
     ("code", "rest"),
     [

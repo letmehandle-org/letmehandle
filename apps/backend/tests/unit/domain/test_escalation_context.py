@@ -1,4 +1,4 @@
-"""The stored context of an escalation refuses states the app could not show honestly."""
+"""The stored context of an escalation refuses states the app cannot show."""
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ def test_a_new_context_is_live_and_not_yet_delivered() -> None:
 
 
 def test_only_the_reason_is_required() -> None:
-    # Early in a call nothing may be known: who it is, or what they want.
     made = context(caller_label=None, established=None, needed=None)
     assert made.caller_label is None
 

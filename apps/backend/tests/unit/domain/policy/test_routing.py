@@ -1,7 +1,4 @@
-"""The order a call is routed in, shared by the server and the phone (D-031).
-
-A table rather than a story, so the Android evaluator can be checked against the same rows.
-"""
+"""The order a call is routed in, shared by the server and the phone (D-031)."""
 
 from __future__ import annotations
 
@@ -30,14 +27,14 @@ STRANGER_NUMBER: Final = PhoneNumber("+12025550101")
 PARTNER_NUMBER: Final = PhoneNumber("+12025550143")
 SCHOOL_NUMBER: Final = PhoneNumber("+12025550187")
 
-# The two lanes the app writes: contacts ring, everyone else meets the assistant, spam is refused.
+# Contacts ring, everyone else meets the assistant, spam is refused.
 LANES: Final = CallRules(
     default_posture=AGENT,
     anonymous_posture=AGENT,
     posture_by_category={CallerCategory.KNOWN_CONTACT: PASS},
     blocked_categories=frozenset({CallerCategory.SPAM}),
 )
-# Answering from nine to six, UTC so the instants below read plainly.
+# Answering from nine to six, in UTC.
 WORKING_DAY: Final = TimeWindow(time(9, 0), time(18, 0), "UTC")
 NOON: Final = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 NIGHT: Final = datetime(2026, 1, 15, 23, 0, tzinfo=UTC)

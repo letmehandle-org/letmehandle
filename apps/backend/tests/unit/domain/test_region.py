@@ -8,8 +8,7 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.region import IN, REGIONS, US, region_named, region_of
 
-# Shorter than any number in India's plan, so it can reach nobody; the disclosure audit refuses
-# any longer one outside the ranges reserved for fiction, and there is no such range in India.
+# Shorter than any number in India's plan, so it reaches nobody.
 INDIAN_NUMBER = PhoneNumber.parse("+91555001")
 
 

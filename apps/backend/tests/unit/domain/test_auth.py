@@ -1,4 +1,4 @@
-"""Signing in has to be hard to forge and impossible to replay."""
+"""Sign-in challenges, refresh tokens and token pairs."""
 
 from __future__ import annotations
 
@@ -59,8 +59,6 @@ class TestChallenges:
         assert not challenge.is_open_at(NOW + CHALLENGE_LIFETIME)
 
     def test_it_closes_when_the_attempts_run_out(self) -> None:
-        # The strength is here, not in the length of the code: a million combinations is
-        # nothing to a machine and everything to one with five tries.
         challenge = a_challenge()
         for _ in range(MAX_ATTEMPTS):
             challenge = challenge.with_failed_attempt()
@@ -74,14 +72,10 @@ class TestChallenges:
             a_challenge().verified(NOW).verified(NOW)
 
     def test_a_used_challenge_stays_used_after_it_expires(self) -> None:
-        # So that a replay is refused as "already used" rather than "too late". The two are
-        # different events, and only one of them is somebody attacking.
         used = a_challenge().verified(NOW)
         assert used.state_at(NOW + timedelta(days=1)) is ChallengeState.VERIFIED
 
     def test_the_code_itself_is_never_held(self) -> None:
-        # The property that makes a leaked database useless for signing in: nothing here can
-        # tell anybody what the code was, including this system.
         assert not hasattr(a_challenge(), "code")
 
     def test_a_challenge_with_an_empty_hash_is_refused(self) -> None:
@@ -89,8 +83,6 @@ class TestChallenges:
             a_challenge(code_hash="  ")
 
     def test_a_code_the_provider_holds_keeps_every_other_rule(self) -> None:
-        # No hash means the provider checks the code (D-042); expiry, attempts and single use are
-        # still this model's.
         held = a_challenge(code_hash=None)
         assert held.code_is_held_by_provider
         assert not a_challenge().code_is_held_by_provider
@@ -119,7 +111,6 @@ class TestRefreshTokens:
         assert not a_token().is_usable_at(NOW + timedelta(days=31))
 
     def test_a_rotated_token_is_not_usable_and_is_recognisable(self) -> None:
-        # Presenting one of these is the signal that a copy exists somewhere it should not.
         rotated = a_token().rotated(NOW)
         assert not rotated.is_usable_at(NOW)
         assert rotated.was_already_used
@@ -128,7 +119,6 @@ class TestRefreshTokens:
         assert not a_token().revoked(NOW).is_usable_at(NOW)
 
     def test_revoking_twice_keeps_the_first_moment(self) -> None:
-        # When the family was ended matters for working out what happened afterwards.
         first = a_token().revoked(NOW)
         again = first.revoked(NOW + timedelta(hours=1))
         assert again.revoked_at == NOW
@@ -157,7 +147,6 @@ class TestTokenPairs:
             TokenPair("access", "refresh", 0)
 
     def test_neither_token_appears_when_it_is_rendered(self) -> None:
-        # A token pair in a log line is a sign-in somebody can replay.
         rendered = repr(TokenPair("the-access-token", "the-refresh-token", 900))
         assert "the-access-token" not in rendered
         assert "the-refresh-token" not in rendered
@@ -175,8 +164,6 @@ class TestAuthenticatedUser:
         assert not user.is_valid_at(NOW + timedelta(minutes=15))
 
     def test_it_is_not_valid_before_it_was_issued(self) -> None:
-        # A token issued in the future is a clock problem or a forgery, and either way it is
-        # not something to accept.
         user = AuthenticatedUser(UserId("u1"), NOW, NOW + timedelta(minutes=15))
         assert not user.is_valid_at(NOW - timedelta(seconds=1))
 

@@ -1,4 +1,4 @@
-"""One error shape, and no internals in it."""
+"""One error shape for every response, with no internals in it."""
 
 from __future__ import annotations
 
@@ -55,12 +55,8 @@ def _app_that_fails() -> FastAPI:
 async def test_an_unhandled_error_is_logged_by_where_it_happened_never_by_what_it_said(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A database error's detail repeats the values it refused — a caller's number, say — and a log
-    # line outlives the request that caused it. The type and the frames are enough to find it.
     transport = ASGITransport(app=_app_that_fails(), raise_app_exceptions=False)
-    # Whatever level an earlier test configured stays in force and would filter the event before
-    # the capture sees it, and a logger bound earlier is cached; so the level is set here and the
-    # module's logger is rebound inside the capture.
+    # Sets the level and rebinds the module's logger so the capture sees the event.
     configure_logging(make_settings(log_level="debug"))
     try:
         with capture_logs() as events:
@@ -97,11 +93,7 @@ async def test_a_malformed_request_is_a_422_with_the_common_shape() -> None:
 
 
 def test_the_context_variable_is_used_when_the_request_carries_no_id() -> None:
-    """A request that never passed through the middleware still gets an id on its error.
-
-    Not hypothetical: an exception raised before the middleware runs, or a response built
-    outside the request cycle, reaches the handlers with an empty state.
-    """
+    """A request that never passed through the middleware still gets an id on its error."""
     from starlette.requests import Request
 
     request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})

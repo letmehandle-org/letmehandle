@@ -1,4 +1,4 @@
-"""The summary outlives the transcript, so it has to stand on its own."""
+"""A call summary stands on its own."""
 
 from __future__ import annotations
 
@@ -50,7 +50,6 @@ def test_a_summary_with_no_headline_is_refused() -> None:
 
 
 def test_a_headline_longer_than_a_summary_is_refused() -> None:
-    # "Keep it short" in a prompt is a preference. A limit here is a guarantee.
     with pytest.raises(InvariantError, match="transcript with extra steps"):
         a_summary(headline="x" * (MAX_HEADLINE_CHARACTERS + 1))
 
@@ -75,8 +74,6 @@ def test_a_call_the_user_joined_records_when_and_why() -> None:
 
 
 def test_a_join_without_a_reason_is_refused() -> None:
-    # The reason is what the history shows the user. Without it they see that they were pulled
-    # into a call and no indication of what for.
     with pytest.raises(InvariantError, match="reason"):
         a_summary(human_joined_at=START + timedelta(seconds=30))
 
@@ -92,7 +89,6 @@ def test_the_user_cannot_have_joined_outside_the_call(offset: int) -> None:
 
 class TestExtractedDetails:
     def test_a_detail_carries_its_evidence(self) -> None:
-        # An extraction nobody can trace is one nobody can tell apart from an invention.
         detail = ExtractedDetail(
             label="reference",
             value="AB1234",
@@ -118,8 +114,6 @@ class TestExtractedDetails:
         assert found.value == "the side gate"
 
     def test_a_label_that_was_not_found_returns_nothing(self) -> None:
-        # Absent rather than invented. A summary that fabricates a reference number is worse
-        # than one that omits it.
         assert a_summary().detail("reference") is None
 
 

@@ -1,4 +1,4 @@
-"""The aggregate must refuse what the state machine forbids, whatever a caller tries."""
+"""The call aggregate refuses what the state machine forbids."""
 
 from __future__ import annotations
 
@@ -52,8 +52,6 @@ class TestState:
         assert call.state is CallState.RECEIVED
 
     def test_ending_a_call_requires_the_moment_it_ended(self) -> None:
-        # The duration is the difference between two recorded moments. A missing one makes
-        # every summary and every metric built on it wrong.
         call = a_call()
         call.move_to(CallState.ROUTING)
         with pytest.raises(InvariantError, match="when"):
@@ -72,8 +70,6 @@ class TestState:
         assert a_call().duration_seconds() is None
 
     def test_an_end_reported_before_the_start_is_recorded_as_the_start(self) -> None:
-        # The start comes from the carrier and the end from this host's clock; a few
-        # milliseconds of skew between them must not make the call unrecordable.
         call = a_call()
         call.move_to(CallState.ROUTING)
         call.move_to(CallState.FAILED, at_instant=START - timedelta(milliseconds=5))
@@ -81,8 +77,6 @@ class TestState:
         assert call.duration_seconds() == 0
 
     def test_the_state_cannot_be_assigned_around_the_rules(self) -> None:
-        # The whole reason the field is private: without this, any caller could put a call in
-        # a state the machine forbids and nothing would notice until much later.
         call = a_call()
         with pytest.raises(AttributeError):
             call.state = CallState.COMPLETED  # type: ignore[misc]
@@ -100,23 +94,18 @@ class TestParticipants:
         assert call.participants[0].left_at == later(60)
 
     def test_three_parties_can_be_present_at_once(self) -> None:
-        # The product's central capability, expressed without a special case: the user is a
-        # participant like any other.
         call = a_call()
         for role in ParticipantRole:
             call.add_participant(role, START)
         assert all(call.has_participant(role) for role in ParticipantRole)
 
     def test_a_role_cannot_join_twice(self) -> None:
-        # Two agents or two humans would make "who is on this call" ambiguous, and every
-        # question asked about the call afterwards with it.
         call = a_call()
         call.add_participant(ParticipantRole.AGENT, START)
         with pytest.raises(InvariantError, match="already"):
             call.add_participant(ParticipantRole.AGENT, later(1))
 
     def test_a_role_may_rejoin_after_leaving(self) -> None:
-        # An escalation that is abandoned and retried is an ordinary sequence, not an error.
         call = a_call()
         call.add_participant(ParticipantRole.HUMAN, START)
         call.remove_participant(ParticipantRole.HUMAN, later(10))
@@ -125,8 +114,6 @@ class TestParticipants:
         assert len(call.participants) == 2
 
     def test_removing_the_second_of_several_leaves_the_others_alone(self) -> None:
-        # Exercises the search past a non-matching participant, which is the ordinary case
-        # during an escalation: the caller is already on the call when the human leaves.
         call = a_call()
         call.add_participant(ParticipantRole.CALLER, START)
         call.add_participant(ParticipantRole.HUMAN, later(5))
@@ -137,7 +124,6 @@ class TestParticipants:
         assert not call.has_participant(ParticipantRole.HUMAN)
 
     def test_removing_somebody_who_is_not_there_is_an_error(self) -> None:
-        # Silence would hide a caller believing the call has a shape it does not.
         with pytest.raises(InvariantError, match="not on this call"):
             a_call().remove_participant(ParticipantRole.HUMAN, START)
 
@@ -172,7 +158,6 @@ class TestTranscript:
             call.record(Speaker.CALLER, "Hello?", later(6))
 
     def test_the_transcript_cannot_be_edited_through_the_property(self) -> None:
-        # A tuple, so that a caller holding it cannot append to the call's own history.
         call = a_call()
         call.record(Speaker.CALLER, "Hello", START)
         assert isinstance(call.transcript, tuple)
@@ -181,7 +166,6 @@ class TestTranscript:
 
 class TestRepresentation:
     def test_neither_a_call_nor_an_entry_prints_what_was_said_or_who_said_it(self) -> None:
-        # A repr is what a debugger, a log line or a failing assertion prints.
         call = CallSession(
             id=CallId("call-1"),
             user_id=UserId("user-1"),
@@ -201,7 +185,6 @@ class TestRepresentation:
 
 class TestEscalationSequence:
     def test_the_whole_escalation_path_is_expressible(self) -> None:
-        # Scenario B from the plan, at the level the domain is responsible for.
         call = a_call()
         call.add_participant(ParticipantRole.CALLER, START)
         call.move_to(CallState.ROUTING)
@@ -375,8 +358,6 @@ class TestRestore:
 
 
 def test_a_departure_a_moment_before_the_join_is_recorded_at_the_join() -> None:
-    # Joined by one clock and left by another, a few milliseconds apart. The departure happened, so
-    # it is recorded, at the join rather than before it.
     joined = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
     departed = Participant(ParticipantRole.CALLER, joined).departing(
         joined - timedelta(milliseconds=5)

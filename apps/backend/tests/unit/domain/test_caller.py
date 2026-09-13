@@ -1,4 +1,4 @@
-"""Unknown is the common case, so it is a state rather than a missing value."""
+"""Who is calling, as far as anyone knows."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ def test_a_caller_defaults_to_unknown_and_anonymous() -> None:
 
 
 def test_a_withheld_number_is_a_fact_rather_than_an_error() -> None:
-    # Callers withhold their numbers, and the user's rules have something to say about that.
     assert Caller(number=None, display_name="Reception").is_anonymous
 
 
@@ -28,8 +27,6 @@ def test_a_caller_with_a_number_is_not_anonymous() -> None:
 
 
 def test_a_name_alone_does_not_make_a_caller_known() -> None:
-    # A network can supply a display name for a complete stranger. Only the category, which
-    # comes from the user's own contacts, means the user knows them.
     assert not Caller(number=FICTIONAL, display_name="Anyone At All").is_known
 
 
@@ -39,8 +36,6 @@ def test_a_known_contact_is_known() -> None:
 
 
 def test_an_empty_display_name_is_rejected() -> None:
-    # It would render as a blank space where a name should be, which reads as a bug to a user
-    # and as a name to the code.
     with pytest.raises(InvariantError):
         Caller(display_name="   ")
 
