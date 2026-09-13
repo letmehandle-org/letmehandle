@@ -562,5 +562,161 @@
     },
     "absent": ["amount", "reference_number", "address"],
     "why": "The caller refuses to give a price, so an amount would be invented; no reference or address is given."
+  },
+  {
+    "id": "ending-plumber-hangs-up-for-another-job",
+    "class": "ending",
+    "ending": "caller_hung_up",
+    "said": [
+      ["caller", "Hi, it's Clearflow Plumbing, I'm outside for the ten o'clock job but nobody's in."],
+      ["agent", "Let me see if I can"],
+      ["caller", "Never mind, I've got another job to get to, I'll ring later."]
+    ],
+    "intents": ["appointment", "service_issue"],
+    "reference": {
+      "headline": "Clearflow Plumbing arrived for the ten o'clock job to find nobody in, and hung up saying they would ring later.",
+      "details": [
+        {"kind": "name", "value": "Clearflow Plumbing", "evidence": "it's Clearflow Plumbing"},
+        {"kind": "commitment_made", "value": "ring later", "evidence": "I'll ring later"}
+      ]
+    },
+    "absent": ["amount", "reference_number"],
+    "why": "The caller cut the assistant off and hung up, after promising to ring back; no money or reference comes up."
+  },
+  {
+    "id": "ending-auntie-handed-over",
+    "class": "ending",
+    "ending": "handed_over",
+    "said": [
+      ["caller", "It's Auntie Meena, is she there? It's about Nani's birthday dinner on Sunday."],
+      ["agent", "I'm trying to reach her for you now."],
+      ["human", "Hi Auntie, yes, I'll bring the cake."]
+    ],
+    "intents": ["personal"],
+    "reference": {
+      "headline": "Auntie Meena called about Nani's birthday dinner on Sunday, and your assistant handed the call to you.",
+      "details": [
+        {"kind": "name", "value": "Auntie Meena", "evidence": "It's Auntie Meena"},
+        {"kind": "time", "value": "Sunday", "evidence": "birthday dinner on Sunday"},
+        {"kind": "commitment_made", "value": "bring the cake", "evidence": "I'll bring the cake"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The user joined and made a promise themselves, which counts as a commitment; the call was handed over."
+  },
+  {
+    "id": "ending-courier-needs-a-signature-unanswered",
+    "class": "ending",
+    "ending": "unanswered",
+    "said": [
+      ["caller", "Courier here from Swift Parcels, I need a signature for a parcel and I'm at the door now."],
+      ["agent", "I've tried to reach him, but he isn't answering."],
+      ["caller", "Okay, I'll leave a card and try again tomorrow."]
+    ],
+    "intents": ["delivery_in_progress"],
+    "reference": {
+      "headline": "Swift Parcels needed a signature at your door, but you did not answer, so they will try again tomorrow.",
+      "details": [
+        {"kind": "name", "value": "Swift Parcels", "evidence": "Courier here from Swift Parcels"},
+        {"kind": "commitment_made", "value": "try again tomorrow", "evidence": "I'll leave a card and try again tomorrow"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The user was rung and did not pick up; the courier says what they will do next."
+  },
+  {
+    "id": "ending-bank-card-posted-when-handling-failed",
+    "class": "ending",
+    "ending": "failed",
+    "said": [
+      ["caller", "Hello, this is Harbour Bank. Her new card has been posted and should arrive within five working days."]
+    ],
+    "intents": ["service_issue", "enquiry"],
+    "reference": {
+      "headline": "Harbour Bank said your new card is in the post and should arrive within five working days, but handling the call failed.",
+      "details": [
+        {"kind": "name", "value": "Harbour Bank", "evidence": "this is Harbour Bank"},
+        {"kind": "time", "value": "within five working days", "evidence": "should arrive within five working days"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "What the caller said is still worth summarising when the call failed, and the headline must say it failed."
+  },
+  {
+    "id": "ending-loan-offer-caller-hangs-up",
+    "class": "ending",
+    "ending": "caller_hung_up",
+    "said": [
+      ["caller", "Hello sir, pre-approved personal loan offer at very low interest, shall I send the link by SMS?"],
+      ["agent", "He isn't interested, thank you."],
+      ["caller", "Okay, okay."]
+    ],
+    "intents": ["sales", "suspected_fraud"],
+    "reference": {
+      "headline": "A loan sales caller hung up after your assistant said you were not interested.",
+      "details": []
+    },
+    "absent": ["amount", "reference_number", "time", "name", "address"],
+    "why": "No figure, name, time or reference is offered, only a pitch, and the caller hung up."
+  },
+  {
+    "id": "ending-clinic-results-unanswered",
+    "class": "ending",
+    "ending": "unanswered",
+    "said": [
+      ["caller", "This is the front desk at Riverside Clinic. We have her test results and the doctor would like to speak with her today."],
+      ["agent", "I've tried to reach her, but she isn't answering. I'll make sure she knows."],
+      ["caller", "Please ask her to call us before five."]
+    ],
+    "intents": ["enquiry", "appointment", "service_issue"],
+    "reference": {
+      "headline": "Riverside Clinic has your test results and wants you to call before five, but you did not answer.",
+      "details": [
+        {"kind": "name", "value": "Riverside Clinic", "evidence": "the front desk at Riverside Clinic"},
+        {"kind": "time", "value": "before five", "evidence": "ask her to call us before five"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The user was rung and did not answer, and the time by which to call back is said plainly."
+  },
+  {
+    "id": "ending-building-manager-handed-over",
+    "class": "ending",
+    "ending": "handed_over",
+    "said": [
+      ["caller", "Hi, it's Greg, the building manager. There's a leak coming from the unit above and I need to get into her apartment."],
+      ["agent", "I'm trying to reach her now."],
+      ["human", "Hi Greg, I'm on my way home, give me twenty minutes."]
+    ],
+    "intents": ["service_issue", "personal"],
+    "reference": {
+      "headline": "Greg, your building manager, needs to get into your apartment because of a leak from above, and your assistant handed the call to you.",
+      "details": [
+        {"kind": "name", "value": "Greg", "evidence": "it's Greg, the building manager"},
+        {"kind": "commitment_made", "value": "on my way home", "evidence": "I'm on my way home, give me twenty minutes"}
+      ]
+    },
+    "absent": ["amount", "reference_number"],
+    "why": "The user took the call and promised to come home; the handed-over ending must be named."
+  },
+  {
+    "id": "ending-spa-booking-when-handling-failed",
+    "class": "ending",
+    "ending": "failed",
+    "said": [
+      ["caller", "Hi, this is Lotus Spa confirming her massage on Saturday at two. The booking reference is LS 5520."],
+      ["caller", "Hello? Are you still there?"]
+    ],
+    "intents": ["appointment"],
+    "reference": {
+      "headline": "Lotus Spa confirmed your massage on Saturday at two, but handling the call failed.",
+      "details": [
+        {"kind": "name", "value": "Lotus Spa", "evidence": "this is Lotus Spa"},
+        {"kind": "time", "value": "Saturday at two", "evidence": "her massage on Saturday at two"},
+        {"kind": "reference_number", "value": "LS 5520", "evidence": "The booking reference is LS 5520"}
+      ]
+    },
+    "absent": ["amount", "address"],
+    "why": "The line went quiet on the assistant's side; the details given before it failed are still the user's to keep."
   }
 ]
