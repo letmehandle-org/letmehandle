@@ -10,7 +10,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from letmehandle.adapters.transport.twilio.routes import StarletteMediaSocket, build_router
+from letmehandle.adapters.transport.twilio.routes import (
+    TELEPHONY_BODY_LIMIT_BYTES,
+    StarletteMediaSocket,
+    build_router,
+)
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier, compute_signature
 from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
@@ -97,6 +101,7 @@ async def test_a_redelivered_arrival_still_gets_its_instructions(client: AsyncCl
     [
         "/telephony/voice/incoming",
         "/telephony/voice/assistant",
+        "/telephony/voice/caller-left?call=CAsim-1",
         "/telephony/conference/status?call=CAsim-1",
         "/telephony/leg/status?call=CAsim-1&leg=user-2",
     ],
@@ -109,6 +114,32 @@ async def test_every_route_refuses_what_it_cannot_prove(
     assert forged.status_code == 403
     assert unsigned.status_code == 403
     assert transport.active_calls == 0
+
+
+async def oversized_chunks(size: int) -> AsyncIterator[bytes]:
+    for _ in range(size // 4_096 + 1):
+        yield b"a" * 4_096
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/telephony/voice/incoming",
+        "/telephony/voice/assistant",
+        "/telephony/voice/caller-left?call=CAsim-1",
+        "/telephony/conference/status?call=CAsim-1",
+        "/telephony/leg/status?call=CAsim-1&leg=user-2",
+    ],
+)
+async def test_a_body_too_large_for_a_callback_is_refused_before_it_is_read(
+    client: AsyncClient, path: str
+) -> None:
+    # Unsigned, so it is refused either way; the point is that it is refused for its size, and
+    # without sixty-four megabytes being held in memory to find out it was forged.
+    size = TELEPHONY_BODY_LIMIT_BYTES + 1
+    declared = await client.post(path, content=b"a" * size)
+    streamed = await client.post(path, content=oversized_chunks(size))
+    assert (declared.status_code, streamed.status_code) == (413, 413)
 
 
 async def test_a_genuine_signature_from_another_account_is_refused(
@@ -125,6 +156,21 @@ async def test_a_genuine_callback_missing_what_is_needed_is_unprocessable(
 ) -> None:
     response = await signed_post(client, "/telephony/voice/incoming", [("AccountSid", ACCOUNT)])
     assert response.status_code == 422
+
+
+async def test_the_callers_dial_ending_is_answered_by_hanging_up_and_ends_the_call(
+    client: AsyncClient, transport: TwilioCallTransport
+) -> None:
+    await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
+    await drain(transport)
+    response = await signed_post(
+        client,
+        "/telephony/voice/caller-left?call=CAsim-1",
+        [("AccountSid", ACCOUNT), ("CallSid", "CAsim-1"), ("DialCallStatus", "completed")],
+    )
+    assert response.status_code == 200
+    assert "<Hangup" in response.text
+    assert [event.kind.value for event in await drain(transport)] == ["ended"]
 
 
 async def test_the_assistant_route_reads_the_call_from_the_form_or_the_query(
@@ -174,6 +220,27 @@ async def test_status_callbacks_are_applied_once_per_delivery_token(
     ]
     leg = await signed_post(client, "/telephony/leg/status?call=CAsim-1&leg=user-2", progress)
     assert leg.status_code == 204
+
+
+async def test_a_callback_repeating_a_parameter_it_is_read_for_is_unprocessable(
+    client: AsyncClient, transport: TwilioCallTransport
+) -> None:
+    # A repeated parameter is signed the same whichever order its values arrive in, so the
+    # order cannot be allowed to decide which of them is meant.
+    await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
+    await drain(transport)
+    ambiguous = [
+        ("AccountSid", ACCOUNT),
+        ("ConferenceSid", "CFsim-1"),
+        ("StatusCallbackEvent", "participant-join"),
+        ("StatusCallbackEvent", "participant-leave"),
+        ("SequenceNumber", "1"),
+        ("ParticipantLabel", "caller"),
+    ]
+    response = await signed_post(client, "/telephony/conference/status?call=CAsim-1", ambiguous)
+    assert response.status_code == 422
+    assert await drain(transport) == []
+    assert transport.active_calls == 1
 
 
 # ----------------------------------------------------------- the websocket, as a socket

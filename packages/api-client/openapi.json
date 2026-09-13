@@ -109,8 +109,7 @@
           "caller_number": {
             "anyOf": [
               {
-                "maxLength": 20,
-                "minLength": 5,
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
                 "type": "string"
               },
               {
@@ -165,7 +164,7 @@
         "type": "object"
       },
       "CallReportReceipt": {
-        "description": "Which reports were stored now, and which had been already. The handset forgets both.",
+        "description": "What became of each report in a batch. The handset forgets every one it is told about.\n\n`accepted` were stored now and `duplicates` had been already; `rejected` never will be,\nbecause something in them cannot have happened or cannot be read.",
         "properties": {
           "accepted": {
             "items": {
@@ -180,11 +179,19 @@
             },
             "title": "Duplicates",
             "type": "array"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedReport"
+            },
+            "title": "Rejected",
+            "type": "array"
           }
         },
         "required": [
           "accepted",
-          "duplicates"
+          "duplicates",
+          "rejected"
         ],
         "title": "CallReportReceipt",
         "type": "object"
@@ -715,6 +722,37 @@
           "refresh_token"
         ],
         "title": "RefreshRequest",
+        "type": "object"
+      },
+      "RejectedReport": {
+        "description": "A report that was not stored, and will not be however often it is sent.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "event_id",
+          "reason"
+        ],
+        "title": "RejectedReport",
         "type": "object"
       },
       "ReportedCallKind": {

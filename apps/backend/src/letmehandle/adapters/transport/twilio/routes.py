@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Final
 from fastapi import APIRouter, Request, Response, WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from letmehandle.adapters.http.body import BodyTooLargeError, read_limited_body
 from letmehandle.adapters.transport.twilio import twiml
 from letmehandle.adapters.transport.twilio.callbacks import (
     CALL_PARAMETER,
@@ -33,6 +34,7 @@ from letmehandle.adapters.transport.twilio.signature import (
 from letmehandle.adapters.transport.twilio.stream import MediaSocketClosedError
 from letmehandle.adapters.transport.twilio.transport import (
     ASSISTANT_PATH,
+    CALLER_PATH,
     CONFERENCE_PATH,
     INCOMING_PATH,
     LEG_PATH,
@@ -49,11 +51,16 @@ logger = get_logger(__name__)
 
 IDEMPOTENCY_HEADER: Final = "I-Twilio-Idempotency-Token"
 
+# The largest callback body read. A callback is a few dozen short form fields; anything near this
+# is not one, and its signature is only checked once it has been read.
+TELEPHONY_BODY_LIMIT_BYTES: Final = 64 * 1024
+
 # The close code for a handshake refused on policy, which Starlette turns into a 403 before the
 # socket is ever accepted.
 _POLICY_VIOLATION: Final = 1008
 
 _FORBIDDEN: Final = 403
+_TOO_LARGE: Final = 413
 _UNPROCESSABLE: Final = 422
 _NO_CONTENT: Final = 204
 
@@ -72,10 +79,15 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
         """The form parameters and our own query parameters, once the request is proved."""
         raw_query = request.scope.get("query_string", b"").decode("latin-1")
         try:
+            body = await read_limited_body(request, TELEPHONY_BODY_LIMIT_BYTES)
+        except BodyTooLargeError:
+            logger.warning("telephony.webhook.rejected", path=request.url.path, reason="size")
+            raise _RefusedError(_TOO_LARGE) from None
+        try:
             pairs = transport.verifier.verify_form(
                 path=request.url.path,
                 raw_query=raw_query,
-                body=await request.body(),
+                body=body,
                 signature=request.headers.get(SIGNATURE_HEADER),
             )
         except SignatureRejectedError as error:
@@ -120,6 +132,16 @@ def build_router(transport: TwilioCallTransport) -> APIRouter:
             }
             return _twiml(transport.assistant_joining(identifiers, params.require("CallSid")))
 
+        return await handle(request, respond, skip_repeats=False)
+
+    @router.post(CALLER_PATH)
+    async def caller(request: Request) -> Response:
+        def respond(params: Parameters, query: dict[str, str]) -> Response:
+            return _twiml(
+                transport.caller_left(query.get(CALL_PARAMETER), params.require("CallSid"))
+            )
+
+        # Instructions are owed on every delivery; ending a call twice is inert.
         return await handle(request, respond, skip_repeats=False)
 
     @router.post(CONFERENCE_PATH)

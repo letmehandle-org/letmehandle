@@ -15,10 +15,15 @@ from sqlalchemy import func, select
 
 from letmehandle.adapters.database.models import CallReportRow
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.api.call_report_schemas import MAX_REPORTS_PER_REQUEST
+from letmehandle.api.call_reports import REPORTS_BODY_LIMIT_BYTES
+from letmehandle.application.calls.reports import ReportingPolicy
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from letmehandle.domain.ports.call_transport import CallEvent
@@ -83,6 +88,7 @@ class TestMapping:
         assert response.json() == {
             "accepted": ["event-0001", "event-0002", "event-0003"],
             "duplicates": [],
+            "rejected": [],
         }
         events = await drain(api)
         assert [event.kind for event in events] == [
@@ -100,28 +106,142 @@ class TestMapping:
         assert {event.call_id.value for event in events} == {f"{me['id']}:{CALL}"}
 
     @pytest.mark.parametrize(
-        "bad",
+        ("bad", "field"),
         [
-            reported("event-0001", "participant_joined"),
-            reported("event-0001", "answered", screening="allow"),
-            reported("event-0001", "ended"),
-            reported("event-0001", "incoming", ending="missed"),
-            reported("event-0001", "incoming", caller_number="2025550145"),
-            {**reported("event-0001", "incoming"), "occurred_at": "2026-09-13T12:00:00"},
-            reported("x", "incoming"),
+            (reported("event-0001", "participant_joined"), "kind"),
+            (reported("event-0001", "answered", screening="allow"), "screening"),
+            (reported("event-0001", "ended"), "ended"),
+            (reported("event-0001", "incoming", ending="missed"), "ended"),
+            (reported("event-0001", "incoming", caller_number="2025550145"), "caller_number"),
+            (reported("event-0001", "incoming", caller_number="+0555"), "caller_number"),
+            # Digits, but not ones a telephone network routes.
+            (
+                reported("event-0001", "incoming", caller_number="+1\u0662\u0660\u0662"),
+                "caller_number",
+            ),
+            (
+                reported("event-0001", "incoming", caller_number="+1202555014500000"),
+                "caller_number",
+            ),
+            (
+                {**reported("event-0001", "incoming"), "occurred_at": "2026-09-13T12:00:00"},
+                "occurred_at",
+            ),
+            (reported("event-0001", "incoming", surprise=True), "surprise"),
         ],
     )
-    async def test_what_cannot_have_happened_is_refused(
-        self, api: Api, bad: dict[str, Any]
+    async def test_what_cannot_have_happened_is_rejected_by_its_event_id(
+        self, api: Api, bad: dict[str, Any], field: str
     ) -> None:
         tokens = await sign_in(api)
         response = await send(api, tokens, [bad])
-        assert response.status_code == 422, response.text
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert (body["accepted"], body["duplicates"]) == ([], [])
+        [rejected] = body["rejected"]
+        assert (rejected["index"], rejected["event_id"]) == (0, "event-0001")
+        assert field in rejected["reason"]
         assert await drain(api) == []
+
+    @pytest.mark.parametrize("event_id", ["x", 7, None])
+    async def test_a_report_whose_event_id_is_unusable_is_rejected_by_its_place(
+        self, api: Api, event_id: object
+    ) -> None:
+        tokens = await sign_in(api)
+        bad = {**reported("event-0001", "incoming"), "event_id": event_id}
+        body = (await send(api, tokens, [SCREENED_CALL[0], bad])).json()
+        assert body["accepted"] == ["event-0001"]
+        assert [(each["index"], each["event_id"]) for each in body["rejected"]] == [(1, None)]
+
+    async def test_something_that_is_not_a_report_at_all_is_rejected_by_its_place(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        body = (await send(api, tokens, ["not a report", SCREENED_CALL[0]])).json()  # type: ignore[list-item]
+        assert body["accepted"] == ["event-0001"]
+        assert [(each["index"], each["event_id"]) for each in body["rejected"]] == [(0, None)]
+
+    async def test_one_invalid_report_does_not_hold_back_the_rest_of_its_batch(
+        self, api: Api
+    ) -> None:
+        # A handset resends a batch it has not seen acknowledged. Refusing the whole batch over
+        # one report would have it resend the valid ones with it forever.
+        tokens = await sign_in(api)
+        invalid = reported("event-0009", "incoming", caller_number="12025550145")
+        response = await send(api, tokens, [SCREENED_CALL[0], invalid, *SCREENED_CALL[1:]])
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["accepted"] == ["event-0001", "event-0002", "event-0003"]
+        assert [(each["index"], each["event_id"]) for each in body["rejected"]] == [
+            (1, "event-0009")
+        ]
+        assert len(await drain(api)) == 3
+
+    async def test_a_short_number_that_is_still_e164_is_accepted(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await send(
+            api, tokens, [reported("event-0001", "incoming", caller_number="+123")]
+        )
+        assert response.json()["accepted"] == ["event-0001"]
+
+    async def test_a_batch_that_is_not_a_batch_is_refused_whole(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.post(
+            "/v1/calls/reports", headers=bearer(tokens), json={"reports": "all of them"}
+        )
+        assert response.status_code == 422
 
     async def test_an_empty_batch_is_refused(self, api: Api) -> None:
         tokens = await sign_in(api)
         assert (await send(api, tokens, [])).status_code == 422
+
+
+class TestSize:
+    async def test_a_body_larger_than_a_full_batch_is_refused_before_it_is_read(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        size = REPORTS_BODY_LIMIT_BYTES + 1
+
+        async def chunks() -> AsyncIterator[bytes]:
+            for _ in range(size // 4_096 + 1):
+                yield b" " * 4_096
+
+        headers = {**bearer(tokens), "Content-Type": "application/json"}
+        declared = await api.client.post("/v1/calls/reports", headers=headers, content=b" " * size)
+        streamed = await api.client.post("/v1/calls/reports", headers=headers, content=chunks())
+        assert (declared.status_code, streamed.status_code) == (413, 413)
+        assert declared.json()["error"] == "payload_too_large"
+
+    async def test_a_full_batch_fits(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        batch = [
+            reported(
+                f"event-{index:04d}-7d1c9a52-0b7e-4c56-9d4f-2f1f0f6f",
+                "incoming",
+                screening="silence",
+                caller_number=CALLER,
+            )
+            for index in range(MAX_REPORTS_PER_REQUEST)
+        ]
+        response = await send(api, tokens, batch)
+        assert response.status_code == 200, response.text
+
+
+class TestRateLimit:
+    async def test_a_handset_reporting_too_often_is_refused_with_when_to_try_again(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        allowed = ReportingPolicy().requests_per_window
+        for _ in range(allowed):
+            assert (await send(api, tokens, [SCREENED_CALL[0]])).status_code == 200
+
+        refused = await send(api, tokens, [SCREENED_CALL[0]])
+
+        assert refused.status_code == 429
+        assert refused.json()["error"] == "rate_limited"
+        assert int(refused.headers["Retry-After"]) >= 1
 
 
 class TestIdempotency:
@@ -138,6 +258,7 @@ class TestIdempotency:
         assert again.json() == {
             "accepted": [],
             "duplicates": ["event-0001", "event-0002", "event-0003"],
+            "rejected": [],
         }
         assert await drain(api) == []
         stored = await session.execute(select(func.count()).select_from(CallReportRow))

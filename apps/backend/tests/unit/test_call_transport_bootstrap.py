@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from letmehandle.bootstrap import build_call_transport, build_reported_calls
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
-from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
     CallEvent,
@@ -99,7 +99,7 @@ async def test_the_handset_transport_is_the_one_its_reports_feed() -> None:
     reported = CallEvent(CallEventKind.INCOMING, CallId("handset-call"), EventId("handset-event"))
     async with app.router.lifespan_context(app):
         assert app.state.container.reported_calls is transport
-        await app.state.container.reported_calls.publish(reported)
+        await app.state.container.reported_calls.publish(UserId("user"), reported)
         assert await anext(transport.events()) == reported
 
 

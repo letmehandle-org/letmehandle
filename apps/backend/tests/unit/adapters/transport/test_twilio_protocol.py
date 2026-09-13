@@ -48,8 +48,16 @@ class TestInstructions:
                 conference_name="call-CAsim-1",
                 status_callback_url="https://calls.example.com/status?call=CAsim-1&x=1",
                 participant_label="caller",
+                dial_action_url="https://calls.example.com/left?call=CAsim-1",
             )
         )
+        dial = root.find("./Dial")
+        assert dial is not None
+        # The caller's own leg says when their time in the conference is over.
+        assert dial.attrib == {
+            "action": "https://calls.example.com/left?call=CAsim-1",
+            "method": "POST",
+        }
         conference = root.find("./Dial/Conference")
         assert conference is not None
         assert conference.text == "call-CAsim-1"

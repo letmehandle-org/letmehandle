@@ -400,6 +400,61 @@ async def test_a_dropped_caller_leave_still_ends_the_call_by_the_conference_endi
     assert_nothing_held(deployment)
 
 
+async def test_a_whole_calls_callbacks_arriving_at_once_settle_into_a_legal_end(
+    deployment: Deployment,
+) -> None:
+    # The provider sends callbacks as separate requests, so they are handled concurrently, not
+    # one after another. Every one of a call's callbacks racing in together must still end in
+    # a state the call could have reached.
+    provider = deployment.provider
+    provider.answering[USER_NUMBER.value] = Answering.ANSWERS
+    provider.hold()
+    await provider.place_call(CALL.value)
+    await answering(deployment.transport).answer(CALL)
+    await deployment.settle()
+    await deployment.transport.add_participant(CALL, USER_NUMBER)
+    await deployment.settle()
+    await provider.user_hangs_up(USER_NUMBER)
+    await provider.caller_hangs_up(CALL.value)
+    await deployment.settle()
+    held, provider.held = provider.held or [], None
+    assert len(held) > 10
+    await asyncio.gather(*(provider.deliver(delivery) for delivery in held))
+    await deployment.settle()
+
+    kinds = deployment.kinds()
+    assert kinds.count(("ended", None, None)) == 1
+    assert kinds[-1] == ("ended", None, None)
+    assert kinds[0] == ("incoming", None, None)
+    user = [shape for shape in kinds if shape[1] == "user"]
+    # Whatever was learned, it was learned in an order that could have happened.
+    assert user in (
+        [],
+        [("participant_left", "user", None)],
+        [("participant_joined", "user", "answered"), ("participant_left", "user", None)],
+    )
+    assert ("participant_unreachable", "user", "failed") not in kinds
+    assert_nothing_held(deployment)
+
+
+async def test_the_caller_leaving_ends_the_call_when_every_conference_callback_is_lost(
+    deployment: Deployment,
+) -> None:
+    await answered(deployment)
+    provider = deployment.provider
+    provider.hold()
+    await provider.caller_hangs_up(CALL.value)
+    await deployment.settle()
+    # Only what the caller's own dial reports when it ends gets through.
+    await provider.release(
+        lambda held: [each for each in held if "/telephony/conference/" not in each.path_and_query]
+    )
+    await deployment.settle()
+    assert deployment.kinds()[-1] == ("ended", None, None)
+    assert [event.kind for event in deployment.events].count(CallEventKind.ENDED) == 1
+    assert_nothing_held(deployment)
+
+
 async def test_a_forged_callback_is_refused_and_changes_nothing(deployment: Deployment) -> None:
     await answered(deployment)
     response = await deployment.provider.post_signed(

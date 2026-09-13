@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 # and which leg it is about before any provider identifier is known.
 CALL_PARAMETER: Final = "call"
 LEG_PARAMETER: Final = "leg"
+# A stream parameter only: the secret an assistant leg's stream must present to be attached.
+TOKEN_PARAMETER: Final = "token"  # noqa: S105 - the name of a parameter, not its value
 
 
 class CallbackMalformedError(Exception):
@@ -64,15 +66,21 @@ _FINAL: Final = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class Parameters:
-    """A callback's parameters, looked up by name."""
+    """A callback's parameters, looked up by name.
+
+    A parameter this transport reads must appear once. The signature covers a repeated
+    parameter's values in sorted order rather than the order they arrived in, so a callback
+    carrying two could be reordered in transit without breaking its signature, and whichever
+    came first would decide what it meant.
+    """
 
     pairs: Sequence[tuple[str, str]]
 
     def get(self, name: str) -> str | None:
-        for key, value in self.pairs:
-            if key == name:
-                return value
-        return None
+        values = [value for key, value in self.pairs if key == name]
+        if len(values) > 1:
+            raise CallbackMalformedError(f"the callback repeats {name}")
+        return values[0] if values else None
 
     def require(self, name: str) -> str:
         value = self.get(name)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import fromstring
 
 import pytest
 
@@ -38,7 +39,7 @@ from letmehandle.domain.ports.call_transport import (
 from tests.support.media_socket import MemoryMediaSocket
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from letmehandle.adapters.transport.twilio.rest import EndStatus, ParticipantRequest
 
@@ -238,6 +239,9 @@ async def test_an_arriving_call_is_answered_into_its_own_conference(
     assert "<Conference" in document
     assert "call-CAsim-1" in document
     assert "https://calls.example.com/telephony/conference/status?call=CAsim-1" in document
+    assert 'action="https://calls.example.com/telephony/voice/caller-left?call=CAsim-1"' in (
+        document
+    )
     [event] = await drain(transport)
     assert event.kind is CallEventKind.INCOMING
     assert event.call_id == CALL
@@ -433,7 +437,6 @@ async def test_the_user_answering_and_joining_is_one_event(transport: TwilioCall
         (LegStatus.BUSY, "busy"),
         (LegStatus.FAILED, "failed"),
         (LegStatus.CANCELED, "failed"),
-        (LegStatus.COMPLETED, "failed"),
     ],
 )
 async def test_a_user_who_never_joins_is_reported_by_how_it_turned_out(
@@ -529,15 +532,52 @@ async def test_a_completion_arriving_before_the_join_and_leave_it_followed_waits
     assert shapes(await drain(transport)) == [("participant_left", "user", None)]
 
 
-async def test_a_completed_progress_after_joining_leaves_the_leaving_to_the_conference(
+async def test_a_user_known_to_have_answered_is_never_reported_unreachable(
     transport: TwilioCallTransport,
 ) -> None:
     await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    transport.leg_progressed(
+        CALL.value, "user-2", progress("user-2", LegStatus.IN_PROGRESS, 2, "human")
+    )
+    transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 3))
+    # Neither the join nor the leave arrived in time. Somebody who picked up was on the call.
+    assert shapes(await drain(transport)) == [
+        ("participant_joined", "user", "answered"),
+        ("participant_left", "user", None),
+    ]
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 4, "user-2"))
+    assert await drain(transport) == []
+
+
+async def test_a_join_arriving_after_a_leg_was_given_up_on_corrects_it(
+    transport: TwilioCallTransport,
+) -> None:
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 3))
+    assert shapes(await drain(transport)) == [("participant_unreachable", "user", "failed")]
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.JOIN, 4, "user-2"))
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
+    assert shapes(await drain(transport)) == [
+        ("participant_joined", "user", "answered"),
+        ("participant_left", "user", None),
+    ]
+
+
+async def test_a_joined_leg_completing_is_its_leaving_when_the_leave_itself_is_lost(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    await transport.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)
     await with_user(transport)
     transport.leg_progressed(CALL.value, "user-2", progress("user-2", LegStatus.COMPLETED, 9))
-    assert await drain(transport) == []
-    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
     assert shapes(await drain(transport)) == [("participant_left", "user", None)]
+    # With nobody else on the call, the caller hears the assistant again.
+    assert api.updates[-1] == (CONFERENCE, "CAsim-assistant-1", False, None)
+    # The leave arriving after all is the same leaving, already reported.
+    transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 5, "user-2"))
+    assert await drain(transport) == []
 
 
 async def test_a_leave_arriving_before_its_join_is_resolved_by_sequence(
@@ -588,6 +628,39 @@ async def test_removing_a_user_on_the_call_takes_them_out_of_the_conference(
     await transport.remove_participant(CALL, USER)
     assert api.removed == [(CONFERENCE, "CAsim-user-2")]
     await transport.remove_participant(CallId("CAsim-gone"), USER)
+
+
+async def test_a_dial_abandoned_while_being_placed_does_not_block_dialling_again(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    placing = asyncio.Event()
+    original = api.create_participant
+
+    async def hanging_create(conference_name: str, request: ParticipantRequest) -> str:
+        placing.set()
+        await asyncio.sleep(10)
+        return await original(conference_name, request)
+
+    api.create_participant = hanging_create  # type: ignore[method-assign]
+    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    await placing.wait()
+    dialling.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await dialling
+    api.create_participant = original  # type: ignore[method-assign]
+    await transport.add_participant(CALL, USER)
+    assert [request.label for _, request in api.created] == ["assistant-1", "user-3"]
+
+
+async def test_closing_while_the_provider_refuses_still_releases_every_call(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    api.failure = FAILURE
+    await transport.close()
+    assert transport.active_calls == 0
+    assert api.closed == 1
 
 
 async def test_a_dial_whose_identifier_is_not_yet_known_is_only_marked_removed(
@@ -711,6 +784,24 @@ async def test_the_caller_hanging_up_ends_the_call(transport: TwilioCallTranspor
     assert events[0].detail == "the caller hung up"
 
 
+async def test_the_callers_dial_ending_ends_the_call_without_any_conference_callback(
+    transport: TwilioCallTransport, api: RecordingApi
+) -> None:
+    await answered_call(transport)
+    await transport.add_participant(CALL, USER)
+    # Another leg's identifier, or no call at all, is not this caller leaving.
+    assert "<Hangup" in transport.caller_left(CALL.value, "CAsim-assistant-1")
+    assert "<Hangup" in transport.caller_left(None, CALL.value)
+    assert await drain(transport) == []
+    assert "<Hangup" in transport.caller_left(CALL.value, CALL.value)
+    transport.caller_left(CALL.value, CALL.value)
+    events = await drain(transport)
+    assert shapes(events) == [("ended", None, None)]
+    assert events[0].detail == "the caller hung up"
+    assert api.ended_calls == [("CAsim-user-2", "canceled")]
+    assert transport.active_calls == 0
+
+
 async def test_callbacks_for_another_conference_or_no_call_are_ignored(
     transport: TwilioCallTransport,
 ) -> None:
@@ -755,15 +846,17 @@ async def test_terminating_before_the_conference_exists_ends_the_callers_leg(
     assert api.ended_calls == [(CALL.value, "completed")]
 
 
-async def test_a_terminate_the_provider_refused_can_be_tried_again(
+async def test_a_terminate_the_provider_refuses_still_ends_the_rest_and_releases_the_call(
     transport: TwilioCallTransport, api: RecordingApi
 ) -> None:
     await answered_call(transport)
+    await transport.add_participant(CALL, USER)
     api.failure = FAILURE
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError, match="refused"):
         await transport.terminate(CALL)
-    assert transport.active_calls == 1
-    await transport.terminate(CALL)
+    # The conference could not be ended; the caller's leg and the ringing user still were.
+    assert api.ended_calls == [(CALL.value, "completed"), ("CAsim-user-2", "canceled")]
+    assert shapes(await drain(transport)) == [("ended", None, None)]
     assert transport.active_calls == 0
 
 
@@ -784,12 +877,60 @@ async def test_closing_releases_every_call_and_ends_the_event_stream(
     await transport.close()
     await transport.close()
     assert transport.active_calls == 0
+    # Nobody is left alone in a conference by the service going away.
+    assert api.ended_conferences == [CONFERENCE]
+    assert api.ended_calls == [(CALL.value, "completed")]
     assert api.closed == 1
     assert [event.kind async for event in events] == [CallEventKind.ENDED]
     assert "<Hangup" in transport.incoming_call(incoming("CAsim-new"))
 
 
-async def test_closing_cancels_work_still_in_flight(api: RecordingApi) -> None:
+async def test_closing_gives_up_on_a_provider_that_does_not_answer_and_releases_anyway(
+    transport: TwilioCallTransport, api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
+    await answered_call(transport)
+
+    async def unanswered(conference_sid: str) -> bool:
+        await asyncio.sleep(10)
+        return True
+
+    api.end_conference = unanswered  # type: ignore[method-assign]
+    async with asyncio.timeout(2):
+        await transport.close()
+    assert transport.active_calls == 0
+    assert api.closed == 1
+
+
+async def test_a_dial_that_outlasts_shutdown_is_ended_as_soon_as_it_exists(
+    transport: TwilioCallTransport, api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
+    transport.incoming_call(incoming())
+    placing = asyncio.Event()
+    finish = asyncio.Event()
+    original = api.create_participant
+
+    async def slow_create(conference_name: str, request: ParticipantRequest) -> str:
+        placing.set()
+        await finish.wait()
+        return await original(conference_name, request)
+
+    api.create_participant = slow_create  # type: ignore[method-assign]
+    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    await placing.wait()
+    await transport.close()
+    assert transport.active_calls == 0
+    finish.set()
+    with pytest.raises(ProviderError, match="ended"):
+        await dialling
+    assert ("CAsim-user-1", "canceled") in api.ended_calls
+
+
+async def test_closing_cancels_work_still_in_flight(
+    api: RecordingApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "SHUTDOWN_SECONDS", 0.05)
     started = asyncio.Event()
 
     async def slow_remove(conference_sid: str, call_sid: str) -> bool:
@@ -825,9 +966,23 @@ async def test_closing_cancels_work_still_in_flight(api: RecordingApi) -> None:
 # ------------------------------------------------------------------------------ the media
 
 
+def token_for(transport: TwilioCallTransport, call: CallId = CALL, leg: str = "assistant-1") -> str:
+    """The stream token the leg's instructions carry, as the provider would read it."""
+    document = transport.assistant_joining({"call": call.value, "leg": leg}, f"CAsim-{leg}")
+    stream = fromstring(document).find("./Connect/Stream")  # noqa: S314 - the transport wrote it
+    assert stream is not None
+    return next(each.attrib["value"] for each in stream if each.attrib["name"] == "token")
+
+
 def start_message(
-    leg: str = "assistant-1", call_sid: str = "CAsim-assistant-1"
+    leg: str = "assistant-1",
+    call_sid: str = "CAsim-assistant-1",
+    *,
+    token: str | None,
 ) -> dict[str, object]:
+    parameters = {"call": CALL.value, "leg": leg}
+    if token is not None:
+        parameters["token"] = token
     return {
         "event": "start",
         "streamSid": "MZsim-1",
@@ -836,7 +991,7 @@ def start_message(
             "callSid": call_sid,
             "tracks": ["inbound"],
             "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
-            "customParameters": {"call": CALL.value, "leg": leg},
+            "customParameters": parameters,
         },
     }
 
@@ -855,7 +1010,7 @@ async def test_a_media_socket_carries_the_callers_audio_until_the_stream_stops(
     socket = MemoryMediaSocket()
     socket.provider_sends({"event": "connected"})
     socket.provider_sends({"event": "mark", "mark": {"name": "m"}})
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     socket.provider_sends(media_message())
     socket.provider_sends(media_message("outbound"))
     socket.provider_sends({"event": "dtmf", "dtmf": {"digit": "1"}})
@@ -874,7 +1029,7 @@ async def test_a_socket_closing_without_a_stop_ends_the_stream_too(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await transport.inject_audio(CALL, AudioFrame(b"\x10" * 160, TELEPHONY_NARROWBAND))
     await transport.audio_sink(CALL).discard()
@@ -887,26 +1042,65 @@ async def test_a_socket_closing_without_a_stop_ends_the_stream_too(
 @pytest.mark.parametrize(
     "opening",
     [
-        [start_message(leg="assistant-9")],
-        [start_message(leg="user-2")],
-        [start_message(call_sid="CAsim-impostor")],
-        [{"event": "start", "start": {}}],
-        [media_message()],
-        ["not json"],
-        [],
+        lambda token: [start_message(leg="assistant-9", token=token)],
+        lambda token: [start_message(leg="user-2", token=token)],
+        lambda token: [start_message(call_sid="CAsim-impostor", token=token)],
+        lambda token: [start_message(token=None)],
+        lambda token: [start_message(token="a-guessed-token")],
+        lambda token: [{"event": "start", "start": {}}],
+        lambda token: [media_message()],
+        lambda token: ["not json"],
+        lambda token: [],
     ],
 )
 async def test_a_socket_that_is_not_the_expected_stream_is_closed(
-    transport: TwilioCallTransport, opening: list[object]
+    transport: TwilioCallTransport, opening: Callable[[str], list[object]]
 ) -> None:
     await answered_call(transport)
-    transport.assistant_joining({"call": CALL.value, "leg": "assistant-1"}, "CAsim-assistant-1")
+    token = token_for(transport)
     await transport.add_participant(CALL, USER)
     socket = MemoryMediaSocket()
-    for message in opening:
+    for message in opening(token):
         socket.provider_sends(message)
     socket.provider_closes()
     await transport.media_connected(socket)
+    assert socket.closed
+    assert transport.open_media_sockets == 0
+
+
+async def test_a_stream_token_is_its_own_legs_and_is_good_for_one_start_only(
+    transport: TwilioCallTransport,
+) -> None:
+    # The handshake's signature is the same for every call, and a leg's identifier is no
+    # secret, so neither says which leg a socket may carry. Only the token its instructions
+    # carried does, and only once.
+    await answered_call(transport)
+    other = CallId("CAsim-2")
+    transport.incoming_call(incoming(other.value))
+    await transport.answer(other)
+    borrowed, token = token_for(transport, other, "assistant-1"), token_for(transport)
+    openings = [
+        start_message(token=borrowed),
+        start_message(call_sid="CAsim-impostor", token=token),
+        start_message(token=token),
+    ]
+    for opening in openings:
+        socket = MemoryMediaSocket()
+        socket.provider_sends(opening)
+        await transport.media_connected(socket)
+        assert socket.closed
+    assert transport.open_media_sockets == 0
+
+
+async def test_a_socket_that_never_starts_a_stream_is_closed_after_a_deadline(
+    transport: TwilioCallTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(transport_module, "MEDIA_START_SECONDS", 0.05)
+    await answered_call(transport)
+    socket = MemoryMediaSocket()
+    socket.provider_sends({"event": "connected"})
+    async with asyncio.timeout(2):
+        await transport.media_connected(socket)
     assert socket.closed
     assert transport.open_media_sockets == 0
 
@@ -916,10 +1110,10 @@ async def test_a_second_socket_for_a_stream_already_connected_is_refused(
 ) -> None:
     await answered_call(transport)
     first, second = MemoryMediaSocket(), MemoryMediaSocket()
-    first.provider_sends(start_message())
+    first.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(first))
     await asyncio.sleep(0.01)
-    second.provider_sends(start_message())
+    second.provider_sends(start_message(token=token_for(transport)))
     await transport.media_connected(second)
     assert second.closed
     assert not first.closed
@@ -933,7 +1127,7 @@ async def test_the_assistant_leaving_ends_its_stream_and_closes_its_socket(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "assistant-1"))
@@ -948,7 +1142,7 @@ async def test_the_caller_hanging_up_closes_the_assistants_socket(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await asyncio.sleep(0.01)
     transport.conference_updated(CALL.value, conference(ConferenceEvent.LEAVE, 3, "caller"))
@@ -963,7 +1157,7 @@ async def test_a_listening_only_assistant_sends_nothing_to_the_call(
 ) -> None:
     await answered_call(transport)
     socket = MemoryMediaSocket()
-    socket.provider_sends(start_message())
+    socket.provider_sends(start_message(token=token_for(transport)))
     running = asyncio.create_task(transport.media_connected(socket))
     await with_user(transport)
     await transport.set_assistant_presence(CALL, AssistantPresence.LISTEN_ONLY)
@@ -985,10 +1179,14 @@ def test_a_repeated_delivery_token_is_recognised() -> None:
     assert transport.is_repeat_delivery("token-1")
 
 
-async def test_terminating_while_a_dial_is_still_being_placed_marks_it_rather_than_waiting(
-    transport: TwilioCallTransport, api: RecordingApi
+@pytest.mark.parametrize(
+    ("dial", "leg"),
+    [("add_participant", "CAsim-user-1"), ("answer", "CAsim-assistant-1")],
+)
+async def test_terminating_while_a_dial_is_being_placed_ends_that_leg_once_it_exists(
+    transport: TwilioCallTransport, api: RecordingApi, dial: str, leg: str
 ) -> None:
-    await answered_call(transport)
+    transport.incoming_call(incoming())
     placing = asyncio.Event()
     finish = asyncio.Event()
     original = api.create_participant
@@ -999,13 +1197,20 @@ async def test_terminating_while_a_dial_is_still_being_placed_marks_it_rather_th
         return await original(conference_name, request)
 
     api.create_participant = slow_create  # type: ignore[method-assign]
-    dialling = asyncio.create_task(transport.add_participant(CALL, USER))
+    dialling = asyncio.create_task(
+        transport.add_participant(CALL, USER)
+        if dial == "add_participant"
+        else transport.answer(CALL)
+    )
     await placing.wait()
-    await transport.terminate(CALL)
-    # The leg with no identifier yet could not be hung up by one; the caller's leg was.
-    assert api.ended_calls == [(CALL.value, "completed")]
+    terminating = asyncio.create_task(transport.terminate(CALL))
+    await asyncio.sleep(0.01)
     finish.set()
     await dialling
+    await terminating
+    # Ended once it had an identifier to be ended by, rather than left ringing into a dead call.
+    assert api.ended_calls == [(CALL.value, "completed"), (leg, "canceled")]
+    assert transport.active_calls == 0
 
 
 async def test_the_provider_ending_the_call_during_a_terminate_releases_it_once(
@@ -1024,9 +1229,9 @@ async def test_the_provider_ending_the_call_during_a_terminate_releases_it_once(
     terminating = asyncio.create_task(transport.terminate(CALL))
     await ending.wait()
     transport.conference_updated(CALL.value, conference(ConferenceEvent.END, 9))
-    await transport.settled()
     finish.set()
     await terminating
+    await transport.settled()
     assert shapes(await drain(transport)) == [("ended", None, None)]
 
 

@@ -18,6 +18,7 @@ Three rules, each the reason this is a service rather than a route writing rows:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from letmehandle.domain.models.caller import Caller
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.reported_calls import (
         CallEventSink,
         CallReport,
@@ -46,6 +48,27 @@ class ReportOutcome:
     duplicates: tuple[EventId, ...]
 
 
+class ReportingRateLimitedError(Exception):
+    """A handset reporting more often than any handset needs to. Carries when to try again."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__("too many reports; try again shortly")
+        self.retry_after_seconds = retry_after_seconds
+
+
+@dataclass(frozen=True, slots=True)
+class ReportingPolicy:
+    """How often one account's handset may report.
+
+    A handset reports when a call happens and when it comes back online with a backlog, a
+    hundred reports a request. Thirty requests a minute is far more than either; what it stops is
+    a handset stuck resending in a loop, which would otherwise fill the database and the live feed.
+    """
+
+    requests_per_window: int = 30
+    window: timedelta = timedelta(minutes=1)
+
+
 def scoped_call_id(user_id: UserId, call_id: CallId) -> CallId:
     """The call as the rest of the product knows it: this user's call with this identifier."""
     return CallId(f"{user_id.value}:{call_id.value}")
@@ -59,11 +82,26 @@ def scoped_event_id(user_id: UserId, event_id: EventId) -> EventId:
 class CallReporting:
     """Store a handset's reports and hand on the ones that are new and still current."""
 
-    def __init__(self, reports: CallReportRepository, sink: CallEventSink) -> None:
+    def __init__(
+        self,
+        reports: CallReportRepository,
+        sink: CallEventSink,
+        rate_limiter: RateLimiter,
+        policy: ReportingPolicy | None = None,
+    ) -> None:
         self._reports = reports
         self._sink = sink
+        self._rate_limiter = rate_limiter
+        self._policy = policy or ReportingPolicy()
 
     async def report(self, user_id: UserId, batch: Sequence[CallReport]) -> ReportOutcome:
+        decision = await self._rate_limiter.check(
+            f"call-reports:{user_id.value}",
+            limit=self._policy.requests_per_window,
+            window=self._policy.window,
+        )
+        if not decision.allowed:
+            raise ReportingRateLimitedError(decision.retry_after_seconds)
         accepted: list[EventId] = []
         duplicates: list[EventId] = []
         for report in batch:
@@ -76,7 +114,7 @@ class CallReporting:
                 continue
             accepted.append(report.event_id)
             if not superseded:
-                await self._sink.publish(_to_event(user_id, report))
+                await self._sink.publish(user_id, _to_event(user_id, report))
         return ReportOutcome(accepted=tuple(accepted), duplicates=tuple(duplicates))
 
 

@@ -50,7 +50,9 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
 
 1. A call arrives. The number's voice webhook answers it straight into a conference of its own:
    no beep, a silent wait, the smallest jitter buffer, never recorded, and the conference ends when
-   the caller leaves. The caller's leg is never touched again.
+   the caller leaves. The caller's leg is never touched again. The dial's action,
+   `/telephony/voice/caller-left`, is requested on the caller's own leg when their time in the
+   conference is over, so the call ends even when every conference callback saying so is lost.
 2. `answer` dials the assistant into the conference as a participant whose destination is a
    provider-side application. On this transport that is what answering under program control
    means: the caller was answered on arrival, and answering puts the assistant on the call. The application's voice webhook returns a bidirectional stream to
@@ -60,7 +62,11 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    only (muted), speak only to the user (coaching them), or leave (removed). Before the user joins,
    and after the last one leaves, the assistant is audible to the caller.
 5. `terminate` ends the conference, and the caller's leg in case the conference never started, and
-   cancels any leg still ringing. It is safe to call more than once.
+   cancels any leg still ringing. It is safe to call more than once. A dial still being placed
+   finishes first, so its leg can be cancelled too. When the provider refuses one step the rest
+   are still tried and the call is released, and then the first refusal is raised. Shutting the
+   service down terminates every call in progress the same way, for at most five seconds, and
+   then releases whatever is left.
 
 ### What the orchestrator hears
 
@@ -91,13 +97,22 @@ in a bounded queue that drops the oldest frame when a listener falls behind.
 Every HTTP callback and the websocket handshake is checked against `X-Twilio-Signature` before
 anything in it is read, over the URL built from `TELEPHONY_WEBHOOK_BASE_URL` — not the Host the
 request arrived with, which behind a tunnel is not what was signed. A genuine signature from another
-account is refused too.
+account is refused too. A body over 64 KiB is refused with `413` before it is read, by its declared
+length or as it arrives, so a forged callback is never held in memory to find out it was forged.
+
+The handshake's signature is the same for every call, and a leg's call identifier is no secret, so
+neither decides which leg a socket carries. The assistant's instructions carry a random token as a
+stream parameter; the stream's `start` must present it, it is compared in constant time, and it is
+good for one `start`. A socket that has not sent `start` five seconds after the handshake is closed.
 
 The provider duplicates, reorders and drops callbacks. Repeats are recognised by the idempotency
 token header and by the provider's own identifiers (conference and sequence number; call, sequence
 number and status). State is resolved by sequence number, not arrival: a join arriving after the
-leave that followed it is stale. A leg reported completed without having joined is given two
-seconds for a delayed join or leave to arrive before it is reported unreachable.
+leave that followed it is stale. A leg reported completed after it joined has left, whether or not the conference's leave
+for it ever arrives. A leg reported completed without having joined is given two
+seconds for a delayed join or leave to arrive before it is reported unreachable — unless it is a
+user's leg known to have been answered, which is reported as having joined and left. A join or
+leave arriving after a leg was reported unreachable that way corrects it: joined, then left.
 
 Handlers change state and return; anything that needs the network runs as a task the transport
 owns, and every such task, socket and stream is released with its call.
@@ -115,7 +130,14 @@ corrected backwards afterwards would otherwise leave rules that never age.
 The backend represents the handset as a transport whose events arrive afterwards. The handset
 reports what happened to `POST /v1/calls/reports`; reports are stored per user, a repeat of the
 same event id counts once, and each accepted report is published as a call event on the handset
-transport's feed. The route exists whichever transport is configured, so a handset's reports are
+transport's feed. Each report in a batch is read on its own: the answer is a `200` listing
+`accepted`, `duplicates` and `rejected` — each rejection with its `index` in the batch, its
+`event_id` when one could be read, and a `reason` — so one report the handset got wrong is dropped
+by itself instead of holding back the rest. A caller number is E.164 as the handset writes it,
+`^\+[1-9][0-9]{1,14}$`. A batch that is not a list of at most 100 reports is refused whole with `422`.
+One account may send thirty requests a minute, and a request over that is refused with `429` and
+`Retry-After`. At most a hundred of one account's events wait on the live feed; past that they
+are stored and not published, so one handset reporting in a loop cannot crowd out anybody else's. The route exists whichever transport is configured, so a handset's reports are
 never lost to configuration; `TELEPHONY_PROVIDER=android_native` makes that feed the transport the
 product reads.
 

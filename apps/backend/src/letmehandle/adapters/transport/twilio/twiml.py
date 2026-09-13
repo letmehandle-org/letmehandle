@@ -21,7 +21,11 @@ CONFERENCE_EVENTS: Final = ("start", "end", "join", "leave")
 
 
 def caller_conference(
-    *, conference_name: str, status_callback_url: str, participant_label: str
+    *,
+    conference_name: str,
+    status_callback_url: str,
+    participant_label: str,
+    dial_action_url: str,
 ) -> str:
     """Answer the caller straight into their call's own conference.
 
@@ -30,9 +34,13 @@ def caller_conference(
     join anything. The wait is silent rather than hold music, because to the caller this is
     simply a call that has been answered. The smallest jitter buffer, because the mixer's delay
     is conversational latency. Never recorded (D-013).
+
+    The dial's action is asked for when the caller's time in the conference is over, however it
+    ended. It is a request of its own on the caller's own leg, so the call is heard to end even
+    when every conference callback saying so is lost.
     """
     response = Element("Response")
-    dial = SubElement(response, "Dial")
+    dial = SubElement(response, "Dial", {"action": dial_action_url, "method": "POST"})
     conference = SubElement(
         dial,
         "Conference",
