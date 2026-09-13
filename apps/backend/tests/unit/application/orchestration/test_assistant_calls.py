@@ -288,6 +288,24 @@ class TestTheAssistantHandlesACall:
             )
             assert running.stores.summaries.stored[CallId(CALL)].headline != "x" * 400
 
+    async def test_a_record_claiming_an_ending_the_call_did_not_have_is_not_the_summary(
+        self,
+    ) -> None:
+        # Written while the user's phone was ringing, anticipating a handover that never came: the
+        # caller hung up first, and history must say the user was wanted and missed it.
+        record = OutcomeRecord(CallOutcome.HANDED_TO_USER, "Handed the neighbour over to you.")
+        line = streaming()
+        looks = [Look(proposal=WANTS_THE_USER, record=record)]
+        async with orchestrating(line, looks=looks) as running:
+            await ringing(running)
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert summary.outcome is CallOutcome.UNANSWERED_ESCALATION
+            assert summary.human_joined_at is None
+            assert summary.headline == WritingSummariser.HEADLINE
+
     async def test_a_record_is_not_the_summary_of_a_call_that_failed(self) -> None:
         record = OutcomeRecord(CallOutcome.RESOLVED_BY_AGENT, "All sorted.")
         async with orchestrating(streaming(), looks=[Look(record=record)]) as running:
