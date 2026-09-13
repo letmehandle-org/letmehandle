@@ -14,7 +14,7 @@ from letmehandle.bootstrap import (
     build_voice_provider,
 )
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
-from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import (
@@ -189,7 +189,7 @@ def test_main_refuses_to_carry_calls_with_nowhere_to_record_them(
     assert recorded_uvicorn == {}
 
 
-def forwarding_for(settings: Settings) -> CallForwarding | None:
+def forwarding_for(settings: Settings) -> ForwardingNumbers:
     container = build_container(
         settings, voices=build_voice_provider(settings), reported_calls=build_reported_calls()
     )
@@ -199,14 +199,16 @@ def forwarding_for(settings: Settings) -> CallForwarding | None:
 def test_a_streaming_deployment_asks_users_to_forward_to_its_first_number() -> None:
     # A streaming call reaches the product only by the user's carrier forwarding it, and the
     # first configured number is the one every user is told, so two screens never disagree.
-    assert forwarding_for(telephony_settings()) == CallForwarding(PhoneNumber.parse("+12025550100"))
+    assert forwarding_for(telephony_settings()) == ForwardingNumbers(
+        elsewhere=PhoneNumber.parse("+12025550100")
+    )
 
 
 def test_a_handset_deployment_needs_nothing_forwarded() -> None:
     # The handset screens its own calls; there is nowhere to forward them to.
     settings = make_settings(telephony_provider=TelephonyProviderName.ANDROID_NATIVE)
-    assert forwarding_for(settings) is None
+    assert forwarding_for(settings) == ForwardingNumbers()
 
 
 def test_a_deployment_carrying_no_calls_needs_nothing_forwarded() -> None:
-    assert forwarding_for(make_settings()) is None
+    assert forwarding_for(make_settings()) == ForwardingNumbers()

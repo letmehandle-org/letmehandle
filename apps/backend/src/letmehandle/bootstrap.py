@@ -99,7 +99,7 @@ from letmehandle.config.settings import (
     TelephonyProviderName,
 )
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
-from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.observability.in_process import InProcessMetrics, MetricsFanOut
 from letmehandle.observability.metrics import LoggingMetricsRecorder
 from letmehandle.observability.tracing import NoTracer
@@ -162,9 +162,9 @@ class Container:
     # represents handsets is that sink, so the one instance is both what the reporting route
     # feeds and what anything consuming that transport's events reads.
     reported_calls: CallEventSink
-    # The number users forward their unanswered and busy calls to, or None where nothing needs
-    # forwarding. Decided here once, so the profile and the setup flow cannot disagree about it.
-    forwarding: CallForwarding | None
+    # The numbers users forward their unanswered and busy calls to, by region, and none where
+    # nothing needs forwarding. Decided here once, so the profile and setup cannot disagree.
+    forwarding: ForwardingNumbers
     # One per configured platform, possibly none. A platform without one is an outcome at
     # dispatch, not a startup failure: escalation works without push (D-016).
     notifications: tuple[NotificationProvider, ...] = ()
@@ -226,16 +226,16 @@ def build_container(
     )
 
 
-def build_call_forwarding(settings: Settings) -> CallForwarding | None:
-    """Which number, if any, users must forward their calls to for any to arrive.
+def build_call_forwarding(settings: Settings) -> ForwardingNumbers:
+    """Which number, if any, each user must forward their calls to for any to arrive.
 
     A streaming call reaches the product only when the user's carrier forwards it to one of the
     account's numbers, and every user is told the first. A handset screens its own calls and
     needs nothing forwarded, and a deployment with no transport takes no calls at all.
     """
     if settings.telephony_provider is TelephonyProviderName.TWILIO:
-        return CallForwarding(settings.require_streaming_telephony().numbers[0])
-    return None
+        return ForwardingNumbers(elsewhere=settings.require_streaming_telephony().numbers[0])
+    return ForwardingNumbers()
 
 
 def build_notification_providers(

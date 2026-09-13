@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from letmehandle.config.settings import Settings
-    from letmehandle.domain.models.forwarding import CallForwarding
+    from letmehandle.domain.models.forwarding import ForwardingNumbers
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
@@ -76,7 +76,7 @@ async def running(
     schema: str,
     *,
     voices: VoiceProvider | None = None,
-    forwarding: CallForwarding | None = None,
+    forwarding: ForwardingNumbers | None = None,
     otp: OTPProvider | None = None,
     resend_cooldowns: tuple[timedelta, ...] = (timedelta(0),),
 ) -> AsyncIterator[Api]:
@@ -84,7 +84,7 @@ async def running(
 
     Separate from the fixture so that a test needing a differently configured application — a
     voice provider with other capabilities, say — assembles it the same way rather than by
-    building a second, subtly different one of its own. `forwarding` stands in for the number a
+    building a second, subtly different one of its own. `forwarding` stands in for the numbers a
     streaming deployment's bootstrap chooses, without building that transport's provider, and
     `otp` for the code provider, the way a simulated provider stands in for a real one.
     """
@@ -104,7 +104,7 @@ async def running(
     )
     app.state.container = replace(
         container,
-        forwarding=forwarding,
+        forwarding=container.forwarding if forwarding is None else forwarding,
         # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
         # moved past the resend cooldown. The cooldown has its own tests, which restore it.
         auth_limits=replace(container.auth_limits, resend_cooldowns=resend_cooldowns),

@@ -11,20 +11,37 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.region import IN, US
 from tests.integration.conftest import Api, bearer, running, sign_in
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 FORWARD_TO = "+12025550100"
+# Where each region's users forward on a deployment with a line per country. The Indian numbers
+# are shorter than any in India's plan, so they reach nobody.
+US_LINE = "+12025550100"
+IN_LINE = "+91555010"
+IN_USER = "+91555001"
+UK_USER = "+447700900123"
 
 
 @pytest.fixture
 async def forwarded(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
     """The application as a deployment whose calls arrive forwarded to `FORWARD_TO`."""
-    forwarding = CallForwarding(PhoneNumber.parse(FORWARD_TO))
+    forwarding = ForwardingNumbers(elsewhere=PhoneNumber.parse(FORWARD_TO))
+    async with running(database_url, schema, forwarding=forwarding) as ready:
+        yield ready
+
+
+@pytest.fixture
+async def by_region(session: object, database_url: str, schema: str) -> AsyncIterator[Api]:
+    """A deployment with a line in the US and one in India, and none for anywhere else."""
+    forwarding = ForwardingNumbers(
+        by_region={US: PhoneNumber.parse(US_LINE), IN: PhoneNumber.parse(IN_LINE)}
+    )
     async with running(database_url, schema, forwarding=forwarding) as ready:
         yield ready
 
@@ -113,3 +130,31 @@ class TestOnboarding:
         assert response.json()["error"] == "step_not_asked"
         progress = await api.client.get("/v1/onboarding", headers=bearer(tokens))
         assert progress.json()["completed"] == []
+
+
+class TestLinesByRegion:
+    @pytest.mark.parametrize(("number", "line"), [("+12025550143", US_LINE), (IN_USER, IN_LINE)])
+    async def test_each_user_is_told_the_number_in_their_own_region(
+        self, by_region: Api, number: str, line: str
+    ) -> None:
+        tokens = await sign_in(by_region, number)
+        profile = await by_region.client.get("/v1/me", headers=bearer(tokens))
+        progress = await by_region.client.get("/v1/onboarding", headers=bearer(tokens))
+
+        assert profile.json()["call_forwarding"] == {"number": line}
+        assert "call_forwarding" in progress.json()["remaining"]
+
+    async def test_a_user_no_line_serves_is_told_no_number_and_is_not_asked_to_forward(
+        self, by_region: Api
+    ) -> None:
+        # Their calls cannot reach the deployment, so setup does not send them to a number that
+        # would carry a call abroad, or pretend forwarding is what stands between them and it.
+        tokens = await sign_in(by_region, UK_USER)
+        profile = await by_region.client.get("/v1/me", headers=bearer(tokens))
+        recorded = await by_region.client.post(
+            "/v1/onboarding", headers=bearer(tokens), json={"step": "call_forwarding"}
+        )
+
+        assert profile.json()["call_forwarding"] is None
+        assert recorded.status_code == 422
+        assert recorded.json()["error"] == "step_not_asked"
