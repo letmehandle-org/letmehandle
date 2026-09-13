@@ -11,13 +11,16 @@ from that quote, and no number appears in the headline that nobody said. A refer
 was never read out is worse than none, so a draft carrying one is refused whole rather than trimmed:
 a model that invented one detail is not a model whose other sentences can be trusted.
 
-Words are compared case-folded and split on anything that is not a letter or a digit, so a draft is
-not refused for a curly apostrophe or a capital letter, and is refused for a changed word.
+Words are compared case-folded and split on anything that is not a letter, a digit or a mark within
+a word, so a draft is not refused for a curly apostrophe or a capital letter, and is refused for a
+changed word. Marks count because Devanagari writes its vowel signs and the virama as marks after
+the letter they belong to: a word split at each of them is a handful of letters that match anything.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
@@ -41,8 +44,11 @@ MAX_SENTENCES: Final = 2
 RESTATEMENT_WORDS: Final = 9
 
 # A sentence ends at a stop followed by a capital, or at the end. "10 a.m. on Thursday" is one.
-_SENTENCE_END: Final = re.compile(r"[.!?]+(?:\s+(?=[A-Z])|\s*$)")
-_WORD: Final = re.compile(r"\w+")
+# Devanagari has no capitals, so a stop before one of its letters ends a sentence, and so does a
+# danda wherever it is.
+_SENTENCE_END: Final = re.compile(r"[.!?]+(?:\s+(?=[A-Z\u0900-\u097f])|\s*$)|[\u0964\u0965]+\s*")
+# The joiners some scripts write inside a word to choose how two letters combine.
+_JOINERS: Final = frozenset("\u200c\u200d")
 
 
 class DraftProblem(StrEnum):
@@ -135,7 +141,19 @@ def vocabulary_for(locale: str) -> SummaryVocabulary:
 
 def words(text: str) -> tuple[str, ...]:
     """`text` as the checks compare it: case-folded words and numbers, in order."""
-    return tuple(_WORD.findall(text.casefold()))
+    found: list[str] = []
+    word: list[str] = []
+    for character in text.casefold():
+        if character.isalnum() or (
+            word and (character in _JOINERS or unicodedata.category(character).startswith("M"))
+        ):
+            word.append(character)
+        elif word:
+            found.append("".join(word))
+            word = []
+    if word:
+        found.append("".join(word))
+    return tuple(found)
 
 
 def names_the_ending(headline: str, outcome: CallOutcome, vocabulary: SummaryVocabulary) -> bool:
