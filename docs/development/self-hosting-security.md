@@ -22,7 +22,10 @@ It refuses to start when `APP_ENV=production`. `APP_ENV` defaults to `developmen
   `APP_ENV=production` and `OTP_PROVIDER=twilio_sms`.** The text-message provider sends each code
   from `SMS_FROM_NUMBER` on the account `SMS_ACCOUNT_ID` and `SMS_AUTH_TOKEN` name, and the process
   refuses to start naming whichever of the three is missing. It generates no code of its own and
-  fixes none: the application generates each one and stores only its hash.
+  fixes none: the application generates each one and stores only its hash. For a country whose
+  operators deliver only registered messages, `OTP_PROVIDER_BY_CALLING_CODE=91:twilio_verify` has
+  the provider's verification service make, send and check that country's codes instead, with
+  `SMS_VERIFY_SERVICE_ID` on the same account (D-042); every sign-in limit still applies.
 - **Never expose a deployment running the mock**, whatever its `APP_ENV`. A development or test
   deployment binds to loopback or sits on a private network whose every member you would trust
   with every account on it. Not behind a public tunnel, not "only for a day", not with an obscure
@@ -282,7 +285,8 @@ environment, so one can be revoked without touching another.
 ## Checklist
 
 - [ ] `APP_ENV=production` on anything reachable from a network you do not fully control
-- [ ] `OTP_PROVIDER=twilio_sms` with its `SMS_` account; never the mock where it can be reached
+- [ ] `OTP_PROVIDER=twilio_sms` with its `SMS_` account, and `twilio_verify` with
+      `SMS_VERIFY_SERVICE_ID` for any country that needs it; never the mock where it can be reached
 - [ ] `AUTH_SIGNING_KEY` generated for this deployment, stored in a secret store
 - [ ] `TRANSCRIPT_ENCRYPTION_KEYS` generated, backed up apart from the database
 - [ ] TLS terminated at a proxy; port 8000 not exposed

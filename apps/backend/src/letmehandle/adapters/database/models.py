@@ -69,8 +69,9 @@ class OTPChallengeRow(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     phone_number: Mapped[str] = mapped_column(String(16), nullable=False)
-    # The hash, never the code. Nothing in this system can say what the code was.
-    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # The hash, never the code. Nothing in this system can say what the code was. Null where the
+    # provider made the code and checks it itself (D-042).
+    code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

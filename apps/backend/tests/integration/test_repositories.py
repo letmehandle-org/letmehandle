@@ -123,6 +123,16 @@ class TestChallenges:
         assert stored.attempts == 0
         assert stored.verified_at is None
 
+    async def test_a_challenge_whose_code_the_provider_holds_round_trips(
+        self, session: AsyncSession
+    ) -> None:
+        challenges = SqlOTPChallengeRepository(session)
+        await challenges.add(a_challenge(code_hash=None))
+
+        stored = await challenges.get("challenge-1")
+        assert stored is not None
+        assert stored.code_is_held_by_provider
+
     async def test_attempts_and_verification_are_stored(self, session: AsyncSession) -> None:
         challenges = SqlOTPChallengeRepository(session)
         await challenges.add(a_challenge())

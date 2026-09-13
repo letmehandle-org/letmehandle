@@ -789,6 +789,10 @@ timeout, or a connection lost after sending — may have been delivered, so the 
 counts against the cooldown and every budget. The client is told `provider_unavailable` with the
 wait before another code, so a slow provider cannot be used to send codes nobody counts.
 
+**Amended by D-042: a provider may own the code.** Where a country's delivery rules require the
+provider's own registered message, that provider makes and checks the code for the numbers it serves.
+Every limit above is still the application's.
+
 ## D-038 — Observability records structure, and a failing provider costs the feature that needs it
 
 **Accepted.** What the backend says about itself — log lines, metrics, spans, readiness and
@@ -979,7 +983,7 @@ serves in `OTP_ALLOWED_CALLING_CODES` (D-036): somebody from a country it does n
 at sign-in rather than set up for a product that cannot take their calls.
 
 **Sign-in codes go through the provider for the number's calling code (amends D-037).**
-`OTP_PROVIDER_BY_CALLING_CODE` (`91:twilio_sms`) names a provider per calling code; every other number
+`OTP_PROVIDER_BY_CALLING_CODE` (`91:twilio_verify`) names a provider per calling code; every other number
 uses `OTP_PROVIDER`. Operators in some countries accept application texts only from a sender
 registered with a provider licensed there, and a deployment serving such a country needs that
 provider for it and no other. The choice is an `OTPProvider` of its own in the adapters, so the
@@ -998,3 +1002,60 @@ is the change to make when a second provider is.
 and a `LineProviderName` member with a case in bootstrap for calls, and an `OTPProvider` adapter with
 an `OTPProviderName` member and a case in bootstrap for texts. The checklist is in
 [`docs/providers/call-transport.md`](../providers/call-transport.md#serving-another-country).
+
+## D-042 — A provider may own the sign-in code where a country's delivery rules require it
+
+**Accepted.** Amends D-037 and D-041. The application normally makes the sign-in code, hashes it and
+compares it (D-037), and that stays the rule. A provider may instead make, send and check the code
+for the numbers it serves, when a country's operators reliably deliver application texts only in a
+message registered with them — India's, through the provider's own registered templates, where a
+message the application composes goes astray without registrations of the deployment's own. The
+first such provider is `twilio_verify`, the provider's verification service; `91:twilio_verify` in
+`OTP_PROVIDER_BY_CALLING_CODE` gives it India and leaves every other number on the provider that
+texts the application's code. That service chooses its own code, and a code of ours would need an
+account feature enabled by the vendor, so the comparison has to be the service's.
+
+**Only the comparison moves.** `OTPProvider.issues_its_own_codes(number)` says, per number, whether
+the provider owns the code; it is per number because the chooser of D-041 can give one country such
+a provider and another not. For such a number the service calls `send_own_code(number)` instead of
+`send(number, code)`, stores the challenge with no hash, and at verification calls
+`check(number, code)` instead of comparing the hash. Every other rule is the service's and runs
+where it always did:
+
+- Which countries codes go to, the per-source limits, the lock on a number after wrong codes, the
+  resend cooldown with its per-hour and per-day limits, and the hourly budgets overall and per
+  calling code are decided before the provider is asked to send.
+- A send that may have gone out counts, and one refused before sending does not (D-037, amended).
+- The challenge still expires, allows `MAX_ATTEMPTS` guesses, is superseded by a newer code, and is
+  used once. Each is decided from the stored challenge before the provider is asked to check, so an
+  expired, used, superseded or exhausted challenge never reaches it.
+- A wrong code consumes an attempt, and counts toward the number's lock, exactly as a wrong hash
+  does. A check that finds nothing — expired, used, never sent, or out of the service's own guesses
+  — is a wrong code.
+
+**A provider that cannot answer signs nobody in.** A check that fails, times out or is refused is
+`CodeNotCheckedError`: `503 provider_unavailable` with a short `Retry-After`, no attempt counted,
+and the challenge left open so the same code works when the provider answers. Not counting it is
+deliberate: an outage is nobody's guess, and counting it would lock people out of their numbers for
+a day. The per-source verification limit still counts the request, so an outage cannot be used to
+guess for free at volume.
+
+**What D-037's objections become.** The guess is still counted under the challenge's row lock: the
+lock is taken before the check and held across it, so two guesses at one challenge are compared one
+after the other, at the cost of holding a connection for at most one request's timeout. Two limits
+still exist — the service keeps its own count of checks — but ours is always the tighter one that
+is stated, and the service's only ever refuses sooner. The path the mock exercises is no longer the
+only path, so the owned-code path has its own fake (`CheckingOTPProvider`), its own simulated
+service, the provider contract, and an integration test signing in a +91 number through it beside a
++1 number through texts.
+
+**Changing a country's provider mid-challenge.** A challenge with a hash is compared here whoever
+serves the number now. One whose code a provider held, checked after the number moved to a provider
+that does not hold codes, can never be satisfied and is refused as a wrong code.
+
+**Configuration.** `SMS_VERIFY_SERVICE_ID` names the service on the `SMS_` account, whose
+`SMS_ACCOUNT_ID` and `SMS_AUTH_TOKEN` it reuses; `SMS_FROM_NUMBER` is not needed for it, since the
+service sends from its own. Startup refuses a missing one, naming the variables and never a value.
+The adapter logs that a code was sent, refused or checked and whether it was approved, never the
+number or the code. A number the service will not deliver to is `UnreachableNumberError`; its send
+limit is a retryable `ProviderError`.

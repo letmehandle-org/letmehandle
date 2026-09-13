@@ -6,7 +6,9 @@ provider licensed there. So each calling code may have a provider of its own, an
 number is sent its code by the default one (D-041).
 
 The application's sign-in rules are unchanged by it: which countries codes may go to, and how many
-are sent, are decided before any provider is asked. This only chooses who carries the message.
+are sent, are decided before any provider is asked. This only chooses who carries the message, and,
+for a provider that makes its own codes (D-042), who is asked whether a code is right — always the
+provider that sent it, since both are chosen by the same number.
 """
 
 from __future__ import annotations
@@ -52,13 +54,24 @@ class OTPProviderByCallingCode(OTPProvider):
         codes = {provider.fixed_code for provider in self._providers()}
         return next(iter(codes)) if len(codes) == 1 else None
 
+    def issues_its_own_codes(self, number: PhoneNumber) -> bool:
+        return self._provider_for(number).issues_its_own_codes(number)
+
     async def send(self, number: PhoneNumber, code: str) -> None:
-        provider = self._by_calling_code.get(number.calling_code, self._default)
-        await provider.send(number, code)
+        await self._provider_for(number).send(number, code)
+
+    async def send_own_code(self, number: PhoneNumber) -> None:
+        await self._provider_for(number).send_own_code(number)
+
+    async def check(self, number: PhoneNumber, code: str) -> bool:
+        return await self._provider_for(number).check(number, code)
 
     async def aclose(self) -> None:
         """Release every provider's connections, each once."""
         await close_each(self._providers())
+
+    def _provider_for(self, number: PhoneNumber) -> OTPProvider:
+        return self._by_calling_code.get(number.calling_code, self._default)
 
     def _providers(self) -> tuple[OTPProvider, ...]:
         return (self._default, *self._by_calling_code.values())

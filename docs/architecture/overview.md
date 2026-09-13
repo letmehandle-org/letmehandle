@@ -82,7 +82,7 @@ callers ask what a provider can do rather than assuming.
 | `CallAgent` | judgement: intent, importance, structured decisions, through tools (an application port, D-026) | `adapters/agent/strands` |
 | `VoiceProvider` | how the assistant sounds: catalogue, preview, custom voices | `adapters/voice/builtin.py` |
 | `NotificationProvider` | reaching the user's device | `adapters/notification/apns`, `adapters/notification/fcm` |
-| `OTPProvider` | delivering a sign-in code | `adapters/otp/mock.py` only |
+| `OTPProvider` | delivering a sign-in code, or making and checking one | `adapters/otp/`: `mock.py`, `twilio_sms.py`, `twilio_verify.py`, `by_calling_code.py` |
 | `Clock`, `IdGenerator` | time and identity, injected so tests control both | `adapters/clock.py` |
 
 Every port has a contract test suite. An implementation proves itself by passing that suite, which

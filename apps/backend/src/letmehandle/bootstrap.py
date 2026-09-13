@@ -47,6 +47,7 @@ from letmehandle.adapters.notification.shared import CredentialError
 from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
+from letmehandle.adapters.otp.twilio_verify import VerifyOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
 from letmehandle.adapters.security.hashing import (
     DeterministicHasher,
@@ -771,6 +772,13 @@ def _otp_provider_named(name: OTPProviderName, settings: Settings) -> OTPProvide
                 account_id=account.account_id,
                 auth_token=account.auth_token,
                 sender=account.sender,
+            )
+        case OTPProviderName.TWILIO_VERIFY:
+            verify = settings.require_verify_account()
+            return VerifyOTPProvider(
+                account_id=verify.account_id,
+                auth_token=verify.auth_token,
+                service_id=verify.service_id,
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             # Not dead code: it is what makes the type checker reject a new provider that has

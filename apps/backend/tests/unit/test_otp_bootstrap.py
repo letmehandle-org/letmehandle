@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from letmehandle.adapters.otp.by_calling_code import OTPProviderByCallingCode
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
+from letmehandle.adapters.otp.twilio_verify import VerifyOTPProvider
 from letmehandle.bootstrap import (
     build_container,
     build_reported_calls,
@@ -25,15 +26,24 @@ from letmehandle.config.settings import (
     parse_otp_providers,
 )
 from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.main import create_app
 from tests.support.config import REQUIRED_ENVIRONMENT, TEST_SIGNING_KEY, make_settings
 from tests.support.simulated_sms import SMS_ACCOUNT, SMS_SENDER, SMS_TOKEN
+from tests.support.simulated_verify import VERIFY_SERVICE
 
 SMS: dict[str, Any] = {
     "otp_provider": OTPProviderName.TWILIO_SMS,
     "sms_account_id": SMS_ACCOUNT,
     "sms_auth_token": SMS_TOKEN,
     "sms_from_number": SMS_SENDER,
+}
+
+VERIFY: dict[str, Any] = {
+    "otp_provider": OTPProviderName.TWILIO_VERIFY,
+    "sms_account_id": SMS_ACCOUNT,
+    "sms_auth_token": SMS_TOKEN,
+    "sms_verify_service_id": VERIFY_SERVICE,
 }
 
 
@@ -109,10 +119,11 @@ def test_the_account_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatc
 def test_blank_account_variables_count_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     for name, value in REQUIRED_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
-    for name in ("SMS_ACCOUNT_ID", "SMS_AUTH_TOKEN", "SMS_FROM_NUMBER"):
+    for name in ("SMS_ACCOUNT_ID", "SMS_AUTH_TOKEN", "SMS_FROM_NUMBER", "SMS_VERIFY_SERVICE_ID"):
         monkeypatch.setenv(name, "")
     settings = get_settings()
     assert settings.sms_from_number is None
+    assert settings.sms_verify_service_id is None
     assert settings.sms_auth_token is None
 
 
@@ -173,7 +184,7 @@ def test_providers_by_country_are_read_from_the_environment(
 @pytest.mark.parametrize(
     ("text", "problem"),
     [
-        ("91", "entry 1 is not a calling code and one of mock, twilio_sms"),
+        ("91", "entry 1 is not a calling code and one of mock, twilio_sms, twilio_verify"),
         ("1:mock,091:mock", "entry 2 is not a calling code"),
         ("91:carrier-pigeon", "entry 1 is not a calling code"),
         ("91:mock,91:twilio_sms", "names calling code 91 twice"),
@@ -190,3 +201,82 @@ def test_a_provider_for_a_country_codes_are_never_sent_to_is_refused() -> None:
         make_settings(
             otp_provider_by_calling_code="91:mock,44:mock", otp_allowed_calling_codes="1,91"
         )
+
+
+# ------------------------------------------------------------------ the verification service
+
+
+async def test_the_verification_service_provider_is_chosen_when_configured() -> None:
+    container = container_for(make_settings(**VERIFY))
+    assert isinstance(container.otp, VerifyOTPProvider)
+    assert container.otp.is_safe_for_production
+    await close_providers(container)
+
+
+async def test_a_production_configuration_with_the_verification_service_starts() -> None:
+    app = create_app(make_settings(app_env=Environment.PRODUCTION, **VERIFY))
+    async with app.router.lifespan_context(app):
+        assert app.state.container.otp.is_safe_for_production
+
+
+@pytest.mark.parametrize(
+    ("missing", "named"),
+    [
+        (("sms_verify_service_id",), "SMS_VERIFY_SERVICE_ID must be set"),
+        (("sms_account_id",), "SMS_ACCOUNT_ID must be set"),
+        (
+            ("sms_account_id", "sms_auth_token", "sms_verify_service_id"),
+            "SMS_ACCOUNT_ID, SMS_AUTH_TOKEN, SMS_VERIFY_SERVICE_ID must be set",
+        ),
+    ],
+)
+def test_an_incomplete_verification_service_stops_startup_naming_what_is_missing(
+    missing: tuple[str, ...], named: str
+) -> None:
+    settings = make_settings(**{**VERIFY, **dict.fromkeys(missing)})
+    with pytest.raises(ConfigurationError, match=named) as caught:
+        container_for(settings)
+    assert SMS_TOKEN not in str(caught.value)
+    assert VERIFY_SERVICE not in str(caught.value)
+
+
+async def test_india_on_the_verification_service_and_everybody_else_on_texts() -> None:
+    container = container_for(
+        make_settings(
+            **SMS,
+            sms_verify_service_id=VERIFY_SERVICE,
+            otp_provider_by_calling_code="91:twilio_verify",
+            otp_allowed_calling_codes="1,91",
+        )
+    )
+    assert isinstance(container.otp, OTPProviderByCallingCode)
+    assert container.otp.name == "twilio-sms+91:twilio-verify"
+    assert container.otp.is_safe_for_production
+    assert container.otp.issues_its_own_codes(PhoneNumber.parse("+91555001"))
+    assert not container.otp.issues_its_own_codes(PhoneNumber.parse("+12025550143"))
+    await close_providers(container)
+
+
+def test_a_country_on_the_verification_service_needs_its_service_whatever_the_default() -> None:
+    with pytest.raises(ConfigurationError, match="SMS_VERIFY_SERVICE_ID") as caught:
+        container_for(make_settings(**SMS, otp_provider_by_calling_code="91:twilio_verify"))
+    assert "SMS_FROM_NUMBER" not in str(caught.value)
+
+
+def test_the_verification_service_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in REQUIRED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("OTP_PROVIDER", "mock")
+    monkeypatch.setenv("OTP_PROVIDER_BY_CALLING_CODE", "91:twilio_verify")
+    monkeypatch.setenv("SMS_ACCOUNT_ID", SMS_ACCOUNT)
+    monkeypatch.setenv("SMS_AUTH_TOKEN", SMS_TOKEN)
+    monkeypatch.setenv("SMS_VERIFY_SERVICE_ID", VERIFY_SERVICE)
+
+    settings = get_settings()
+    verify = settings.require_verify_account()
+
+    assert settings.otp_provider_by_calling_code == (("91", OTPProviderName.TWILIO_VERIFY),)
+    assert verify.service_id == VERIFY_SERVICE
+    assert SMS_TOKEN not in repr(verify)

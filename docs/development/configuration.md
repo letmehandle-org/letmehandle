@@ -38,15 +38,16 @@ every paid provider unset.
 | `AUTH_SIGNING_KEY` | when the API starts | — |  | yes | Signs access tokens and keys the refresh-token hash. At least 32 characters, fresh for every deployment; changing it signs everybody out. |
 | `AUTH_ACCESS_TOKEN_TTL_SECONDS` | no | `900` | ≥ 60, ≤ 3600 |  | How long an access token lives. Short, because it cannot be revoked. |
 | `AUTH_REFRESH_TOKEN_TTL_SECONDS` | no | `7776000` | ≥ 3600 |  | How long a refresh token lives: ninety days, sliding, so a phone that opens the app within that long of the last time is never asked for its number again. Refresh tokens rotate on every use. |
-| `OTP_PROVIDER` | no | `mock` | `mock` or `twilio_sms` |  | Who delivers sign-in codes. `mock` delivers nowhere, accepts the development code, and refuses to start in production. |
-| `OTP_PROVIDER_BY_CALLING_CODE` | no | — | `mock` or `twilio_sms` |  | Who delivers sign-in codes to numbers with particular calling codes, as `code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is sent its code by `OTP_PROVIDER` (D-041). |
+| `OTP_PROVIDER` | no | `mock` | `mock` or `twilio_sms` or `twilio_verify` |  | Who delivers sign-in codes. `mock` delivers nowhere, accepts the development code, and refuses to start in production. `twilio_sms` texts a code the application makes; `twilio_verify` has the verification service make, text and check its own (D-042). |
+| `OTP_PROVIDER_BY_CALLING_CODE` | no | — | `mock` or `twilio_sms` or `twilio_verify` |  | Who delivers sign-in codes to numbers with particular calling codes, as `code:provider`, comma-separated, such as `91:twilio_verify`. Every other number is sent its code by `OTP_PROVIDER` (D-041). |
 | `OTP_ALLOWED_CALLING_CODES` | no | — |  |  | Country calling codes sign-in codes may be sent to, comma-separated without the plus, such as 91,1,44. Blank sends anywhere; a production deployment should list only the countries it serves (D-036). |
 | `OTP_CHALLENGES_PER_HOUR` | no | `500` | ≥ 1 |  | The most sign-in codes the deployment sends in an hour. Past it, codes stop for everybody until the hour rolls on (D-036). |
 | `OTP_CHALLENGES_PER_HOUR_PER_CALLING_CODE` | no | `100` | ≥ 1 |  | The most sign-in codes sent in an hour to numbers with any one calling code. |
 | `TRUSTED_PROXY_CIDRS` | no | — |  |  | The proxies in front of the backend, as comma-separated CIDRs. Only their X-Forwarded-For is believed when counting what one client asks for. |
-| `SMS_ACCOUNT_ID` | when OTP_PROVIDER is twilio_sms | — |  |  | The account sign-in texts are sent from. |
-| `SMS_AUTH_TOKEN` | when OTP_PROVIDER is twilio_sms | — |  | yes | That account's auth token; anyone holding it can send texts on it. |
+| `SMS_ACCOUNT_ID` | when OTP_PROVIDER is twilio_sms or twilio_verify | — |  |  | The account sign-in texts are sent from. |
+| `SMS_AUTH_TOKEN` | when OTP_PROVIDER is twilio_sms or twilio_verify | — |  | yes | That account's auth token; anyone holding it can send texts on it. |
 | `SMS_FROM_NUMBER` | when OTP_PROVIDER is twilio_sms | — |  |  | The number sign-in texts come from, in E.164 form. |
+| `SMS_VERIFY_SERVICE_ID` | when OTP_PROVIDER is twilio_verify | — |  |  | The verification service, on the `SMS_` account, that makes, texts and checks sign-in codes. |
 
 ## Realtime speech and voices
 

@@ -32,6 +32,7 @@ from letmehandle.api.schemas import (
 from letmehandle.application.auth.service import (
     AuthenticationError,
     CodeMayHaveBeenSentError,
+    CodeNotCheckedError,
     RateLimitedError,
     UnservedNumberError,
 )
@@ -41,6 +42,9 @@ from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.notification import DeviceToken
+from letmehandle.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(
     prefix="/v1",
@@ -155,6 +159,16 @@ async def verify(body: VerifyRequest, request: Request, service: AuthService) ->
         raise _rate_limited(error) from error
     except AuthenticationError as error:
         raise _not_valid("That code is not valid.") from error
+    except CodeNotCheckedError as error:
+        # The provider holding the code could not say whether it was right. Nothing was counted,
+        # so the same code may be offered again once the wait has passed.
+        logger.warning("provider_failed", provider=error.provider, reason=error.reason)
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+            "A service this depends on is unavailable. Try again shortly.",
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
 
     return _tokens(pair)
 

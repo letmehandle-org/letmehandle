@@ -10,12 +10,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from letmehandle.domain.errors import CapabilityNotSupportedError
+
 if TYPE_CHECKING:
     from letmehandle.domain.models.phone_number import PhoneNumber
 
 
 class OTPProvider(ABC):
-    """Sends a code to a number."""
+    """Sends a code to a number, or, where it makes the codes itself, sends one and checks it."""
 
     @property
     @abstractmethod
@@ -43,6 +45,17 @@ class OTPProvider(ABC):
         """
         return None
 
+    def issues_its_own_codes(self, number: PhoneNumber) -> bool:
+        """Whether this provider, rather than the application, makes and checks `number`'s code.
+
+        False unless a provider says otherwise: the code is normally the application's (D-037).
+        True where the provider can deliver only a message it composes, and so a code it chose
+        (D-042). Asked per number, because which provider serves a number can depend on its country.
+        For such a number the application calls `send_own_code` and `check`, never `send`, and
+        still enforces every limit on sending and guessing itself.
+        """
+        return False
+
     @abstractmethod
     async def send(self, number: PhoneNumber, code: str) -> None:
         """Deliver the code, or raise `UnreachableNumberError` or `ProviderError`.
@@ -54,3 +67,19 @@ class OTPProvider(ABC):
         signing in can correct. Anything else — throttled, down, refused credentials — is a
         `ProviderError` saying whether another attempt could help.
         """
+
+    async def send_own_code(self, number: PhoneNumber) -> None:
+        """Have the provider make a code and deliver it, raising exactly what `send` raises.
+
+        Only for a number `issues_its_own_codes` answers true for.
+        """
+        raise CapabilityNotSupportedError(self.name, "issuing its own sign-in codes")
+
+    async def check(self, number: PhoneNumber, code: str) -> bool:
+        """Whether `code` is the one this provider sent `number`, and has not expired or been used.
+
+        False for any code that does not sign in: wrong, expired, already used or never sent. A
+        `ProviderError` when the provider could not say, which the application must never read as
+        either answer. Only for a number `issues_its_own_codes` answers true for.
+        """
+        raise CapabilityNotSupportedError(self.name, "checking sign-in codes")
