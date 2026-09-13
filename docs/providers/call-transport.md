@@ -198,7 +198,7 @@ For a deployment serving several countries, lines by region replace all of the a
 | --- | --- |
 | `TELEPHONY_LINES` | The lines, comma-separated, each `name:provider=twilio;regions=US;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`. `regions` is `US`, `IN`, several as `US\|IN`, or `*` for every region no other line serves. A region's users forward to its line's first number |
 | `TELEPHONY_LINE_AUTH_TOKENS` | Each line's auth token, `name:token`, comma-separated. Secrets, never logged |
-| `OTP_PROVIDER_BY_CALLING_CODE` | Who texts sign-in codes to a calling code, `91:twilio_sms`; everybody else gets `OTP_PROVIDER` |
+| `OTP_PROVIDER_BY_CALLING_CODE` | Who sends sign-in codes to a calling code, `91:twilio_verify`; everybody else gets `OTP_PROVIDER` |
 
 A line's name is 1-16 lower-case letters, digits or `-`, and its callbacks are under
 `/lines/<name>`. Setting `TELEPHONY_LINES` with `TELEPHONY_PROVIDER` or any `TELEPHONY_` account

@@ -22,6 +22,15 @@ taken from that section.
 ### Added
 
 - A third speech adapter, for GPT-Live, chosen with `SPEECH_PROVIDER=gpt_live` (D-040).
+- A sign-in code provider whose verification service makes, sends and checks the code,
+  `twilio_verify`, with `SMS_VERIFY_SERVICE_ID`. `OTP_PROVIDER_BY_CALLING_CODE=91:twilio_verify` uses
+  it for India, where texts the application composes are not reliably delivered (D-042). Every
+  sign-in limit still applies; a check the provider cannot answer is `503 provider_unavailable`
+  with `Retry-After` and counts no attempt.
+
+### Changed
+
+- `otp_challenges.code_hash` may be null, for a code its provider owns (migration `0013`).
 
 ## [2026.9.13]
 

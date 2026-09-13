@@ -14,7 +14,7 @@ challenges sent to their number, after ending any call of theirs in progress (fi
 | Table | Personal fields | Form | Why | Kept | Removed by |
 | --- | --- | --- | --- | --- | --- |
 | `users` | phone number, display name, locale | Clear | The number is the identity (D-010); the name is what the assistant says it acts for | Until the account goes | `DELETE /v1/me` |
-| `otp_challenges` | phone number a code was sent to, scrypt hash of the code, attempt count | Clear number, hashed code | Verifying a sign-in and counting codes per number | Until it leaves the per-number counting window (one hour by default) | The scheduled purge; `DELETE /v1/me` for the account's number |
+| `otp_challenges` | phone number a code was sent to, scrypt hash of the code (none where the provider owns the code, D-042), attempt count | Clear number, hashed code | Verifying a sign-in and counting codes per number | Until it leaves the per-number counting window (one hour by default) | The scheduled purge; `DELETE /v1/me` for the account's number |
 | `refresh_tokens` | user, family, HMAC of the token, issue, rotation and revocation times | Hashed token | Rotation and reuse detection | Until the account goes; expired and revoked rows are not purged | Cascade from `users` |
 | `user_preferences` | important contacts (number, label), topics, facts the assistant may disclose, working and quiet hours with time zone, handling rules | Clear JSON document | How calls are handled | Until the account goes | Cascade from `users` |
 | `user_onboarding` | which setup steps were completed or skipped | Clear | Resuming setup | Until the account goes | Cascade from `users` |
