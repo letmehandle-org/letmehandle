@@ -185,6 +185,19 @@ SCENARIOS: Final = (
         caller_language="hi",
         hang_up_heard_late=True,
     ),
+    Scenario(
+        name="E: a Hindi caller urgently needs a user who does not answer",
+        call_id="CAsim-rehearsal-urgent-ringing",
+        lines=(
+            "नमस्ते, मैं उनका पड़ोसी सैम बोल रहा हूँ। बहुत ज़रूरी है, उन्हें अभी फ़ोन कीजिए।",
+            "ठीक है, मैं रुकता हूँ।",
+        ),
+        users_phone=Answering.KEEPS_RINGING,
+        expects_escalation=False,
+        locale="hi",
+        caller_language="hi",
+        hang_up_heard_late=True,
+    ),
 )
 
 
@@ -911,7 +924,7 @@ def main() -> None:
         default="postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:5433/letmehandle",
         help="a PostgreSQL server the run may create and drop a database on",
     )
-    parser.add_argument("--only", choices=("A", "B", "C", "D"), help="rehearse one scenario")
+    parser.add_argument("--only", choices=("A", "B", "C", "D", "E"), help="rehearse one scenario")
     parser.add_argument("--log-level", default="warning")
     arguments = parser.parse_args()
     raise SystemExit(
