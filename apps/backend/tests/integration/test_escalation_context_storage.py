@@ -12,7 +12,7 @@ from letmehandle.adapters.database.call_repositories import SqlEscalationContext
 from letmehandle.adapters.database.models import UserRow
 from letmehandle.adapters.database.repositories import SqlUserRepository
 from letmehandle.adapters.security.transcript_cipher import AesGcmTranscriptCipher
-from letmehandle.domain.errors import DecryptionError, InvariantError
+from letmehandle.domain.errors import DecryptionError
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.escalation_context import (
     EscalationContext,
@@ -163,12 +163,15 @@ async def test_ending_what_is_not_there_says_so(contexts: SqlEscalationContextRe
     assert not await contexts.mark_ended(ALICE, CallId("call-2"), RAISED)
 
 
-async def test_an_end_before_the_escalation_is_refused(
+async def test_an_end_before_the_escalation_is_stored_as_the_escalation(
     contexts: SqlEscalationContextRepository,
 ) -> None:
     await contexts.claim(ALICE, a_context())
-    with pytest.raises(InvariantError):
-        await contexts.mark_ended(ALICE, CALL, RAISED - timedelta(seconds=1))
+    assert await contexts.mark_ended(ALICE, CALL, RAISED - timedelta(seconds=1))
+    stored = await contexts.get(ALICE, CALL)
+    assert stored is not None
+    assert stored.status is EscalationStatus.ENDED
+    assert stored.ended_at == RAISED
 
 
 async def test_deleting_a_user_takes_their_contexts_with_them(

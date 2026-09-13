@@ -95,3 +95,9 @@ def test_ending_records_the_first_end_and_keeps_it() -> None:
     assert not ended.is_live
     assert ended.ended_at == first
     assert ended.ended(first + timedelta(minutes=5)).ended_at == first
+
+
+def test_an_end_before_the_escalation_is_recorded_as_the_escalation() -> None:
+    ended = context().ended(RAISED - timedelta(milliseconds=3))
+    assert not ended.is_live
+    assert ended.ended_at == RAISED
