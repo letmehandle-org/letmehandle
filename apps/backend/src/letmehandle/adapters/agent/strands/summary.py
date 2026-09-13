@@ -4,10 +4,11 @@ One SDK agent per summary, with no tools and nothing shared with any other call:
 one structured answer and thrown away. What it writes is checked twice. Here, for shape, strictly,
 so an answer that is cut off, uses a word outside a set, or carries a field nothing reads is refused
 and the SDK hands the model the reason to correct. Then in the application, for truth and quality,
-where a draft that fails is replaced by the fallback rather than argued with.
+which may ask once more with what was wrong before falling back.
 
 The instructions are the system prompt. The call and what was said on it are a message of their
-own, delimited as data, and nothing from the call is written into the instructions.
+own, delimited as data, and nothing from the call is written into the instructions; nor is a draft
+being corrected, which is data after the call.
 """
 
 from __future__ import annotations
@@ -29,8 +30,9 @@ from letmehandle.domain.models.summary import MAX_HEADLINE_CHARACTERS, CallOutco
 
 if TYPE_CHECKING:
     from strands.models.model import Model
+    from strands.types.content import ContentBlock
 
-    from letmehandle.application.calls.summary_draft import SummaryRequest
+    from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
 # One turn to answer, one for a model that has to be asked for the answer, and one to correct an
 # answer the schema refused. A model still going after that is not going to write a summary.
@@ -94,9 +96,18 @@ class StrandsSummaryDrafter(SummaryDrafter):
         self._model = model
         self._prompt_version = prompt_version
 
-    async def draft(self, request: SummaryRequest) -> SummaryDraft:
-        """The model's answer, or `SummaryNotWrittenError` when it finished without a valid one."""
+    async def draft(
+        self, request: SummaryRequest, correction: DraftCorrection | None = None
+    ) -> SummaryDraft:
+        """The model's answer, or `SummaryNotWrittenError` when it finished without a valid one.
+
+        A correction is a fresh agent too, told about the call and then, in the same message, about
+        the draft it is correcting: nothing of the first attempt's conversation is kept to resume.
+        """
         prompts = load_summary_prompts(request.locale, self._prompt_version)
+        call: list[ContentBlock] = [{"text": prompts.call_message(request)}]
+        if correction is not None:
+            call.append({"text": prompts.correction_message(correction, answer_tool=ANSWER_TOOL)})
         agent = Agent(
             model=self._model,
             tools=[],
@@ -109,7 +120,7 @@ class StrandsSummaryDrafter(SummaryDrafter):
             retry_strategy=None,
         )
         result = await agent.invoke_async(
-            prompts.call_message(request),
+            call,
             structured_output_model=CallSummaryAnswer,
             structured_output_prompt=prompts.answer_request(answer_tool=ANSWER_TOOL),
             limits={"turns": MAX_TURNS},

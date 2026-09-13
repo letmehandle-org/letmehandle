@@ -2,14 +2,15 @@
 
 Nothing between the model's words and the summary is replaced. The SDK presents the answer's schema
 as a tool, validates what comes back and tells the model why it was refused; the adapter turns the
-answer into a draft; the summariser checks it against the call and keeps it or falls back. Only what
-the model says is fixed.
+answer into a draft; the summariser checks it against the call, asks once more with what was wrong,
+and keeps a draft or falls back. Only what the model says is fixed.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -18,11 +19,13 @@ import pytest
 
 from letmehandle.adapters.agent.strands.summary import ANSWER_TOOL
 from letmehandle.application.calls.fallback import fallback_summary
+from letmehandle.application.calls.summariser import SUMMARY_WRITTEN
 from letmehandle.bootstrap import call_summariser_on
 from letmehandle.domain.models.call import Speaker
 from letmehandle.domain.models.intent import CallIntent
 from letmehandle.domain.models.summary import CallOutcome, ExtractedDetail
 from tests.support.ended_calls import Ending, ended
+from tests.support.recording_metrics import RecordingMetrics
 from tests.support.scripted_model import (
     CallTool,
     CutOff,
@@ -59,14 +62,32 @@ GOOD = write_summary(HEADLINE, intent="service_issue", details=DETAILS)
 
 
 async def summarised(
-    steps: Sequence[Step], facts: CallFacts | None = None, *, bound: timedelta = TIMEOUT
+    steps: Sequence[Step],
+    facts: CallFacts | None = None,
+    *,
+    bound: timedelta = TIMEOUT,
+    metrics: RecordingMetrics | None = None,
 ) -> tuple[CallSummary, ScriptedModel]:
     model = ScriptedModel(steps)
     facts = facts or ended(SAID)
-    summary = await call_summariser_on(model, timeout=bound).summarise(
-        facts, facts.call.transcript, locale="en"
-    )
+    summariser = call_summariser_on(model, timeout=bound, metrics=metrics or RecordingMetrics())
+    summary = await summariser.summarise(facts, facts.call.transcript, locale="en")
     return summary, model
+
+
+def between(text: str, tag: str) -> object:
+    """The data `text` holds between `tag`'s delimiters."""
+    found = re.search(f"<{tag}>(.*)</{tag}>", text, re.DOTALL)
+    assert found is not None
+    return json.loads(found.group(1))
+
+
+COPIED = write_summary(
+    "Hello, it's Harbour Bank about the disputed charge of forty two pounds; "
+    "your assistant noted it.",
+    intent="service_issue",
+    details=DETAILS,
+)
 
 
 def the_fallback(facts: CallFacts | None = None) -> CallSummary:
@@ -122,6 +143,49 @@ class TestAModelThatAnswers:
 
         assert summary.headline == HEADLINE
         assert model.unused_steps == 0
+
+
+class TestAModelCorrectingARefusedAnswer:
+    async def test_a_corrected_answer_that_passes_becomes_the_summary(self) -> None:
+        metrics = RecordingMetrics()
+
+        summary, model = await summarised([COPIED, GOOD], metrics=metrics)
+
+        assert summary.headline == HEADLINE
+        assert len(summary.details) == len(DETAILS)
+        assert model.unused_steps == 0
+        assert metrics.counted(SUMMARY_WRITTEN, outcome="corrected_draft") == 1
+
+    async def test_the_correction_is_the_call_then_the_refused_answer_and_why_as_data(
+        self,
+    ) -> None:
+        _, model = await summarised([COPIED, GOOD])
+
+        first, again = model.requests
+        assert again.system_prompt == first.system_prompt
+        assert again.tool_names == (ANSWER_TOOL,)
+        # A fresh conversation: the call as it was first sent, and the correction after it.
+        [message] = again.messages
+        call, correction = (block["text"] for block in message["content"])
+        [(first_call,)] = [
+            tuple(block["text"] for block in each["content"]) for each in first.messages
+        ]
+        assert call == first_call
+        refused = between(correction, "refused")
+        assert isinstance(refused, dict)
+        assert refused["headline"].startswith("Hello, it's Harbour Bank")
+        assert between(correction, "problems") == ["restates_the_call"]
+        assert "Harbour Bank" not in (again.system_prompt or "")
+
+    async def test_a_correction_the_model_fails_to_write_is_the_fallback(self) -> None:
+        metrics = RecordingMetrics()
+
+        summary, _ = await summarised(
+            [COPIED, Fail(ConnectionError("unreachable"))], metrics=metrics
+        )
+
+        assert summary == the_fallback()
+        assert metrics.counted(SUMMARY_WRITTEN, outcome="fallback") == 1
 
 
 class TestAModelThatMisbehaves:
@@ -212,12 +276,18 @@ class TestAModelThatMisbehaves:
             ),
         ],
     )
-    async def test_a_well_formed_answer_the_checks_refuse_is_the_fallback(
+    async def test_a_well_formed_answer_the_checks_refuse_twice_is_the_fallback(
         self, answer: CallTool
     ) -> None:
-        summary, _ = await summarised([answer])
+        metrics = RecordingMetrics()
+
+        summary, model = await summarised([answer, answer, GOOD], metrics=metrics)
 
         assert summary == the_fallback()
+        # Asked once more, and not a third time however good the next answer would have been.
+        assert len(model.requests) == 2
+        assert model.unused_steps == 1
+        assert metrics.counted(SUMMARY_WRITTEN, outcome="fallback") == 1
 
     async def test_a_model_that_never_answers_is_abandoned_within_the_bound(self) -> None:
         before = asyncio.all_tasks()

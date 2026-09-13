@@ -23,6 +23,7 @@ from letmehandle.application.calls.summary_draft import DetailKind, SummaryReque
 from letmehandle.bootstrap import call_summariser_on
 from tests.evaluation.summary_suite import LOCALE, load_summary_scenarios, run_summaries
 from tests.support.ended_calls import Ending
+from tests.support.recording_metrics import RecordingMetrics
 from tests.support.scripted_model import CallTool, Fail, ScriptedModel, write_summary
 
 if TYPE_CHECKING:
@@ -40,7 +41,11 @@ def scripted(steps: Callable[[SummaryScenario], Sequence[Step]]) -> SummariserFo
     """A summariser whose model answers each scenario with `steps` of it."""
 
     def summariser_for(scenario: SummaryScenario) -> CallSummariser:
-        return call_summariser_on(ScriptedModel(steps(scenario)), timeout=timedelta(seconds=5))
+        return call_summariser_on(
+            ScriptedModel(steps(scenario)),
+            timeout=timedelta(seconds=5),
+            metrics=RecordingMetrics(),
+        )
 
     return summariser_for
 

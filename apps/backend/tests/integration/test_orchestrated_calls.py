@@ -255,7 +255,11 @@ async def orchestrating(
                 summariser=(
                     None
                     if summary is None
-                    else call_summariser_on(ScriptedModel(summary), timeout=timedelta(seconds=5))
+                    else call_summariser_on(
+                        ScriptedModel(summary),
+                        timeout=timedelta(seconds=5),
+                        metrics=observability.metrics,
+                    )
                 ),
             )
             await orchestrator.start()

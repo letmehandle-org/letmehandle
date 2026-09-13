@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from letmehandle.application.calls.summary_checks import DraftProblem
     from letmehandle.domain.models.call import TranscriptEntry
     from letmehandle.domain.models.intent import CallIntent
     from letmehandle.domain.models.summary import CallOutcome, CallSummary
@@ -66,3 +67,15 @@ class SummaryRequest:
     known: CallSummary
     transcript: tuple[TranscriptEntry, ...]
     locale: str
+
+
+@dataclass(frozen=True, slots=True)
+class DraftCorrection:
+    """A draft the checks refused, and why, for a model asked to write the summary again.
+
+    The refused draft goes back to the model with the problems because a fresh request cannot see
+    what it wrote before, and "fix the headline" means nothing without the headline.
+    """
+
+    refused: SummaryDraft
+    problems: tuple[DraftProblem, ...]
