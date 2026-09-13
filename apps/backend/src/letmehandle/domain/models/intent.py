@@ -44,8 +44,3 @@ class CallImportance(IntEnum):
     ROUTINE = 30
     NOTABLE = 40
     URGENT = 50
-
-    @property
-    def is_at_least_notable(self) -> bool:
-        """Whether this is the kind of thing a person would want to know about."""
-        return self >= CallImportance.NOTABLE

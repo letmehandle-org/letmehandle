@@ -17,7 +17,7 @@ Two ideas do most of the work:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -155,10 +155,6 @@ class OTPChallenge:
         """Wrong codes entered against this challenge; the right one, if it came, is not one."""
         return self.attempts - (1 if self.verified_at is not None else 0)
 
-    @property
-    def attempts_remaining(self) -> int:
-        return max(0, MAX_ATTEMPTS - self.attempts)
-
 
 @dataclass(frozen=True, slots=True)
 class RefreshToken:
@@ -268,7 +264,6 @@ class AuthenticatedUser:
     user_id: UserId
     issued_at: datetime
     expires_at: datetime
-    scopes: frozenset[str] = field(default_factory=frozenset)
 
     def is_valid_at(self, instant: datetime) -> bool:
         return self.issued_at <= instant < self.expires_at

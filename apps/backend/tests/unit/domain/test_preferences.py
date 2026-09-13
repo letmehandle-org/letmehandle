@@ -236,11 +236,6 @@ class TestNotificationPreferences:
         assert not defaults.on_blocked_call
         assert not defaults.daily_summary
 
-    def test_being_told_about_an_escalation_is_not_optional(self) -> None:
-        # Being told the assistant needs you, while it needs you, is the product. Turning it
-        # off would leave a phone ringing with no idea why.
-        assert NotificationPreferences().on_escalation
-
     def test_active_hours_are_respected_by_default(self) -> None:
         assert NotificationPreferences().respect_active_hours
 
@@ -295,11 +290,6 @@ class TestPreferenceLimits:
 
     def test_a_number_that_is_not_a_contact_finds_nothing(self) -> None:
         assert UserPreferences().contact_for(NUMBER) is None
-
-    def test_caring_about_a_topic_ignores_how_it_was_typed(self) -> None:
-        preferences = UserPreferences(topics=frozenset({Topic("school run")}))
-        assert preferences.cares_about("School Run")
-        assert not preferences.cares_about("deliveries")
 
 
 def test_a_topic_cannot_carry_a_line_break() -> None:

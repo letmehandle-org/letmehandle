@@ -26,15 +26,3 @@ def test_levels_are_spaced_so_one_can_be_inserted_later() -> None:
     assert all(later - earlier >= 10 for earlier, later in pairwise(values))
 
 
-def test_the_interrupt_threshold_is_stated_once() -> None:
-    assert not CallImportance.ROUTINE.is_at_least_notable
-    assert CallImportance.NOTABLE.is_at_least_notable
-    assert CallImportance.URGENT.is_at_least_notable
-
-
-def test_intent_and_importance_are_independent() -> None:
-    # The reason they are separate: a sales call is unimportant whatever it is about, and a
-    # delivery matters only while the courier is standing there.
-    assert CallIntent.SALES.value != CallImportance.IGNORABLE.name.lower()
-    assert len(set(CallIntent)) > 1
-    assert len(set(CallImportance)) > 1

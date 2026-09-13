@@ -105,7 +105,7 @@ class TestParticipants:
         call = a_call()
         for role in ParticipantRole:
             call.add_participant(role, START)
-        assert len(call.present_participants) == 3
+        assert all(call.has_participant(role) for role in ParticipantRole)
 
     def test_a_role_cannot_join_twice(self) -> None:
         # Two agents or two humans would make "who is on this call" ambiguous, and every
@@ -214,7 +214,7 @@ class TestEscalationSequence:
         call.move_to(CallState.HUMAN_JOINED)
         call.add_participant(ParticipantRole.HUMAN, later(20))
 
-        assert len(call.present_participants) == 3
+        assert all(call.has_participant(role) for role in ParticipantRole)
         call.move_to(CallState.COMPLETED, at_instant=later(120))
         assert call.duration_seconds() == 120
 

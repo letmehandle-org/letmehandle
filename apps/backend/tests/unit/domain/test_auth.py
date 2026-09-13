@@ -52,7 +52,6 @@ def a_token(**overrides: object) -> RefreshToken:
 class TestChallenges:
     def test_a_fresh_challenge_is_open(self) -> None:
         assert a_challenge().is_open_at(NOW)
-        assert a_challenge().attempts_remaining == MAX_ATTEMPTS
 
     def test_it_closes_when_it_expires(self) -> None:
         challenge = a_challenge()
@@ -66,7 +65,6 @@ class TestChallenges:
         for _ in range(MAX_ATTEMPTS):
             challenge = challenge.with_failed_attempt()
         assert challenge.state_at(NOW) is ChallengeState.EXHAUSTED
-        assert challenge.attempts_remaining == 0
 
     def test_using_it_marks_it_verified(self) -> None:
         assert a_challenge().verified(NOW).state_at(NOW) is ChallengeState.VERIFIED
@@ -134,11 +132,6 @@ class TestRefreshTokens:
         first = a_token().revoked(NOW)
         again = first.revoked(NOW + timedelta(hours=1))
         assert again.revoked_at == NOW
-
-    def test_tokens_from_one_sign_in_share_a_family(self) -> None:
-        original = a_token()
-        successor = a_token(id="token-2", family_id=original.family_id)
-        assert successor.family_id == original.family_id
 
     def test_a_token_with_no_hash_is_refused(self) -> None:
         with pytest.raises(InvariantError):

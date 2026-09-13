@@ -75,21 +75,6 @@ class CapabilityNotSupportedError(DomainError):
         self.capability = capability
 
 
-class NotAuthorisedError(DomainError):
-    """The assistant was asked to do something the user has not permitted.
-
-    Distinct from `CapabilityNotSupportedError`: that one means it cannot, this one means it may
-    not. Collapsing them would let a permission failure look like a technical one, and the
-    right response to each is different.
-    """
-
-    failure_kind = FailureKind.NOT_PERMITTED
-
-    def __init__(self, action: str) -> None:
-        super().__init__(f"the assistant is not authorised to {action}")
-        self.action = action
-
-
 class ProviderError(DomainError):
     """A provider failed in a way the domain must handle rather than propagate.
 

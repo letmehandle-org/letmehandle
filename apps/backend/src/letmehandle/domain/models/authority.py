@@ -14,8 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from letmehandle.domain.errors import NotAuthorisedError
-
 
 class Capability(StrEnum):
     """One thing the assistant may be permitted to do.
@@ -56,22 +54,6 @@ class AgentAuthority:
 
     def allows(self, capability: Capability) -> bool:
         return capability in self.capabilities
-
-    def require(self, capability: Capability) -> None:
-        """Raise unless the capability has been granted.
-
-        The enforcement point. Authority is checked in code, never in a prompt: a prompt is
-        guidance to a model that an unknown caller is also talking to, and guidance is not a
-        guarantee.
-        """
-        if not self.allows(capability):
-            raise NotAuthorisedError(capability.value.replace("_", " "))
-
-    def with_granted(self, capability: Capability) -> AgentAuthority:
-        return AgentAuthority(self.capabilities | {capability})
-
-    def with_revoked(self, capability: Capability) -> AgentAuthority:
-        return AgentAuthority(self.capabilities - {capability})
 
     def __bool__(self) -> bool:
         """Whether anything at all has been granted."""

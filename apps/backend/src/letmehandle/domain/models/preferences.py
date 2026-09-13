@@ -231,11 +231,6 @@ class NotificationPreferences:
     # assistant handled can wait until the hours begin rather than arriving on top of them.
     respect_active_hours: bool = True
 
-    @property
-    def on_escalation(self) -> bool:
-        """Always true. Kept as a property so callers can ask without special-casing it."""
-        return True
-
 
 @dataclass(frozen=True, slots=True)
 class TimeWindow:
@@ -410,7 +405,3 @@ class UserPreferences:
         return next(
             (contact for contact in self.important_contacts if contact.number == number), None
         )
-
-    def cares_about(self, topic: str) -> bool:
-        """Whether this is something the user asked to hear about."""
-        return Topic(topic) in self.topics

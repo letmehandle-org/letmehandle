@@ -37,11 +37,6 @@ class User:
                 "otherwise introduce the user as nobody"
             )
 
-    @property
-    def locale(self) -> str:
-        """The language the assistant speaks for this user."""
-        return self.preferences.locale
-
     def __str__(self) -> str:
         """The identifier alone.
 

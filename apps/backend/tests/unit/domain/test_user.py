@@ -18,14 +18,6 @@ def test_a_user_carries_defaults_that_grant_nothing() -> None:
     user = User(id=UserId("u1"), phone_number=NUMBER)
     assert user.preferences == UserPreferences()
     assert user.preferences.authority == AgentAuthority.none()
-    assert user.locale == "en"
-
-
-def test_the_locale_comes_from_preferences_rather_than_a_second_field() -> None:
-    # One place decides the language. Two would disagree, and the disagreement would show up
-    # as an assistant speaking the wrong one.
-    user = User(id=UserId("u1"), phone_number=NUMBER, preferences=UserPreferences(locale="en-GB"))
-    assert user.locale == "en-GB"
 
 
 def test_a_user_may_choose_not_to_have_their_name_given_out() -> None:

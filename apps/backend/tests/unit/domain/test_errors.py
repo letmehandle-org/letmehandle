@@ -16,7 +16,6 @@ from letmehandle.domain.errors import (
     DomainError,
     IllegalTransitionError,
     InvariantError,
-    NotAuthorisedError,
     ProviderError,
     RecordNotFoundError,
     UnknownKeyError,
@@ -26,7 +25,6 @@ EVERY_ERROR = [
     InvariantError,
     IllegalTransitionError,
     CapabilityNotSupportedError,
-    NotAuthorisedError,
     ProviderError,
     RecordNotFoundError,
     AlreadyRecordedError,
@@ -55,11 +53,6 @@ def test_an_unsupported_capability_names_the_capability() -> None:
     assert error.capability == "can_bridge_human"
 
 
-def test_a_refusal_names_the_action() -> None:
-    error = NotAuthorisedError("agree to a delivery")
-    assert error.action == "agree to a delivery"
-
-
 @pytest.mark.parametrize("retryable", [True, False])
 def test_a_provider_failure_says_whether_trying_again_is_worthwhile(retryable: bool) -> None:
     # Without this, every caller invents its own guess about which failures are worth a retry,
@@ -68,13 +61,6 @@ def test_a_provider_failure_says_whether_trying_again_is_worthwhile(retryable: b
     assert error.retryable is retryable
     assert error.provider == "a speech provider"
     assert error.reason == "the stream closed"
-
-
-def test_not_authorised_and_not_supported_are_different_failures() -> None:
-    # One means the assistant may not; the other means it cannot. Collapsing them would make a
-    # permission decision look like a technical fault, and the right response to each differs.
-    assert not issubclass(NotAuthorisedError, CapabilityNotSupportedError)
-    assert not issubclass(CapabilityNotSupportedError, NotAuthorisedError)
 
 
 def test_a_missing_record_names_what_was_looked_for() -> None:

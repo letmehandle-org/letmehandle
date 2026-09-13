@@ -183,10 +183,6 @@ class CallSession:
         return tuple(self._participants)
 
     @property
-    def present_participants(self) -> tuple[Participant, ...]:
-        return tuple(participant for participant in self._participants if participant.is_present)
-
-    @property
     def transcript(self) -> tuple[TranscriptEntry, ...]:
         return tuple(self._transcript)
 
