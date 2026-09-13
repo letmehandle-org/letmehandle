@@ -2,7 +2,7 @@
  * The assistant's hours: one daily window in the user's own zone, or none for around the clock.
  *
  * Pure, so the arithmetic the ring draws is tested apart from the drawing. A window may run past
- * midnight, and the end is exclusive — the same reading the server uses (D-029).
+ * midnight, and the end is exclusive — the same reading the server uses (D-030).
  */
 import type { TimeWindow } from '@letmehandle/api-client';
 

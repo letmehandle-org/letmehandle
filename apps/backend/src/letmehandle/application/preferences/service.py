@@ -59,7 +59,7 @@ class CallHandling:
 
 @dataclass(frozen=True, slots=True)
 class Hours:
-    """The scheduling half: when the assistant works. No window means around the clock (D-029)."""
+    """The scheduling half: when the assistant works. No window means around the clock (D-030)."""
 
     active: TimeWindow | None = None
 

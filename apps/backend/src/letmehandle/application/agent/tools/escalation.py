@@ -95,9 +95,15 @@ def _in_words(decision: EscalationDecision) -> str:
             "The user's rules do not call for reaching the user on this call. Carry on within what "
             "you are allowed to do."
         )
+    why = REASON_IN_WORDS[decision.reason]
+    if decision.is_immediate:
+        return (
+            f"The user's rules call for reaching the user now, because {why}. That happens once "
+            f"your assessment is recorded."
+        )
     return (
-        f"The user's rules call for reaching the user now, because "
-        f"{REASON_IN_WORDS[decision.reason]}. That happens once your assessment is recorded."
+        f"The user's rules call for telling the user about this call when it is convenient, not "
+        f"now, because {why}. That happens once your assessment is recorded."
     )
 
 

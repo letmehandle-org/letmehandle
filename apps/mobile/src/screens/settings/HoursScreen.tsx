@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * When the assistant answers: around the clock, or one window of the day (D-029).
+ * When the assistant answers: around the clock, or one window of the day (D-030).
  *
  * Every change is saved as it is made, like every other settings page, and a refused one is put
  * back by the provider and explained here.

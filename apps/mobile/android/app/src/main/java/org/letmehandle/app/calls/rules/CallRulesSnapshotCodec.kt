@@ -15,7 +15,7 @@ import org.json.JSONObject
  * The example documents both sides are tested against live in `src/calls/wire-examples.json`.
  */
 object CallRulesSnapshotCodec {
-  // 2 dropped quiet hours (D-029). A version 1 snapshot is refused like any other unknown format,
+  // 2 dropped quiet hours (D-030). A version 1 snapshot is refused like any other unknown format,
   // so the call rings until the app, on its next open, writes the rules again.
   const val VERSION = 2
 

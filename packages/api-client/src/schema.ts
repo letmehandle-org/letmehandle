@@ -437,7 +437,7 @@ export interface components {
         };
         /**
          * HoursPayload
-         * @description When the assistant answers; outside it, calls ring the user. `null` is always (D-029).
+         * @description When the assistant answers; outside it, calls ring the user. `null` is always (D-030).
          */
         HoursPayload: {
             active?: components["schemas"]["TimeWindowPayload"] | null;

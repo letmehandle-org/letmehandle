@@ -13,7 +13,7 @@ import java.time.Instant
  * Mirrors the backend's `CallRules` and `ImportantContact` in `domain/models/preferences.py`,
  * limited to what a decision before ringing reads. Labels are left behind on purpose: the
  * handset needs a number and what to do with it, not what the user calls the person. The user's
- * hours are left behind too: they decide when the assistant answers (D-029), and nothing on this
+ * hours are left behind too: they decide when the assistant answers (D-030), and nothing on this
  * path is answered by an assistant, so no decision here reads them.
  */
 data class CallRulesSnapshot(

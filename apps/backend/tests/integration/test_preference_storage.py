@@ -169,7 +169,7 @@ class TestMapping:
 
 
 class TestReadingHoursWrittenBeforeD027:
-    """Version 2 said when not to be reached; version 3 says when the assistant answers."""
+    """Version 2 said when not to be reached; version 4 says when the assistant answers."""
 
     def older(self, rules: dict[str, object]) -> dict[str, object]:
         document = preferences_to_document(everything())
@@ -306,7 +306,7 @@ class TestOnboardingRepository:
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
     ) -> None:
-        # A step removed from the flow should not stop somebody signing in (D-031: introduction
+        # A step removed from the flow should not stop somebody signing in (D-032: introduction
         # was), and one added by a newer deployment means nothing here.
         from sqlalchemy import insert
 

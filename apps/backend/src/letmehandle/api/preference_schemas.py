@@ -79,7 +79,7 @@ class CallHandlingPayload(Request):
 
 
 class HoursPayload(Request):
-    """When the assistant answers; outside it, calls ring the user. `null` is always (D-029)."""
+    """When the assistant answers; outside it, calls ring the user. `null` is always (D-030)."""
 
     active: TimeWindowPayload | None = None
 

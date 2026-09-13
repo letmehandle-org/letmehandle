@@ -315,7 +315,7 @@
       },
       "HoursPayload": {
         "additionalProperties": false,
-        "description": "When the assistant answers; outside it, calls ring the user. `null` is always (D-029).",
+        "description": "When the assistant answers; outside it, calls ring the user. `null` is always (D-030).",
         "properties": {
           "active": {
             "anyOf": [

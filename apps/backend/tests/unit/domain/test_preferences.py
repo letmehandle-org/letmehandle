@@ -133,7 +133,7 @@ class TestCallRules:
             )
 
     def test_with_no_hours_set_the_assistant_is_always_active(self) -> None:
-        # The product's promise before anyone configures it: around the clock (D-029).
+        # The product's promise before anyone configures it: around the clock (D-030).
         assert CallRules().active_hours is None
         assert CallRules().is_active_at(at(2026, 6, 1, 3))
 

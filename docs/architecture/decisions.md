@@ -417,7 +417,7 @@ contacts and callers withholding their number are never shown to it and always r
 handset does not classify callers, so only important contacts and the `unknown` category apply
 there.
 
-## D-029 — Hours are when the assistant answers; none means around the clock
+## D-030 — Hours are when the assistant answers; none means around the clock
 
 **Accepted. Supersedes the separate working-hours and quiet-hours windows of phase 1.** The design
 asks one question — *when should the assistant work?* — and answers it with one ring on a clock and
@@ -431,23 +431,24 @@ promises before anyone configures it.
 
 - **Routing.** Outside the window the assistant answers nothing: a call it would have taken rings
   the user instead. A call the rules reject is still rejected, and one that would ring still rings.
-  Written once, in `domain/policy/routing.py`, and applied after the order in D-030.
+  Written once, in `domain/policy/routing.py`, and applied after the order in D-031.
 - **Escalation.** The hours no longer defer anything. A call the assistant is still on after its
   hours end is one that began inside them, and by then the user's phone rings for calls anyway, so
-  the policy reaches them immediately. The escalation service reaches the user at most once a call.
-  `EscalationUrgency.WHILE_CONVENIENT` stays in the model and is not chosen by the policy.
+  the policy reaches them immediately. `EscalationUrgency.WHILE_CONVENIENT`, and the escalation
+  service's upgrade from it, stay: today's policy does not choose it, and whether anything should is
+  a separate decision.
 - **Notifications.** `respect_active_hours` replaces `respect_quiet_hours`.
 - **Agent context.** `PreferenceContext.in_active_hours` replaces `in_quiet_hours` and
   `in_working_hours`. The model is given a resolved answer, never a window.
 
-**Reading older documents (D-022).** Preferences move to version 3. A document written at 1 or 2 is
-read as around the clock, whatever windows it held, and nothing is written back until the user next
+**Reading older documents (D-022).** Preferences move to version 4; version 3 belongs to the privacy
+section. A document written before 4 is read as around the clock, whatever windows it held, and nothing is written back until the user next
 saves. Neither older window meant "the assistant answers now", and turning quiet hours into
 assistant hours would ring somebody through exactly the nights they asked to be left alone. A stored
 window that is present but unreadable still raises: that is corruption, not an older shape.
 `respect_quiet_hours` is read as `respect_active_hours`.
 
-## D-030 — Whether a caller is a contact is decided where the address book is
+## D-031 — Whether a caller is a contact is decided where the address book is
 
 **Accepted.** The design sorts calls into two lanes: *your contacts ring you; everyone else meets
 the assistant.* Transports differ in where the call is first seen (D-005), so they differ in what
@@ -487,7 +488,7 @@ rings a withheld number without asking — and applies the rest to what it is sh
    that is both blocked and postured, and the lanes posture it.
 4. The category's posture (`known_contact` included, by the table above), else `default_posture`.
 
-Then the user's hours (D-029): outside them, a call the order sent to the assistant rings the user
+Then the user's hours (D-030): outside them, a call the order sent to the assistant rings the user
 instead. Rejected stays rejected; ringing stays ringing.
 
 **Device events report what was decided, not who was asked about.** A device-side screening event
@@ -500,7 +501,7 @@ call-handling rules (`known_contact` passes through, default and anonymous go to
 `spam` is blocked). `CallRules` keeps its cautious defaults, because call handling is still the
 one step with no default safe to assume on somebody's behalf.
 
-## D-031 — Onboarding asks four things
+## D-032 — Onboarding asks four things
 
 **Accepted.** Setup is call handling, hours, what the assistant may do, and when the user is
 told — the four steps the design draws. Introduction, important contacts and personality are no

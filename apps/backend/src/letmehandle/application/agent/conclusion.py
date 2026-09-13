@@ -9,9 +9,10 @@ model's time, and in an order that keeps the user's rules in charge of a hang-up
    escalation service. A caller who said somebody collapsed and then calmed down is still that
    caller, and a model that asked for the user and then forgot is still a model that asked.
 2. **The ending, if it is still allowed.** A resolved or declined ending is refused when the rules
-   require reaching the user: a hang-up never cancels that. A handed-over ending is accepted only
-   when step 1 reached the user. If the escalation failed, nothing is ended, because the failure is
-   raised before the ending is considered.
+   require reaching the user now: a hang-up never cancels that. A deferred escalation — a note for
+   later — holds nobody on the line. A handed-over ending is accepted
+   only when step 1 reached the user immediately. If the escalation failed, nothing is ended,
+   because the failure is raised before the ending is considered.
 
 A refused ending is recorded as a refusal of `end_call`, like any other, so the user can see what
 their assistant tried to do.
@@ -83,10 +84,11 @@ class JudgementConclusion:
 
 def _why_not_to_end(ending: CallEnding, decision: EscalationDecision) -> str | None:
     if ending is CallEnding.HANDED_OVER:
-        if decision.required:
+        if decision.is_immediate:
             return None
         return "the user was not reached for this call, so it was not handed over"
-    # A call the rules escalate holds the caller on the line, so the user can pick it up.
-    if decision.required:
+    # Only an immediate escalation holds the caller on the line. One the rules defer — a note for
+    # the user later — needs nobody to stay, so the call may end.
+    if decision.is_immediate:
         return "the user's rules call for reaching the user, so the call was not ended"
     return None

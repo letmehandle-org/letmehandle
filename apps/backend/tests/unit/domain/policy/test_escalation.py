@@ -30,7 +30,7 @@ from letmehandle.domain.policy.escalation import (
 )
 
 # The assistant answers from seven in the morning to ten at night. The policy is never told the
-# time: outside those hours calls ring the user, so the hours cannot defer an escalation (D-029).
+# time: outside those hours calls ring the user, so the hours cannot defer an escalation (D-030).
 ACTIVE: Final = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
 RULES: Final = CallRules(active_hours=ACTIVE, escalate_at_or_above=CallImportance.NOTABLE)

@@ -73,7 +73,7 @@ sealed interface ScreenedCaller {
  * Postures become decisions like this. `reject` rejects. `pass_through` rings. `handle_with_agent`
  * also rings, because this path has no assistant to hand the call to, and hiding a call the user
  * did not ask to hide is worse than letting it ring. The user's hours change nothing here: they
- * decide when the assistant answers, and outside them a call rings (D-029) — as it does here anyway.
+ * decide when the assistant answers, and outside them a call rings (D-030) — as it does here anyway.
  */
 object ScreeningRules {
   fun evaluate(

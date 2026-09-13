@@ -22,7 +22,7 @@ The decision runs in three steps, each written once:
    as important always clears it. Below the threshold the user is not reached at all: a note in
    the call history is how they hear about a call that did not matter enough.
 
-Urgency is immediate. The user's hours do not defer it (D-029): outside them the assistant answers
+Urgency is immediate. The user's hours do not defer it (D-030): outside them the assistant answers
 nothing and calls ring the user, so the only call it is still on then is one that ran past the
 end of its hours — and by then the user is somebody whose phone rings anyway.
 """
@@ -103,8 +103,9 @@ def most_pressing(
 
     A model may ask for the user part way through and assess the call differently at the end, and
     either reading can be the one that matters: a caller who calmed down is still the caller who
-    said somebody collapsed. So each is decided, and any escalation wins over none. Of readings the
-    rules treat alike, the last is taken, because it was made knowing the most.
+    said somebody collapsed. So each is decided, and the strongest decision wins — an immediate
+    escalation over a later note, any escalation over none. Of readings the rules treat alike, the
+    last is taken, because it was made knowing the most.
     """
     if not proposals:
         raise InvariantError("there is no most pressing reading of no readings")
@@ -115,7 +116,9 @@ def most_pressing(
 
 
 def _pressure(decision: EscalationDecision) -> int:
-    return 1 if decision.required else 0
+    if not decision.required:
+        return 0
+    return 2 if decision.is_immediate else 1
 
 
 def _reason(

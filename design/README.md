@@ -53,9 +53,9 @@ note    why the screen is the way it is
 
 Settled in `docs/architecture/decisions.md`:
 
-1. **Hours** — one window when the assistant answers, none meaning 24/7; outside it calls ring the user (D-029).
-2. **Routing by contacts** — the address book never leaves the phone; the server knows only important contacts (D-030).
-3. **Onboarding** — four steps: call handling, hours, authority, notifications (D-031).
+1. **Hours** — one window when the assistant answers, none meaning 24/7; outside it calls ring the user (D-030).
+2. **Routing by contacts** — the address book never leaves the phone; the server knows only important contacts (D-031).
+3. **Onboarding** — four steps: call handling, hours, authority, notifications (D-032).
 
 Still open:
 

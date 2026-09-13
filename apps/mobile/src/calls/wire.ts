@@ -17,7 +17,7 @@ import type {
   ScreeningDecision,
 } from '@letmehandle/api-client';
 
-/** 2 dropped quiet hours: the user's hours decide when the assistant answers, not a handset (D-029). */
+/** 2 dropped quiet hours: the user's hours decide when the assistant answers, not a handset (D-030). */
 export const RULES_SNAPSHOT_VERSION = 2;
 
 export interface RulesSnapshot {

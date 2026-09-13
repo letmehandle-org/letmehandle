@@ -228,7 +228,7 @@ class ScreeningRulesTest {
   @Test
   fun `nothing the rules decide silences a call`() {
     // Silencing was how quiet hours were kept; the user's hours now decide only when the assistant
-    // answers (D-029), and this path answers nothing, so every posture, at every hour, rings or
+    // answers (D-030), and this path answers nothing, so every posture, at every hour, rings or
     // is rejected.
     HandlingPosture.entries.forEach { posture ->
       listOf(noon, lateEvening).forEach { at ->

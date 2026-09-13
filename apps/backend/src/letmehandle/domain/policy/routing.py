@@ -2,7 +2,7 @@
 
 One order, written once, because it is evaluated in two places: on the server for a transport that
 sees the call first there, and on a phone that screens the call before it rings. The phone
-mirrors this function line for line (D-030), so a rule that reads differently in the two is a user
+mirrors this function line for line (D-031), so a rule that reads differently in the two is a user
 whose calls are handled one way on one path and another way on the other.
 
 1. **A withheld number** has no number to recognise, so the user's rule for anonymous calls applies.
@@ -12,7 +12,7 @@ whose calls are handled one way on one path and another way on the other.
    transport's to say: the phone's own address book on the device, only important contacts on the
    server. The address book never leaves the phone.
 
-Then the user's hours (D-029). Outside them the assistant answers nothing and the call rings the
+Then the user's hours (D-030). Outside them the assistant answers nothing and the call rings the
 user as if there were no assistant. What was rejected stays rejected — the assistant being off is
 not a reason to let spam through — and what already rang still rings.
 """

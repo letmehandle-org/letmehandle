@@ -34,7 +34,7 @@ class EscalationUrgency(StrEnum):
 
     `WHILE_CONVENIENT` exists so that "the user would want to know" does not have to mean
     "ring their phone now". Today's policy never chooses it: the user's hours used to, and since
-    D-029 a call outside them rings the user rather than meeting the assistant. It stays in the
+    D-030 a call outside them rings the user rather than meeting the assistant. It stays in the
     model for a notification setting that defers without the hours, not for the policy.
     """
 
