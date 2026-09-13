@@ -1,29 +1,4 @@
-"""Proving a request came from the telephony provider, before anything in it is believed.
-
-The provider signs every request it makes: the URL it called, from the scheme to the end of the
-query string, followed by every form parameter sorted by name with each name and value written
-out with no delimiters, signed with HMAC-SHA1 under the account's auth token and base64-encoded
-into a header.
-
-Implemented here rather than taken from the vendor SDK, which would bring a second and third
-HTTP stack to compute one HMAC. What the documentation warns about is written down as code, and
-each warning has a test:
-
-- The URL is the one the provider was configured to call, which behind a proxy or a tunnel is
-  not the Host a request arrives with. It is always built from the configured base URL.
-- Over https the provider drops the port before signing; over http it keeps it. The official
-  validators accept a URL either way, and so does this.
-- A fragment is never sent and never signed.
-- Every parameter received is signed, including ones this code has never heard of. Parameters
-  are never filtered to a known list, because the provider adds them without notice.
-- A websocket handshake may have been signed with a trailing slash on the URL.
-- A repeated parameter is signed over its distinct values in sorted order, so the order its
-  values arrive in is not signed. What reads a callback refuses one repeating a parameter it
-  reads, rather than letting that order decide which value is meant.
-
-Nothing here reads a parameter's meaning. The verified parameters are handed back and only then
-does anything look inside them.
-"""
+"""The provider's HMAC-SHA1 request signature, checked against the configured public URL."""
 
 from __future__ import annotations
 
@@ -42,19 +17,11 @@ _DEFAULT_HTTPS_PORT: Final = 443
 
 
 class SignatureRejectedError(Exception):
-    """A request that cannot be shown to come from the provider.
-
-    Adapter-internal, and deliberately vague: the reason says which check failed, never what was
-    received, because what was received may be somebody's phone number or an attacker's probe.
-    """
+    """A request not shown to come from the provider; names the failed check, never the request."""
 
 
 def compute_signature(url: str, params: Iterable[tuple[str, str]], auth_token: str) -> str:
-    """The signature the provider would send for this URL and these form parameters.
-
-    A parameter carrying the same value twice is written out once, as the official validators
-    write it: they sort the set of each parameter's values.
-    """
+    """The provider's signature for a URL and form parameters, each distinct pair once, sorted."""
     payload = url + "".join(name + value for name, value in sorted(set(params)))
     digest = hmac.new(auth_token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha1)
     return base64.b64encode(digest.digest()).decode("ascii")
@@ -119,12 +86,7 @@ class SignatureVerifier:
 
 
 def _port_variants(url: str) -> tuple[str, ...]:
-    """The URL as configured, and as the provider may have signed it.
-
-    A secure URL is signed without its port. The configured URL may carry one — a tunnel on a
-    non-default port — or may not while the provider's own validator adds the default, so both
-    forms are tried. A plain http URL is signed with its port and has one form only.
-    """
+    """The URL as configured, and without or with the default port when it is secure."""
     parts = urlsplit(url)._replace(fragment="")
     as_given = urlunsplit(parts)
     if parts.scheme not in {"https", "wss"}:

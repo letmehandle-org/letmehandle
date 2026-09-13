@@ -1,10 +1,4 @@
-"""The media stream's messages, as typed values in and JSON text out.
-
-The provider writes every number in these messages as a string — sequence numbers, chunk
-numbers, timestamps — and audio as base64 μ-law at eight thousand samples a second. That is
-settled here, once, so nothing above this module parses a number out of a string or decodes a
-payload.
-"""
+"""The media stream's messages: JSON text with string numbers and base64 μ-law, as typed values."""
 
 from __future__ import annotations
 
@@ -27,11 +21,7 @@ INBOUND_TRACK: Final = "inbound"
 
 
 class MediaProtocolError(Exception):
-    """A message that is not the media stream protocol.
-
-    Adapter-internal. It names which part was wrong and never repeats the message, which may
-    carry somebody's voice.
-    """
+    """A message that is not the media stream protocol; names the part, never the content."""
 
 
 @dataclass(frozen=True, slots=True)

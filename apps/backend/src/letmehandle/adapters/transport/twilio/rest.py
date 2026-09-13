@@ -1,18 +1,4 @@
-"""The requests this transport makes of the provider's REST API.
-
-Behind a protocol, so the transport's call handling is exercised against a simulated provider
-that answers the same requests, and this module is exercised against the same simulator through
-an in-memory HTTP transport — the real request building, authentication and error translation,
-with no network and no account.
-
-Every failure becomes a `ProviderError` saying whether another attempt could help. Its message
-carries the HTTP status and the provider's numeric error code, never a response body, which can
-repeat a phone number back.
-
-"Not found" on ending or removing something is not a failure. Teardown runs on paths that
-overlap — the caller hanging up while the orchestrator is already cleaning up — and the thing
-being ended having ended already is the outcome that was asked for.
-"""
+"""The provider's REST API; failures carry no body, and not found on ending is done."""
 
 from __future__ import annotations
 
@@ -30,7 +16,7 @@ if TYPE_CHECKING:
 
 PROVIDER: Final = "twilio"
 
-# The provider's public API origin. Not configuration: there is one, and it is documented.
+# The provider's public API origin.
 API_ORIGIN: Final = "https://api.twilio.com"
 API_VERSION: Final = "2010-04-01"
 
@@ -45,8 +31,7 @@ _SERVER_ERROR: Final = 500
 
 type EndStatus = Literal["completed", "canceled"]
 
-# A dialled leg that is not over yet, and how each is ended: one not yet answered is cancelled, and
-# one answered is hung up.
+# The statuses of a leg that is not over, and how a leg in each is ended.
 _LIVE_LEG_STATUSES: Final[tuple[tuple[str, EndStatus], ...]] = (
     ("queued", "canceled"),
     ("ringing", "canceled"),
@@ -69,10 +54,7 @@ class ParticipantRequest:
 
 @dataclass(frozen=True, slots=True)
 class CallRecord:
-    """What the provider still knows about a call: the number it reached, and the line it came from.
-
-    Both as the provider reported them, unparsed; either may be absent.
-    """
+    """The number a call reached and the line that forwarded it, unparsed; either may be absent."""
 
     to: str | None
     forwarded_from: str | None
@@ -179,8 +161,7 @@ class HttpTelephonyApi:
         )
 
     async def end_conferences_named(self, conference_name: str) -> int:
-        # A conference is ended by its identifier, which only the process that saw it start was
-        # told; by name it has to be looked up first.
+        # A conference is ended by identifier, so one known only by name is looked up first.
         response = await self._send(
             "GET",
             "/Conferences.json",
@@ -207,8 +188,7 @@ class HttpTelephonyApi:
         )
 
     async def end_calls_between(self, from_: str, to: str) -> int:
-        # Listed one status at a time, because that is how the API filters, and ended by the
-        # identifier the listing gives: a leg is ended by identifier, never by its numbers.
+        # The API filters by one status at a time; each leg is ended by its identifier.
         ended = 0
         for status, end_status in _LIVE_LEG_STATUSES:
             response = await self._send(
@@ -256,11 +236,7 @@ class HttpTelephonyApi:
 def account_client(
     *, account_id: str, auth_token: str, transport: httpx.AsyncBaseTransport | None
 ) -> httpx.AsyncClient:
-    """A client for one account's resources, authenticated as that account.
-
-    Outside the class, with `send` and `raise_for`, so that anything else speaking to this API as an
-    account shares where the API is, how long a request may take and what a refusal becomes.
-    """
+    """A client for one account's resources, shared by everything calling this API as an account."""
     return httpx.AsyncClient(
         base_url=f"{API_ORIGIN}/{API_VERSION}/Accounts/{quote(account_id, safe='')}",
         auth=(account_id, auth_token),

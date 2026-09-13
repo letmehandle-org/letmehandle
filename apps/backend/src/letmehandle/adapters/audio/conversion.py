@@ -1,20 +1,4 @@
-"""Turning the audio a caller has into the audio the service speaks, and back.
-
-A speech service accepts one kind of audio, and whatever is in front of it supplies whatever it
-supplies: a microphone gives wideband linear audio, a phone call gives narrowband companded
-audio. Every adapter with audio at its edge converts there — a speech session on the way in, a
-sink on the way out — so no codec name escapes into the core, and they share this one module
-rather than each writing a resampler of its own.
-
-Plain Python, deliberately. At twenty-millisecond frames a few hundred samples per call is well
-inside what the interpreter manages, and a numerical dependency would be carried by every
-installation to save microseconds nobody would measure. `audioop` is not used because it is
-gone from the standard library in the next Python release.
-
-Converters are stateful, one per direction of one stream. Audio arrives in pieces that do not
-respect sample boundaries — a service may split a delta mid-sample — and a resampler that
-forgot its position between pieces would click at every frame edge.
-"""
+"""Stateful mono conversion between linear PCM, μ-law and A-law at any rate, in plain Python."""
 
 from __future__ import annotations
 
@@ -31,8 +15,7 @@ if TYPE_CHECKING:
 _SAMPLE_WIDTH: Final = 2
 _S16_MAX: Final = 32_767
 
-# G.711 constants. The bias shifts the μ-law curve so that silence has a code of its own, and
-# the clip keeps a biased loud sample inside fifteen bits.
+# G.711 constants: the μ-law bias and clip, and the A-law bit toggle.
 _MULAW_BIAS: Final = 0x84
 _MULAW_CLIP: Final = 32_635
 _ALAW_TOGGLE: Final = 0x55
@@ -41,19 +24,11 @@ _CONVERTIBLE: Final = frozenset({AudioEncoding.PCM_S16LE, AudioEncoding.MULAW, A
 
 
 class UnsupportedConversionError(Exception):
-    """Audio in a format this adapter cannot turn into the one required.
-
-    Adapter-internal: the provider refuses such a format at connect, as a domain error, so a
-    session never exists that would fail on its first frame.
-    """
+    """Audio in a format this module cannot convert to the one required."""
 
 
 def can_convert(source: AudioFormat, target: AudioFormat) -> bool:
-    """Whether audio in `source` can be turned into `target`.
-
-    Mono only. Every edge of this product is a single voice, and a downmix nobody needs is a
-    place for a channel-order bug to hide.
-    """
+    """Whether mono audio in `source` can be turned into mono `target`."""
     return (
         source.channels == 1
         and target.channels == 1
@@ -86,11 +61,7 @@ class AudioConverter:
         return _encode(self._resampler.process(samples), self._target.encoding)
 
     def reset(self) -> None:
-        """Forget the stream so far.
-
-        For a deliberate break — an interruption, a reconnect — after which interpolating from
-        the last sample of the old audio into the first of the new would be a small lie.
-        """
+        """Forget the stream so far, for a deliberate break such as an interruption."""
         self._carry = b""
         self._resampler = _Resampler(self._source.sample_rate_hz, self._target.sample_rate_hz)
 
@@ -105,19 +76,12 @@ class AudioConverter:
 
 
 class _Resampler:
-    """Linear interpolation that remembers where it was.
-
-    Linear interpolation does not low-pass before it downsamples, so going from wideband to
-    narrowband aliases a little of the top octave back into the band. For speech on its way to
-    a telephone line that is audible only as a faint roughness on sibilants, and a proper
-    filter is a later, measured change rather than a guess made here.
-    """
+    """Linear interpolation, with no low-pass filter, that keeps its position between pieces."""
 
     def __init__(self, source_rate: int, target_rate: int) -> None:
         self._step = source_rate / target_rate
         self._identity = source_rate == target_rate
-        # Position in the stream, measured from `_previous`: the last sample of the previous
-        # piece, which the next piece's first output may need to interpolate from.
+        # Position measured from `_previous`, the last sample of the previous piece.
         self._position = 0.0
         self._previous: int | None = None
 

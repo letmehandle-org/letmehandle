@@ -1,13 +1,4 @@
-"""The HTTP and websocket routes the provider calls, owned by the adapter that understands them.
-
-Here rather than under `api/`, so that no provider's name or callback shape enters the HTTP
-layer the product's own clients use. Bootstrap mounts this router once for each line this
-transport carries, and not at all when none is configured; otherwise these paths do not exist.
-
-Every route does the same four things in the same order: prove the request came from the
-provider, refuse it if it did not, recognise a redelivery, and hand what it says to the
-transport — which changes state and returns at once. Nothing here waits on the network.
-"""
+"""The provider's routes: prove, refuse, recognise repeats, then hand over to the transport."""
 
 from __future__ import annotations
 
@@ -55,12 +46,10 @@ logger = get_logger(__name__)
 
 IDEMPOTENCY_HEADER: Final = "I-Twilio-Idempotency-Token"
 
-# The largest callback body read. A callback is a few dozen short form fields; anything near this
-# is not one, and its signature is only checked once it has been read.
+# The largest callback body read before its signature is checked.
 TELEPHONY_BODY_LIMIT_BYTES: Final = 64 * 1024
 
-# The close code for a handshake refused on policy, which Starlette turns into a 403 before the
-# socket is ever accepted.
+# The close code refusing a handshake, which Starlette answers as a 403.
 _POLICY_VIOLATION: Final = 1008
 
 # A callback this provider delivered again, by the route it arrived on.
@@ -83,14 +72,7 @@ class _RefusedError(Exception):
 def build_router(
     transport: TwilioCallTransport, *, tracer: Tracer, metrics: MetricsRecorder
 ) -> APIRouter:
-    """The provider's routes, bound to one transport instance.
-
-    Each callback is a span of its own: the first of a call's life, and the way a provider's delay
-    in calling back is told apart from this service's in answering.
-
-    The routes sit under the transport's path prefix. A request is proved over the whole path it
-    arrived on, prefix included, because that is the URL the provider was told and signed.
-    """
+    """One transport's routes under its prefix; each callback a span, proved over its full path."""
     router = APIRouter(prefix=transport.path_prefix, include_in_schema=False)
 
     async def verified(request: Request) -> tuple[Parameters, dict[str, str]]:
@@ -124,8 +106,7 @@ def build_router(
         with tracer.span("telephony.callback", stage=stage) as span:
             try:
                 params, query = await verified(request)
-                # The call a callback is about: ours, named in the query or the form, and otherwise
-                # the provider's call the callback arrived for, which on arrival is the same call.
+                # The call named in the query or form, else the provider call it is for.
                 call = (
                     query.get(CALL_PARAMETER) or params.get(CALL_PARAMETER) or params.get("CallSid")
                 )
@@ -153,8 +134,8 @@ def build_router(
         def respond(params: Parameters, _query: dict[str, str]) -> Response:
             return _twiml(transport.incoming_call(read_incoming_call(params)))
 
-        # A redelivered call still needs its instructions: the first answer may never have reached
-        # the provider. Answering is idempotent by the call's own identifier.
+            # A redelivered arrival is answered again, idempotently by the call's identifier.
+
         return await handle(request, "incoming", respond, skip_repeats=False)
 
     @router.post(ASSISTANT_PATH)
@@ -231,8 +212,7 @@ class StarletteMediaSocket:
         try:
             message = await self._websocket.receive()
         except RuntimeError:
-            # Starlette refuses to receive once a close has been sent from this side, which is
-            # the socket having closed as far as a reader is concerned.
+            # Starlette refuses to receive after this side has closed: the socket is closed.
             return None
         if message["type"] == "websocket.disconnect":
             return None
@@ -257,8 +237,7 @@ class StarletteMediaSocket:
         try:
             await self._websocket.close()
         except (RuntimeError, OSError):
-            # The other end went away between the state check and the close frame. Closing a
-            # socket that has already closed is the outcome that was asked for.
+            # The other end went away first, which is the closed socket that was asked for.
             return
 
 
