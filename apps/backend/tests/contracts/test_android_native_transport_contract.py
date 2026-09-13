@@ -1,9 +1,4 @@
-"""The call transport contract, against the transport that represents a handset.
-
-The same suite the streaming transport runs. What differs is declared rather than special-cased:
-this transport screens before ringing and uses the handset's own ringing, and everything it does
-not declare — answering, audio, adding a person — the suite proves it refuses.
-"""
+"""The call transport contract, against the transport that represents a handset."""
 
 from __future__ import annotations
 
@@ -26,8 +21,7 @@ class TestAndroidNativeCallTransport(CallTransportContract):
     @pytest.fixture
     async def transport(self) -> AndroidNativeCallTransport:
         native = AndroidNativeCallTransport()
-        # A handset has reported one screened call, so there is something to consume: the feed
-        # is live, and an empty one waits for the next report rather than finishing.
+        # One screened call is reported, so the live feed has something to consume.
         await native.publish(
             UserId("user"),
             CallEvent(
@@ -45,8 +39,7 @@ class TestAndroidNativeCallTransport(CallTransportContract):
         capabilities = transport.capabilities
         assert capabilities.can_screen_before_ringing
         assert capabilities.supports_native_ringing
-        # The platform gives a screening service the caller's number, never the call's audio,
-        # and no way to take or extend a call it does not own.
+        # A screening service gets the caller's number, never the audio or control of the call.
         assert not capabilities.can_answer_under_program_control
         assert not capabilities.can_stream_call_audio_to_ai
         assert not capabilities.can_inject_ai_audio

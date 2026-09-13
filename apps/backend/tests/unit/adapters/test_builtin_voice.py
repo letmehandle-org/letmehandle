@@ -37,8 +37,7 @@ def test_it_refuses_an_empty_catalogue() -> None:
 
 
 def test_it_refuses_a_default_that_is_not_in_the_catalogue() -> None:
-    # The end of the fallback chain. A default nobody can look up turns a call with no
-    # expressed preference into a call with no voice.
+    # The default voice is the end of the fallback chain.
     with pytest.raises(InvariantError, match="not in the catalogue"):
         BuiltInVoiceProvider((CALM,), default_voice_id="bright")
 
@@ -75,8 +74,7 @@ async def test_a_voice_is_available_exactly_when_it_is_in_the_catalogue() -> Non
 
 
 def test_it_never_claims_to_clone_or_to_run_a_model() -> None:
-    # D-009: the mobile interface renders from these. A true here puts a training flow in
-    # front of somebody it cannot work for.
+    # The mobile interface renders from these (D-009).
     capabilities = _provider(samples={"calm": CALM_SAMPLE}).capabilities
     assert capabilities.builtin_voices
     assert not capabilities.cloning
@@ -113,8 +111,7 @@ async def test_an_unknown_voice_is_a_domain_error_and_never_a_key_error() -> Non
 
 
 async def test_a_catalogue_voice_with_no_sample_says_so() -> None:
-    # Distinct from an unknown identifier: the voice is real and selectable, and only its
-    # preview is missing.
+    # A selectable voice whose preview alone is missing.
     provider = _provider(samples={"calm": CALM_SAMPLE})
     with pytest.raises(ProviderError, match="no sample audio for voice 'bright'") as raised:
         await provider.preview("bright")

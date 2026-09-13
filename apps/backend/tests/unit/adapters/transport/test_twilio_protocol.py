@@ -58,8 +58,7 @@ class TestInstructions:
         assert conference is not None
         assert conference.text == "call-CAsim-1"
         attributes = conference.attrib
-        # Ending the conference when the caller leaves; no beep; silence while waiting; the
-        # smallest mixer buffer; never recorded; and told about every join and leave.
+        # Ends with the caller, no beep, silent wait, small buffer, unrecorded, joins and leaves.
         assert attributes["endConferenceOnExit"] == "true"
         assert attributes["startConferenceOnEnter"] == "true"
         assert attributes["beep"] == "false"

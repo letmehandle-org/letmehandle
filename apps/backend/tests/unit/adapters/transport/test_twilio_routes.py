@@ -140,8 +140,7 @@ async def oversized_chunks(size: int) -> AsyncIterator[bytes]:
 async def test_a_body_too_large_for_a_callback_is_refused_before_it_is_read(
     client: AsyncClient, path: str
 ) -> None:
-    # Unsigned, so it is refused either way; the point is that it is refused for its size, and
-    # without sixty-four megabytes being held in memory to find out it was forged.
+    # Refused for its size before any signature check reads the whole body.
     size = TELEPHONY_BODY_LIMIT_BYTES + 1
     declared = await client.post(path, content=b"a" * size)
     streamed = await client.post(path, content=oversized_chunks(size))
@@ -231,8 +230,7 @@ async def test_status_callbacks_are_applied_once_per_delivery_token(
 async def test_a_callback_repeating_a_parameter_it_is_read_for_is_unprocessable(
     client: AsyncClient, transport: TwilioCallTransport
 ) -> None:
-    # A repeated parameter is signed the same whichever order its values arrive in, so the
-    # order cannot be allowed to decide which of them is meant.
+    # Signing does not fix a repeated parameter's order, so the order cannot pick a value.
     await signed_post(client, "/telephony/voice/incoming", ARRIVAL)
     await drain(transport)
     ambiguous = [
@@ -373,8 +371,7 @@ async def test_each_callback_is_a_span_naming_its_route_and_call_and_a_repeat_is
 
 
 async def test_a_prefixed_transport_is_called_back_under_its_prefix_and_nowhere_else() -> None:
-    # Two lines on one service each need routes of their own, and every URL the provider is told
-    # must lead back to the line that told it, or a callback would reach the other account.
+    # Each line has its own routes, and every URL it hands the provider leads back to it.
     lined = TwilioCallTransport(
         config=TwilioConfig(
             account_id=ACCOUNT,

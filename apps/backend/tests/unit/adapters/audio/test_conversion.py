@@ -58,8 +58,7 @@ def test_the_same_format_passes_through_untouched() -> None:
 
 @pytest.mark.parametrize(("source_rate", "target_rate"), [(16_000, 24_000), (24_000, 8_000)])
 def test_resampling_keeps_duration_and_pitch(source_rate: int, target_rate: int) -> None:
-    # A one-second 300 Hz tone must still last a second and still be 300 Hz: the two ways a
-    # resampler gets the ratio backwards are a chipmunk and a slur.
+    # A one-second 300 Hz tone still lasts a second and is still 300 Hz.
     source = tone(300, source_rate, 1.0)
     converted = samples_of(
         AudioConverter(
@@ -101,9 +100,7 @@ def test_reset_forgets_a_half_sample_left_over() -> None:
 
 @pytest.mark.parametrize("companded", [TELEPHONY_NARROWBAND, ALAW_NARROWBAND])
 def test_telephony_audio_survives_a_round_trip(companded: AudioFormat) -> None:
-    # G.711 is lossy by design; what matters is that speech comes back as speech. Better than
-    # 30 dB on a mid-level tone is what the standard gives, and a sign or segment error would
-    # leave it near zero.
+    # G.711 is lossy; better than 30 dB on a mid-level tone rules out sign and segment errors.
     source = tone(400, 8_000, 0.5)
     encoded = AudioConverter(NARROWBAND_LINEAR, companded).convert(pcm(source))
     decoded = samples_of(AudioConverter(companded, NARROWBAND_LINEAR).convert(encoded))

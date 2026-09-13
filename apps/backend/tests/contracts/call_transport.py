@@ -1,12 +1,4 @@
-"""What every call transport must satisfy, whatever it is built on.
-
-Subclass this, supply a `transport` fixture, and the suite runs against your implementation.
-Both transports in phase 7 subclass it, and so does every simulator used in testing — which is
-what makes them comparable rather than merely similar.
-
-The suite is capability-aware on purpose. Two transports that differ in kind cannot be held to
-the same behaviour, only to the same honesty: do what you declare, and refuse what you do not.
-"""
+"""What every call transport must satisfy: do what it declares, and refuse what it does not."""
 
 from __future__ import annotations
 
@@ -57,8 +49,7 @@ class CallTransportContract:
         await transport.terminate(A_CALL)
 
     async def test_terminating_twice_is_safe(self, transport: CallTransport) -> None:
-        # Teardown runs on paths that overlap — a caller hanging up while the orchestrator is
-        # already cleaning up — and a second terminate must not raise.
+        # Teardown paths overlap, so a second terminate must not raise.
         await transport.terminate(A_CALL)
         await transport.terminate(A_CALL)
 
@@ -84,9 +75,7 @@ class CallTransportContract:
             assert capabilities.can_bridge_human
 
     def test_narrowing_matches_what_is_declared(self, transport: CallTransport) -> None:
-        # The check the type system cannot make: that a declaration and an implementation
-        # agree. A transport claiming a capability it has not implemented fails here rather
-        # than with an attribute error, mid-call, in front of somebody.
+        # A declared capability is implemented, which the type system cannot check.
         for capability, narrow in (
             ("can_answer_under_program_control", answering),
             ("can_screen_before_ringing", screening),
@@ -94,8 +83,7 @@ class CallTransportContract:
             ("supports_three_way_call", three_way),
         ):
             if transport.capabilities.has(capability):
-                # Narrowing returns the transport itself; what matters is that it does not
-                # raise, which is the disagreement this catches.
+                # Narrowing must not raise for a declared capability.
                 assert narrow(transport) is not None
             else:
                 with pytest.raises(CapabilityNotSupportedError):
@@ -114,8 +102,7 @@ class CallTransportContract:
     def test_a_screening_transport_can_always_let_a_call_ring(
         self, transport: CallTransport
     ) -> None:
-        # Letting the call ring is the fallback when a decision cannot be made in time, or
-        # cannot be made safely. A screener that could not do it would have no safe answer.
+        # Letting the call ring is the fallback when no decision can be made safely in time.
         if not transport.capabilities.can_screen_before_ringing:
             pytest.skip("this transport does not see calls before they ring")
         assert ScreeningDecision.ALLOW in screening(transport).screening_decisions()
@@ -128,8 +115,7 @@ class CallTransportContract:
     async def test_only_a_screening_transport_reports_a_screening_decision(
         self, transport: CallTransport
     ) -> None:
-        # A decision reported by a transport that declares it cannot screen is a claim about
-        # something that did not happen.
+        # A transport that cannot screen offers no screening decisions.
         async for event in transport.events():
             if event.screening is not None:
                 assert transport.capabilities.can_screen_before_ringing
@@ -149,8 +135,7 @@ class CallTransportContract:
     async def test_a_call_is_a_conversations_source_and_sink_where_declared(
         self, transport: CallTransport
     ) -> None:
-        # A conversation runs over a source and a sink. A call has to be both, or the speech
-        # layer grows a second way of talking that only calls use.
+        # A conversational transport's call is both an audio source and an audio sink.
         if not transport.capabilities.supports_agent_conversation:
             pytest.skip("this transport cannot carry the call's audio")
         streaming = audio_streaming(transport)
@@ -174,8 +159,7 @@ class CallTransportContract:
     async def test_every_assistant_presence_can_be_chosen_where_three_way_is_declared(
         self, transport: CallTransport
     ) -> None:
-        # The policy chooses among these; a transport that offered three of the four would make
-        # a preference that silently does nothing.
+        # A transport that can screen offers every screening decision.
         if not transport.capabilities.supports_three_way_call:
             pytest.skip("this transport cannot hold three parties")
         call = three_way(transport)
@@ -185,8 +169,7 @@ class CallTransportContract:
     def test_an_undeclared_capability_is_refused_rather_than_attempted(
         self, transport: CallTransport
     ) -> None:
-        # The property that lets the orchestrator stay one piece of code: asking for something
-        # a transport cannot do fails the same way for every transport.
+        # An undeclared capability fails the same way on every transport.
         for capability in transport.capabilities.names():
             if transport.capabilities.has(capability):
                 continue

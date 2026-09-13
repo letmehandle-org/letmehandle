@@ -1,21 +1,4 @@
-"""A telephony provider in this process: its REST API, its callbacks and its media streams.
-
-What it reproduces is what the documentation describes, and what the documentation warns about.
-Callbacks are separate HTTP requests signed exactly as the provider signs them — the public URL
-the provider was configured with, every form parameter, HMAC-SHA1 under the auth token — and sent
-to the application running on loopback, which is the situation behind a tunnel: the Host a
-request arrives with is not the URL that was signed. The assistant's leg fetches its
-instructions from the application and opens a real websocket to it, with a signed handshake.
-
-A test can hold callbacks back and then deliver them reordered, twice, or not at all; have every
-callback sent twice as it happens; move the provider to a restarted application; decide how
-a dialled person answers, or does not; drop the assistant's websocket; stop the stream without
-closing it; and hang up either party first. No account, no number, and no network beyond
-loopback.
-
-Every identifier it hands out says it is simulated, and every number is in a range reserved for
-fiction.
-"""
+"""A simulated telephony provider on loopback: signed callbacks, REST API and media websockets."""
 
 from __future__ import annotations
 
@@ -121,12 +104,7 @@ class SimulatedConference:
 
 
 class SimulatedTwilio:
-    """The provider, answering the application's requests and calling it back.
-
-    One account with one number. `path_prefix` is where the application serves this account's
-    line, for a deployment with a line per region; two of these, on different accounts and
-    prefixes, are two lines of one provider calling one application back.
-    """
+    """One simulated account and number, calling the application back under `path_prefix`."""
 
     def __init__(
         self,
@@ -157,8 +135,7 @@ class SimulatedTwilio:
         self._readers: set[asyncio.Task[None]] = set()
         self._ids = itertools.count(1)
         self.fail_next_rest: int | None = None
-        # Every callback sent a second time, with the same idempotency token, straight after the
-        # first: what the provider does when it did not see the first acknowledged.
+        # Sends every callback twice with the same idempotency token.
         self.duplicate_callbacks = False
         self.sign_handshake_with_slash = False
         self.sign_handshake_url: str | None = None
@@ -209,10 +186,7 @@ class SimulatedTwilio:
         *,
         forwarded_from: PhoneNumber | None = None,
     ) -> str:
-        """A call arrives at our number, forwarded from `forwarded_from`'s line when it is given.
-
-        Returns the instructions the application gave.
-        """
+        """A call arrives, forwarded from `forwarded_from` if given; returns the app's answer."""
         params = [
             ("AccountSid", self.account),
             ("CallSid", call_sid),
@@ -351,11 +325,7 @@ class SimulatedTwilio:
         )
 
     async def assistant_of(self, call_sid: str) -> SimulatedLeg:
-        """The call's assistant leg once its media socket is open on this side.
-
-        The application counts a socket once its start arrives, which can be before this side has
-        finished recording the connection it opened, so this waits for that rather than guessing.
-        """
+        """The call's assistant leg, once this side has recorded its open media socket."""
 
         def streaming() -> SimulatedLeg | None:
             return next(
@@ -545,8 +515,7 @@ class SimulatedTwilio:
 
     async def _assistant_leg(self, leg: SimulatedLeg) -> None:
         query = dict(parse_qsl(urlsplit(leg.to.removeprefix("app:")).query))
-        # Dialling an application makes a second call on the provider's side: the application's
-        # webhook and its media stream carry that call's identifier, not the participant's.
+        # The application's webhook and stream carry the application call, not the participant.
         application_call = f"{leg.call_sid}-application"
         await self._progress(leg, "initiated")
         leg.answered = True
@@ -759,11 +728,7 @@ class SimulatedTwilio:
 
 
 def one_api_for(*providers: SimulatedTwilio) -> httpx.MockTransport:
-    """Several simulated accounts' REST APIs behind one transport, each request sent to its own.
-
-    What a deployment with a line per region talks to: one provider, reached at one API, which
-    tells its accounts apart by the account each request names.
-    """
+    """Several simulated accounts' REST APIs behind one HTTP transport, routed by account."""
     by_account = {provider.account: provider for provider in providers}
 
     async def handle(request: httpx.Request) -> httpx.Response:
@@ -837,11 +802,7 @@ class Deployment:
 def telephony_settings(
     public_base_url: str = PUBLIC_BASE_URL, *, line_name: str | None = None
 ) -> Settings:
-    """Settings for a deployment whose telephony account is the simulated one.
-
-    With `line_name`, the account is that one line by region, serving every region, rather than
-    the single line `TELEPHONY_PROVIDER` configures.
-    """
+    """Settings for the simulated account, as the single line or as the line named `line_name`."""
     if line_name is not None:
         return make_settings(
             telephony_lines=(
@@ -867,12 +828,7 @@ async def simulated_deployment(
     collect_events: bool = True,
     line_name: str | None = None,
 ) -> AsyncIterator[Deployment]:
-    """The whole application on loopback, wired to a simulated provider, and torn down after.
-
-    Events are collected into the deployment unless the test reads them itself: the transport's
-    event stream has one reader, as the orchestrator is its one reader in the product. With
-    `line_name`, the account is a line by region of that name, called back under its own prefix.
-    """
+    """The application on loopback, wired to a simulated provider, collecting events by default."""
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
     from tests.support.observability import recorded_observability
 
@@ -889,8 +845,7 @@ async def simulated_deployment(
     )
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)
-    # The transport is handed to the application rather than configured on it: this deployment has
-    # no storage, and whoever needs calls orchestrated builds the orchestrator on the transport.
+    # Handed to the application, which has no storage to build an orchestrator on.
     app = create_app(make_settings(), telephony=[binding])
     events: list[CallEvent] = []
 

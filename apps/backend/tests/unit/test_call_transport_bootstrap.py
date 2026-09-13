@@ -114,8 +114,7 @@ async def test_the_application_mounts_the_providers_routes_and_closes_the_transp
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
     )
-    # Handed over rather than configured, so the lifespan runs without the storage a configured
-    # transport refuses to start without.
+    # Handed over, so the lifespan runs without the storage a configured transport needs.
     app = create_app(make_settings(), telephony=[binding])
     # Present, and refusing what is not signed.
     assert await statuses(app) == {403}
@@ -129,8 +128,7 @@ async def test_the_application_mounts_the_providers_routes_and_closes_the_transp
 
 
 async def test_the_handset_transport_is_the_one_its_reports_feed() -> None:
-    # Chosen from configuration like the streaming one, but never built a second time: a report
-    # the reporting route accepts must reach the transport the product reads.
+    # The application's one handset transport, so accepted reports reach the transport read.
     app = create_app(
         make_settings(
             telephony_provider=TelephonyProviderName.ANDROID_NATIVE,
@@ -198,8 +196,7 @@ def forwarding_for(settings: Settings) -> ForwardingNumbers:
 
 
 def test_a_streaming_deployment_asks_users_to_forward_to_its_first_number() -> None:
-    # A streaming call reaches the product only by the user's carrier forwarding it, and the
-    # first configured number is the one every user is told, so two screens never disagree.
+    # Users forward to the first configured number.
     assert forwarding_for(telephony_settings()) == ForwardingNumbers(
         elsewhere=PhoneNumber.parse("+12025550100")
     )

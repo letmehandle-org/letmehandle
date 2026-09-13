@@ -26,9 +26,7 @@ class TestScreeningOnlyTransport(CallTransportContract):
         return ScreeningOnlyTransport()
 
     def test_it_claims_no_audio_it_cannot_supply(self, transport: ScreeningOnlyTransport) -> None:
-        # The honesty the whole architecture rests on. A platform that screens calls does not
-        # hand an application the audio of one, and claiming otherwise would produce an
-        # assistant that answers into silence.
+        # A transport that screens calls does not claim to carry their audio.
         assert not transport.capabilities.can_stream_call_audio_to_ai
         assert not transport.capabilities.supports_agent_conversation
         assert not transport.capabilities.can_bridge_human
@@ -76,8 +74,7 @@ class TestDeclarationsAreChecked:
             screening(LyingTransport())
 
     def test_and_for_audio_streaming(self) -> None:
-        # A transport declaring it can carry audio, with no methods to do it. Without this
-        # check the failure arrives as an attribute error, mid-call, in front of a caller.
+        # A transport declaring audio it has no methods for.
         with pytest.raises(CapabilityNotSupportedError) as failure:
             audio_streaming(LyingTransport())
         assert failure.value.capability == "can_stream_call_audio_to_ai"

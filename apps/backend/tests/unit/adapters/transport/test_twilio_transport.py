@@ -1,9 +1,4 @@
-"""The streaming transport's call handling, callback by callback, against a recording API.
-
-Callbacks are handed to the transport directly, in whatever order and multiplicity a test
-chooses, so every mapping from what the provider says to what the orchestrator hears is pinned
-here. The simulator's end-to-end tests prove the same behaviour over real HTTP and websockets.
-"""
+"""The streaming transport's call handling, callback by callback, against a recording API."""
 
 from __future__ import annotations
 
@@ -1094,9 +1089,7 @@ async def test_a_socket_that_is_not_the_expected_stream_is_closed(
 async def test_a_stream_token_is_its_own_legs_and_is_good_for_one_start_only(
     transport: TwilioCallTransport,
 ) -> None:
-    # The handshake's signature is the same for every call, and a leg's identifier is no
-    # secret, so neither says which leg a socket may carry. Only the token its instructions
-    # carried does, and only once.
+    # Only the token a leg's instructions carried names that leg's socket, and only once.
     await answered_call(transport)
     other = CallId("CAsim-2")
     transport.incoming_call(incoming(other.value))

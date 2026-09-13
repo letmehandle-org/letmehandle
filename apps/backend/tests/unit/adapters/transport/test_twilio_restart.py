@@ -1,7 +1,4 @@
-"""A restart over the streaming transport, where the calls left behind are still up at the provider.
-
-Each test here reproduced a defect before its fix, and keeps it fixed.
-"""
+"""A restart over the streaming transport, with calls left behind still up at the provider."""
 
 from __future__ import annotations
 
@@ -112,8 +109,7 @@ async def test_a_call_left_running_is_still_tried_in_full_when_the_provider_refu
 
 
 async def test_a_restart_ends_the_users_phone_still_ringing_into_the_old_conference() -> None:
-    # Dialled into the conference and not yet in it, so ending the conference does not end it: it
-    # would ring on, and answering would put the user into a conference nobody else is in.
+    # A leg still ringing is not in the conference, so ending the conference leaves it ringing.
     api = RecordingApi()
     api.found = CallRecord(to=OUR_NUMBER.value, forwarded_from="+1 (202) 555-0143")
     transport = a_new_process(api)
@@ -123,8 +119,7 @@ async def test_a_restart_ends_the_users_phone_still_ringing_into_the_old_confere
         await transport.close()
 
     assert api.looked_up == [LEFT_RUNNING.value]
-    # From the number the stopped process dialled from, to the line the call was forwarded from,
-    # which is the number of the user it was dialling.
+    # From the number the call reached, to the line that forwarded it: the user's number.
     assert api.ended_between == [(OUR_NUMBER.value, USERS_LINE.value)]
 
 
