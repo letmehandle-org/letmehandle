@@ -1,6 +1,7 @@
 package org.letmehandle.app.calls.events
 
 import java.time.Instant
+import java.time.format.DateTimeParseException
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -64,7 +65,7 @@ class CallEventLedger(
   private fun apply(step: (TrackedCall?) -> Transition) {
     val changed =
         synchronized(lock) {
-          val tracked = store.read(TRACKED)?.let { TrackedCall.fromJson(JSONObject(it)) }
+          val tracked = readTracked()
           val transition = step(tracked)
           store.write(TRACKED, transition.call?.toJson()?.toString())
           if (transition.events.isNotEmpty()) {
@@ -75,6 +76,30 @@ class CallEventLedger(
     if (changed) {
       onChanged()
     }
+  }
+
+  /**
+   * The call being followed, or none if what is stored cannot be read.
+   *
+   * Forgotten rather than thrown: a corrupt record here would otherwise stop every later screening
+   * decision and phone state from being recorded at all. The next event starts from nothing, which
+   * at worst reports one call as two.
+   */
+  private fun readTracked(): TrackedCall? {
+    val text = store.read(TRACKED) ?: return null
+    return try {
+      TrackedCall.fromJson(JSONObject(text))
+    } catch (unreadable: JSONException) {
+      forgetTracked(unreadable)
+    } catch (unreadable: DateTimeParseException) {
+      forgetTracked(unreadable)
+    }
+  }
+
+  private fun forgetTracked(failure: Exception): TrackedCall? {
+    store.write(TRACKED, null)
+    onUnreadable(failure)
+    return null
   }
 
   private fun readPending(): List<CallEventRecord> {
@@ -113,6 +138,6 @@ class CallEventLedger(
   companion object {
     const val DEFAULT_CAPACITY = 500
     internal const val PENDING = "pending_call_events"
-    private const val TRACKED = "tracked_call"
+    internal const val TRACKED = "tracked_call"
   }
 }

@@ -162,6 +162,18 @@ class CallEventLedgerTest {
   }
 
   @Test
+  fun `a corrupt tracked call is forgotten and screening and phone states still record`() {
+    store.values[CallEventLedger.TRACKED] = "{\"call_id\":7,\"ringing\":\"yes\"}"
+    val ledger = ledger()
+
+    ledger.screened("+12025550145", ScreeningDecision.SILENCE, now)
+    ledger.phoneState(PhoneState.RINGING, now.plusSeconds(1))
+
+    assertEquals(listOf(CallEventKind.INCOMING), ledger.pending().map { it.kind })
+    assertEquals(1, unreadable.size)
+  }
+
+  @Test
   fun `what is said about a dropped entry names its failure, never the number it held`() {
     storeWithCorruptEntryAt(0, corrupt = JSONObject(mapOf("caller_number" to "+12025550145")))
     ledger().pending()
