@@ -13,6 +13,9 @@ from letmehandle.domain.ports.call_transport import (
     TransportCapabilities,
 )
 from tests.contracts.fakes import ScreeningOnlyTransport, StreamingTransport
+from tests.support.orchestration import an_assistance
+
+ASSISTANCE = an_assistance()
 
 
 def incoming(screening: ScreeningDecision | None = None) -> CallEvent:
@@ -43,10 +46,11 @@ class ListeningOnlyTransport(StreamingTransport):
 
 def test_a_streaming_transport_offers_every_step() -> None:
     transport = StreamingTransport()
-    plan = plan_for(transport, incoming())
+    plan = plan_for(transport, incoming(), ASSISTANCE)
     assert plan.assistant is not None
     assert plan.assistant.answering is transport
     assert plan.assistant.audio is transport
+    assert plan.assistant.assistance is ASSISTANCE
     assert plan.put_through == DialTheUser(transport)
     assert plan.escalation == DialTheUser(transport)
     assert plan.screened is None
@@ -56,7 +60,7 @@ def test_a_streaming_transport_offers_every_step() -> None:
 def test_a_screening_transport_records_the_decision_and_offers_no_assistant(
     decision: ScreeningDecision | None,
 ) -> None:
-    plan = plan_for(ScreeningOnlyTransport(), incoming(decision))
+    plan = plan_for(ScreeningOnlyTransport(), incoming(decision), ASSISTANCE)
     assert plan.assistant is None
     assert plan.escalation is None
     assert plan.put_through == LetItRing()
@@ -65,7 +69,7 @@ def test_a_screening_transport_records_the_decision_and_offers_no_assistant(
 
 
 def test_without_bridging_there_is_an_assistant_and_no_escalation_or_dial() -> None:
-    plan = plan_for(ConversationOnlyTransport(), incoming())
+    plan = plan_for(ConversationOnlyTransport(), incoming(), ASSISTANCE)
     assert plan.assistant is not None
     assert plan.escalation is None
     assert plan.put_through is None
@@ -73,7 +77,15 @@ def test_without_bridging_there_is_an_assistant_and_no_escalation_or_dial() -> N
 
 def test_audio_without_answering_is_no_assistant_and_so_no_escalation() -> None:
     transport = ListeningOnlyTransport()
-    plan = plan_for(transport, incoming())
+    plan = plan_for(transport, incoming(), ASSISTANCE)
+    assert plan.assistant is None
+    assert plan.escalation is None
+    assert plan.put_through == DialTheUser(transport)
+
+
+def test_without_the_means_to_speak_there_is_no_assistant_and_no_escalation() -> None:
+    transport = StreamingTransport()
+    plan = plan_for(transport, incoming(), None)
     assert plan.assistant is None
     assert plan.escalation is None
     assert plan.put_through == DialTheUser(transport)

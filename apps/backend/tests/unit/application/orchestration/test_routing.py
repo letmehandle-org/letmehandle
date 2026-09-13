@@ -23,6 +23,7 @@ from letmehandle.domain.models.preferences import (
 )
 from letmehandle.domain.ports.call_transport import ScreeningDecision
 from tests.contracts.fakes import StreamingTransport
+from tests.support.orchestration import an_assistance
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 CONTACT_NUMBER = PhoneNumber("+12025550102")
@@ -62,7 +63,7 @@ def test_the_rules_ask_for_a_posture(caller: Caller, posture: HandlingPosture) -
 TRANSPORT = StreamingTransport()
 EVERYTHING = CallPlan(
     put_through=DialTheUser(TRANSPORT),
-    assistant=Converse(TRANSPORT, TRANSPORT),
+    assistant=Converse(TRANSPORT, TRANSPORT, an_assistance()),
     escalation=DialTheUser(TRANSPORT),
     screened=None,
 )
@@ -70,7 +71,10 @@ NO_ASSISTANT = CallPlan(
     put_through=DialTheUser(TRANSPORT), assistant=None, escalation=None, screened=None
 )
 NO_PUT_THROUGH = CallPlan(
-    put_through=None, assistant=Converse(TRANSPORT, TRANSPORT), escalation=None, screened=None
+    put_through=None,
+    assistant=Converse(TRANSPORT, TRANSPORT, an_assistance()),
+    escalation=None,
+    screened=None,
 )
 NOTHING = CallPlan(put_through=None, assistant=None, escalation=None, screened=None)
 

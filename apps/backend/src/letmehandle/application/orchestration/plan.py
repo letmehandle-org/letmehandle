@@ -22,6 +22,7 @@ from letmehandle.domain.ports.call_transport import (
 )
 
 if TYPE_CHECKING:
+    from letmehandle.application.orchestration.ports import Assistance
     from letmehandle.domain.ports.call_transport import (
         CallEvent,
         CallTransport,
@@ -33,10 +34,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Converse:
-    """The assistant takes the call and talks on it."""
+    """The assistant takes the call and talks on it, with the services it speaks and judges with."""
 
     answering: SupportsAnswering
     audio: SupportsAudioStreaming
+    assistance: Assistance
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,12 +69,19 @@ class CallPlan:
     screened: ScreeningDecision | None
 
 
-def plan_for(transport: CallTransport, incoming: CallEvent) -> CallPlan:
-    """The plan for the call `incoming` announces, from what `transport` declares it can do."""
+def plan_for(
+    transport: CallTransport, incoming: CallEvent, assistance: Assistance | None
+) -> CallPlan:
+    """The plan for the call `incoming` announces, from what `transport` declares it can do.
+
+    `assistance` is what an assistant would speak with; a deployment without it offers no assistant
+    step, and the orchestrator refuses to be built that way over a transport that could hold one.
+    """
     capabilities = transport.capabilities
     assistant = (
-        Converse(answering(transport), audio_streaming(transport))
-        if capabilities.supports_agent_conversation
+        Converse(answering(transport), audio_streaming(transport), assistance)
+        if assistance is not None
+        and capabilities.supports_agent_conversation
         and capabilities.can_answer_under_program_control
         else None
     )
