@@ -5,24 +5,20 @@ import { StyleSheet, Text, View } from 'react-native';
 import { describeFailure } from '../api/messages';
 import { useSession } from '../auth/SessionProvider';
 import { Button } from '../components/Button';
+import { CallRow } from '../components/CallRow';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
 import { Dial } from '../components/Dial';
 import { Icon } from '../components/icon/Icon';
 import { Notice } from '../components/Notice';
-import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
 import {
   byDay,
   dayAndMonth,
   FILTERS,
-  iconOf,
-  timeOfDay,
-  toneOf,
   type Filter,
 } from '../history/presentation';
 import { useCallPages } from '../history/useCallPages';
-import { callerName, listLine } from '../history/words';
 import { useSecureScreen } from '../security/secureScreen';
 import { theme } from '../theme';
 
@@ -117,16 +113,10 @@ export function ActivityScreen({
             </Text>
             <Card>
               {section.calls.map((call, index) => (
-                <Row
+                <CallRow
                   key={call.id}
-                  icon={iconOf(call.caller, call.outcome)}
-                  tone={toneOf(call)}
-                  title={callerName(call.caller, t)}
-                  subtitle={listLine(call, t)}
-                  value={timeOfDay(call.started_at)}
-                  onPress={() => {
-                    onOpenCall(call.id);
-                  }}
+                  call={call}
+                  onOpen={onOpenCall}
                   last={index === section.calls.length - 1}
                   testID={`call-${call.id}`}
                 />

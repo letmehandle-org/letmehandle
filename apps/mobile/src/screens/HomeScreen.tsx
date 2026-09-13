@@ -2,11 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { CallSummary } from '@letmehandle/api-client';
-
 import { useSession } from '../auth/SessionProvider';
 import { useCallScreening } from '../calls/CallScreeningProvider';
 import { Button } from '../components/Button';
+import { CallRow } from '../components/CallRow';
 import { Card } from '../components/Card';
 import { Dial, DialCaption, DialFigure } from '../components/Dial';
 import { Disc } from '../components/Disc';
@@ -16,8 +15,7 @@ import { Notice } from '../components/Notice';
 import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
 import { StatusPill } from '../components/StatusPill';
-import { iconOf, timeOfDay, toneOf } from '../history/presentation';
-import { callerName, listLine } from '../history/words';
+import { timeOfDay } from '../history/presentation';
 import {
   elapsed,
   homeState,
@@ -219,11 +217,12 @@ function Loaded({
           <Text style={styles.label}>{t('home.latest')}</Text>
           <Card>
             {snapshot.latest.map((call, index) => (
-              <LatestRow
+              <CallRow
                 key={call.id}
                 call={call}
                 last={index === snapshot.latest.length - 1}
                 onOpen={onOpenCall}
+                testID={`home-call-${call.id}`}
               />
             ))}
           </Card>
@@ -389,32 +388,6 @@ function NeedsYou({
         testID="home-open-escalation"
       />
     </>
-  );
-}
-
-function LatestRow({
-  call,
-  last,
-  onOpen,
-}: {
-  readonly call: CallSummary;
-  readonly last: boolean;
-  readonly onOpen: (callId: string) => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <Row
-      icon={iconOf(call.caller, call.outcome)}
-      tone={toneOf(call)}
-      title={callerName(call.caller, t)}
-      subtitle={listLine(call, t)}
-      value={timeOfDay(call.started_at)}
-      onPress={() => {
-        onOpen(call.id);
-      }}
-      last={last}
-      testID={`home-call-${call.id}`}
-    />
   );
 }
 
