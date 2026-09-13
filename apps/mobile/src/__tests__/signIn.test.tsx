@@ -107,13 +107,13 @@ describe('signing in', () => {
     });
   });
 
-  it('says so when the number is refused', async () => {
+  it('says so when the server refuses a number that looked whole', async () => {
     replyWith([
       { status: 422, body: { error: 'invalid_request', message: 'no' } },
     ]);
 
     const view = await startAtPhoneEntry();
-    await fireEvent.changeText(view.getByTestId('phone-input'), '12345');
+    await fireEvent.changeText(view.getByTestId('phone-input'), NUMBER);
     await fireEvent.press(view.getByTestId('phone-continue'));
 
     await waitFor(() => {

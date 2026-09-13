@@ -14,6 +14,8 @@ interface Props extends Omit<TextInputProps, 'style'> {
   readonly problem?: string | null;
   /** Something fixed before the input, such as a country code. */
   readonly prefix?: string;
+  /** Something to press before the input, such as a country picker. */
+  readonly leading?: React.ReactNode;
 }
 
 /**
@@ -26,12 +28,14 @@ export function Field({
   label,
   problem = null,
   prefix,
+  leading,
   ...input
 }: Props): React.JSX.Element {
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.box, problem !== null && styles.boxWithProblem]}>
+        {leading}
         {prefix !== undefined && <Text style={styles.prefix}>{prefix}</Text>}
         <TextInput
           {...input}
