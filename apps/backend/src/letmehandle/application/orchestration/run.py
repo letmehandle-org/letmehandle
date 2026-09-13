@@ -31,7 +31,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallEnding, CallSoFar
-from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.orchestration.inputs import (
     Abandoned,
     CallRanTooLong,
@@ -51,26 +50,21 @@ from letmehandle.application.orchestration.ledger import CallLedger, reported_in
 from letmehandle.application.orchestration.metrics import (
     CALL_BOUNDED,
     CALL_ENDED,
-    DEGRADED,
     DUPLICATE_IGNORED,
     ESCALATION_RESOLVED,
     ROUTED,
-    SUMMARY_FAILED,
-    SUMMARY_SECONDS,
 )
 from letmehandle.application.orchestration.metrics import PROVIDER_FAILED as PROVIDER_FAILED
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
 from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
-from letmehandle.application.orchestration.summary import Findings, facts_of, with_findings
+from letmehandle.application.orchestration.summary import Findings, summary_of
 from letmehandle.application.orchestration.telephony import CallTelephony
 from letmehandle.application.orchestration.timer import Timer
-from letmehandle.application.resilience.circuit import Dependency
-from letmehandle.application.resilience.timing import Stopwatch, within
 from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.failures import FailureKind, classify
-from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
+from letmehandle.domain.models.call import CallSession, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation_context import (
@@ -91,7 +85,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from letmehandle.application.agent.ports import AgentJudgement
-    from letmehandle.application.calls.fallback import CallFacts
     from letmehandle.application.calls.summariser import CallSummariser
     from letmehandle.application.escalation.dispatch import EscalationDispatcher
     from letmehandle.application.orchestration.inputs import Input, Request
@@ -102,12 +95,11 @@ if TYPE_CHECKING:
         CallStores,
         OpenCallStores,
     )
-    from letmehandle.application.resilience.circuit import Circuits
+    from letmehandle.application.resilience.circuit import Circuits, Dependency
     from letmehandle.application.speech.conversation import TranscriptTurn
     from letmehandle.domain.models.escalation import EscalationDecision, EscalationReason
     from letmehandle.domain.models.identifiers import CallId, EventId, UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
-    from letmehandle.domain.models.summary import CallSummary
     from letmehandle.domain.ports.call_transport import CallEvent
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -666,47 +658,18 @@ class CallRun:
             await self._telephony.terminate()
             if self._plan.assistant is not None:
                 self._plan.assistant.assistance.judging.forget(self.call_id)
-            written = await self._summary(live, facts_of(ledger.call, self._findings))
-            summary = with_findings(written, ledger.call, self._findings)
+            summary = await summary_of(
+                ledger.call,
+                self._findings,
+                locale=live.owner.preferences.locale,
+                context=self._context,
+                note=ledger.note,
+            )
             await ledger.summarised(summary)
             await self._context.dispatcher.call_ended(
                 live.owner.user_id, self.call_id, summary.ended_at
             )
         self._context.metrics.increment(CALL_ENDED, {"outcome": state.value})
-
-    async def _summary(self, live: _Live, facts: CallFacts) -> CallSummary:
-        """The summariser's summary of a call the assistant took; the facts' own of any other.
-
-        A call nobody spoke with has nothing a model could read, and one the summariser cannot
-        write in time is summarised from its facts, which is what the summariser itself does with
-        a model that is down or slow.
-        """
-        call = live.ledger.call
-        locale = live.owner.preferences.locale
-        context = self._context
-        summariser = context.summariser
-        if summariser is None or call.handling is not CallHandling.ASSISTANT:
-            return fallback_summary(facts, locale=locale)
-        if context.circuits[Dependency.MODEL].is_refusing:
-            # The model is failing every call: asking it would only wait out the bound first.
-            context.metrics.increment(DEGRADED, {"stage": "summary"})
-            live.ledger.note(MarkKind.DEGRADED, "summary")
-            return fallback_summary(facts, locale=locale)
-        stopwatch = Stopwatch()
-        try:
-            with context.tracer.span("summary.write", dependency=Dependency.MODEL.value):
-                written = await within(
-                    context.bounds.summary,
-                    lambda: summariser.summarise(facts, call.transcript, locale=locale),
-                )
-        except TimeoutError:
-            logger.warning("call.summary_failed", error="TimeoutError")
-            context.metrics.increment(SUMMARY_FAILED, {"kind": FailureKind.TIMEOUT})
-            live.ledger.note(MarkKind.FAILURE, f"summary.{FailureKind.TIMEOUT}")
-            context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "fallback"})
-            return fallback_summary(facts, locale=locale)
-        context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "written"})
-        return written
 
     async def _release_tasks(self) -> None:
         """Stop the judgement, the timers and the conversation, and wait for each to go."""
