@@ -29,6 +29,9 @@ jobs:
       - name: Nothing private reached a tracked file
         run: python3 scripts/disclosure_audit.py
 
+      - name: Every link between the documents resolves
+        run: python3 scripts/check_doc_links.py
+
       - name: Nothing private is anywhere in the history
         # The half a working-tree scan cannot see. A file removed from the tree and called done
         # stays in the commit that added it, which on a public repository is already published.
