@@ -24,6 +24,7 @@ import {
   PreferencesProvider,
   usePreferences,
 } from '../preferences/PreferencesProvider';
+import { useImmediateSave } from '../preferences/useImmediateSave';
 import {
   DEFAULT_PREFERENCES,
   ONBOARDING_COMPLETE,
@@ -271,6 +272,52 @@ describe('saving a change', () => {
     expect(
       view.result.current.preferences.privacy.transcript_retention_days,
     ).toBe(30);
+  });
+
+  it('stays busy while any change made in a row is still saving', async () => {
+    let finishFirst: (() => void) | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (init?.method === 'PATCH') {
+        const changes = JSON.parse(String(init.body)) as Partial<Preferences>;
+        if (changes.hours !== undefined) {
+          await new Promise<void>(resolve => {
+            finishFirst = resolve;
+          });
+        }
+        return jsonResponse(200, { ...DEFAULT_PREFERENCES, ...changes });
+      }
+      const bodies: Record<string, unknown> = {
+        '/v1/me': PROFILE,
+        '/v1/preferences': DEFAULT_PREFERENCES,
+        '/v1/onboarding': ONBOARDING_COMPLETE,
+      };
+      return jsonResponse(200, bodies[path]);
+    }) as unknown as typeof fetch;
+    const view = await renderHook(() => useImmediateSave(), { wrapper });
+    await waitFor(() => {
+      expect(view.result.current).toBeDefined();
+    });
+
+    await act(async () => {
+      view.result.current.save({
+        hours: { active: { start: '07:00', end: '22:00', zone: 'UTC' } },
+      });
+    });
+    await act(async () => {
+      view.result.current.save({ privacy: { transcript_retention_days: 30 } });
+    });
+    await waitFor(() => {
+      expect(finishFirst).not.toBeNull();
+    });
+
+    expect(view.result.current.busy).toBe(true);
+    await act(async () => {
+      finishFirst?.();
+    });
+    await waitFor(() => {
+      expect(view.result.current.busy).toBe(false);
+    });
   });
 
   it('sends only the section that changed', async () => {

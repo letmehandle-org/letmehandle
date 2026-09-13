@@ -24,12 +24,12 @@ export function useImmediateSave(): ImmediateSave {
   const { t } = useTranslation();
   const { save: store } = usePreferences();
   const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(0);
 
   const save = useCallback(
     (changes: PreferencesUpdate): void => {
       setProblem(null);
-      setBusy(true);
+      setSaving(count => count + 1);
       store(changes)
         .catch((error: unknown) => {
           setProblem(
@@ -37,11 +37,11 @@ export function useImmediateSave(): ImmediateSave {
           );
         })
         .finally(() => {
-          setBusy(false);
+          setSaving(count => count - 1);
         });
     },
     [store, t],
   );
 
-  return { problem, busy, save };
+  return { problem, busy: saving > 0, save };
 }
