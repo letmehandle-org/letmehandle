@@ -50,35 +50,35 @@ says how to produce one.
 
 ## Releases
 
-Releases are cut from `main` by a maintainer, as a tag `vMAJOR.MINOR.PATCH`.
+Releases are cut from `main` by a maintainer, as a tag named for the release date: `vYYYY.M.D`.
 
-1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD`
-   heading, and update the comparison links at the bottom. For 0.1.0 the section is written; add
-   its date.
+1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new `## [YYYY.M.D]` heading, and
+   update the comparison links at the bottom. The first release's section, `2026.9.13`, is written;
+   if it is released on another day, rename it and the versions below to that day.
 2. Set the same version in `apps/backend/pyproject.toml`, `apps/backend/src/letmehandle/__init__.py`
    and `apps/mobile/package.json`. The release workflow refuses a tag the backend's version does not
    match.
 3. Merge that through a pull request.
-4. Publish a GitHub release for tag `vx.y.z` on that commit.
+4. Publish a GitHub release for tag `vYYYY.M.D` on that commit.
 
 Publishing the release runs `.github/workflows/release.yml`, which takes the notes from that version's
 section of the changelog, builds the backend image and publishes it to the GitHub Container Registry
-as `ghcr.io/<owner>/<repository>/backend:x.y.z` and `:x.y`, and runs code scanning. Pushing a `v*`
+as `ghcr.io/<owner>/<repository>/backend:YYYY.M.D`, and runs code scanning. Pushing a `v*`
 tag without a release does the same, and creates the release from the changelog. It refuses a tag
 whose version the backend does not declare, and a version with no notes in the changelog. Nothing is
-tagged `latest`: before 1.0, moving to a new minor version should be a choice.
+tagged `latest`: moving to a new release should be a choice.
 
 ## Versioning
 
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and before 1.0 it promises less:
+Versions are release dates, as many open-source projects now use, because a date says at a glance
+how old a deployment is:
 
-- **`0.MINOR.0`** may change anything public — the HTTP API, configuration variables, the port
-  interfaces providers implement, the database schema — and says so in the changelog under
-  **Changed** or **Removed**, with what to do.
-- **`0.MINOR.PATCH`** changes nothing public: fixes, documentation, dependency updates.
+- **`vYYYY.M.D`** — the day the release was cut, month and day without leading zeros:
+  `v2026.9.13`. The same string is a valid version for Python packaging and for npm.
+- **`vYYYY.M.D-N`** — a further release on the same day, counting from 2: `v2026.9.13-2`.
+- A version number promises nothing about compatibility. Any release may change something public —
+  the HTTP API, configuration variables, the port interfaces providers implement, the database
+  schema — and says so in the changelog under **Changed** or **Removed**, with what to do.
 - Migrations only move forward from one release to the next. Upgrading runs
   `alembic upgrade head`; the image carries the migrations.
-- Nothing before 1.0 is supported once the next minor version is out.
-
-1.0 will be the first version that promises the HTTP API and the provider ports stay compatible
-within a major version.
+- Only the latest release receives fixes.

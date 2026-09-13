@@ -162,7 +162,7 @@ a machine without it was not available, and the mobile half was not run.
 | 9 | `.env.example` verified against the settings | passed | `make config-reference-check`, also in CI |
 | 10 | Sample configuration runs with no paid account | passed | `make sample-env && make up`, run 4 |
 | 11 | Issue and PR templates in place | passed, exercise held | PR template updated; see held repository settings |
-| 12 | Changelog and release notes prepared | passed | `CHANGELOG.md` 0.1.0; `release.yml` extracts it (checked locally with the same awk) |
+| 12 | Changelog and release notes prepared | passed | `CHANGELOG.md` 2026.9.13; `release.yml` extracts it (checked locally with the same awk) |
 | 13 | Every documentation code block executes | held | shell blocks in the README, setup and demo ran in the clean room; Python worked examples are fragments and are not executed |
 | 14 | Demonstration performed and recorded | passed for parts 1–2; parts 3–4 held | run 4 |
 

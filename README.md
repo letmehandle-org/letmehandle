@@ -27,7 +27,7 @@ your preferences. It resolves the routine calls on its own and **brings you into
 call** when it really needs you.
 
 > [!NOTE]
-> **Status: 0.1, not ready to deploy.** Every piece of a call is built and tested end to end
+> **Status: first release, not ready to deploy.** Every piece of a call is built and tested end to end
 > against simulated providers, but no real phone call, real model or real device has been through
 > it yet, and there is no sign-in provider that sends a real text message — so no deployment of
 > this project is safe to expose to anybody but its developers. [Maturity](#maturity) says exactly

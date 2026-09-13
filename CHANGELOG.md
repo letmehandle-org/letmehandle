@@ -1,15 +1,16 @@
 # Changelog
 
 Notable changes, in the format of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+versioned by release date.
 
-## Versioning before 1.0
+## Versioning
 
-- A **minor** version (`0.2.0`) may change anything public — the HTTP API, configuration variables,
-  the provider ports, the database schema — and says what to do under **Changed** or **Removed**.
-- A **patch** version (`0.1.1`) changes nothing public.
+- A version is the date it was released: `2026.9.13` for 13 September 2026, month and day without
+  leading zeros. A further release on the same day adds a counter: `2026.9.13-2`.
+- Any release may change something public — the HTTP API, configuration variables, the provider
+  ports, the database schema — and says what to do under **Changed** or **Removed**.
 - Migrations only move forward, and the backend image carries them.
-- Only the latest minor version receives fixes.
+- Only the latest release receives fixes.
 
 The full policy, and how a release is cut, is in
 [`docs/development/workflow.md`](docs/development/workflow.md#versioning). Each pull request adds its
@@ -18,7 +19,7 @@ taken from that section.
 
 ## [Unreleased]
 
-## [0.1.0]
+## [2026.9.13]
 
 The first public release. Every part of a call is built and tested end to end against simulated
 providers. Not yet run against a real call, a real model or a real device, and without a sign-in
@@ -113,5 +114,5 @@ provider that sends a real text message: **no deployment of this version is safe
   content are not yet excluded from screenshots.
 - Observability beyond structured logs, and a dependency vulnerability audit, are not yet in place.
 
-[Unreleased]: https://github.com/letmehandle-org/letmehandle/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/letmehandle-org/letmehandle/releases/tag/v0.1.0
+[Unreleased]: https://github.com/letmehandle-org/letmehandle/compare/v2026.9.13...HEAD
+[2026.9.13]: https://github.com/letmehandle-org/letmehandle/releases/tag/v2026.9.13

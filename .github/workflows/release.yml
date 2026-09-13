@@ -4,9 +4,10 @@ name: Release
 # this: publishing a GitHub release for the tag, or pushing the tag on its own, in which case the
 # release is created here. Nothing in this workflow creates a tag.
 #
-# What it does, for tag vX.Y.Z:
-#   1. refuses a tag that is not X.Y.Z, or that the backend's own version does not match;
-#   2. takes the release notes from the `## [X.Y.Z]` section of CHANGELOG.md, and refuses an empty one;
+# What it does, for tag vYYYY.M.D (or vYYYY.M.D-N for a further release the same day):
+#   1. refuses a tag that is not a date version, or that the backend's own version does not match;
+#   2. takes the release notes from that version's `## [...]` section of CHANGELOG.md, and refuses an
+#      empty one;
 #   3. builds the backend image and publishes it to this repository's container registry;
 #   4. writes the notes onto the release, creating it when only the tag was pushed;
 #   5. runs code scanning on the tagged commit.
@@ -33,7 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      minor: ${{ steps.version.outputs.minor }}
       image: ${{ steps.version.outputs.image }}
     steps:
       - uses: actions/checkout@v7
@@ -44,8 +44,10 @@ jobs:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if ! [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "::error::$TAG is not a version tag of the form vX.Y.Z"
+          # The release date, month and day without leading zeros, and a counter from 2 for a
+          # further release on the same day.
+          if ! [[ "$TAG" =~ ^v(20[0-9]{2}\.(1[0-2]|[1-9])\.(3[01]|[12][0-9]|[1-9])(-[2-9]|-[1-9][0-9]+)?)$ ]]; then
+            echo "::error::$TAG is not a version tag of the form vYYYY.M.D or vYYYY.M.D-N"
             exit 1
           fi
           version="${BASH_REMATCH[1]}"
@@ -56,7 +58,6 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
           # The registry accepts lower-case names only, and a repository's owner may not be.
           echo "image=ghcr.io/${REPOSITORY,,}/backend" >> "$GITHUB_OUTPUT"
 
@@ -104,11 +105,10 @@ jobs:
           context: .
           file: infra/docker/backend.Dockerfile
           push: true
-          # The exact version, and the minor line it belongs to. No `latest`: before 1.0 a minor
-          # version may change anything public, and nobody should move to one without choosing to.
+          # The exact version only. No `latest`: any release may change something public, and nobody
+          # should move to one without choosing to.
           tags: |
             ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
-            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.minor }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
