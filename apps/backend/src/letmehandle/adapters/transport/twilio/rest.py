@@ -1,4 +1,4 @@
-"""The six requests this transport makes of the provider's REST API.
+"""The requests this transport makes of the provider's REST API.
 
 Behind a protocol, so the transport's call handling is exercised against a simulated provider
 that answers the same requests, and this module is exercised against the same simulator through
@@ -45,6 +45,14 @@ _SERVER_ERROR: Final = 500
 
 type EndStatus = Literal["completed", "canceled"]
 
+# A dialled leg that is not over yet, and how each is ended: one not yet answered is cancelled, and
+# one answered is hung up.
+_LIVE_LEG_STATUSES: Final[tuple[tuple[str, EndStatus], ...]] = (
+    ("queued", "canceled"),
+    ("ringing", "canceled"),
+    ("in-progress", "completed"),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ParticipantRequest:
@@ -57,6 +65,17 @@ class ParticipantRequest:
     conference_status_callback_url: str
     timeout_seconds: int
     detect_machine: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CallRecord:
+    """What the provider still knows about a call: the number it reached, and the line it came from.
+
+    Both as the provider reported them, unparsed; either may be absent.
+    """
+
+    to: str | None
+    forwarded_from: str | None
 
 
 class TelephonyApi(Protocol):
@@ -81,6 +100,12 @@ class TelephonyApi(Protocol):
 
     async def end_conferences_named(self, conference_name: str) -> int:
         """End every conference in progress under this name, saying how many there were."""
+
+    async def find_call(self, call_sid: str) -> CallRecord | None:
+        """What the provider knows of a call, or None when it knows nothing of it."""
+
+    async def end_calls_between(self, from_: str, to: str) -> int:
+        """End every leg from one number to another that is not over, saying how many there were."""
 
     async def close(self) -> None:
         """Release the connection pool. Safe to call more than once."""
@@ -164,9 +189,35 @@ class HttpTelephonyApi:
         )
         raise_for(response)
         ended = 0
-        for conference_sid in _conference_sids(_json(response)):
+        for conference_sid in _sids(_json(response), "conferences"):
             if await self.end_conference(conference_sid):
                 ended += 1
+        return ended
+
+    async def find_call(self, call_sid: str) -> CallRecord | None:
+        response = await self._send("GET", f"/Calls/{_segment(call_sid)}.json", None)
+        if response.status_code == _NOT_FOUND:
+            return None
+        raise_for(response)
+        body = _json(response)
+        if not isinstance(body, dict):
+            raise ProviderError(PROVIDER, "the API described no call", retryable=False)
+        return CallRecord(
+            to=_text(body.get("to")), forwarded_from=_text(body.get("forwarded_from"))
+        )
+
+    async def end_calls_between(self, from_: str, to: str) -> int:
+        # Listed one status at a time, because that is how the API filters, and ended by the
+        # identifier the listing gives: a leg is ended by identifier, never by its numbers.
+        ended = 0
+        for status, end_status in _LIVE_LEG_STATUSES:
+            response = await self._send(
+                "GET", "/Calls.json", None, params={"From": from_, "To": to, "Status": status}
+            )
+            raise_for(response)
+            for call_sid in _sids(_json(response), "calls"):
+                if await self.end_call(call_sid, end_status):
+                    ended += 1
         return ended
 
     async def close(self) -> None:
@@ -268,15 +319,20 @@ def _json(response: httpx.Response) -> object:
         raise ProviderError(PROVIDER, "the API answered with no JSON", retryable=True) from None
 
 
-def _conference_sids(body: object) -> list[str]:
-    conferences = body.get("conferences") if isinstance(body, dict) else None
-    if not isinstance(conferences, list):
-        raise ProviderError(PROVIDER, "the API listed no conferences", retryable=False)
+def _sids(body: object, listing: str) -> list[str]:
+    """The identifiers in a listing of `listing`, skipping any entry without one."""
+    entries = body.get(listing) if isinstance(body, dict) else None
+    if not isinstance(entries, list):
+        raise ProviderError(PROVIDER, f"the API listed no {listing}", retryable=False)
     return [
-        conference["sid"]
-        for conference in conferences
-        if isinstance(conference, dict) and isinstance(conference.get("sid"), str)
+        entry["sid"]
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("sid"), str)
     ]
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def error_code(response: httpx.Response) -> int | None:
