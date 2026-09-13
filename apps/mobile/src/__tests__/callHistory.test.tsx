@@ -408,8 +408,24 @@ describe('an escalation opened after its call', () => {
   });
 
   it('follows a live escalation to its end without being opened again', async () => {
-    // Fake timers, so the wait before reading it again passes without the test waiting through it.
-    jest.useFakeTimers();
+    // Only the refresh interval is faked; promises and the test's own waits run on real timers.
+    jest.useFakeTimers({
+      doNotFake: [
+        'Date',
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
     try {
       const escalations: Record<string, Held<Escalation>> = {
         'call-1': { ...ended, status: 'live', ended_at: null },
