@@ -59,7 +59,7 @@ behind them, then drove the sign-in routes against PostgreSQL with requests sent
   default `APP_ENV` is `development`. A deployment reachable from a network, not set to production
   and left on the mock therefore lets anybody sign in as anybody. This is D-010's intent for
   development. Production starts with the text-message provider (`OTP_PROVIDER=twilio_sms`,
-  D-036), which generates no code of its own, fixes none, and is refused at startup when its
+  D-037), which generates no code of its own, fixes none, and is refused at startup when its
   account is incomplete; but the mock left exposed is still the single most dangerous
   misconfiguration available and must be stated to anyone deploying.
   Evidence: `tests/unit/test_otp_bootstrap.py`, `tests/integration/test_sign_in_by_text.py`.

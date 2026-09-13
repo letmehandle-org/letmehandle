@@ -1,6 +1,6 @@
 """Sign-in codes delivered as a text message, through the telephony provider's Messaging API.
 
-The application generates the code, stores only its hash, and hands it here to be sent (D-036).
+The application generates the code, stores only its hash, and hands it here to be sent (D-037).
 This provider makes one request per code and keeps nothing: not the code, not the number, not the
 message. Its logs say that a code was sent or refused and why, never to whom or what it was.
 

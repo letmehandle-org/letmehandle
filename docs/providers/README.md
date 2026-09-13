@@ -41,7 +41,7 @@ Each gets a page here as it is implemented. Until then the interface itself, in
 | `CallAgent` | `application/agent/ports.py` | `tests/integration/test_agent_scenarios.py` | phase 6, `adapters/agent/strands` |
 | `VoiceProvider` | `ports/voice.py` | `tests/contracts/other_ports.py` | phase 4, [documented](voice.md) |
 | `NotificationProvider` | `ports/notification.py` | `tests/contracts/other_ports.py` | phase 10, [documented](notifications.md) |
-| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 the mock; text messages since (D-036) |
+| `OTPProvider` | `ports/otp.py` | `tests/contracts/other_ports.py` | phase 2 the mock; text messages since (D-037) |
 | `Clock`, `IdGenerator` | `ports/clock.py` | `tests/contracts/other_ports.py` | phase 2 |
 
 Interface paths are relative to `apps/backend/src/letmehandle/domain/` — except `CallAgent`, an
