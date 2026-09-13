@@ -49,13 +49,16 @@ class   scopes the screen's own <style> block
 note    why the screen is the way it is
 ```
 
-## Where the design is ahead of the code
+## Where the design meets the code
 
-Decide these before building them:
+Settled in `docs/architecture/decisions.md`:
 
-1. **Hours** — one window when the assistant answers, none meaning 24/7. The domain has `quiet_hours` and `working_hours` in `CallRules`.
-2. **Routing by contacts** — phase 3 rules out reading device contacts. Android call screening already skips contacts; call forwarding would need contact access.
-3. **Onboarding** — four steps; `OnboardingStep` still includes important contacts and personality.
+1. **Hours** — one window when the assistant answers, none meaning 24/7; outside it calls ring the user (D-027).
+2. **Routing by contacts** — the address book never leaves the phone; the server knows only important contacts (D-028).
+3. **Onboarding** — four steps: call handling, hours, authority, notifications (D-029).
+
+Still open:
+
 4. **Escalation threshold** — `escalate_at_or_above` has no control and keeps its default.
 
 ## Screens

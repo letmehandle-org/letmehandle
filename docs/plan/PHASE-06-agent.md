@@ -180,7 +180,7 @@ the gaps between them. An adversarial review then reproduced nine defects agains
 
 ## Accepted trade
 
-A caller who persuades the model a call is urgent rings the user once per call, even in quiet hours.
+A caller who persuades the model a call is urgent rings the user once per call.
 Limits across calls from the same caller belong to the hardening phase.
 
 ## Held until a model endpoint is configured
