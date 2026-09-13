@@ -17,6 +17,7 @@ from letmehandle.config.settings import (
     parse_proxy_networks,
     parse_voice_catalogue,
 )
+from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
 from tests.support.config import (
     EXAMPLE_DEFAULT_VOICE,
@@ -417,3 +418,14 @@ class TestSignInAbuseSettings:
         assert [str(net) for net in settings.trusted_proxy_cidrs] == ["10.0.0.0/8"]
         assert settings.auth_refresh_token_ttl_seconds == 90 * 24 * 3600
         get_settings.cache_clear()
+
+
+def test_unforwarded_calls_may_be_given_an_owner_only_outside_production() -> None:
+    owner = PhoneNumber.parse("+12025550143")
+    development = make_settings().model_copy(update={"telephony_unforwarded_calls_owner": owner})
+    development.require_telephony_configuration()
+    production = make_settings(app_env=Environment.PRODUCTION).model_copy(
+        update={"telephony_unforwarded_calls_owner": owner}
+    )
+    with pytest.raises(ConfigurationError, match="TELEPHONY_UNFORWARDED_CALLS_OWNER"):
+        production.require_telephony_configuration()

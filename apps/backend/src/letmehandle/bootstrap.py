@@ -529,7 +529,11 @@ def build_call_transport(
                     transport, tracer=observability.tracer, metrics=observability.metrics
                 ),
                 close=transport.close,
-                ownership=partial(ForwardedCallOwnership, transport),
+                ownership=partial(
+                    ForwardedCallOwnership,
+                    transport,
+                    unforwarded_line=settings.telephony_unforwarded_calls_owner,
+                ),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)

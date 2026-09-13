@@ -246,6 +246,17 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+def _unforwarded_owner_from_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return PhoneNumber.parse(value)
+    except InvariantError:
+        raise ValueError(
+            "TELEPHONY_UNFORWARDED_CALLS_OWNER is not an international number in E.164 form"
+        ) from None
+
+
 def _sender_from_text(value: object) -> object:
     # The message names the variable and never repeats the value, as every number error here does.
     if not isinstance(value, str):
@@ -647,6 +658,19 @@ class Settings(BaseSettings):
         ),
     ] = None
 
+    # Whose a call dialled straight at the account's number is, for trying a deployment from a
+    # phone without setting up forwarding. Development only: in production such a call belongs to
+    # nobody, because anybody can dial the number and must not reach a user's assistant by it.
+    telephony_unforwarded_calls_owner: Annotated[
+        PhoneNumber | None,
+        BeforeValidator(_unforwarded_owner_from_text),
+        BeforeValidator(_blank_is_absent),
+        Field(
+            description="Development only: the signed-in number whose calls dialled straight at "
+            "the account's number are. Refused in production.",
+        ),
+    ] = None
+
     # How long a call may last before its run ends it as failed. Generous, because a long call is a
     # real call; bounded, because a call whose ending is never reported is otherwise held for as
     # long as the process runs. Between a minute and a day.
@@ -938,6 +962,11 @@ class Settings(BaseSettings):
         only with them, and a transport with no orchestrator answers callers into a call that
         nothing will ever act on.
         """
+        if self.is_production and self.telephony_unforwarded_calls_owner is not None:
+            raise ConfigurationError(
+                "TELEPHONY_UNFORWARDED_CALLS_OWNER is for trying a deployment and is refused in "
+                "production, where anybody could dial the number and reach that user's assistant."
+            )
         if self.telephony_provider is None:
             return
         if self.telephony_provider is TelephonyProviderName.TWILIO:

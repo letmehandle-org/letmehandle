@@ -290,6 +290,10 @@ class TwilioCallTransport(CallTransport):
     def pending_tasks(self) -> int:
         return len(self._tasks)
 
+    def holds(self, call_id: CallId) -> bool:
+        """Whether a call is in progress on this transport."""
+        return call_id in self._calls
+
     def forwarded_from(self, call_id: CallId) -> PhoneNumber | None:
         """The line a call in progress was forwarded from, if the carrier said and it is one."""
         call = self._calls.get(call_id)

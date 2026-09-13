@@ -76,6 +76,7 @@ every paid provider unset.
 | `TELEPHONY_NUMBERS` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The numbers calls are placed from, comma-separated, in E.164 form. |
 | `TELEPHONY_APP_ID` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The provider-side application the assistant joins each call through. |
 | `TELEPHONY_WEBHOOK_BASE_URL` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The public base URL the provider calls back on, exactly as configured there. Signatures are checked against it. |
+| `TELEPHONY_UNFORWARDED_CALLS_OWNER` | no | — |  |  | Development only: the signed-in number whose calls dialled straight at the account's number are. Refused in production. |
 | `CALL_MAX_DURATION_SECONDS` | no | `14400` | ≥ 60, ≤ 86400 |  | How long a call may last before it is ended as failed: generous, because a long call is a real call, and bounded, because an ending never reported is otherwise held for as long as the process runs. |
 
 ## Language model

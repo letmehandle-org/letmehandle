@@ -73,3 +73,21 @@ async def test_a_call_from_no_user_s_line_is_nobody_s(
 
 async def test_a_call_already_gone_is_nobody_s(transport: TwilioCallTransport) -> None:
     assert await ForwardedCallOwnership(transport, find).owner_of(arrived("CAsim-gone")) is None
+
+
+async def test_a_deployment_may_name_whose_unforwarded_calls_are(
+    transport: TwilioCallTransport,
+) -> None:
+    # For trying a deployment by ringing its number straight from a phone, where forwarding is not
+    # set up: the development setting says whose those calls are.
+    call_arriving(transport, "CAsim-1", None)
+    ownership = ForwardedCallOwnership(transport, find, unforwarded_line=USERS_OWN)
+    assert await ownership.owner_of(arrived("CAsim-1")) == OWNER
+
+
+async def test_a_forwarded_call_is_still_the_forwarding_line_s(
+    transport: TwilioCallTransport,
+) -> None:
+    call_arriving(transport, "CAsim-1", "+12025550199")
+    ownership = ForwardedCallOwnership(transport, find, unforwarded_line=USERS_OWN)
+    assert await ownership.owner_of(arrived("CAsim-1")) is None
