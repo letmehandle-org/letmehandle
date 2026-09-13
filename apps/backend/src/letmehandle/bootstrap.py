@@ -12,6 +12,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
 
 from fastapi import APIRouter
@@ -19,9 +20,16 @@ from fastapi import APIRouter
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.database.call_repositories import (
+    SqlCallRepository,
+    SqlSummaryRepository,
+    SqlTranscriptRepository,
+)
 from letmehandle.adapters.database.repositories import (
     SqlDeviceRepository,
     SqlEscalationContextRepository,
+    SqlPreferencesRepository,
+    SqlUserRepository,
 )
 from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.adapters.notification.apns.provider import (
@@ -52,6 +60,7 @@ from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIM
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.adapters.transport.twilio.ownership import ForwardedCallOwnership
 from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
 from letmehandle.adapters.transport.twilio.routes import build_router as build_twilio_router
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
@@ -60,8 +69,15 @@ from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
+from letmehandle.application.calls.reports import ReportedCallOwnership
 from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
-from letmehandle.application.orchestration.ports import CallJudging
+from letmehandle.application.orchestration.orchestrator import CallOrchestrator
+from letmehandle.application.orchestration.ports import (
+    AssistantServices,
+    CallJudging,
+    CallOwnership,
+    CallStores,
+)
 from letmehandle.config.settings import (
     APNsEnvironmentName,
     ConfigurationError,
@@ -81,6 +97,8 @@ if TYPE_CHECKING:
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions
+    from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -325,17 +343,24 @@ def build_speech_provider(
             assert_never(unknown)
 
 
+# How a user is found by the number they signed in with, for a transport that needs to.
+type FindUser = Callable[[PhoneNumber], Awaitable[UserId | None]]
+
+
 @dataclass(frozen=True, slots=True)
 class CallTransportBinding:
-    """A call transport, the routes its provider calls, and how to release it.
+    """A call transport, its provider's routes, how to release it, and whose calls are whose.
 
-    Handed to the application as one value so that what mounts the routes and what closes the
-    transport never have to know which transport it is.
+    Handed to the application as one value so that what mounts the routes, what closes the
+    transport and what orchestrates its calls never have to know which transport it is.
+    `ownership` is given how to find a user by number, which needs storage the binding is chosen
+    before.
     """
 
     transport: CallTransport
     router: APIRouter
     close: Callable[[], Awaitable[None]]
+    ownership: Callable[[FindUser], CallOwnership]
 
 
 def build_reported_calls() -> AndroidNativeCallTransport:
@@ -371,7 +396,10 @@ def build_call_transport(
             # whichever transport is chosen, so this transport brings no routes of its own and
             # holds nothing that needs releasing.
             return CallTransportBinding(
-                transport=reported_calls, router=APIRouter(), close=_nothing_to_close
+                transport=reported_calls,
+                router=APIRouter(),
+                close=_nothing_to_close,
+                ownership=_reported_ownership,
             )
         case TelephonyProviderName.TWILIO:
             telephony = settings.require_streaming_telephony()
@@ -395,6 +423,7 @@ def build_call_transport(
                 transport=transport,
                 router=build_twilio_router(transport),
                 close=transport.close,
+                ownership=partial(ForwardedCallOwnership, transport),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
@@ -402,6 +431,72 @@ def build_call_transport(
 
 async def _nothing_to_close() -> None:
     return None
+
+
+def _reported_ownership(_find_user: FindUser) -> CallOwnership:
+    # A handset's report names its account already; nobody needs finding by number.
+    return ReportedCallOwnership()
+
+
+def build_call_orchestrator(
+    settings: Settings,
+    *,
+    container: Container,
+    session_factory: async_sessionmaker[AsyncSession],
+    telephony: CallTransportBinding,
+    dispatcher: EscalationDispatcher,
+    metrics: MetricsRecorder,
+    assistant: AssistantServices | None = None,
+) -> CallOrchestrator:
+    """The orchestrator for this deployment's transport, storing through short units of work.
+
+    Every write is its own unit of work, so a call holds no transaction open while it rings. Calls
+    are recorded with who called sealed, so the transcript keys are required. The speech service
+    and the agent are built only for a transport the assistant can take calls on; `assistant` lets
+    a caller supply them instead, the way `build_call_transport` takes a simulated provider.
+    """
+    clock = container.clock
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ConfigurationError(
+            "TRANSCRIPT_ENCRYPTION_KEYS is required to carry calls: every call is recorded, sealed."
+        )
+
+    @asynccontextmanager
+    async def stores() -> AsyncIterator[CallStores]:
+        async with unit_of_work(session_factory) as session:
+            yield CallStores(
+                users=SqlUserRepository(session, clock),
+                preferences=SqlPreferencesRepository(session, clock),
+                calls=SqlCallRepository(session, cipher, clock),
+                transcripts=SqlTranscriptRepository(session, cipher),
+                summaries=SqlSummaryRepository(session, cipher, clock),
+            )
+
+    async def find_user(number: PhoneNumber) -> UserId | None:
+        async with unit_of_work(session_factory) as session:
+            user = await SqlUserRepository(session, clock).find_by_number(number)
+        return None if user is None else user.id
+
+    capabilities = telephony.transport.capabilities
+    takes_calls = (
+        capabilities.supports_agent_conversation and capabilities.can_answer_under_program_control
+    )
+    if assistant is None and takes_calls:
+        assistant = AssistantServices(
+            speech=build_speech_provider(settings, metrics=metrics),
+            voices=container.voices,
+            judging=partial(build_call_judging, settings),
+        )
+    return CallOrchestrator(
+        transport=telephony.transport,
+        ownership=telephony.ownership(find_user),
+        stores=stores,
+        dispatcher=dispatcher,
+        clock=clock,
+        metrics=metrics,
+        assistant=assistant,
+    )
 
 
 def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:

@@ -20,6 +20,7 @@ from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
 from letmehandle.bootstrap import (
+    build_call_orchestrator,
     build_call_transport,
     build_container,
     build_escalation_dispatcher,
@@ -34,6 +35,7 @@ from letmehandle.observability.metrics import LoggingMetricsRecorder
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from letmehandle.application.orchestration.ports import AssistantServices
     from letmehandle.bootstrap import CallTransportBinding
     from letmehandle.domain.ports.voice import VoiceProvider
 
@@ -68,6 +70,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.escalations = build_escalation_dispatcher(
                 app.state.container, app.state.session_factory, metrics=LoggingMetricsRecorder()
             )
+            telephony: CallTransportBinding | None = app.state.telephony
+            if telephony is not None:
+                # One owner of every call on the transport, started before the application takes
+                # requests and stopped before the transport is closed beneath it. Starting ends
+                # whatever calls a previous process left unfinished.
+                orchestrator = build_call_orchestrator(
+                    settings,
+                    container=app.state.container,
+                    session_factory=app.state.session_factory,
+                    telephony=telephony,
+                    dispatcher=app.state.escalations,
+                    metrics=LoggingMetricsRecorder(),
+                    assistant=app.state.assistant,
+                )
+                await orchestrator.start()
+                app.state.orchestrator = orchestrator
 
         logger.info(
             "startup",
@@ -79,14 +97,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         yield
     finally:
+        if app.state.orchestrator is not None:
+            await app.state.orchestrator.stop()
+            app.state.orchestrator = None
         if app.state.escalations is not None:
             await app.state.escalations.aclose()
             app.state.escalations = None
         if app.state.container is not None:
             await close_notification_providers(app.state.container)
-        telephony: CallTransportBinding | None = app.state.telephony
-        if telephony is not None:
-            await telephony.close()
+        binding: CallTransportBinding | None = app.state.telephony
+        if binding is not None:
+            await binding.close()
         if engine is not None:
             await engine.dispose()
             app.state.engine = None
@@ -100,6 +121,7 @@ def create_app(
     *,
     voices: VoiceProvider | None = None,
     telephony: CallTransportBinding | None = None,
+    assistant: AssistantServices | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -112,7 +134,8 @@ def create_app(
     yet — so a test of that behaviour has no other way in.
 
     The call transport is chosen here for the same reason as the voices: its provider's routes
-    exist only when it does. A test passes one wired to a simulated provider.
+    exist only when it does. A test passes one wired to a simulated provider, and the speech
+    service and agent its calls are taken with, which production builds from settings.
     """
     resolved = settings or get_settings()
     configure_logging(resolved)
@@ -145,6 +168,8 @@ def create_app(
     app.state.session_factory = None
     app.state.container = None
     app.state.escalations = None
+    app.state.orchestrator = None
+    app.state.assistant = assistant
     app.state.voices = chosen_voices
     app.state.reported_calls = reported_calls
     app.state.telephony = chosen_telephony
