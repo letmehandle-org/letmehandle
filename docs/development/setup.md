@@ -8,7 +8,7 @@
 | uv | 0.5 or later | Python dependencies and the virtual environment |
 | Node | 22 or later | mobile tooling. `.nvmrc` names 22. |
 | pnpm | 9 | the workspace |
-| Docker | any recent | PostgreSQL, and the backend image |
+| Docker | with Compose 2.20 or later | PostgreSQL, the migrations, and the backend image |
 | Xcode | 16 or later | iOS builds. macOS only. |
 | Ruby | 3.4 or later | CocoaPods, for iOS. macOS ships 2.6, which is too old. |
 | Android Studio | any recent, with JDK 17 | Android builds |
@@ -27,9 +27,16 @@ make setup
 repository, so without this step nothing checks your commits until CI does.
 
 ```bash
-cp .env.example .env
+make sample-env
 cp apps/mobile/.env.example apps/mobile/.env
 ```
+
+`make sample-env` copies `.env.example` to `.env` and fills in the two keys the backend cannot start
+without — `AUTH_SIGNING_KEY` and `TRANSCRIPT_ENCRYPTION_KEYS` — with fresh random values. It refuses
+to replace an existing `.env`. Everything else is left as the example has it: the mock sign-in
+provider, example voices, and no speech service, model, call transport or push credentials, so
+nothing costs money. Every variable is in the
+[configuration reference](configuration.md).
 
 Neither example file carries a real value, and neither ever will (D-021). The backend validates
 its configuration at startup and refuses to run with a message naming the offending variable;
@@ -46,6 +53,9 @@ curl localhost:8000/health
 curl localhost:8000/health/ready
 ```
 
+`make up` builds the backend image, starts PostgreSQL, runs the migrations to the latest one, and
+starts the backend once they have succeeded. The first build takes a few minutes.
+
 `/health` answers whether the process is alive and touches nothing. `/health/ready` answers
 whether it can reach the database, and returns 503 when it cannot.
 
@@ -56,21 +66,24 @@ editing a tracked file:
 
 ```bash
 BACKEND_PORT=8100 POSTGRES_PORT=5433 make up
+curl localhost:8100/health
 ```
 
-Set them in your `.env` to make it permanent.
+Set them in your shell, not in `.env`, to make it permanent: `make` exports its own defaults for
+both, and a variable exported to Docker Compose wins over the same variable in `.env`. Use the same
+values for every `make` command, so `make verify` finds the database where `make up` put it.
 
 ## Working
 
 ```bash
-make verify      # audit, lint, format, types, architecture boundaries, tests, coverage
+make verify      # audit, lint, format, types, boundaries, tests, coverage, generated files
 make test        # just the tests
 make format      # apply formatting
 make down        # stop the local services
 ```
 
-`make verify` runs exactly what CI runs — CI calls these targets rather than reimplementing
-them, so a local pass means a CI pass.
+`make verify` runs what CI runs. More on the suites and their gates in [`testing.md`](testing.md),
+on branches, commits and releases in [`workflow.md`](workflow.md).
 
 ## The backend on its own
 
@@ -80,8 +93,20 @@ uv run pytest                 # tests
 uv run pytest --cov           # with coverage
 uv run mypy src tests         # types
 uv run lint-imports           # the architecture boundaries
-uv run letmehandle            # the server, against the DATABASE_URL in your .env
 ```
+
+To run the server outside Docker — to attach a debugger, say — stop the container that holds its
+port, and point the process at the root `.env` and the database the stack started:
+
+```bash
+docker compose stop backend
+cd apps/backend
+DATABASE_URL=postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:5432/letmehandle \
+  uv run --env-file ../../.env letmehandle
+```
+
+The settings read `.env` from the working directory, which is `apps/backend` here, hence
+`--env-file`. A variable already set in the shell wins over the file.
 
 ### Tests that need a database
 
@@ -103,8 +128,11 @@ POSTGRES_PORT=5433 make up verify
 
 ### Migrations
 
+`make up` runs them. By hand, against the stack's database:
+
 ```bash
 cd apps/backend
+export DATABASE_URL=postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:5432/letmehandle
 uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "what it does"
 uv run alembic check                    # fails if the models and the migrations disagree
@@ -114,8 +142,8 @@ uv run alembic check                    # fails if the models and the migrations
 migration that passes and leaves the database wrong.
 
 Alembic reads the database URL from the application's own settings, so there is one place this
-project learns where its database is. There are no migrations yet; the first table arrives in
-phase 2.
+project learns where its database is. The backend image carries the migrations, so a deployment of
+it runs `alembic upgrade head` from `/app` before starting a new version.
 
 ## The mobile app
 
@@ -164,8 +192,14 @@ machine. On an Android emulator the host is `10.0.2.2`. Set `API_BASE_URL` in
 **`make setup` fails on the Python step.** Check `python3 --version` is 3.12. uv will install it:
 `uv python install 3.12`.
 
-**The backend will not start.** It names the variable it is unhappy about. If it names none, the
-database is probably not up: `make up`.
+**The backend will not start.** It names the variable it is unhappy about; `docker compose logs
+backend` shows it when it runs in the stack. `AUTH_SIGNING_KEY is required` means `.env` was copied
+by hand rather than written by `make sample-env`. If it names none, the database is probably not
+up: `make up`.
+
+**`make up` says `service "migrate" didn't complete successfully`.** `docker compose logs migrate`
+says why. A stack left half-started by an earlier failure can hold a stale network; `make down` and
+`make up` again.
 
 **A commit is rejected.** The hooks say what they found. They run before anything is permanent,
 which is the only moment the fix is free. See D-021 for what they look for.
