@@ -68,7 +68,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Built once, at startup, so that a misconfiguration is a process that does not start
         # rather than a request that fails in front of somebody.
         app.state.container = build_container(
-            settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+            settings,
+            voices=app.state.voices,
+            reported_calls=app.state.reported_calls,
+            metrics=observability.metrics,
         )
         telephony: tuple[CallTransportBinding, ...] = app.state.telephony
         if app.state.session_factory is not None and telephony:

@@ -182,7 +182,11 @@ class Container:
 
 
 def build_container(
-    settings: Settings, *, voices: VoiceProvider, reported_calls: CallEventSink
+    settings: Settings,
+    *,
+    voices: VoiceProvider,
+    reported_calls: CallEventSink,
+    metrics: MetricsRecorder | None = None,
 ) -> Container:
     """Choose the implementations for this configuration.
 
@@ -228,7 +232,7 @@ def build_container(
             challenges_per_hour_per_calling_code=settings.otp_challenges_per_hour_per_calling_code,
         ),
         trusted_proxies=settings.trusted_proxy_cidrs,
-        metrics=LoggingMetricsRecorder(),
+        metrics=metrics or LoggingMetricsRecorder(),
     )
 
 
