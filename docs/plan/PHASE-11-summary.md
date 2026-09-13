@@ -136,6 +136,13 @@ so a correction cannot reach them either, and the ending class moves with them: 
 of its four, the other two none. That leaves ending below the 90% threshold on these three runs, for
 reasons that belong to the instructions rather than to the correction.
 
+Three more full runs on the same prompts, to see how much of that is the size of each class, gave
+extraction 9 of 12, absent_detail 12 of 12, ending 12 of 12 and no_details 8 of 9. Over all six
+runs: extraction 83% (20 of 24), absent_detail 100% (24 of 24), ending 92% (22 of 24), no_details
+94% (17 of 18). With four calls a class, one miss moves a run by 25 points, so the classes move
+between runs by more than the prompts changed them; a larger evaluation set is what would tell the
+two apart. What these runs do show is that no refused draft reached the user as a fallback.
+
 An earlier wording of the correction explained a missing ending only as "use one of the phrases
 word for word". In three runs with it, one refused draft of the unanswered neighbour's call was
 corrected to the same passive "could not be reached" twice and fell back. Saying that the same
