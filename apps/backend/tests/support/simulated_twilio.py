@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
+    from letmehandle.bootstrap import CallTransportBinding
     from letmehandle.config.settings import Settings
     from letmehandle.domain.ports.call_transport import CallEvent
 
@@ -708,6 +709,7 @@ class Deployment:
     transport: TwilioCallTransport
     provider: SimulatedTwilio
     events: list[CallEvent]
+    binding: CallTransportBinding
 
     async def settle(self) -> None:
         await self.provider.settle(self.transport)
@@ -767,7 +769,9 @@ async def simulated_deployment(
         provider.attach(app_url)
         collector = asyncio.get_running_loop().create_task(collect())
         try:
-            yield Deployment(app=app, transport=transport, provider=provider, events=events)
+            yield Deployment(
+                app=app, transport=transport, provider=provider, events=events, binding=binding
+            )
         finally:
             await provider.close()
             collector.cancel()
