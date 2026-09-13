@@ -22,6 +22,10 @@ LEG_PARAMETER: Final = "leg"
 TOKEN_PARAMETER: Final = "token"  # noqa: S105 - the name of a parameter, not its value
 
 
+# The conference events every conference callback is requested for: the ones this transport reads.
+CONFERENCE_EVENTS: Final = ("start", "end", "join", "leave")
+
+
 class CallbackMalformedError(Exception):
     """A genuine callback without something this transport needs. Names the parameter only."""
 

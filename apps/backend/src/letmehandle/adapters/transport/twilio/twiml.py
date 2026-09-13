@@ -10,14 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+from letmehandle.adapters.transport.twilio.callbacks import CONFERENCE_EVENTS
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 CONTENT_TYPE: Final = "application/xml"
-
-# Conference events this transport acts on. Mute, hold, speaker and the rest are not requested:
-# a callback nobody reads is load on both ends and one more thing to deduplicate.
-CONFERENCE_EVENTS: Final = ("start", "end", "join", "leave")
 
 
 def caller_conference(

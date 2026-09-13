@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
+from letmehandle.adapters.transport.twilio.callbacks import CONFERENCE_EVENTS
 from letmehandle.domain.errors import DeliveryUncertainError, ProviderError
 
 if TYPE_CHECKING:
@@ -37,7 +38,6 @@ REQUEST_TIMEOUT_SECONDS: Final = 10.0
 
 # Progress reported for every dialled leg, so an unanswered, busy or failed dial is heard about.
 LEG_EVENTS: Final = ("initiated", "ringing", "answered", "completed")
-CONFERENCE_EVENTS: Final = ("start", "end", "join", "leave")
 
 _NOT_FOUND: Final = 404
 _RETRYABLE_STATUSES: Final = frozenset({408, 409, 425, 429})
