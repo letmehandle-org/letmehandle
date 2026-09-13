@@ -8,10 +8,12 @@ that would send a text message.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 
+from letmehandle.adapters.database.repositories import SqlRefreshTokenRepository
 from tests.integration.conftest import ANOTHER_NUMBER, NUMBER, bearer, code_for, sign_in
 
 if TYPE_CHECKING:
@@ -343,3 +345,29 @@ class TestConcurrentAttempts:
         )
 
         assert sorted(response.status_code for response in both) == [200, 401]
+
+    async def test_a_refresh_token_being_exchanged_is_not_read_as_unused_elsewhere(
+        self, api: Api
+    ) -> None:
+        # Two exchanges of one token that both read it before either rotates it both succeed,
+        # so a stolen token replayed at the same moment as the real one would never be noticed.
+        tokens = await sign_in(api)
+        token_hash = api.app.state.container.token_hasher.hash(tokens["refresh_token"])
+        factory = api.app.state.session_factory
+
+        async with factory() as exchanging, factory() as replaying:
+            held = await SqlRefreshTokenRepository(exchanging).find_by_hash(token_hash)
+            assert held is not None
+            async with asyncio.TaskGroup() as group:
+                replay = group.create_task(
+                    SqlRefreshTokenRepository(replaying).find_by_hash(token_hash)
+                )
+                # Long enough for the replay's query to reach the database before the exchange
+                # finishes, which is the interleaving that loses the check.
+                await asyncio.sleep(0.2)
+                await SqlRefreshTokenRepository(exchanging).update(held.rotated(datetime.now(UTC)))
+                await exchanging.commit()
+
+        seen = replay.result()
+        assert seen is not None
+        assert seen.was_already_used

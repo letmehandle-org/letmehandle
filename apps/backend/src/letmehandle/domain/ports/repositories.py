@@ -99,7 +99,11 @@ class RefreshTokenRepository(ABC):
 
     @abstractmethod
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
-        """Look a token up by its hash. The raw token is never stored to look up by."""
+        """Look a token up by its hash. The raw token is never stored to look up by.
+
+        Held for the rest of the unit of work, so that a second exchange of the same token sees
+        the first one's rotation rather than the token as it was before it.
+        """
 
     @abstractmethod
     async def update(self, token: RefreshToken) -> None:

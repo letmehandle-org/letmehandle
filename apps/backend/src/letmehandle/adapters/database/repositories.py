@@ -209,8 +209,13 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         await self._session.flush()
 
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
+        # Locked, because whether the token was already used is read and then acted on. Two
+        # exchanges that both read it before either rotates it would both succeed, and reuse
+        # detection would miss a replay that arrives at the same moment as the real use.
         result = await self._session.execute(
-            select(RefreshTokenRow).where(RefreshTokenRow.token_hash == token_hash)
+            select(RefreshTokenRow)
+            .where(RefreshTokenRow.token_hash == token_hash)
+            .with_for_update()
         )
         row = result.scalar_one_or_none()
         if row is None:
