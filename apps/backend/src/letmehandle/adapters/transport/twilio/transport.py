@@ -174,6 +174,7 @@ class _Call:
     call_id: CallId
     caller: Caller
     from_number: PhoneNumber
+    forwarded_from: PhoneNumber | None = None
     conference_sid: str | None = None
     legs: dict[str, _Leg] = field(default_factory=dict)
     presence: AssistantPresence = AssistantPresence.STAY
@@ -288,6 +289,11 @@ class TwilioCallTransport(CallTransport):
     @property
     def pending_tasks(self) -> int:
         return len(self._tasks)
+
+    def forwarded_from(self, call_id: CallId) -> PhoneNumber | None:
+        """The line a call in progress was forwarded from, if the carrier said and it is one."""
+        call = self._calls.get(call_id)
+        return None if call is None else call.forwarded_from
 
     async def settled(self) -> None:
         """Wait until every task this transport started has finished."""
@@ -445,6 +451,7 @@ class TwilioCallTransport(CallTransport):
                 call_id=call_id,
                 caller=Caller(number=_number_or_none(incoming.caller)),
                 from_number=self._number_to_call_from(incoming.called),
+                forwarded_from=_number_or_none(incoming.forwarded_from),
             )
             self._calls[call_id] = call
             self._emit(CallEventKind.INCOMING, call, "incoming", caller=call.caller)

@@ -172,8 +172,17 @@ class SimulatedTwilio:
 
     # ------------------------------------------------------ what a test does
 
-    async def place_call(self, call_sid: str = "CAsim-caller", caller: str = CALLER_NUMBER) -> str:
-        """A call arrives at our number. Returns the instructions the application gave."""
+    async def place_call(
+        self,
+        call_sid: str = "CAsim-caller",
+        caller: str = CALLER_NUMBER,
+        *,
+        forwarded_from: PhoneNumber | None = None,
+    ) -> str:
+        """A call arrives at our number, forwarded from `forwarded_from`'s line when it is given.
+
+        Returns the instructions the application gave.
+        """
         params = [
             ("AccountSid", SIMULATED_ACCOUNT),
             ("CallSid", call_sid),
@@ -182,6 +191,8 @@ class SimulatedTwilio:
             ("CallStatus", "ringing"),
             ("Direction", "inbound"),
         ]
+        if forwarded_from is not None:
+            params.append(("ForwardedFrom", forwarded_from.value))
         response = await self.post_signed("/telephony/voice/incoming", params)
         document = response.text
         root = fromstring(document)  # noqa: S314 - the application under test wrote it

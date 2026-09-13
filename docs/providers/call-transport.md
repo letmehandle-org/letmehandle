@@ -68,6 +68,14 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    service down terminates every call in progress the same way, for at most five seconds, and
    then releases whatever is left.
 
+### Whose call it is
+
+A caller dials the user's own number and the user's carrier forwards it to the account's number,
+which every user shares. The carrier's `ForwardedFrom` names the user's line, and the call belongs
+to the user who signed in with that number (`ForwardedCallOwnership`). A call dialled at the
+account's number directly, or forwarded from a line no user has, is nobody's: the orchestrator ends
+it and records nothing.
+
 ### What the orchestrator hears
 
 | Event | Participant | Outcome | When |
@@ -220,3 +228,4 @@ Each is recorded in the phase 7 verification report once observed:
 - The frame size of arriving media, and the latency the conference mixer adds with the small
   jitter buffer.
 - Whether the websocket handshake is signed with a trailing slash.
+- Whether the user's carrier sends `ForwardedFrom` on a conditionally forwarded call, and in E.164.

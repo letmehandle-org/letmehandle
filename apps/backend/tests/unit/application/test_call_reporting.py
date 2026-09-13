@@ -8,6 +8,7 @@ import pytest
 
 from letmehandle.application.calls.reports import (
     CallReporting,
+    ReportedCallOwnership,
     ReportingPolicy,
     ReportingRateLimitedError,
     scoped_call_id,
@@ -15,7 +16,11 @@ from letmehandle.application.calls.reports import (
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
+from letmehandle.domain.ports.call_transport import (
+    CallEvent,
+    CallEventKind,
+    ScreeningDecision,
+)
 from letmehandle.domain.ports.reported_calls import CallEnding, CallReport
 from tests.contracts.auth_fakes import CountingRateLimiter
 from tests.contracts.call_report_fakes import (
@@ -222,3 +227,16 @@ class TestWhatAHandsetCanReport:
             report("e1", CallEventKind.ENDED)
         with pytest.raises(InvariantError, match="how it ended"):
             report("e1", CallEventKind.INCOMING, ending=CallEnding.MISSED)
+
+
+class TestOwnership:
+    async def test_a_reported_call_belongs_to_the_account_that_reported_it(self) -> None:
+        event = CallEvent(
+            CallEventKind.INCOMING, scoped_call_id(USER, CallId("call-1")), EventId("e")
+        )
+        assert await ReportedCallOwnership().owner_of(event) == USER
+
+    @pytest.mark.parametrize("call", ["unscoped", ":no-user"])
+    async def test_a_call_no_account_reported_belongs_to_nobody(self, call: str) -> None:
+        event = CallEvent(CallEventKind.INCOMING, CallId(call), EventId("e"))
+        assert await ReportedCallOwnership().owner_of(event) is None
