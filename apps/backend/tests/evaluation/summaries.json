@@ -415,5 +415,152 @@
     },
     "absent": ["amount", "reference_number"],
     "why": "Where to collect it is given as a street address; nothing costs anything and no reference is read out."
+  },
+  {
+    "id": "absent-order-number-to-follow-by-text",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hi, this is Crestline Furniture about the sofa she ordered. It's been held up at the warehouse."],
+      ["caller", "I don't have the new order number to hand, but we'll text it over to her."],
+      ["agent", "Thank you, I'll let her know."]
+    ],
+    "intents": ["delivery_in_progress", "service_issue"],
+    "reference": {
+      "headline": "Crestline Furniture says your sofa is held up and will text you the new order number, and your assistant will let you know.",
+      "details": [
+        {"kind": "name", "value": "Crestline Furniture", "evidence": "this is Crestline Furniture"},
+        {"kind": "commitment_made", "value": "text it over", "evidence": "we'll text it over to her"}
+      ]
+    },
+    "absent": ["reference_number", "amount", "address"],
+    "why": "An order number is talked about and promised but never read out, so there is none to keep."
+  },
+  {
+    "id": "absent-electrician-will-not-price-by-phone",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hello ji, I am the electrician Suresh, calling about the AC repair."],
+      ["caller", "Rate I cannot tell on phone, first I have to check the compressor."],
+      ["agent", "Thank you, I will tell her."]
+    ],
+    "intents": ["service_issue", "enquiry"],
+    "reference": {
+      "headline": "Suresh the electrician needs to check the compressor before pricing your AC repair, and your assistant said it would tell you.",
+      "details": [
+        {"kind": "name", "value": "Suresh", "evidence": "I am the electrician Suresh"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The call is about a price, and the caller says outright he cannot give one."
+  },
+  {
+    "id": "absent-adjuster-visit-not-yet-booked",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hi, this is Dana from Maple Mutual about the water damage claim."],
+      ["caller", "An adjuster will need to visit, and our scheduling team will call to set a time. I don't have the claim number on this screen, sorry."],
+      ["agent", "No problem, I'll pass that along."]
+    ],
+    "intents": ["service_issue"],
+    "reference": {
+      "headline": "Maple Mutual needs an adjuster to visit about your water damage claim and will call to arrange it, and your assistant will pass that along.",
+      "details": [
+        {"kind": "name", "value": "Maple Mutual", "evidence": "this is Dana from Maple Mutual"},
+        {"kind": "commitment_made", "value": "call to set a time", "evidence": "our scheduling team will call to set a time"}
+      ]
+    },
+    "absent": ["time", "reference_number", "amount"],
+    "why": "A visit is needed but no time is set, and the claim number is explicitly not to hand."
+  },
+  {
+    "id": "absent-party-address-kept-off-the-phone",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "It's Kim from the party planning group. The venue for Saturday's surprise party has changed."],
+      ["caller", "I won't say the new address on the phone in case he overhears, so I'll message it to her."],
+      ["agent", "Understood, I'll let her know to look out for it."]
+    ],
+    "intents": ["personal"],
+    "reference": {
+      "headline": "Kim says Saturday's surprise party has a new venue and will message you the address, and your assistant said you would look out for it.",
+      "details": [
+        {"kind": "name", "value": "Kim", "evidence": "It's Kim from the party planning group"},
+        {"kind": "commitment_made", "value": "message it to her", "evidence": "I'll message it to her"}
+      ]
+    },
+    "absent": ["address", "amount", "reference_number"],
+    "why": "The call is about an address that the caller deliberately does not say."
+  },
+  {
+    "id": "absent-refund-amount-not-known-yet",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hello, this is Orbit Mobile customer care about his complaint on the double charge."],
+      ["caller", "The refund has been approved, but I can't see the exact amount yet. It should show on the next bill."],
+      ["agent", "Thanks, I'll pass it on."]
+    ],
+    "intents": ["service_issue"],
+    "reference": {
+      "headline": "Orbit Mobile approved a refund for the double charge that should appear on your next bill, and your assistant will pass it on.",
+      "details": [
+        {"kind": "name", "value": "Orbit Mobile", "evidence": "this is Orbit Mobile customer care"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "A refund of money is the subject, and the caller says the amount is not known."
+  },
+  {
+    "id": "absent-caller-will-not-give-a-name",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hi there, I don't know whose car it is, but the blue hatchback outside the bakery has left its headlights on."],
+      ["caller", "I'd rather not leave my name, I just thought someone should know."],
+      ["agent", "Thank you for letting us know."]
+    ],
+    "intents": ["enquiry", "personal"],
+    "reference": {
+      "headline": "Somebody who would not give a name rang to say a blue hatchback's headlights are on, and your assistant thanked them.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "amount"],
+    "why": "Who called is exactly what the caller withholds, so there is no name to keep, and nothing else of those kinds is said."
+  },
+  {
+    "id": "absent-grocery-slot-not-confirmed",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Namaste, this is FreshBasket. Some items in her order are out of stock."],
+      ["caller", "Delivery slot I cannot confirm now, the store manager will call back with the timing."],
+      ["agent", "Okay, thank you, I will inform her."]
+    ],
+    "intents": ["delivery_in_progress", "service_issue"],
+    "reference": {
+      "headline": "FreshBasket says some items in your order are out of stock and will call back with a delivery time, and your assistant will tell you.",
+      "details": [
+        {"kind": "name", "value": "FreshBasket", "evidence": "this is FreshBasket"},
+        {"kind": "commitment_made", "value": "call back with the timing", "evidence": "the store manager will call back with the timing"}
+      ]
+    },
+    "absent": ["time", "amount", "reference_number"],
+    "why": "A delivery slot is the tempting detail, and the caller says it cannot be given yet."
+  },
+  {
+    "id": "absent-movers-will-not-quote-by-phone",
+    "class": "absent_detail",
+    "said": [
+      ["caller", "Hi, it's Riverbend Movers returning her call about the move."],
+      ["caller", "I can't give a price over the phone. We'll email a written estimate after a video walkthrough, which she can book on our website."],
+      ["agent", "Thank you, I'll let her know."]
+    ],
+    "intents": ["enquiry", "appointment", "service_issue"],
+    "reference": {
+      "headline": "Riverbend Movers will email a written estimate for your move after a video walkthrough, and your assistant said it would let you know.",
+      "details": [
+        {"kind": "name", "value": "Riverbend Movers", "evidence": "it's Riverbend Movers"},
+        {"kind": "commitment_declined", "value": "can't give a price", "evidence": "I can't give a price over the phone"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The caller refuses to give a price, so an amount would be invented; no reference or address is given."
   }
 ]
