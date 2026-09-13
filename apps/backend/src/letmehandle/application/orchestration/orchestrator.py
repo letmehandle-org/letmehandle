@@ -199,8 +199,12 @@ class CallOrchestrator:
             logger.info("call.event_ignored", kind=event.kind.value)
             self._context.metrics.increment(DUPLICATE_IGNORED, {"stage": "late"})
             return
+        assistance = self._assistance_now()
+        degraded = (
+            (Dependency.SPEECH,) if assistance is None and self._assistance is not None else ()
+        )
         run = CallRun(
-            event, plan_for(self._transport, event, self._assistance_now()), self._context
+            event, plan_for(self._transport, event, assistance), self._context, degraded=degraded
         )
         task = asyncio.get_running_loop().create_task(run.run())
         self._runs[call_id] = run

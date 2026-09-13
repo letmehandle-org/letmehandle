@@ -34,6 +34,7 @@ from letmehandle.adapters.database.repositories import (
     SqlUserRepository,
 )
 from letmehandle.adapters.database.session import unit_of_work
+from letmehandle.adapters.database.timeline import SqlCallTimelineRepository
 from letmehandle.adapters.notification.apns.provider import (
     APNsEnvironment,
     APNsNotificationProvider,
@@ -563,6 +564,7 @@ def build_call_orchestrator(
                 calls=SqlCallRepository(session, cipher, clock),
                 transcripts=SqlTranscriptRepository(session, cipher),
                 summaries=SqlSummaryRepository(session, cipher, clock),
+                timeline=SqlCallTimelineRepository(session),
             )
 
     async def find_user(number: PhoneNumber) -> UserId | None:

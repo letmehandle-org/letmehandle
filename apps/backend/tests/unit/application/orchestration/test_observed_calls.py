@@ -32,12 +32,15 @@ from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId, EventId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.timeline import MarkKind
 from letmehandle.domain.ports.call_transport import CallEvent, CallEventKind, ParticipantOutcome
+from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from tests.contracts.fakes import FixedClock
 from tests.support.orchestration import (
     OWNERS_NUMBER,
     WANTS_THE_USER,
     Look,
+    MemoryCallStores,
     Running,
     StreamingLine,
     eventually,
@@ -148,9 +151,14 @@ class TestTheMeasurements:
 
     async def test_a_call_that_is_nobodys_is_counted_as_routed_to_nobody(self) -> None:
         line = StreamingLine()
+        line.refusing.add("terminate")
         async with orchestrating(line) as running:
             line.arrives("nobody-call", STRANGER)
             await eventually(lambda: running.metrics.counted(ROUTED, outcome="nobody") == 1)
+
+        # Letting it go failed too, and was counted; there is no record to mark it on.
+        assert running.metrics.counted(PROVIDER_FAILED, stage="terminate", kind="refused") == 1
+        assert "nobody-call" not in {each.value for each in running.stores.timeline.marks}
 
     @pytest.mark.parametrize(
         ("happens", "outcome"),
@@ -337,3 +345,88 @@ class TestTheModelFailing:
             await running.ended(CALL)
 
         assert running.circuits.states()["model"] is CircuitState.OPEN
+
+
+class TestTheTimeline:
+    """Each call's stored timeline says what it moved through and what failed, and nothing else."""
+
+    async def test_an_escalated_call_is_stored_as_every_state_it_entered_in_order(self) -> None:
+        async with orchestrating(StreamingLine(), looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await an_escalated_call_the_user_joins(running)
+
+        assert running.stores.marks(CALL) == [
+            (MarkKind.TRANSITION, state)
+            for state in (
+                "received",
+                "routing",
+                "agent_handling",
+                "escalation_requested",
+                "human_ringing",
+                "human_joined",
+                "completed",
+            )
+        ]
+
+    async def test_a_refused_dial_is_marked_where_it_happened(self) -> None:
+        line = StreamingLine()
+        line.refusing.add("dial")
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Is she there? It is urgent.")
+            await eventually(
+                lambda: running.metrics.counted(ESCALATION_RESOLVED, outcome="dial_refused") == 1
+            )
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+        marks = running.stores.marks(CALL)
+        dial = marks.index((MarkKind.FAILURE, "dial.refused"))
+        assert marks[dial - 1] == (MarkKind.TRANSITION, "escalation_requested")
+        assert marks[dial + 1] == (MarkKind.TRANSITION, "agent_handling")
+
+    async def test_a_call_put_through_because_speech_was_failing_says_so(self) -> None:
+        line = StreamingLine()
+        async with orchestrating(line, circuit_policy=TRIGGER_HAPPY) as running:
+            running.speech.refusing = True
+            line.arrives("first", STRANGER)
+            await running.ended("first")
+            running.speech.refusing = False
+            line.arrives("second", STRANGER)
+            await running.settled("second", CallState.PASSTHROUGH)
+            line.hangs_up("second")
+            await running.ended("second")
+
+        assert (MarkKind.FAILURE, "speech.unavailable") in running.stores.marks("first")
+        assert running.stores.marks("second")[:3] == [
+            (MarkKind.DEGRADED, "speech"),
+            (MarkKind.TRANSITION, "received"),
+            (MarkKind.TRANSITION, "routing"),
+        ]
+
+    async def test_a_failed_judgement_and_a_summary_without_the_model_are_marked(self) -> None:
+        down = ProviderError("model", "unreachable", retryable=True)
+        async with orchestrating(
+            StreamingLine(), looks=[Look(fails=down)], circuit_policy=TRIGGER_HAPPY
+        ) as running:
+            line = await with_the_assistant(running)
+            await running.caller_says("Hello?")
+            await eventually(lambda: running.metrics.counted(JUDGEMENT_FAILED) == 1)
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+        marks = running.stores.marks(CALL)
+        assert (MarkKind.FAILURE, "judgement.unavailable") in marks
+        assert marks[-2:] == [(MarkKind.TRANSITION, "completed"), (MarkKind.DEGRADED, "summary")]
+
+    async def test_a_write_that_failed_is_marked_on_the_next_one_that_did_not(self) -> None:
+        storage = MemoryCallStores()
+        await storage.with_owner()
+        async with orchestrating(StreamingLine(), stores=storage) as running:
+            line = await with_the_assistant(running)
+            storage.calls.refusing_next = 1
+            line.leaves(CALL, Leg.ASSISTANT)
+            await running.ended(CALL)
+
+        marks = storage.marks(CALL)
+        assert (MarkKind.FAILURE, "storage.leave.unavailable") in marks
+        assert marks.count((MarkKind.TRANSITION, "failed")) == 1

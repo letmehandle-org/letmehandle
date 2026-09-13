@@ -63,6 +63,7 @@ from letmehandle.domain.models.escalation_context import (
     EscalationContext,
 )
 from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.models.timeline import MarkKind
 from letmehandle.domain.policy.routing import route
 from letmehandle.domain.ports.call_transport import CallEventKind, ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
@@ -197,8 +198,17 @@ class Owner:
 class CallRun:
     """One call's inbox, state and teardown."""
 
-    def __init__(self, incoming: CallEvent, plan: CallPlan, context: RunContext) -> None:
+    def __init__(
+        self,
+        incoming: CallEvent,
+        plan: CallPlan,
+        context: RunContext,
+        *,
+        degraded: tuple[Dependency, ...] = (),
+    ) -> None:
         self._incoming = incoming
+        # What the plan was made without, because its circuit was open when the call arrived.
+        self._degraded = degraded
         self._plan = plan
         self._context = context
         self._inbox: asyncio.Queue[Input] = asyncio.Queue()
@@ -287,6 +297,8 @@ class CallRun:
             ),
         )
         self._ledger = live.ledger
+        for dependency in self._degraded:
+            live.ledger.note(MarkKind.DEGRADED, dependency.value)
         await live.ledger.opened()
         await live.ledger.move(CallState.ROUTING)
         with context.tracer.span("call.routing") as span:
@@ -350,9 +362,9 @@ class CallRun:
         # the call fails, and the user reads that in its history.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.speech_unavailable", error)
-            context.metrics.increment(
-                PROVIDER_FAILED, {"stage": "speech", "kind": classify(error).kind}
-            )
+            kind = classify(error).kind
+            context.metrics.increment(PROVIDER_FAILED, {"stage": "speech", "kind": kind})
+            live.ledger.note(MarkKind.FAILURE, f"speech.{kind}")
             context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "failed"})
             await self._finish(live, CallState.FAILED)
         else:
@@ -473,6 +485,7 @@ class CallRun:
             self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
             return
         logger.warning("call.conversation_lost", failed=end is None)
+        live.ledger.note(MarkKind.FAILURE, "conversation.lost")
         await self._assistant_lost(live)
 
     async def _on_heard(self, live: _Live, text: str, *, by_caller: bool) -> None:
@@ -626,7 +639,9 @@ class CallRun:
         # carries on, and the next thing the caller says is looked at afresh.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.judgement_failed", error)
-            context.metrics.increment(JUDGEMENT_FAILED, {"kind": classify(error).kind})
+            kind = classify(error).kind
+            context.metrics.increment(JUDGEMENT_FAILED, {"kind": kind})
+            self._note(MarkKind.FAILURE, f"judgement.{kind}")
             context.metrics.observe(JUDGEMENT_SECONDS, stopwatch.seconds, {"outcome": "failed"})
             self.post(Judged(None))
         else:
@@ -687,6 +702,7 @@ class CallRun:
         if context.circuits[Dependency.MODEL].is_refusing:
             # The model is failing every call: asking it would only wait out the bound first.
             context.metrics.increment(DEGRADED, {"stage": "summary"})
+            live.ledger.note(MarkKind.DEGRADED, "summary")
             return fallback_summary(facts, locale=locale)
         stopwatch = Stopwatch()
         try:
@@ -698,6 +714,7 @@ class CallRun:
         except TimeoutError:
             logger.warning("call.summary_failed", error="TimeoutError")
             context.metrics.increment(SUMMARY_FAILED, {"kind": FailureKind.TIMEOUT})
+            live.ledger.note(MarkKind.FAILURE, f"summary.{FailureKind.TIMEOUT}")
             context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "fallback"})
             return fallback_summary(facts, locale=locale)
         context.metrics.observe(SUMMARY_SECONDS, stopwatch.seconds, {"outcome": "written"})
@@ -757,11 +774,17 @@ class CallRun:
             failure = classify(error)
             log_failure(logger, "call.provider_failed", error, stage=stage)
             context.metrics.increment(PROVIDER_FAILED, {"stage": stage, "kind": failure.kind})
+            self._note(MarkKind.FAILURE, f"{stage}.{failure.kind}")
             if failure.kind is not FailureKind.CIRCUIT_OPEN:
                 context.metrics.observe(PROVIDER_SECONDS, stopwatch.seconds, {"stage": stage})
             return False
         context.metrics.observe(PROVIDER_SECONDS, stopwatch.seconds, {"stage": stage})
         return True
+
+    def _note(self, kind: MarkKind, name: str) -> None:
+        # A call nobody owns has no record, and so no timeline to mark.
+        if self._ledger is not None:
+            self._ledger.note(kind, name)
 
     async def _tell(self, situation: Situation) -> None:
         await self._speaking.tell(situation, self._context.bounds.provider)

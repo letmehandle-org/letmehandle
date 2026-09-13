@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.preferences import UserPreferences
     from letmehandle.domain.models.summary import CallOutcome, CallSummary
+    from letmehandle.domain.models.timeline import CallOutline, TimelineMark
     from letmehandle.domain.models.user import User
     from letmehandle.domain.ports.notification import DeviceToken
 
@@ -333,6 +334,25 @@ class TranscriptStatus(StrEnum):
     RETAINED = "retained"
     PURGED = "purged"
     NOT_RECORDED = "not_recorded"
+
+
+class CallTimelineRepository(ABC):
+    """Each call's timeline marks, and the outline of a call diagnostics reads by its id alone.
+
+    Marks are written in the same unit of work as the call they belong to, and go when it goes.
+    """
+
+    @abstractmethod
+    async def append(self, call_id: CallId, marks: Sequence[TimelineMark]) -> None:
+        """Add marks to a stored call's timeline, after those already there."""
+
+    @abstractmethod
+    async def outline(self, call_id: CallId) -> CallOutline | None:
+        """The call's structure and its marks in the order they happened, or nothing.
+
+        Not scoped to a user: it is what somebody diagnosing the deployment reads, which is why it
+        carries nothing that identifies a person or repeats what was said.
+        """
 
 
 class TranscriptRepository(ABC):

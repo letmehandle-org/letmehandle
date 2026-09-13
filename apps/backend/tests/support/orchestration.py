@@ -42,6 +42,7 @@ from letmehandle.domain.models.call import CallSession
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.timeline import CallOutline, MarkKind, TimelineMark
 from letmehandle.domain.models.user import User
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
@@ -64,6 +65,7 @@ from letmehandle.domain.ports.notification import (
 from letmehandle.domain.ports.repositories import (
     CallPage,
     CallRepository,
+    CallTimelineRepository,
     SummaryRepository,
     TranscriptRepository,
     TranscriptStatus,
@@ -243,6 +245,38 @@ class MemorySummaries(SummaryRepository):
 
 
 @dataclass
+class MemoryTimeline(CallTimelineRepository):
+    """Marks per stored call, refused for a call never stored as the foreign key refuses them."""
+
+    calls: MemoryCalls
+    summaries: MemorySummaries
+    marks: dict[CallId, list[TimelineMark]] = field(default_factory=lambda: defaultdict(list))
+
+    async def append(self, call_id: CallId, marks: Sequence[TimelineMark]) -> None:
+        if call_id not in self.calls.stored:
+            raise RecordNotFoundError("call", call_id.value)
+        self.marks[call_id].extend(marks)
+
+    async def outline(self, call_id: CallId) -> CallOutline | None:
+        call = self.calls.stored.get(call_id)
+        if call is None:
+            return None
+        summary = self.summaries.stored.get(call_id)
+        return CallOutline(
+            call_id=call_id,
+            state=call.state,
+            handling=call.handling,
+            started_at=call.started_at,
+            ended_at=call.ended_at,
+            escalated_at=call.escalated_at,
+            participants=call.participants,
+            escalation=None,
+            outcome=None if summary is None else summary.outcome,
+            marks=tuple(self.marks[call_id]),
+        )
+
+
+@dataclass
 class MemoryCallStores:
     """Orchestration's storage, which can be told to stop answering."""
 
@@ -256,6 +290,7 @@ class MemoryCallStores:
     def __post_init__(self) -> None:
         self.transcripts = MemoryTranscripts(self.calls)
         self.summaries = MemorySummaries(self.calls)
+        self.timeline = MemoryTimeline(self.calls, self.summaries)
 
     @asynccontextmanager
     async def scope(self) -> AsyncIterator[CallStores]:
@@ -267,6 +302,7 @@ class MemoryCallStores:
             calls=self.calls,
             transcripts=self.transcripts,
             summaries=self.summaries,
+            timeline=self.timeline,
         )
 
     async def with_owner(self, preferences: UserPreferences | None = None) -> None:
@@ -279,6 +315,10 @@ class MemoryCallStores:
 
     def states(self, call_id: str) -> list[CallState]:
         return self.calls.states[CallId(call_id)]
+
+    def marks(self, call_id: str) -> list[tuple[MarkKind, str]]:
+        """The call's stored timeline, as kinds and names in order."""
+        return [(mark.kind, mark.name) for mark in self.timeline.marks[CallId(call_id)]]
 
 
 class EveryCallIsTheOwners(CallOwnership):

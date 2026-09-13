@@ -29,6 +29,7 @@ from letmehandle.adapters.database.repositories import (
     SqlUserRepository,
 )
 from letmehandle.adapters.database.session import unit_of_work
+from letmehandle.adapters.database.timeline import SqlCallTimelineRepository
 from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.domain.models.call import (
     CallHandling,
@@ -46,6 +47,7 @@ from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.models.timeline import MarkKind, TimelineMark
 from tests.contracts.fakes import FixedClock
 from tests.integration.conftest import ANOTHER_NUMBER, NUMBER, bearer, sign_in
 
@@ -131,6 +133,9 @@ async def _stored_call(api: Api, account: Account) -> None:
             account.user_id, OnboardingProgress(completed=frozenset({OnboardingStep.HOURS}))
         )
         await SqlCallRepository(session, cipher, clock).save(call)
+        await SqlCallTimelineRepository(session).append(
+            call.id, [TimelineMark(NOW, MarkKind.TRANSITION, "received")]
+        )
         await SqlTranscriptRepository(session, cipher).append(
             account.user_id, call.id, [TranscriptEntry(Speaker.CALLER, "Hello there.", NOW)]
         )
