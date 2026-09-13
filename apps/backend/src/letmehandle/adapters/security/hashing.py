@@ -20,6 +20,9 @@ _PARALLELISM: Final = 1
 _SALT_BYTES: Final = 16
 _KEY_BYTES: Final = 32
 
+# The fewest characters a server-held key may have.
+MIN_KEY_LENGTH: Final = 32
+
 
 class ScryptHasher(SecretHasher):
     """Salted scrypt, with the salt stored alongside the hash.
@@ -73,10 +76,10 @@ class DeterministicHasher(SecretHasher):
     """
 
     def __init__(self, key: str) -> None:
-        if len(key) < 32:
+        if len(key) < MIN_KEY_LENGTH:
             raise InvariantError(
-                "the hashing key must be at least 32 characters; a short one is the weakest "
-                "part of everything built on it"
+                f"the hashing key must be at least {MIN_KEY_LENGTH} characters; a short one is "
+                "the weakest part of everything built on it"
             )
         self._key = key.encode()
 

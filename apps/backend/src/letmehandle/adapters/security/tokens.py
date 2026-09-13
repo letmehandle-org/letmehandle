@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 import jwt
 
+from letmehandle.adapters.security.hashing import MIN_KEY_LENGTH
 from letmehandle.domain.errors import DomainError, InvariantError
 from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.models.auth import AuthenticatedUser
@@ -39,10 +40,10 @@ class JWTTokenSigner(TokenSigner):
     """
 
     def __init__(self, *, signing_key: str, lifetime: timedelta, clock: Clock) -> None:
-        if len(signing_key) < 32:
+        if len(signing_key) < MIN_KEY_LENGTH:
             raise InvariantError(
-                "the signing key must be at least 32 characters; everything else about "
-                "authentication rests on it"
+                f"the signing key must be at least {MIN_KEY_LENGTH} characters; everything else "
+                "about authentication rests on it"
             )
         if lifetime <= timedelta(0):
             raise InvariantError("an access token that has already expired is not useful")
