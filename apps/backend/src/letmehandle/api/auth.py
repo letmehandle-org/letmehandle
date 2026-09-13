@@ -229,17 +229,14 @@ async def update_me(
     changed is the ordinary case, and reading absence as "set to nothing" would quietly erase
     everything it did not mention.
     """
+    try:
+        stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
+    except InvariantError as error:
+        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
     updated = user
     if body.display_name is not None:
         updated = replace(updated, display_name=body.display_name)
         await users.update(updated)
-    if body.locale is None:
-        stored = await preferences.get(user.id)
-    else:
-        try:
-            stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
-        except InvariantError as error:
-            raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
 
     return _profile(updated, stored.locale, forwarding.for_user(updated.phone_number))
 

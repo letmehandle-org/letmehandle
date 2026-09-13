@@ -428,6 +428,15 @@ class TestProtectedRoutes:
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_request"
 
+    async def test_a_refused_update_changes_nothing(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/me", headers=bearer(tokens), json={"display_name": "Alex", "locale": "  "}
+        )
+        assert response.status_code == 422
+        after = await api.client.get("/v1/me", headers=bearer(tokens))
+        assert after.json()["display_name"] is None
+
 
 class TestDegradedService:
     async def test_requests_that_need_the_database_say_so_when_there_is_none(
