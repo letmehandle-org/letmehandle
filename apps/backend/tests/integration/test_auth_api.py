@@ -428,6 +428,15 @@ class TestProtectedRoutes:
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_request"
 
+    @pytest.mark.parametrize("locale", ["!!!!!!", "en_GB_", "1234"])
+    async def test_a_locale_that_is_not_a_language_tag_is_refused(
+        self, api: Api, locale: str
+    ) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch("/v1/me", headers=bearer(tokens), json={"locale": locale})
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_request"
+
     async def test_a_refused_update_changes_nothing(self, api: Api) -> None:
         tokens = await sign_in(api)
         response = await api.client.patch(

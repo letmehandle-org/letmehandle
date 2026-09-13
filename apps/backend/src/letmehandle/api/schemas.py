@@ -15,6 +15,11 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.notification import DevicePlatform
 
+# A language tag, so an unspeakable locale never reaches the agent or a voice.
+LocaleTag = Annotated[
+    str, Field(min_length=2, max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+]
+
 
 class Request(BaseModel):
     """Base for anything accepted from outside."""
@@ -118,4 +123,4 @@ class ProfileResponse(Response):
 
 class UpdateProfileRequest(Request):
     display_name: Annotated[str, Field(min_length=1, max_length=128)] | None = None
-    locale: Annotated[str, Field(min_length=2, max_length=16)] | None = None
+    locale: LocaleTag | None = None

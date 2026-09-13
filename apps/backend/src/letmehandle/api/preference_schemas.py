@@ -18,7 +18,7 @@ from typing import Annotated
 
 from pydantic import Field, model_validator
 
-from letmehandle.api.schemas import Request, Response
+from letmehandle.api.schemas import LocaleTag, Request, Response
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.intent import CallImportance
@@ -162,15 +162,7 @@ class PreferencesUpdate(Request):
     lets one screen save one section without knowing or caring what the others hold.
     """
 
-    # Shaped like a language tag rather than merely non-empty. This is what the agent speaks
-    # and what a voice is chosen for; "!!!!!!" reaching either of those is a call nobody can
-    # understand rather than an error anybody sees.
-    locale: (
-        Annotated[
-            str, Field(min_length=2, max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
-        ]
-        | None
-    ) = None
+    locale: LocaleTag | None = None
     call_handling: CallHandlingPayload | None = None
     important_contacts: list[ImportantContactPayload] | None = None
     hours: HoursPayload | None = None
