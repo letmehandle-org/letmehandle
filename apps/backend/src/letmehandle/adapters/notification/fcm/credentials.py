@@ -135,7 +135,7 @@ class AccessTokenSource:
             raise AccessTokenError(
                 "token endpoint answered without a token", retryable=True
             ) from None
-        if not isinstance(token, str) or not token:
+        if not isinstance(token, str) or not token or lifetime <= timedelta(0):
             raise AccessTokenError("token endpoint answered without a token", retryable=True)
         # Refreshed ahead of expiry, or halfway through a lifetime too short for the margin.
         margin = REFRESH_MARGIN if lifetime > 2 * REFRESH_MARGIN else lifetime / 2
