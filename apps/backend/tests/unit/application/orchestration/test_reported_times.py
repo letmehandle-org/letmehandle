@@ -18,7 +18,7 @@ from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import CallRules, HandlingPosture, UserPreferences
 from letmehandle.domain.ports.call_transport import CallEventKind, ScreeningDecision
-from tests.support.orchestration import HandsetLine, StreamingLine, orchestrating
+from tests.support.orchestration import OWNER, HandsetLine, StreamingLine, orchestrating
 
 # What the orchestrator's clock reads throughout: the moment the reports arrive.
 NOW: Final = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
@@ -120,3 +120,17 @@ async def test_a_streaming_call_is_timed_as_its_events_are_handled() -> None:
 
         assert (call.started_at, call.ended_at) == (NOW, NOW)
         assert call.participants[0].joined_at == NOW
+
+
+async def test_a_move_with_no_reported_moment_is_never_recorded_before_the_last() -> None:
+    line = HandsetLine()
+    ahead = NOW + timedelta(minutes=2)
+    async with orchestrating(line, preferences=PASSING) as running:
+        rings(line, "call", ahead, ScreeningDecision.ALLOW)
+        await running.settled("call", CallState.PASSTHROUGH)
+        await running.orchestrator.end_calls_of(OWNER)
+        call = await running.ended("call")
+
+        assert call.state is CallState.FAILED
+        marks = running.stores.timeline.marks[CallId("call")]
+        assert [mark.at for mark in marks] == [ahead] * len(marks)

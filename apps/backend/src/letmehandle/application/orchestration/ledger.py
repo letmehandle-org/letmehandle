@@ -66,13 +66,10 @@ def reported_instant(
     A moment beyond `REPORTED_CLOCK_SKEW` ahead of now is taken as now, and one earlier than
     `not_before` as `not_before`, so a call's history never runs backwards (D-029).
     """
-    if reported is None:
-        return now
-    if reported > now + REPORTED_CLOCK_SKEW:
-        reported = now
-    if not_before is not None and reported < not_before:
+    instant = now if reported is None or reported > now + REPORTED_CLOCK_SKEW else reported
+    if not_before is not None and instant < not_before:
         return not_before
-    return reported
+    return instant
 
 
 class CallLedger:
@@ -135,7 +132,7 @@ class CallLedger:
         self._call.move_to(state, at_instant=now)
         self._metrics.increment(TRANSITION, {"outcome": state.value})
         self._metrics.observe(
-            STATE_SECONDS, max((now - self._state_since).total_seconds(), 0.0), {"outcome": left}
+            STATE_SECONDS, (now - self._state_since).total_seconds(), {"outcome": left}
         )
         self._state_since = now
         self._marks.append(TimelineMark(now, MarkKind.TRANSITION, state.value))
