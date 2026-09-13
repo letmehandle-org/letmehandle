@@ -1,6 +1,4 @@
-/**
- * Home: every state the design draws, each reached only by the facts that make it true.
- */
+/** Home: every state the design draws, each reached only by the facts that make it true. */
 import {
   act,
   fireEvent,
@@ -133,8 +131,8 @@ describe('what Home says', () => {
       calls: [aCall({ id: 'old', started_at: yesterday })],
     });
 
-    // The fake backend does not filter by date, so today's listing is told apart by its query.
     expect(backend.listings.some(query => query.includes('from='))).toBe(true);
+    expect(view.getByTestId('home-figure')).toHaveTextContent('0');
     expect(view.getByTestId('home-call-old')).toBeOnTheScreen();
   });
 
@@ -269,7 +267,7 @@ describe('what Home says', () => {
     });
     await fireEvent.press(view.getByTestId('tab-activity'));
     await view.findByTestId('call-call-1');
-    // The connection goes while Activity is open; Home's next refresh is the one that fails.
+    // The connection goes while Activity is open, so Home's next refresh fails.
     backend.failNext('/v1/calls', {
       status: 503,
       body: { error: 'down', message: 'x' },
