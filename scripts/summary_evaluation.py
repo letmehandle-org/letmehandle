@@ -48,11 +48,13 @@ def print_report(report: SummaryReport) -> None:
 async def evaluate(minimum: float | None) -> int:
     # Imported after the path is set.
     from letmehandle.application.calls.prompts import SUMMARY_PROMPT_VERSION
+    from letmehandle.application.calls.summariser import SUMMARY_WRITTEN, Written
     from letmehandle.application.orchestration.ports import Bounds
     from letmehandle.bootstrap import build_call_summariser
     from letmehandle.config.settings import ConfigurationError, get_settings
     from letmehandle.observability.logging import configure_logging
     from tests.evaluation.summary_suite import load_summary_scenarios, run_summaries
+    from tests.support.recording_metrics import RecordingMetrics
 
     try:
         settings = get_settings()
@@ -64,7 +66,9 @@ async def evaluate(minimum: float | None) -> int:
     # inside it.
     configure_logging(settings)
     # Given the bound a call's teardown gives it, so the evaluation measures what calls get.
-    summariser = build_call_summariser(settings, timeout=Bounds().summary)
+    # Kept rather than logged, so how many summaries needed a correction is part of the report.
+    metrics = RecordingMetrics()
+    summariser = build_call_summariser(settings, timeout=Bounds().summary, metrics=metrics)
 
     def summariser_for(_scenario: SummaryScenario) -> CallSummariser:
         return summariser
@@ -72,6 +76,10 @@ async def evaluate(minimum: float | None) -> int:
     print(f"model {endpoint.model}, summary prompts {SUMMARY_PROMPT_VERSION}\n")
     report = await run_summaries(load_summary_scenarios(), summariser_for)
     print_report(report)
+    written = ", ".join(
+        f"{each.value} {metrics.counted(SUMMARY_WRITTEN, outcome=each.value)}" for each in Written
+    )
+    print(f"\nwritten from {written}")
 
     if minimum is not None and (short := report.below(minimum)):
         print(f"\nbelow {minimum:.0%}: {', '.join(short)}", file=sys.stderr)

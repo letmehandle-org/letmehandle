@@ -26,6 +26,7 @@ from tests.support.agent_calls import a_call
 from tests.support.config import make_settings
 from tests.support.ended_calls import caller_said, ended
 from tests.support.recording_call_actions import Escalated, RecordingCallActions
+from tests.support.recording_metrics import RecordingMetrics
 from tests.support.scripted_model import CallTool, ScriptedModel, assess
 
 if TYPE_CHECKING:
@@ -189,9 +190,9 @@ async def test_the_summariser_talks_to_the_configured_endpoint(endpoint: Refusin
     )
     facts = ended(caller_said("Is she in today?"))
 
-    summary = await build_call_summariser(settings, timeout=Bounds().summary).summarise(
-        facts, facts.call.transcript, locale="en"
-    )
+    summary = await build_call_summariser(
+        settings, timeout=Bounds().summary, metrics=RecordingMetrics()
+    ).summarise(facts, facts.call.transcript, locale="en")
 
     assert summary == fallback_summary(facts, locale="en")
     [request] = endpoint.heard
@@ -223,9 +224,9 @@ async def test_at_debug_a_summarised_call_never_reaches_the_log(
     configure_logging(settings)
     facts = ended(caller_said(said))
 
-    await build_call_summariser(settings, timeout=Bounds().summary).summarise(
-        facts, facts.call.transcript, locale="en"
-    )
+    await build_call_summariser(
+        settings, timeout=Bounds().summary, metrics=RecordingMetrics()
+    ).summarise(facts, facts.call.transcript, locale="en")
 
     logged = capfd.readouterr()
     everything = logged.out + logged.err
@@ -237,4 +238,4 @@ async def test_at_debug_a_summarised_call_never_reaches_the_log(
 
 def test_a_summariser_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
-        build_call_summariser(make_settings(), timeout=Bounds().summary)
+        build_call_summariser(make_settings(), timeout=Bounds().summary, metrics=RecordingMetrics())

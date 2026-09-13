@@ -598,7 +598,9 @@ def build_call_orchestrator(
     # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
     bounds = call_bounds(settings)
     if summariser is None and settings.llm_configured:
-        summariser = build_call_summariser(settings, timeout=bounds.summary)
+        summariser = build_call_summariser(
+            settings, timeout=bounds.summary, metrics=observability.metrics
+        )
     return CallOrchestrator(
         transport=telephony.transport,
         ownership=telephony.ownership(find_user),
@@ -653,19 +655,25 @@ def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -
     )
 
 
-def build_call_summariser(settings: Settings, *, timeout: timedelta) -> CallSummariser:
+def build_call_summariser(
+    settings: Settings, *, timeout: timedelta, metrics: MetricsRecorder
+) -> CallSummariser:
     """What writes a call's summary when it ends, on the same model the agent judges with.
 
     Bounded by `timeout`, which is teardown's own bound on a summary: nobody is waiting on the line
     by then, but a teardown that waits minutes for a summary is a call whose history appears
     minutes late, and a summariser given longer than teardown waits would be abandoned mid-draft.
     """
-    return call_summariser_on(openai_compatible_model(settings.require_llm()), timeout=timeout)
+    return call_summariser_on(
+        openai_compatible_model(settings.require_llm()), timeout=timeout, metrics=metrics
+    )
 
 
-def call_summariser_on(model: Model, *, timeout: timedelta) -> CallSummariser:
+def call_summariser_on(
+    model: Model, *, timeout: timedelta, metrics: MetricsRecorder
+) -> CallSummariser:
     """The summariser on `model`. Tests reach the same wiring with a scripted model."""
-    return ModelCallSummariser(StrandsSummaryDrafter(model), timeout=timeout)
+    return ModelCallSummariser(StrandsSummaryDrafter(model), timeout=timeout, metrics=metrics)
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:
