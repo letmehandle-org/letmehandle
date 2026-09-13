@@ -11,7 +11,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from letmehandle.adapters.database.models import CallReportRow
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
@@ -303,3 +303,19 @@ class TestIsolation:
             select(CallReportRow.user_id, func.count()).group_by(CallReportRow.user_id)
         )
         assert sorted(count for _, count in owners.all()) == [2, 3]
+
+
+class TestStorage:
+    async def test_the_caller_s_number_is_not_kept_in_clear(
+        self, api: Api, session: AsyncSession
+    ) -> None:
+        # A call's record seals who called (D-014). A report stored beside it with the number in
+        # a plain column would leave a database dump saying who called whom all the same.
+        tokens = await sign_in(api)
+        await send(api, tokens, SCREENED_CALL)
+        assert len(await drain(api)) == len(SCREENED_CALL)
+
+        rows = (await session.execute(text("SELECT r::text FROM call_reports r"))).scalars().all()
+
+        assert len(rows) == len(SCREENED_CALL)
+        assert [row for row in rows if CALLER.removeprefix("+") in row] == []

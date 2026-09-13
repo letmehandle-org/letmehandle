@@ -336,6 +336,9 @@ class CallReportRow(Base):
 
     Unique by the handset's event identifier within the user, which is what makes a resent
     report count once and keeps two accounts' identifiers from ever colliding.
+
+    Not who called. The number travels on to the call it describes, whose record seals it; a
+    plain copy here would be the one place a database dump still said who called whom.
     """
 
     __tablename__ = "call_reports"
@@ -349,7 +352,6 @@ class CallReportRow(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     screening: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ending: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    caller_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

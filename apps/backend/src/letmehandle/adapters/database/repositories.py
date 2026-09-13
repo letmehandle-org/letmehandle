@@ -481,7 +481,6 @@ class SqlCallReportRepository(CallReportRepository):
                 kind=report.kind.value,
                 screening=None if report.screening is None else report.screening.value,
                 ending=None if report.ending is None else report.ending.value,
-                caller_number=None if report.caller_number is None else report.caller_number.value,
                 occurred_at=report.occurred_at,
                 received_at=self._clock.now(),
             )
