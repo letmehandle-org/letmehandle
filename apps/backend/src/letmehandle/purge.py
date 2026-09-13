@@ -1,20 +1,4 @@
-"""The scheduled purge of expired transcripts and spent sign-in challenges, as a command.
-
-    uv run letmehandle-purge
-
-Run it at least daily — retention is set in whole days, so a daily run keeps every transcript
-within a day of its owner's setting. It is safe to run more often, to run again after a failure,
-and to have two schedulers run it at once: see `application/retention/purge.py` for why.
-
-It also deletes the sign-in challenges nothing can use or count any more, which hold the numbers
-codes were sent to.
-
-It needs DATABASE_URL and nothing else. In particular it needs no transcript key: it deletes
-without reading, so the job that runs on a timer is not a job that can decrypt anything.
-
-It exits non-zero when a run fails or cannot purge somebody, so a scheduler's own alerting sees
-it. What it logs is counts, never who or what.
-"""
+"""The purge command: expired transcripts and spent challenges go, with only DATABASE_URL."""
 
 from __future__ import annotations
 
@@ -84,11 +68,7 @@ async def purge_transcripts(
     metrics: MetricsRecorder | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> PurgeResult:
-    """Run one purge against the configured database, and release it afterwards.
-
-    `engine` is for a caller that already owns one — a test pointed at its own schema. One made
-    here is disposed of here.
-    """
+    """Run one transcript purge, on `engine` if given, else on one made and disposed of here."""
     chosen_clock = clock or SystemClock()
     async with _engine_for(settings, engine) as active:
         factory = create_session_factory(active)
@@ -142,7 +122,7 @@ def main() -> None:
     try:
         result, challenges_deleted = asyncio.run(_purge_everything(settings))
     except Exception as error:
-        # The type only. A database error's message can carry a statement's parameters.
+        # The type only: a database error's message can carry a statement's parameters.
         logger.error("transcript_purge.failed", error_type=type(error).__name__)  # noqa: TRY400
         raise SystemExit(1) from error
 
