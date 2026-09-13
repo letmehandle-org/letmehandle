@@ -6,6 +6,7 @@
  * exactly like a stolen token.
  */
 import {
+  act,
   fireEvent,
   render,
   renderHook,
@@ -340,6 +341,83 @@ describe('signing out', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
+  });
+});
+
+describe('signing out while a request is under way', () => {
+  it('forgets the session on this phone before the backend has answered', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    globalThis.fetch = (async (url: string) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/v1/auth/signout') {
+        return new Promise<Response>(() => undefined);
+      }
+      return jsonResponse(200, { '/v1/me': PROFILE, ...SETUP_BODIES }[path]);
+    }) as unknown as typeof fetch;
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+
+    result.current.signOut().catch(() => undefined);
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-out');
+    });
+    expect(store.clearSession).toHaveBeenCalled();
+  });
+
+  it('does not keep a renewal that finishes after signing out', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    let finishRenewal: (() => void) | null = null;
+    let profileReads = 0;
+    globalThis.fetch = (async (url: string) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/v1/me') {
+        profileReads += 1;
+        return profileReads === 1
+          ? jsonResponse(200, PROFILE)
+          : jsonResponse(401, { error: 'not_authenticated', message: 'no' });
+      }
+      if (path === '/v1/auth/refresh') {
+        await new Promise<void>(resolve => {
+          finishRenewal = resolve;
+        });
+        return jsonResponse(200, TOKENS);
+      }
+      return jsonResponse(204);
+    }) as unknown as typeof fetch;
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+
+    const request = result.current.api.me().catch(() => undefined);
+    await waitFor(() => {
+      expect(finishRenewal).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.signOut();
+    });
+    await act(async () => {
+      finishRenewal?.();
+      await request;
+    });
+
+    expect(result.current.status).toBe('signed-out');
+    expect(store.saveSession).not.toHaveBeenCalled();
   });
 });
 

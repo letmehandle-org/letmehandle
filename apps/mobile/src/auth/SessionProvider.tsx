@@ -105,6 +105,10 @@ export function SessionProvider({
         }
         try {
           const tokens = await api.refresh(current.refreshToken);
+          if (session.current !== current) {
+            // Signed out, or signed in again, while renewing: the renewal belongs to nobody.
+            return session.current?.accessToken ?? null;
+          }
           const renewed = sessionFromTokens(tokens);
           session.current = renewed;
           await saveSession(renewed);
@@ -234,13 +238,10 @@ export function SessionProvider({
 
   const signOut = useCallback(async (): Promise<void> => {
     const current = session.current;
-    // Told to the backend first, so the refresh token is revoked there rather than only
-    // forgotten here. A failure does not stop the local sign-out: a user who asked to be
-    // signed out is signed out.
+    await forget();
     if (current !== null) {
       await client.signOut(current.refreshToken).catch(() => undefined);
     }
-    await forget();
   }, [client, forget]);
 
   const value = useMemo<SessionContextValue>(
