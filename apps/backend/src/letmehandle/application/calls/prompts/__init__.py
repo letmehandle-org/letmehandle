@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from letmehandle.application.calls.summary_draft import SummaryRequest
 
-SUMMARY_PROMPT_VERSION: Final = "v1"
+SUMMARY_PROMPT_VERSION: Final = "v2"
 
 _PLACEHOLDERS: Final = {
     "instructions.md": frozenset({"answer_tool"}),
