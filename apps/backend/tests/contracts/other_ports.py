@@ -188,8 +188,8 @@ class VoiceProviderContract:
 
     @staticmethod
     async def _not_the_default(voices: VoiceProvider) -> Voice:
-        """A catalogue voice that is not the fallback, so a test can tell them apart."""
-        catalogue = await voices.list_voices()
+        """An English catalogue voice that is not the fallback, so a test can tell them apart."""
+        catalogue = await voices.list_voices("en")
         for voice in catalogue:
             if voice.id != voices.default_voice_id:
                 return voice

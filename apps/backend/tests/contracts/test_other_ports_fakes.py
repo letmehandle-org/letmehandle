@@ -143,6 +143,38 @@ class TestStaticVoiceProvider(VoiceProviderContract):
         )
         assert chosen == "calm"
 
+    async def test_a_chosen_voice_that_cannot_speak_the_language_gives_way_to_one_that_can(
+        self,
+    ) -> None:
+        # An English voice reading Hindi is a call nobody can follow.
+        chosen = await resolve_voice(
+            StaticVoiceProvider(), VoiceSelection(persona_voice_id="bright"), locale="hi-IN"
+        )
+        assert chosen == "gentle"
+
+    async def test_a_chosen_voice_is_kept_in_any_language_it_speaks(self) -> None:
+        chosen = await resolve_voice(
+            StaticVoiceProvider(), VoiceSelection(persona_voice_id="bright"), locale="fr"
+        )
+        assert chosen == "bright"
+
+    async def test_with_nothing_chosen_a_language_the_default_cannot_speak_gets_a_voice_that_can(
+        self,
+    ) -> None:
+        assert await resolve_voice(StaticVoiceProvider(), VoiceSelection(), locale="hi") == "gentle"
+
+    async def test_a_language_no_voice_speaks_still_gets_the_default(self) -> None:
+        chosen = await resolve_voice(
+            StaticVoiceProvider(), VoiceSelection(persona_voice_id="bright"), locale="de"
+        )
+        assert chosen == "calm"
+
+    async def test_an_unavailable_voice_for_the_language_falls_back_to_the_default(self) -> None:
+        chosen = await resolve_voice(
+            StaticVoiceProvider(unavailable={"gentle"}), VoiceSelection(), locale="hi"
+        )
+        assert chosen == "calm"
+
     async def test_a_provider_without_cloning_declares_so(self) -> None:
         # The interface renders from this. No cloning declared means no training flow shown —
         # not disabled, not marked as coming soon, absent.

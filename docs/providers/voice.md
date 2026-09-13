@@ -39,7 +39,10 @@ for — which is the outcome D-009 exists to prevent.
 The project ships no catalogue of its own. A compatible speech service decides which voices exist
 (D-008), so the application builds the provider from configuration: `SPEECH_VOICES` lists the
 voices as `id:Display name:locale|locale`, comma-separated, and `SPEECH_DEFAULT_VOICE` names one of
-them. Both are required — the process refuses to start without them, naming the variable — and a
+them. A voice's locales are what map a language to a voice (D-039): a deployment that takes calls
+in Hindi lists a voice for it, such as
+`SPEECH_VOICES="voice-id-a:Example English voice:en,voice-id-b:Example Hindi voice:hi"` (placeholder
+ids). Both are required — the process refuses to start without them, naming the variable — and a
 malformed entry, a repeated id or a default outside the list is refused the same way.
 `.env.example`, the development compose file and the test settings carry example values that say
 they are examples, so that the application starts; no service speaks them.
@@ -53,8 +56,16 @@ model working rather than a gap in it.
 One chain, implemented once, in `resolve_voice`:
 
 ```
-the user's cloned voice → the persona voice they chose → the provider's default
+the user's cloned voice
+  → the persona voice they chose, if it speaks the call's language
+  → the provider's default, if it speaks the call's language
+  → the first voice in the catalogue that does
+  → the provider's default
 ```
+
+The call's language is the one it opens in: the user's locale where the speech service speaks it
+(D-039). A cloned voice is the user's own and speaks whatever they speak; every other voice is
+held to the language, because a voice chosen in English reading Hindi is a call nobody can follow.
 
 Each step falls through when the voice is not available, so a revoked or broken voice produces a
 call that sounds different rather than a call that does not happen. Silence is the one outcome

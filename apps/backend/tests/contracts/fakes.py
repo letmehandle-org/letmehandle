@@ -151,6 +151,7 @@ class StaticVoiceProvider(VoiceProvider):
         self._voices = (
             Voice(id="calm", name="Calm", locales=("en",)),
             Voice(id="bright", name="Bright", locales=("en", "fr")),
+            Voice(id="gentle", name="Gentle", locales=("hi",)),
         )
 
     @property
