@@ -7,9 +7,12 @@ from urllib.parse import parse_qsl
 import pytest
 import structlog
 
+from letmehandle.adapters.otp import twilio_sms as sms_module
 from letmehandle.adapters.otp.twilio_sms import SmsOTPProvider
 from letmehandle.domain.errors import ProviderError, UnreachableNumberError
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.observability.logging import configure_logging
+from tests.support.config import make_settings
 from tests.support.simulated_sms import (
     NOT_A_MOBILE,
     NOT_A_NUMBER,
@@ -112,17 +115,26 @@ async def test_wrong_credentials_are_a_failure_nobody_retries_away() -> None:
     assert "401" in raised.value.reason
 
 
-async def test_nothing_personal_is_logged_whether_it_is_sent_or_refused() -> None:
+async def test_nothing_personal_is_logged_whether_it_is_sent_or_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service = SimulatedSms()
     sms = provider(service)
-    with structlog.testing.capture_logs() as logs:
-        await sms.send(NUMBER, "424242")
-        service.refuse(NUMBER.value, NOT_A_NUMBER)
-        with pytest.raises(UnreachableNumberError):
-            await sms.send(NUMBER, "515151")
+    # An earlier test's level would filter the events before the capture sees them, and a logger
+    # bound earlier is cached; so the level is set here and the logger rebound inside the capture.
+    configure_logging(make_settings(log_level="debug"))
+    try:
+        with structlog.testing.capture_logs() as logs:
+            monkeypatch.setattr(sms_module, "logger", structlog.get_logger(sms_module.__name__))
+            await sms.send(NUMBER, "424242")
+            service.refuse(NUMBER.value, NOT_A_NUMBER)
+            with pytest.raises(UnreachableNumberError):
+                await sms.send(NUMBER, "515151")
+    finally:
+        configure_logging(make_settings())
     await sms.aclose()
 
-    assert logs
+    assert [entry["event"] for entry in logs] == ["otp_code_sent", "otp_code_undeliverable"]
     written = repr(logs)
     for secret in (NUMBER.value, NUMBER.masked, "424242", "515151", SMS_TOKEN):
         assert secret not in written
