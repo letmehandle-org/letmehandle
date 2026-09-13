@@ -44,7 +44,7 @@ from letmehandle.application.orchestration.inputs import (
 )
 from letmehandle.application.orchestration.ledger import CallLedger
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
-from letmehandle.application.orchestration.routing import Route, route, route_on
+from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
 from letmehandle.application.orchestration.summary import Findings, summary_of
 from letmehandle.application.speech.conversation import ConversationEnd
@@ -58,6 +58,7 @@ from letmehandle.domain.models.escalation_context import (
     EscalationContext,
 )
 from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.policy.routing import route
 from letmehandle.domain.ports.call_transport import CallEventKind, ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from letmehandle.observability.logging import get_logger

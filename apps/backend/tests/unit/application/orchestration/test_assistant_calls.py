@@ -7,6 +7,7 @@ assert from the other side.
 from __future__ import annotations
 
 import asyncio
+from datetime import time
 
 import pytest
 
@@ -27,7 +28,7 @@ from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.models.preferences import UserPreferences
+from letmehandle.domain.models.preferences import CallRules, TimeWindow, UserPreferences
 from letmehandle.domain.models.summary import CallOutcome
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.domain.ports.call_transport import ParticipantOutcome
@@ -66,6 +67,36 @@ async def ringing(running: Running) -> None:
 
 def streaming() -> StreamingLine:
     return StreamingLine()
+
+
+class TestTheUsersHours:
+    """The orchestrator routes on the domain's policy, hours included (D-030)."""
+
+    @staticmethod
+    def answering(start: int, end: int) -> UserPreferences:
+        # The orchestrator's clock reads noon, UTC.
+        return UserPreferences(
+            rules=CallRules(active_hours=TimeWindow(time(start), time(end), "UTC"))
+        )
+
+    async def test_a_call_outside_the_assistants_hours_rings_the_user(self) -> None:
+        line = streaming()
+        async with orchestrating(line, preferences=self.answering(13, 18)) as running:
+            line.arrives(CALL, STRANGER)
+            await running.settled(CALL, CallState.PASSTHROUGH)
+
+            assert line.dialled == [OWNERS_NUMBER]
+            assert line.asked("answer", CALL) == 0
+            assert running.speech.sessions == []
+
+    async def test_a_call_inside_the_assistants_hours_is_the_assistants(self) -> None:
+        line = streaming()
+        async with orchestrating(line, preferences=self.answering(9, 18)) as running:
+            line.arrives(CALL, STRANGER)
+            await running.settled(CALL, CallState.AGENT_HANDLING)
+
+            assert line.asked("answer", CALL) == 1
+            assert line.dialled == []
 
 
 class TestTheAssistantHandlesACall:

@@ -1,8 +1,6 @@
-"""Routing, as a table: what the rules ask for, and what each plan lets that become."""
+"""Routing, as a table: what each plan lets the posture the rules asked for become."""
 
 from __future__ import annotations
-
-from datetime import UTC, datetime
 
 import pytest
 
@@ -12,53 +10,15 @@ from letmehandle.application.orchestration.plan import (
     DialTheUser,
     LetItRing,
 )
-from letmehandle.application.orchestration.routing import Route, route, route_on
-from letmehandle.domain.models.caller import Caller, CallerCategory
-from letmehandle.domain.models.phone_number import PhoneNumber
-from letmehandle.domain.models.preferences import (
-    CallRules,
-    HandlingPosture,
-    ImportantContact,
-    UserPreferences,
-)
+from letmehandle.application.orchestration.routing import Route, route_on
+from letmehandle.domain.models.preferences import HandlingPosture
 from letmehandle.domain.ports.call_transport import ScreeningDecision
 from tests.contracts.fakes import StreamingTransport
 from tests.support.orchestration import an_assistance
 
-NOW = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-CONTACT_NUMBER = PhoneNumber("+12025550102")
-STRANGER_NUMBER = PhoneNumber("+12025550101")
-
 PASS = HandlingPosture.PASS_THROUGH
 AGENT = HandlingPosture.HANDLE_WITH_AGENT
 REJECT = HandlingPosture.REJECT
-
-PREFERENCES = UserPreferences(
-    rules=CallRules(
-        default_posture=AGENT,
-        anonymous_posture=REJECT,
-        posture_by_category={CallerCategory.DELIVERY: PASS},
-        blocked_categories=frozenset({CallerCategory.SPAM}),
-    ),
-    important_contacts=(ImportantContact(CONTACT_NUMBER, "Mum", posture=AGENT),),
-)
-
-
-@pytest.mark.parametrize(
-    ("caller", "posture"),
-    [
-        # A withheld number takes the anonymous posture, whatever its category.
-        (Caller(category=CallerCategory.DELIVERY), REJECT),
-        # An important contact takes their own posture, even from a blocked category.
-        (Caller(number=CONTACT_NUMBER, category=CallerCategory.SPAM), AGENT),
-        (Caller(number=STRANGER_NUMBER, category=CallerCategory.SPAM), REJECT),
-        (Caller(number=STRANGER_NUMBER, category=CallerCategory.DELIVERY), PASS),
-        (Caller(number=STRANGER_NUMBER, category=CallerCategory.UNKNOWN), AGENT),
-    ],
-)
-def test_the_rules_ask_for_a_posture(caller: Caller, posture: HandlingPosture) -> None:
-    assert route(caller, PREFERENCES, NOW) is posture
-
 
 TRANSPORT = StreamingTransport()
 EVERYTHING = CallPlan(
