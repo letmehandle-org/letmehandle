@@ -1,10 +1,4 @@
-"""Asking for a person: the model's reading goes in, the policy's decision comes out in words.
-
-Asking reaches nobody; the conclusion does that once the model has finished. What is tested here is
-what the tool writes down and what it tells the model. A malformed proposal is not written down at
-all, and neither is one that tries to choose its own reason or urgency, which is the shape a model
-talked into it by a caller would send.
-"""
+"""Asking for a person: the model's reading is noted, and the policy's decision told in words."""
 
 from __future__ import annotations
 
@@ -129,8 +123,7 @@ async def test_null_optional_fields_are_read_as_absent() -> None:
 async def test_nothing_the_model_is_told_asks_it_to_speak_to_anybody(
     waits: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The agent judges; the speech model speaks. An instruction to tell the caller something is
-    # an instruction to a model that is talking to nobody.
+    # The judging agent talks to nobody, so it is never told to tell the caller anything.
     if waits:
         deferring(monkeypatch)
     for arguments in [NOTABLE_ENQUIRY, {"importance": "routine", "intent": "sales"}]:

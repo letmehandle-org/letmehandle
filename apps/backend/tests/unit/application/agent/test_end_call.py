@@ -1,8 +1,4 @@
-"""Asking to end a call, held to which kind of ending it is.
-
-The tool only writes the ending down. Whether it is applied, once the model has finished, is the
-conclusion's to decide and is tested beside it.
-"""
+"""Asking to end a call, held to which kind of ending it is."""
 
 from __future__ import annotations
 
@@ -37,7 +33,7 @@ async def test_an_ending_that_needs_no_grant_is_written_down_and_nothing_else(
 
     said = await answered(tool(kit), a_call(authority=AgentAuthority.none()), {"ending": ending})
 
-    # The member itself, not its text: the conclusion hands orchestration the type it matches on.
+    # The member itself, not its text.
     assert kit.notes.requested_ending is ending
     assert kit.actions.actions == []
     assert not kit.notes.ended

@@ -1,27 +1,4 @@
-"""`end_call`: ask for the call to end, and say which kind of ending it is.
-
-The tool asks; it does not hang up. A model can ask to end a call before it has finished working
-out what the call was, and the rest of its judgement — an escalation the user's rules require —
-must still be able to overrule that. So the ending is written down, and the conclusion applies it
-once the model has finished, after any escalation, if the rules still allow it then.
-
-Ending a call is three different acts that happen to share a button, and each is held to what it
-actually is:
-
-- **Resolved.** The caller got what they came for — a courier knows where to leave the parcel, a
-  message was taken. Needs no grant, but is not applied to a call the user's rules say needs them:
-  a hang-up never cancels an escalation.
-- **Handed over.** The user has been reached and there is nothing left for the assistant to say.
-  Needs no grant, but needs the fact: it is applied only when this judgement reached the user
-  immediately. A model that says it handed a call over when it did not is ending a call the user
-  was never told about.
-- **Declined.** The caller is being turned away on the user's behalf — the sales pitch, the offer,
-  the request the assistant says no to. That is `DECLINE_ON_THE_USERS_BEHALF`, checked here, and
-  without it the assistant does not get to decide that a caller goes unheard. Like a resolved call,
-  it is not applied to a call the user's rules say needs them.
-
-The kind is a `CallEnding`, chosen from a fixed set rather than written as prose.
-"""
+"""`end_call`: asks for a resolved, handed-over or declined ending, applied by the conclusion."""
 
 from __future__ import annotations
 

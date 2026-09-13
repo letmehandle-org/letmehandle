@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import structlog
+from pydantic import ValidationError
 from strands.tools import convert_pydantic_to_tool_spec
 from structlog.testing import capture_logs
 
@@ -14,6 +15,7 @@ from letmehandle.adapters.agent.strands.agent import ASSESSMENT_TOOL, StrandsCal
 from letmehandle.adapters.agent.strands.assessment import CallAssessment
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
+from letmehandle.application.agent.tools.arguments import SHORT_TEXT_CHARACTERS
 from letmehandle.domain.models.authority import Capability
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from tests.support.agent_calls import a_call, fixed
@@ -31,8 +33,7 @@ def a_conclusion() -> JudgementConclusion:
 
 @pytest.fixture
 def unfiltered_logging() -> Iterator[None]:
-    # Another test may have configured logging at a level that drops these events before they
-    # could be captured. Whatever was configured is put back afterwards.
+    # Resets logging so no configured level drops the events, and restores it afterwards.
     configured = structlog.get_config()
     structlog.reset_defaults()
     yield
@@ -71,8 +72,6 @@ async def test_a_failure_is_logged_by_kind_and_never_by_content(steps: list[Step
 
 
 def test_the_schema_offers_exactly_the_words_the_domain_has() -> None:
-    # A value added to the domain and not offered to the model is a judgement it cannot make; one
-    # offered and not in the domain is a guaranteed refusal.
     spec = convert_pydantic_to_tool_spec(CallAssessment)
     properties = spec["inputSchema"]["json"]["properties"]
     assert spec["name"] == ASSESSMENT_TOOL
@@ -95,3 +94,19 @@ def test_an_importance_is_written_back_as_the_word_it_was_given_as() -> None:
     )
     assert assessment.importance is CallImportance.LOW
     assert assessment.model_dump(mode="json")["importance"] == "low"
+
+
+def test_a_caller_summary_is_held_to_the_escalation_tools_limit() -> None:
+    fields = {
+        "intent": "sales",
+        "importance": "low",
+        "understood": True,
+        "caller_asked_for_the_user": False,
+        "needs_the_users_decision": False,
+    }
+    CallAssessment.model_validate({**fields, "caller_summary": "a" * SHORT_TEXT_CHARACTERS})
+
+    with pytest.raises(ValidationError, match="caller_summary"):
+        CallAssessment.model_validate(
+            {**fields, "caller_summary": "a" * (SHORT_TEXT_CHARACTERS + 1)}
+        )

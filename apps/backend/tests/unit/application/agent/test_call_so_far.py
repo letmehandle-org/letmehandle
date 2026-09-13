@@ -47,7 +47,7 @@ def test_every_copy_of_the_users_rules_comes_from_the_same_preferences() -> None
 
 
 def test_an_important_contact_is_known_by_number_and_named_by_the_users_label() -> None:
-    # The name the network supplied is not the user's, and is not what the call carries.
+    # The network-supplied name is not what the call carries.
     call = call_from(
         Caller(number=SCHOOL.number, display_name="Unknown", category=CallerCategory.EDUCATION)
     )

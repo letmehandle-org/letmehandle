@@ -1,9 +1,4 @@
-"""Acting on a finished judgement: the escalation first, then an ending only if it is still allowed.
-
-Each test writes into the notes what a model asked for, concludes on an assessment, and reads back
-what happened to the call. The rows are the endings a model can ask for against the escalations the
-rules can make of the same call.
-"""
+"""Acting on a finished judgement: the escalation first, then an ending only if still allowed."""
 
 from __future__ import annotations
 

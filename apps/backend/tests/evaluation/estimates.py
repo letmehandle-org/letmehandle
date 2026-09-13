@@ -1,15 +1,4 @@
-"""A class's pass rate over several runs, with the uncertainty a report should state beside it.
-
-One run of a class of twelve calls moves by eight points for every miss, so a single rate cannot
-tell a prompt change from a model answering differently this time. Pooling the calls of several
-runs narrows that, and the interval says by how much: a change whose rate falls inside the last
-interval has not been shown to be a change.
-
-The interval is Wilson's, over every call of every run. It stays inside 0 and 1 and is honest at a
-rate of 100%, where the textbook interval collapses to a single point. It treats each call of each
-run as independent, which repeated runs of the same call are not — a call the model always misreads
-fails in every run — so it is the narrowest defensible interval, not a generous one.
-"""
+"""A class's pass rate pooled over several runs, with its 95% Wilson interval."""
 
 from __future__ import annotations
 

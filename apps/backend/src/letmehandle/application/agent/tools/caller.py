@@ -1,13 +1,4 @@
-"""`get_caller_context`: what is known about who is calling.
-
-Never the number. The model does not need it to judge a call, and a number in its context is a
-number a caller can ask to have read back.
-
-A name is included only for a caller the user marked as important, and it is the label the user gave
-them. The caller's display name is never used, even for a known contact: it arrived with the call —
-the network, or whoever placed it, supplied it — which makes it text a stranger chose, sitting in
-the model's context looking like a fact.
-"""
+"""`get_caller_context`: who is calling, without the number or any caller-supplied name."""
 
 from __future__ import annotations
 

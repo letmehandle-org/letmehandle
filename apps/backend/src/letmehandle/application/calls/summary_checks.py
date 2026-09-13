@@ -1,21 +1,4 @@
-"""What a draft summary must be before it replaces the fallback, checked in code.
-
-A prompt asks a model for a short summary that says how the call ended and invents nothing. These
-checks are what make that true of every summary kept, because a model asked is a model that
-usually complies, and the summary is the one record a user has once the transcript is gone.
-
-Two kinds of check. Quality: one or two sentences, within the summary's length, naming how the call
-ended in words the user would recognise, with no filler and no stretch of the conversation copied
-out. Grounding: every detail quotes words that were actually said, its value is made only of words
-from that quote, and no number appears in the headline that nobody said. A reference number that
-was never read out is worse than none, so a draft carrying one is refused whole rather than trimmed:
-a model that invented one detail is not a model whose other sentences can be trusted.
-
-Words are compared case-folded and split on anything that is not a letter, a digit or a mark within
-a word, so a draft is not refused for a curly apostrophe or a capital letter, and is refused for a
-changed word. Marks count because Devanagari writes its vowel signs and the virama as marks after
-the letter they belong to: a word split at each of them is a handful of letters that match anything.
-"""
+"""The quality and grounding checks a draft summary passes before it replaces the fallback."""
 
 from __future__ import annotations
 
@@ -35,19 +18,15 @@ if TYPE_CHECKING:
 
     from letmehandle.application.calls.summary_draft import SummaryDraft, SummaryRequest
 
-# A summary is what a person would say about a call, and nobody says three sentences of it.
+# The most sentences a headline may have.
 MAX_SENTENCES: Final = 2
 
-# A run of this many words in a row, found in one thing somebody said, is quoting rather than
-# summarising. Short enough to catch a copied sentence, long enough to allow "your check-up on
-# Thursday at ten", which a good headline repeats.
+# A run of this many words copied from one utterance is quoting rather than summarising.
 RESTATEMENT_WORDS: Final = 9
 
-# A sentence ends at a stop followed by a capital, or at the end. "10 a.m. on Thursday" is one.
-# Devanagari has no capitals, so a stop before one of its letters ends a sentence, and so does a
-# danda wherever it is.
+# A stop before a capital or Devanagari letter or at the end, or a danda, ends a sentence.
 _SENTENCE_END: Final = re.compile(r"[.!?]+(?:\s+(?=[A-Z\u0900-\u097f])|\s*$)|[\u0964\u0965]+\s*")
-# The joiners some scripts write inside a word to choose how two letters combine.
+# The joiners some scripts write inside a word.
 _JOINERS: Final = frozenset("\u200c\u200d")
 
 
@@ -68,13 +47,7 @@ class DraftProblem(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class SummaryVocabulary:
-    """The words the checks read a headline with, for one locale.
-
-    `endings` lists, per outcome, phrases of which a headline must contain one; the model is shown
-    the same list, so what it is asked to write and what is accepted cannot drift apart. `filler`
-    lists phrases that narrate the call or the act of summarising it instead of saying what
-    happened.
-    """
+    """The phrases, per locale, a headline names its ending with, and filler it must not contain."""
 
     endings: Mapping[CallOutcome, tuple[str, ...]]
     filler: tuple[str, ...]
@@ -118,8 +91,7 @@ _ENGLISH: Final = SummaryVocabulary(
     ),
 )
 
-# A letter with a nukta is written with and without it ("फ़ोन", "फोन"), so such a phrase is
-# listed both ways.
+# A phrase with a nukta letter is listed with and without it.
 _HINDI: Final = SummaryVocabulary(
     endings={
         CallOutcome.RESOLVED_BY_AGENT: ("आपके सहायक",),

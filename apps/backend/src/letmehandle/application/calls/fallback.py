@@ -1,14 +1,4 @@
-"""The summary built from facts alone, for when a model's summary cannot be had.
-
-When a call ends, orchestration asks a model for its summary. When that fails — the model is
-down, times out, or returns something the domain refuses — this is what is written instead,
-because a call with no summary is a call missing from the user's history, and the summary is the
-only record left once the transcript is purged (D-014).
-
-It says only what orchestration already knows for certain: how the call ended, who was on it,
-whether the user was reached, and who the caller was taken to be. It extracts no details and
-guesses no intent. A plain sentence that is true beats a rich one that might not be.
-"""
+"""The summary built from an ended call's facts alone, for when a model's cannot be had (D-014)."""
 
 from __future__ import annotations
 
@@ -35,12 +25,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class SummaryPhrasebook:
-    """Every phrase a fallback headline can contain, for one locale.
-
-    `headline` is a sentence per outcome with a `{caller}` slot; `caller` says who called by
-    category, for anybody the user has not named; `withheld` is an unknown caller who hid their
-    number.
-    """
+    """Every phrase a fallback headline can contain, for one locale."""
 
     headline: Mapping[CallOutcome, str]
     caller: Mapping[CallerCategory, str]
@@ -108,11 +93,7 @@ SUMMARY_PHRASEBOOKS: Final[Mapping[str, SummaryPhrasebook]] = {
 
 
 def _every_phrasebook_is_complete() -> None:
-    """Fail at import if a phrasebook cannot describe some outcome or caller.
-
-    For the reason the preference phrasebooks are checked the same way: a gap found at read time
-    is found as a call ends, for one unlucky user, at exactly the moment the fallback exists for.
-    """
+    """Fails at import if a phrasebook cannot describe some outcome or caller."""
     for locale, book in SUMMARY_PHRASEBOOKS.items():
         for kind, phrases in ((CallOutcome, book.headline), (CallerCategory, book.caller)):
             missing = set(kind) - set(phrases)
@@ -128,13 +109,7 @@ _every_phrasebook_is_complete()
 
 @dataclass(frozen=True, slots=True)
 class CallFacts:
-    """What orchestration knows about a call that has ended, without asking anybody.
-
-    `escalation_reason` is set when the assistant asked for the user, whether or not they came.
-    `caller_hung_up` is what the transport reported; it is not inferred. `intent` and
-    `importance` are whatever classification the call reached before generation failed, and the
-    honest defaults when it reached none.
-    """
+    """What orchestration knows about an ended call without asking anybody."""
 
     call: CallSession
     escalation_reason: EscalationReason | None = None
@@ -144,18 +119,12 @@ class CallFacts:
 
 
 def fallback_summary(facts: CallFacts, *, locale: str) -> CallSummary:
-    """A valid summary of an ended call, from its facts alone.
-
-    What Phase 8 writes when model generation fails. It never fails for a call that has ended,
-    whatever state it ended in: the headline always fits, and the user is recorded as joining
-    only when there was an escalation for them to join, as a summary requires. Raises
-    `InvariantError` for a call still in progress, which has nothing to summarise yet.
-    """
+    """A valid summary from an ended call's facts; `InvariantError` for one in progress."""
     call = facts.call
     if call.ended_at is None:
         raise InvariantError("only a call that has ended can be summarised")
-    human_joined_at = _human_joined_at(facts, ended_at=call.ended_at)
-    outcome = _outcome(facts, human_joined=human_joined_at is not None)
+    joined_at = _joined_at(facts, ended_at=call.ended_at)
+    outcome = _outcome(facts, human_joined=joined_at is not None)
     return CallSummary(
         call_id=call.id,
         caller=call.caller,
@@ -165,20 +134,17 @@ def fallback_summary(facts: CallFacts, *, locale: str) -> CallSummary:
         headline=_headline(outcome, call.caller, closest_phrasebook(locale, SUMMARY_PHRASEBOOKS)),
         started_at=call.started_at,
         ended_at=call.ended_at,
-        human_joined_at=human_joined_at,
+        human_joined_at=joined_at,
         escalation_reason=facts.escalation_reason,
     )
 
 
-def _human_joined_at(facts: CallFacts, *, ended_at: datetime) -> datetime | None:
-    # Only with the escalation that brought them: a summary refuses a join with no reason, and
-    # the reason is what the history shows the user about why they were asked.
+def _joined_at(facts: CallFacts, *, ended_at: datetime) -> datetime | None:
+    # A join counts only with the escalation that brought the user.
     joined = human_joined_at(facts.call)
     if facts.escalation_reason is None or joined is None:
         return None
-    # Inside the call. A join is timed by this host and the start by the carrier, so a join a
-    # few milliseconds early is skew rather than a join before the call, and a summary refuses
-    # it; the call's own end is clamped to its start for the same reason.
+    # Clamped inside the call, since the join and the start are timed by different clocks.
     return min(max(joined, facts.call.started_at), ended_at)
 
 
@@ -191,12 +157,10 @@ def _outcome(facts: CallFacts, *, human_joined: bool) -> CallOutcome:
         return CallOutcome.FAILED
     if human_joined:
         return CallOutcome.HANDED_TO_USER
-    # Read from whom routing gave the call to, not from who joined: a caller who hangs up before
-    # the assistant's leg joins was never put through to anybody.
+    # Read from whom routing gave the call to, not from who joined.
     if call.handling is not CallHandling.ASSISTANT:
         return CallOutcome.PASSED_THROUGH
-    # Before a hang-up: the caller giving up while the user's phone rang is still a call the
-    # user was wanted on and missed, and that is the part they can act on.
+    # A missed escalation outranks the caller hanging up.
     if facts.escalation_reason is not None:
         return CallOutcome.UNANSWERED_ESCALATION
     if facts.caller_hung_up:
@@ -207,11 +171,10 @@ def _outcome(facts: CallFacts, *, human_joined: bool) -> CallOutcome:
 def _headline(outcome: CallOutcome, caller: Caller, book: SummaryPhrasebook) -> str:
     template = book.headline[outcome]
     by_category = book.withheld if _is_withheld_stranger(caller) else book.caller[caller.category]
-    # A name only for somebody the user knows: a network can supply one for a stranger, and
-    # repeating it would dress a guess up as an introduction.
+    # A name only for a caller the user knows.
     if caller.is_known and caller.display_name is not None:
         named = template.format(caller=caller.display_name)
-        # A contact saved with a very long name gets the category rather than a cut-off name.
+        # A name too long for the headline gives way to the category.
         if len(named) <= MAX_HEADLINE_CHARACTERS:
             return named
     return template.format(caller=by_category)

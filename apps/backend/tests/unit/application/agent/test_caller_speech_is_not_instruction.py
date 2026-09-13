@@ -1,17 +1,4 @@
-"""A caller talking the assistant into something, written as a deliberate attempt to break it.
-
-The caller is the one party on the line nobody has verified, and the model reads every word they
-say. So the model is assumed to be persuaded — every test here hands a tool the arguments a fully
-convinced model would send — and what is proven is that being persuaded buys nothing:
-
-- A grant comes from the call's authority and from nowhere else. The transcript is never read: a
-  call whose transcript explodes when touched gets exactly the answers a silent call gets.
-- Neither does a grant come from what the model was told. Preferences that describe a capability as
-  granted do not grant it when the call's authority does not.
-- A proposal built from a call full of instructions is still decided by the policy's rules. A
-  suspected scam does not ring, a routine call below the user's threshold does not ring, and a
-  claimed permission is an action the assistant may not take.
-"""
+"""A fully persuaded model gains nothing: grants come from authority and the policy decides."""
 
 from __future__ import annotations
 

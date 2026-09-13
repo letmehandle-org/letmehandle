@@ -1,8 +1,4 @@
-"""What a model's draft summary must be to be kept: short, plain, true to the call and its ending.
-
-Every test is one draft of one ended call, and the assertion is which problems the checks find in
-it. An empty answer is a draft the user would read; anything else is the fallback.
-"""
+"""Which problems the checks find in one draft summary of one ended call."""
 
 from __future__ import annotations
 
@@ -253,8 +249,7 @@ class TestGrounding:
         assert problems_with(draft(FINE, promise), request_for(said)) == ()
 
 
-# A courier's call in Hindi, written for these tests. Devanagari puts vowel signs and the virama
-# after the consonant they belong to, as marks rather than letters.
+# A courier's call in Hindi, whose vowel signs and virama are marks after their consonant.
 HINDI_COURIER = caller_said(
     "नमस्ते, मैं स्विफ्ट पार्सल से बोल रहा हूँ। आपका पार्सल पड़ोसी के घर चौदह नंबर पर छोड़ दिया है।",
     "ड्राइवर शुक्रवार को दो बजे के बाद फिर आएगा।",
@@ -298,8 +293,7 @@ class TestVocabulary:
     def test_every_fallback_headline_names_its_own_ending(
         self, ending: Ending, locale: str
     ) -> None:
-        # The fallback and the checks describe endings in the same words, or a fallback would be a
-        # summary the product itself refuses.
+        # The fallback and the checks describe endings in the same words.
         known = fallback_summary(ended(COURIER, ending), locale=locale)
         assert names_the_ending(known.headline, known.outcome, vocabulary_for(locale))
 

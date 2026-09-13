@@ -1,10 +1,4 @@
-"""The summariser keeps a model's draft only when it passes, and the fallback on every failure.
-
-The drafter here is a stand-in that answers, raises or never answers as told, taking as long as told
-on a clock the test holds, so what is proven is the summariser's own promise: a valid summary
-whatever the model does, built from the facts it may not contradict, corrected at most once, within
-its bound, and logged and counted without a word of the call.
-"""
+"""The summariser keeps a passing draft, corrects once in its bound, else falls back."""
 
 from __future__ import annotations
 
@@ -58,7 +52,7 @@ GOOD = SummaryDraft(
     outcome=CallOutcome.RESOLVED_BY_AGENT,
     details=(ADDRESS,),
 )
-# A headline copied from what the caller said: the near miss a model told why can put right.
+# A headline copied from what the caller said.
 COPIED = SummaryDraft(
     headline="It's Swift Parcels, the parcel is at 14 Alder Close, and your assistant noted it.",
     intent=CallIntent.DELIVERY_IN_PROGRESS,
@@ -88,10 +82,7 @@ class HeldClock:
 
 @dataclass
 class StandInDrafter(SummaryDrafter):
-    """Gives `answers` in turn: a draft, an error it raises, or None to never answer.
-
-    Each answer moves `clock` on by `takes` seconds, as long as the model is said to have spent.
-    """
+    """Gives `answers` in turn (draft, error, or None for never), each taking `takes` seconds."""
 
     answers: list[Answer]
     takes: float = 0.0
@@ -121,7 +112,7 @@ class StandInDrafter(SummaryDrafter):
 
 @pytest.fixture
 def unfiltered_logging() -> Iterator[None]:
-    # Another test may have configured logging at a level that drops these events.
+    # Resets logging so no configured level drops the events.
     configured = structlog.get_config()
     structlog.reset_defaults()
     yield
@@ -164,7 +155,7 @@ async def test_a_passing_draft_supplies_the_headline_intent_and_details_and_noth
     assert summary.details == (
         ExtractedDetail("address", "14 Alder Close", "the parcel is at 14 Alder Close"),
     )
-    # Everything else is the facts', whatever the model thought.
+    # Everything else comes from the facts.
     assert summary.outcome is CallOutcome.HANDED_TO_USER
     assert (summary.call_id, summary.caller, summary.importance) == (
         known.call_id,
@@ -242,7 +233,7 @@ async def test_a_model_that_fails_produces_the_fallback_logged_by_kind(failure: 
         }
     ]
     assert "walrus" not in repr(events)
-    # Nothing a failed model could be told would change how it fails, so it is not asked again.
+    # A failed model is not asked again.
     assert len(drafter.asked) == 1
     assert written(metrics) == ["fallback"]
 
@@ -275,7 +266,7 @@ class TestARefusedDraft:
             ExtractedDetail("address", "14 Alder Close", "the parcel is at 14 Alder Close"),
         )
         [(first, _), (again, correction)] = drafter.asked
-        # The same call, with the draft the checks refused and exactly why they refused it.
+        # The same call, with the refused draft and exactly why it was refused.
         assert again == first
         assert correction == DraftCorrection(COPIED, (DraftProblem.RESTATES_THE_CALL,))
         assert written(metrics) == ["corrected_draft"]
@@ -372,7 +363,7 @@ class TestARefusedDraft:
 
 
 async def test_cancelling_the_summary_is_not_mistaken_for_a_failed_model() -> None:
-    # Orchestration stopping is not a model misbehaving, and swallowing it would hold a teardown.
+    # Cancellation is not a model failure and is not swallowed.
     drafter = StandInDrafter([None])
     metrics = RecordingMetrics()
     task = asyncio.create_task(summarised(drafter, metrics=metrics))

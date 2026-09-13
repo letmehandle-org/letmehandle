@@ -1,34 +1,24 @@
-"""What the model writing a call's summary is told, read from versioned template files.
-
-Laid out as the agent's prompts are (`v1/en/instructions.md`), for the same reasons: a change to
-what the model is told is prose somebody can review and a change the summary evaluation measures.
-Nothing about a particular call or user is written in a template. What orchestration knows about
-the call, and what was said on it, arrive as data in a message of their own, rendered by the agent
-prompts' `as_data` so no caller can speak a closing delimiter.
-
-The phrases a headline may name its ending with are rendered from the same vocabulary the checks
-read, so the model is asked for exactly what will be accepted.
-
-From v3 a version may also say how to ask for a draft again once the checks refused one. It is sent
-as a message after the call's, with the refused draft as data and the problems by name, and the
-template explains every name: the checks' own words for why, never anything the call contained.
-"""
+"""What the summarising model is told, from versioned template files, with the call as data."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
-from string import Template
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.agent.prompts import as_data
+from letmehandle.application.agent.prompts.templates import (
+    TemplateVersion,
+    as_data,
+    transcript_as_data,
+)
 from letmehandle.application.calls.summary_checks import vocabulary_for
-from letmehandle.application.preferences.context import DEFAULT_LOCALE, normalise_locale
+from letmehandle.application.preferences.context import normalise_locale
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
+    from string import Template
 
     from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
@@ -58,12 +48,7 @@ class SummaryPrompts:
         return self.instructions.substitute(answer_tool=answer_tool)
 
     def call_message(self, request: SummaryRequest) -> str:
-        """What is known about the call, and what was said on it, delimited as data.
-
-        The caller is described by category, and by name only when the user saved them as a
-        contact: the fallback's own rule, so a model is never handed a stranger's claimed name to
-        repeat. No phone number is sent.
-        """
+        """The call's known facts and transcript as data, with a name only for a known caller."""
         known = request.known
         caller = known.caller
         call = {
@@ -74,24 +59,19 @@ class SummaryPrompts:
             "caller_category": caller.category.value,
             "caller_name": caller.display_name if caller.is_known else None,
             "user_joined": known.human_joined,
-            # The user reads the summary, so it is written in their language, not the caller's.
+            # Written in the user's language, not the caller's.
             "write_for_locale": normalise_locale(request.locale),
         }
-        spoken = [
-            {"speaker": entry.speaker.value, "text": entry.text} for entry in request.transcript
-        ]
-        return self.call.substitute(call=as_data(call), transcript=as_data(spoken))
+        return self.call.substitute(
+            call=as_data(call), transcript=transcript_as_data(request.transcript)
+        )
 
     def answer_request(self, *, answer_tool: str) -> str:
         """What the model is told when it stops without writing the summary."""
         return self.answer.substitute(answer_tool=answer_tool)
 
     def correction_message(self, correction: DraftCorrection, *, answer_tool: str) -> str:
-        """What the model is told after the call when the checks refused its draft.
-
-        The draft is the model's own, but made of words from the call, so it is delimited as data
-        the same way the transcript is.
-        """
+        """The refused draft and its problems as data, for the model to correct."""
         if self.correction is None:
             raise InvariantError(
                 f"version {self.version!r} of the summary prompts cannot ask for a correction"
@@ -121,35 +101,19 @@ def load_summary_prompts(locale: str, version: str = SUMMARY_PROMPT_VERSION) -> 
 
 def read_summary_prompts(templates: Traversable, locale: str, version: str) -> SummaryPrompts:
     """`load_summary_prompts`, from a directory of versions other than the one shipped."""
-    root = templates.joinpath(version)
-    if not root.is_dir():
-        raise InvariantError(f"there are no summary prompts of version {version!r}")
-    normalised = normalise_locale(locale)
-    for language in (normalised, normalised.split("-", 1)[0], DEFAULT_LOCALE):
-        directory = root.joinpath(language)
-        if directory.is_dir():
-            return SummaryPrompts(
-                version=version,
-                language=language,
-                instructions=_template(directory, "instructions.md"),
-                call=_template(directory, "call.md"),
-                answer=_template(directory, "answer.md"),
-                correction=_optional_template(directory, "correction.md"),
-            )
-    raise InvariantError(f"version {version!r} of the summary prompts has no {DEFAULT_LOCALE} text")
-
-
-def _optional_template(directory: Traversable, name: str) -> Template | None:
-    # Optional only because the versions before v3 were written without it.
-    return _template(directory, name) if directory.joinpath(name).is_file() else None
-
-
-def _template(directory: Traversable, name: str) -> Template:
-    template = Template(directory.joinpath(name).read_text(encoding="utf-8"))
-    used = frozenset(template.get_identifiers())
-    if not template.is_valid() or used != _PLACEHOLDERS[name]:
-        raise InvariantError(
-            f"the summary template {name} must use exactly the placeholders "
-            f"{', '.join(sorted(_PLACEHOLDERS[name]))}; it uses {', '.join(sorted(used)) or 'none'}"
-        )
-    return template
+    found = TemplateVersion.open(
+        templates,
+        kind="summary prompts",
+        locale=locale,
+        version=version,
+        placeholders=_PLACEHOLDERS,
+    )
+    language, instructions = found.required("instructions.md")
+    return SummaryPrompts(
+        version=version,
+        language=language,
+        instructions=instructions,
+        call=found.required("call.md")[1],
+        answer=found.required("answer.md")[1],
+        correction=found.optional("correction.md"),
+    )

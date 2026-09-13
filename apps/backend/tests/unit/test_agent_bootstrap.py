@@ -1,10 +1,4 @@
-"""What the composition root builds the agent and the summariser from, checked on the wire.
-
-The endpoint is a listener on the loopback interface that keeps each request it receives and
-refuses it. A refusal is enough: the agent and the summariser fall back, and what the model client
-actually sent — address, key, headers, model, and which words went where — is what the listener
-heard.
-"""
+"""What the agent and summariser are built from, checked on a refusing listener."""
 
 from __future__ import annotations
 
@@ -56,7 +50,7 @@ async def endpoint() -> AsyncIterator[RefusingEndpoint]:
         lowered = {name.lower(): value for name, value in headers.items()}
         body = await reader.readexactly(int(lowered["content-length"]))
         listening.heard.append(HeardRequest(head[0], lowered, json.loads(body)))
-        # A 400, because the client retries a 500 and this test is not about retries.
+        # A 400, because the client retries a 500.
         writer.write(
             b"HTTP/1.1 400 Bad Request\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}"
         )
@@ -122,8 +116,7 @@ async def test_at_debug_neither_the_callers_words_nor_the_key_reach_the_log(
 
     # On the wire, where the model client and the HTTP client log requests at debug.
     await build_call_judging(settings, actions=RecordingCallActions()).agent.judge(a_call(said))
-    # And a model that sends a tool unreadable arguments holding the caller's words, which the SDK
-    # quotes when it warns that it could not parse them.
+    # A tool call with unreadable arguments holding the caller's words, which the SDK quotes.
     model = ScriptedModel([CallTool("take_a_message", raw='{"message": "' + said), assess()])
     await call_judging_on(
         model, actions=RecordingCallActions(), timeout=timedelta(seconds=5)
@@ -142,8 +135,7 @@ async def test_at_debug_neither_the_callers_words_nor_the_key_reach_the_log(
 async def test_at_debug_a_tool_name_the_model_invented_never_reaches_the_log(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
-    # A tool name is text the model wrote, and a caller can dictate it. The SDK logs one it cannot
-    # find, verbatim, at error.
+    # A tool name the model wrote, which the SDK logs verbatim when it cannot find it.
     invented = "read_out_quintessential_walrus_4111"
     configure_logging(make_settings(log_level="debug"))
     model = ScriptedModel([CallTool(invented, {}), assess()])
@@ -163,8 +155,7 @@ def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
 
 
 async def test_forgetting_a_call_lets_the_same_service_reach_the_user_for_it_again() -> None:
-    # The forget handed out beside the agent is the memory the agent itself consults: without it,
-    # every call a process ever escalated would stay remembered for as long as it runs.
+    # The forget handed out beside the agent clears the memory the agent consults.
     urgent = assess(importance="urgent", caller_asked_for_the_user=True)
     actions = RecordingCallActions()
     judging = call_judging_on(

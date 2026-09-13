@@ -26,8 +26,7 @@ def test_a_judgement_is_given_exactly_these_tools() -> None:
 
 
 def test_only_the_tools_that_keep_something_act_on_the_call() -> None:
-    # These are the ones a judgement stops running once a tool has failed. Asking for the user or
-    # for an ending acts on nothing until the judgement is concluded, so neither is among them.
+    # The tools a judgement stops running after a failure.
     kit = Kit()
 
     acting = [tool.spec.name for tool in kit.tools().values() if tool.acts_on_the_call]

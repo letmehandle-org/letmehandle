@@ -23,8 +23,7 @@ def required_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_nothing_about_the_model_is_needed_to_start() -> None:
-    # Nothing in a request asks for a judgement yet, and a process that refuses to start for a
-    # service it never calls is one nobody can develop against.
+    # A process starts without a model configured.
     settings = get_settings()
     assert settings.llm_base_url is None
     assert settings.llm_api_key is None
@@ -109,7 +108,7 @@ class TestHeaders:
             parse_llm_headers(text)
 
     def test_the_authorisation_header_is_refused(self) -> None:
-        # The key already travels in it; two sources for one header is a key silently not used.
+        # The key already travels in it, so a second source is refused.
         with pytest.raises(ValueError, match="the key is LLM_API_KEY"):
             parse_llm_headers("authorization=Bearer something")
 
