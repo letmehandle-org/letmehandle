@@ -7,7 +7,8 @@ replay.
 Two ideas do most of the work:
 
   A challenge is single use, expiring and attempt-limited, and the code is never stored. What
-  is stored is a hash, so a database that leaks does not hand out sign-ins.
+  is stored is a hash, so a database that leaks does not hand out sign-ins. Where the provider
+  makes and checks the code itself, nothing about the code is stored at all (D-042).
 
   A refresh token belongs to a family. Rotating one invalidates it; presenting a rotated one
   again means somebody has a copy, and the whole family is revoked. That converts a stolen
@@ -62,12 +63,13 @@ class OTPChallenge:
 
     `code_hash` rather than the code. Nothing in this system can tell anybody what the code was,
     including the system itself, which is the property that makes a leaked database useless for
-    signing in.
+    signing in. No hash at all means the provider made the code and is the one that checks it
+    (D-042); every other rule here — expiry, attempts, single use — applies to it unchanged.
     """
 
     id: str
     phone_number: PhoneNumber
-    code_hash: str
+    code_hash: str | None
     issued_at: datetime
     expires_at: datetime
     attempts: int = 0
@@ -75,8 +77,8 @@ class OTPChallenge:
     superseded_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        if not self.code_hash.strip():
-            raise InvariantError("a challenge with no hash can never be satisfied")
+        if self.code_hash is not None and not self.code_hash.strip():
+            raise InvariantError("a challenge with an empty hash can never be satisfied")
         if self.expires_at <= self.issued_at:
             raise InvariantError("a challenge that expires before it is issued is unusable")
         if self.attempts < 0:
@@ -142,6 +144,11 @@ class OTPChallenge:
             verified_at=self.verified_at,
             superseded_at=instant,
         )
+
+    @property
+    def code_is_held_by_provider(self) -> bool:
+        """Whether the provider that sent the code, rather than this system, checks it."""
+        return self.code_hash is None
 
     @property
     def failed_attempts(self) -> int:

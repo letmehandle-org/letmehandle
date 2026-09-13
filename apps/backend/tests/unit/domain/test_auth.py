@@ -86,9 +86,23 @@ class TestChallenges:
         # tell anybody what the code was, including this system.
         assert not hasattr(a_challenge(), "code")
 
-    def test_a_challenge_with_no_hash_is_refused(self) -> None:
+    def test_a_challenge_with_an_empty_hash_is_refused(self) -> None:
         with pytest.raises(InvariantError):
             a_challenge(code_hash="  ")
+
+    def test_a_code_the_provider_holds_keeps_every_other_rule(self) -> None:
+        # No hash means the provider checks the code (D-042); expiry, attempts and single use are
+        # still this model's.
+        held = a_challenge(code_hash=None)
+        assert held.code_is_held_by_provider
+        assert not a_challenge().code_is_held_by_provider
+        assert held.with_failed_attempt().code_hash is None
+        assert held.state_at(NOW + CHALLENGE_LIFETIME) is ChallengeState.EXPIRED
+        used = held.verified(NOW)
+        assert used.code_is_held_by_provider
+        with pytest.raises(InvariantError, match="only be used once"):
+            used.verified(NOW)
+        assert held.superseded(NOW).state_at(NOW) is ChallengeState.SUPERSEDED
 
     def test_a_challenge_that_expires_before_it_is_issued_is_refused(self) -> None:
         with pytest.raises(InvariantError):

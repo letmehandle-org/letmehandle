@@ -398,7 +398,7 @@ class AuthenticationService:
 
         await self._refuse_if_locked(challenge.phone_number, now)
 
-        if not self._code_hasher.verify(code, challenge.code_hash):
+        if challenge.code_hash is None or not self._code_hasher.verify(code, challenge.code_hash):
             # The attempt is consumed on failure, or the limit is advisory.
             await self._challenges.update(challenge.with_failed_attempt())
             raise AuthenticationError("that code is not valid")

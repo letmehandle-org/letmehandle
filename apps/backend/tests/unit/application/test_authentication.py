@@ -101,6 +101,7 @@ class TestRequestingACode:
         issued = await harness.service.request_challenge(NUMBER)
         stored = await harness.challenges.get(issued.challenge_id)
         assert stored is not None
+        assert stored.code_hash is not None
         assert THE_CODE not in stored.code_hash
 
     async def test_the_challenge_exists_before_the_code_is_sent(self, harness: Harness) -> None:
