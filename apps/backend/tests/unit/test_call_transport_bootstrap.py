@@ -21,7 +21,12 @@ from letmehandle.domain.ports.call_transport import (
     three_way,
 )
 from letmehandle.main import create_app, main
-from tests.support.config import REQUIRED_ENVIRONMENT, make_settings
+from tests.support.config import (
+    REQUIRED_ENVIRONMENT,
+    TEST_TRANSCRIPT_KEYS,
+    UNREACHABLE_DATABASE,
+    make_settings,
+)
 from tests.unit.test_entrypoint import recorded_uvicorn  # noqa: F401 - a fixture
 
 if TYPE_CHECKING:
@@ -33,6 +38,15 @@ TELEPHONY_PATHS = (
     "/telephony/conference/status",
     "/telephony/leg/status",
 )
+
+# A streaming account, complete, so that what is refused is only where calls would be recorded.
+STREAMING_ENVIRONMENT = {
+    "TELEPHONY_ACCOUNT_ID": "account-for-tests",
+    "TELEPHONY_AUTH_TOKEN": "token-for-tests",
+    "TELEPHONY_NUMBERS": "+12025550100",
+    "TELEPHONY_APP_ID": "app-for-tests",
+    "TELEPHONY_WEBHOOK_BASE_URL": "https://calls.example.com",
+}
 
 
 def telephony_settings() -> Settings:
@@ -77,8 +91,10 @@ def test_a_configured_transport_missing_its_account_names_what_is_missing() -> N
 
 
 async def test_the_application_mounts_the_providers_routes_and_closes_the_transport() -> None:
-    settings = telephony_settings()
-    app = create_app(settings)
+    binding = build_call_transport(telephony_settings(), reported_calls=build_reported_calls())
+    # Handed over rather than configured, so the lifespan runs without the storage a configured
+    # transport refuses to start without.
+    app = create_app(make_settings(), telephony=binding)
     # Present, and refusing what is not signed.
     assert await statuses(app) == {403}
     # Not in the documented schema: the provider is not one of the API's clients.
@@ -92,7 +108,13 @@ async def test_the_application_mounts_the_providers_routes_and_closes_the_transp
 async def test_the_handset_transport_is_the_one_its_reports_feed() -> None:
     # Chosen from configuration like the streaming one, but never built a second time: a report
     # the reporting route accepts must reach the transport the product reads.
-    app = create_app(make_settings(telephony_provider=TelephonyProviderName.ANDROID_NATIVE))
+    app = create_app(
+        make_settings(
+            telephony_provider=TelephonyProviderName.ANDROID_NATIVE,
+            database_url=UNREACHABLE_DATABASE,
+            transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
+        )
+    )
     transport = app.state.telephony.transport
     screening(transport)
     assert await statuses(app) == {404}
@@ -110,6 +132,8 @@ def test_main_starts_a_handset_deployment_without_a_telephony_account(
     for name, value in REQUIRED_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setenv("TELEPHONY_PROVIDER", "android_native")
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE)
+    monkeypatch.setenv("TRANSCRIPT_ENCRYPTION_KEYS", TEST_TRANSCRIPT_KEYS)
     main()
     assert recorded_uvicorn
 
@@ -124,4 +148,19 @@ def test_main_refuses_to_start_with_telephony_half_configured(
     with pytest.raises(SystemExit) as exit_info:
         main()
     assert "TELEPHONY_ACCOUNT_ID" in str(exit_info.value)
+    assert recorded_uvicorn == {}
+
+
+@pytest.mark.parametrize("provider", ["android_native", "twilio"])
+def test_main_refuses_to_carry_calls_with_nowhere_to_record_them(
+    monkeypatch: pytest.MonkeyPatch,
+    recorded_uvicorn: dict[str, object],  # noqa: F811 - the fixture
+    provider: str,
+) -> None:
+    for name, value in {**REQUIRED_ENVIRONMENT, **STREAMING_ENVIRONMENT}.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("TELEPHONY_PROVIDER", provider)
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert "DATABASE_URL, TRANSCRIPT_ENCRYPTION_KEYS" in str(exit_info.value)
     assert recorded_uvicorn == {}

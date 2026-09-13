@@ -1,11 +1,10 @@
 """What a deployment carrying calls does when nothing is there to orchestrate them.
 
-Each test here reproduces a defect and is expected to fail until it is fixed.
+Each test here reproduced a defect before its fix, and keeps it fixed.
 """
 
 from __future__ import annotations
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from letmehandle.config.settings import ConfigurationError
@@ -14,11 +13,6 @@ from tests.unit.adapters.transport.test_twilio_routes import ARRIVAL, signed_pos
 from tests.unit.test_call_transport_bootstrap import telephony_settings
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a streaming deployment without a database starts, mounts the provider's routes and "
-    "answers callers into a conference that no orchestrator will ever hold",
-)
 async def test_a_streaming_deployment_with_no_storage_never_answers_a_caller_into_silence() -> None:
     app = create_app(telephony_settings())
     try:

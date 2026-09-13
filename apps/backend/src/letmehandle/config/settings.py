@@ -555,10 +555,28 @@ class Settings(BaseSettings):
         """Refuse a chosen call transport that is missing what it needs, before anything starts.
 
         Only the streaming transport needs an account. A handset transport is configured on the
-        handset, and no transport at all needs nothing.
+        handset, and no transport at all needs nothing. Either transport needs storage and the
+        transcript keys: calls are owned, recorded and sealed by an orchestrator that is built
+        only with them, and a transport with no orchestrator answers callers into a call that
+        nothing will ever act on.
         """
+        if self.telephony_provider is None:
+            return
         if self.telephony_provider is TelephonyProviderName.TWILIO:
             self.require_streaming_telephony()
+        missing = [
+            name
+            for name, value in (
+                ("DATABASE_URL", self.database_url),
+                ("TRANSCRIPT_ENCRYPTION_KEYS", self.transcript_encryption_keys),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to carry calls. "
+                "Set them in .env; see .env.example."
+            )
 
     def require_streaming_telephony(self) -> StreamingTelephony:
         """What a streaming call transport needs, or a failure naming every variable missing."""

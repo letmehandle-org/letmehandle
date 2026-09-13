@@ -19,7 +19,7 @@ from letmehandle.api.dependencies import CurrentUser, get_authenticated_user
 from letmehandle.bootstrap import build_call_transport, build_reported_calls
 from letmehandle.domain.ports.voice import VoiceSample
 from letmehandle.main import create_app
-from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES
+from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES, make_settings
 from tests.support.simulated_twilio import telephony_settings
 
 if TYPE_CHECKING:
@@ -43,14 +43,15 @@ OVERSIZED_BODY: Final = b"{" + b" " * (2 * 1024 * 1024) + b"}"
 
 def _application() -> FastAPI:
     """The application with every optional route present: telephony, and voice preview."""
-    settings = telephony_settings()
-    binding = build_call_transport(settings, reported_calls=build_reported_calls())
+    binding = build_call_transport(telephony_settings(), reported_calls=build_reported_calls())
     voices = BuiltInVoiceProvider(
         EXAMPLE_VOICES,
         default_voice_id=EXAMPLE_DEFAULT_VOICE,
         samples={EXAMPLE_DEFAULT_VOICE: VoiceSample(audio=b"sample", media_type="audio/mpeg")},
     )
-    return create_app(settings, voices=voices, telephony=binding)
+    # Handed the transport rather than configured with it: nothing here carries a call, so there
+    # is no storage for the orchestrator a configured transport would refuse to start without.
+    return create_app(make_settings(), voices=voices, telephony=binding)
 
 
 def _routes(app: FastAPI) -> Iterator[tuple[str, str, APIRoute, bool]]:

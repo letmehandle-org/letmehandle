@@ -52,6 +52,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     connections.
     """
     settings: Settings = app.state.settings
+    # Here as well as in `main`: an application built by a factory other than `main` must not
+    # take calls it has nothing to orchestrate them with either.
+    settings.require_telephony_configuration()
     engine = None
     try:
         if settings.database_url is not None:

@@ -756,7 +756,9 @@ async def simulated_deployment(
     assert binding is not None
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)
-    app = create_app(settings, telephony=binding)
+    # The transport is handed to the application rather than configured on it: this deployment has
+    # no storage, and whoever needs calls orchestrated builds the orchestrator on the transport.
+    app = create_app(make_settings(), telephony=binding)
     events: list[CallEvent] = []
 
     async def collect() -> None:
