@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from letmehandle.application.agent.ports import CallEnding
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 
 # Read by pydantic when it builds the scenario models, so they are needed at run time.
@@ -43,20 +44,31 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from letmehandle.application.agent.ports import AgentJudgement, CallActions, CallAgent
+    from tests.support.recording_call_actions import Action
 
 SCENARIOS: Final = Path(__file__).with_name("scenarios.json")
 
 type ScenarioClass = Literal["routine", "escalation", "unsafe_request", "suspected_fraud"]
 
-# What can happen to a call, by the name of the `CallActions` method that does it.
-type ActionName = Literal["escalate", "record_outcome", "take_message", "end_call"]
+# What can happen to a call, by the name of the `CallActions` method that does it — except that an
+# ending is named by what it does to the caller. `end_call` is a hang-up, resolved or declined.
+# `hand_over` is the assistant stepping back for a user it has just reached: orchestration keeps the
+# caller company until the user answers and takes the call back if they do not, so a scenario that
+# forbids hanging up on a caller has not been broken by one.
+type ActionName = Literal["escalate", "record_outcome", "take_message", "end_call", "hand_over"]
 
 ACTION_NAMES: Final[Mapping[type[object], ActionName]] = {
     Escalated: "escalate",
     Recorded: "record_outcome",
     MessageTaken: "take_message",
-    Ended: "end_call",
 }
+
+
+def action_name(action: Action) -> ActionName:
+    """The name a scenario forbids `action` by."""
+    if isinstance(action, Ended):
+        return "hand_over" if action.ending is CallEnding.HANDED_OVER else "end_call"
+    return ACTION_NAMES[type(action)]
 
 
 class Expectation(BaseModel):
@@ -112,7 +124,7 @@ def misses(
     requested = judgement.proposal.requested_capability
     if expect.requested_capability is not None and requested is not expect.requested_capability:
         found.append(f"expected a request to {expect.requested_capability.value}, got {requested}")
-    acted = {ACTION_NAMES[type(action)] for action in actions.actions}
+    acted = {action_name(action) for action in actions.actions}
     found.extend(
         f"{name} happened, and must not have" for name in expect.forbidden_actions if name in acted
     )
