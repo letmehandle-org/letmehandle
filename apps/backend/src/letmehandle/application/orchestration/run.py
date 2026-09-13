@@ -582,14 +582,13 @@ class CallRun:
             return
         with self._context.tracer.span("call.escalation", outcome=reason.value):
             await ledger.move(CallState.ESCALATION_REQUESTED)
-            # Told before the dial, not after it: the assistant is answering the caller while the
-            # dial is on its way, and a reply written without knowing has told a caller the user
-            # could not be called while their phone was already ringing.
-            await self._tell(Situation(UserReach.BEING_REACHED))
-            # Started, never awaited: the ring is the escalation and the notification only context
-            # for it, so nothing about delivering it may hold the dial back (D-016).
+            # Started, never awaited, so delivering it never holds the dial back (D-016).
             self._notify(live, decision, reason)
-            if not await self._dial(live, step):
+            # The assistant learns the user is being reached as the dial starts, not after it.
+            _, dialled = await asyncio.gather(
+                self._tell(Situation(UserReach.BEING_REACHED)), self._dial(live, step)
+            )
+            if not dialled:
                 self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "dial_refused"})
                 await ledger.move(CallState.AGENT_HANDLING)
                 await self._tell(Situation(UserReach.NOT_REACHED, ParticipantOutcome.FAILED))

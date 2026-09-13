@@ -636,13 +636,16 @@ class Agent:
 
 
 class ControlledSession(EchoSpeechSession):
-    """An echo session whose context updates can be refused."""
+    """An echo session whose context updates can be refused, or held until an event is set."""
 
     def __init__(self) -> None:
         super().__init__()
         self.refusing_updates = False
+        self.holding_updates: asyncio.Event | None = None
 
     async def update_context(self, context: str) -> None:
+        if self.holding_updates is not None:
+            await self.holding_updates.wait()
         if self.refusing_updates:
             raise ProviderError("echo", "the update was refused", retryable=False)
         await super().update_context(context)

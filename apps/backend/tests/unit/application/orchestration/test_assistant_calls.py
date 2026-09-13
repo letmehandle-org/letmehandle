@@ -7,7 +7,8 @@ assert from the other side.
 from __future__ import annotations
 
 import asyncio
-from datetime import time
+from dataclasses import replace
+from datetime import time, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -51,6 +52,7 @@ from tests.support.orchestration import (
     QUICK,
     ROUTINE,
     WANTS_THE_USER,
+    ControlledSession,
     Look,
     Running,
     StreamingLine,
@@ -577,6 +579,24 @@ class TestEscalation:
             line.holding["dial"].set()
             await running.settled(CALL, CallState.HUMAN_RINGING)
             assert sum('"being_reached"' in each for each in session.context_updates) == 1
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+    async def test_a_slow_context_update_does_not_hold_the_dial_back(self) -> None:
+        line = streaming()
+        bounds = replace(QUICK, provider=timedelta(seconds=30))
+        looks = [Look(proposal=WANTS_THE_USER)]
+        async with orchestrating(line, looks=looks, bounds=bounds) as running:
+            await with_the_assistant(running)
+            session = await running.session()
+            assert isinstance(session, ControlledSession)
+            session.holding_updates = asyncio.Event()
+            await running.caller_says("It is very urgent, call them now.")
+
+            await eventually(lambda: line.asked("dial", CALL) == 1)
+
+            session.holding_updates.set()
+            await running.settled(CALL, CallState.HUMAN_RINGING)
             line.hangs_up(CALL)
             await running.ended(CALL)
 
