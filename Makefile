@@ -1,5 +1,4 @@
-# The single entry point. Every gate a contributor runs and every gate CI runs is a target
-# here, so the two cannot drift: CI calls these, it does not reimplement them.
+# Every gate a contributor or CI runs is a target here.
 
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
@@ -20,17 +19,13 @@ asyncio.run(main())
 endef
 export CHECK_DATABASE
 
-# Where the local database is. Overridable, because 5432 is a popular port and a contributor
-# may already have something on it: `POSTGRES_PORT=5433 make verify` moves both the stack and
-# the tests together.
+# Host ports for the stack, and the tests' database with it: `POSTGRES_PORT=5433 make up verify`.
 POSTGRES_PORT ?= 5432
 BACKEND_PORT  ?= 8000
 export POSTGRES_PORT
 export BACKEND_PORT
 
-# The tests that need a database read this. Without it they skip, and the coverage floor is
-# then unreachable — which reads as a failing build rather than as a missing database, so it is
-# set here rather than left to each developer's shell.
+# The database the tests that need one connect to.
 export TEST_DATABASE_URL ?= postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:$(POSTGRES_PORT)/letmehandle
 
 .PHONY: help
@@ -105,8 +100,7 @@ comments: ## Fail if a file gained a multi-line docstring or comment block (ratc
 
 .PHONY: audit-deps
 audit-deps: ## Check every locked dependency for known vulnerabilities (needs the network)
-	@# Not in verify: the advisory databases are online, and verify runs before every push, offline
-	@# included. CI runs this as a job of its own. An audit that cannot reach its database fails.
+	@# Not in verify, because it needs the network; CI runs it as a job of its own.
 	@cd $(BACKEND) && uv run python ../../scripts/dependency_audit.py
 
 .PHONY: lint
@@ -149,9 +143,7 @@ coverage: database-or-explain ## Enforce the coverage floors from D-020
 
 .PHONY: database-or-explain
 database-or-explain:
-	@# A connection, not a port check: something else answering on 5432 is the common case on a
-	@# machine that runs more than one project, and a port that opens tells you nothing about
-	@# whether this project's database is behind it.
+	@# Connects rather than checking the port, since another project's server may hold it.
 	@cd $(BACKEND) && uv run python -c "$$CHECK_DATABASE" 2>/dev/null || { \
 		echo ""; \
 		echo "No database on port $(POSTGRES_PORT)."; \

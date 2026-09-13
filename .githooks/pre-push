@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
-#
-# The last gate on this machine.
-#
-# Two checks, with deliberately different scopes.
-#
-# The disclosure audit runs on every ref. On a public repository a feature branch is
-# published the moment it is pushed, so `main` is not the boundary — the remote is. It costs
-# a couple of seconds, so it can afford to run everywhere.
-#
-# `make verify` gates `main` alone. It costs minutes, and blocking a work-in-progress branch
-# for minutes is how people learn to reach for --no-verify, which would turn off the cheap
-# check too.
-#
-# Install:  make hooks      Skip deliberately:  git push --no-verify
+# Audits every pushed commit, and runs make verify before main. Install: make hooks
 set -uo pipefail
 
 remote="${1:-origin}"
@@ -24,8 +11,7 @@ ranges=()
 while read -r _local_ref local_sha remote_ref remote_sha; do
     [[ "$local_sha" == "$zero" ]] && continue    # a deletion builds nothing
     if [[ "$remote_sha" == "$zero" ]]; then
-        # A new branch has no counterpart, so ask for what the remote does not have rather
-        # than replaying the whole history on every first push.
+        # A new branch is audited for what the remote does not already have.
         ranges+=("$local_sha --not --remotes=$remote")
     else
         ranges+=("$remote_sha..$local_sha")

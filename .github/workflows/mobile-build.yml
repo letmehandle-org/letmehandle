@@ -1,7 +1,6 @@
 name: Mobile build
 
-# Building the native applications costs minutes a backend change has no reason to spend, so
-# this runs only when something under the mobile app actually changes.
+# Builds and tests the native applications only when the mobile app or its toolchain changes.
 on:
   pull_request:
     paths:
@@ -32,11 +31,7 @@ jobs:
 
       - uses: ./.github/actions/pnpm-install
 
-      # 3.4 rather than 3.3: Gemfile.lock is written by a current bundler, and bundler 4
-      # requires a Ruby newer than 3.3. The alternative is pinning an old bundler in a
-      # generated file by hand, which is how the previous attempt failed — macOS's own Ruby
-      # 2.6 wrote "BUNDLED WITH 1.17.2", and bundler 1 calls String#untaint, removed in
-      # Ruby 3.2.
+      # Ruby 3.4, because the bundler that wrote Gemfile.lock needs a Ruby newer than 3.3.
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4'

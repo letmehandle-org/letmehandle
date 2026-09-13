@@ -5,9 +5,7 @@ on:
   push:
     branches: [main]
 
-# A second push to a branch makes the first run's answer irrelevant. Cancelling it keeps the
-# queue short and the feedback quick; main is exempt, because there every commit's result is a
-# fact somebody may need later.
+# A newer push cancels a branch's run; main keeps every run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -23,8 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The audit reads the commits in the pull request, not only the tree, so it needs the
-          # history those commits live in.
+          # The whole history, for the history and range audits.
           fetch-depth: 0
 
       - name: Nothing private reached a tracked file
@@ -37,8 +34,6 @@ jobs:
         run: python3 scripts/check_doc_links.py
 
       - name: Nothing private is anywhere in the history
-        # The half a working-tree scan cannot see. A file removed from the tree and called done
-        # stays in the commit that added it, which on a public repository is already published.
         run: python3 scripts/disclosure_audit.py --history
 
       - name: Nothing private is in the commits being proposed
@@ -56,9 +51,7 @@ jobs:
           printf '%s\n%s\n' "$TITLE" "$BODY" \
             | python3 scripts/disclosure_audit.py --text --label "the pull request"
 
-      # The binary, not gitleaks/gitleaks-action. The scanner is open source; the action
-      # requires a paid licence when the repository belongs to an organisation, and would
-      # otherwise fail this job for a reason that has nothing to do with the code.
+      # The gitleaks binary, since the action needs a licence for organisations.
       - name: Secrets, across the whole history
         env:
           GITLEAKS_VERSION: 8.21.2
@@ -77,10 +70,7 @@ jobs:
       run:
         working-directory: apps/backend
 
-    # A real PostgreSQL, because the tests that matter here rely on behaviour a substitute does
-    # not have: unique constraints, cascading deletes, the row count a bulk update reports, and
-    # timestamps that keep their timezone. The fixture skips when no database is reachable —
-    # except when CI is set, where it fails instead, so this service cannot quietly disappear.
+    # A real PostgreSQL; the database fixtures fail rather than skip when CI is set.
     services:
       postgres:
         image: postgres:17-alpine
@@ -123,16 +113,12 @@ jobs:
           uv run alembic upgrade head
 
       - name: The models and the migrations agree
-        # A migration written by hand against models that have moved on is a migration that
-        # passes and leaves the database wrong.
         run: uv run alembic check
 
       - name: Tests and coverage
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=98
 
       - name: The generated API types match the backend
-        # A backend change that alters the wire format must change the generated types with it,
-        # or the mobile app is compiling against a contract the backend no longer has.
         run: |
           uv run python ../../scripts/generate_openapi.py
           git diff --exit-code -- ../../packages/api-client/openapi.json
@@ -151,9 +137,7 @@ jobs:
     name: Known vulnerabilities
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Its own job, not a step of the backend's or the mobile app's: it asks advisory databases over
-    # the network, and an advisory published today fails it without any change in this repository,
-    # which should read as exactly that rather than as a broken build.
+    # Its own job, because it reads advisory databases over the network.
     steps:
       - uses: actions/checkout@v7
 

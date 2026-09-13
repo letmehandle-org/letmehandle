@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-#
-# The cheapest gate, at the last moment where a mistake costs nothing.
-#
-# It reads the staged diff rather than the working tree, because what is about to be
-# recorded is the staged diff. Checking the tree would pass a commit that contains something
-# the tree no longer does, and fail a commit for something it never touched — and a gate that
-# fails for unrelated reasons is a gate people learn to bypass.
-#
-# Install:  make hooks      Skip deliberately:  git commit --no-verify
+# Runs the disclosure audit and gitleaks on the staged diff. Install: make hooks
 set -uo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -23,8 +15,7 @@ if ! python3 scripts/disclosure_audit.py --staged; then
     exit 1
 fi
 
-# gitleaks covers credential shapes the disclosure audit does not model. Two gates, because
-# a single pattern list is a single point of failure.
+# gitleaks covers credential shapes the disclosure audit does not model.
 if command -v gitleaks >/dev/null 2>&1; then
     if ! gitleaks protect --staged --redact --no-banner --config .gitleaks.toml; then
         printf '\n\033[31m  the commit was not made: gitleaks found a secret\033[0m\n\n'
