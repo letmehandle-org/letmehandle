@@ -718,5 +718,141 @@
     },
     "absent": ["amount", "address"],
     "why": "The line went quiet on the assistant's side; the details given before it failed are still the user's to keep."
+  },
+  {
+    "id": "nothing-silence-on-the-line",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hello? Hello?"],
+      ["agent", "Hello, you've reached her assistant. How can I help?"]
+    ],
+    "intents": ["undetermined"],
+    "reference": {
+      "headline": "A caller said hello but nothing more, and your assistant got no reply.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "Nothing was said beyond a greeting, so there is nothing of any kind to keep."
+  },
+  {
+    "id": "nothing-press-nine-prize",
+    "class": "no_details",
+    "said": [
+      ["caller", "This is an automated message. Congratulations, your number has been selected. Press nine to know more."]
+    ],
+    "intents": ["sales", "suspected_fraud"],
+    "reference": {
+      "headline": "An automated call claimed you had been selected for a prize, and your assistant ignored it.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "A recording with no company, sum, time or reference in it."
+  },
+  {
+    "id": "nothing-prank-caller",
+    "class": "no_details",
+    "said": [
+      ["caller", "Is your fridge running? Well, you'd better go and catch it!"],
+      ["caller", "Hahaha."]
+    ],
+    "intents": ["undetermined", "personal", "enquiry"],
+    "reference": {
+      "headline": "A prank caller told a joke about a fridge, and your assistant let it pass.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "A joke, with nothing in it the user could act on."
+  },
+  {
+    "id": "nothing-thanks-for-the-flowers",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hi, just calling to say thank you for the lovely flowers, they really cheered me up."],
+      ["agent", "That's kind of you, I'll tell her you called."]
+    ],
+    "intents": ["personal"],
+    "reference": {
+      "headline": "Somebody rang to thank you for the flowers, and your assistant said it would tell you.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_declined"],
+    "why": "The caller gives no name and no fact to act on; the assistant saying it will pass the thanks on is the only commitment, so that kind is left unchecked."
+  },
+  {
+    "id": "nothing-looking-for-a-bakery",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hola, ¿es la panadería?"],
+      ["agent", "Sorry, I think you have the wrong number."],
+      ["caller", "Ah, perdón, número equivocado."]
+    ],
+    "intents": ["undetermined", "enquiry", "personal"],
+    "reference": {
+      "headline": "Somebody looking for a bakery dialled the wrong number, and your assistant let them go.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "A misdial in another language, with nothing about the user in it."
+  },
+  {
+    "id": "nothing-survey-turned-down",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hi, do you have a minute for a quick survey about your internet service?"],
+      ["agent", "She isn't available for surveys, thank you."],
+      ["caller", "No problem, bye."]
+    ],
+    "intents": ["sales", "enquiry"],
+    "reference": {
+      "headline": "A survey caller asked about your internet service, and your assistant turned them down.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made"],
+    "why": "No company, time or sum is given; the assistant turning the survey down may be read as a refusal, so that kind is left unchecked."
+  },
+  {
+    "id": "nothing-thumb-hit-the-wrong-contact",
+    "class": "no_details",
+    "said": [
+      ["caller", "Oh shoot, sorry, I was trying to call my sister and my thumb hit the wrong contact. My bad, have a good one!"],
+      ["agent", "No problem, goodbye."]
+    ],
+    "intents": ["undetermined", "personal"],
+    "reference": {
+      "headline": "Somebody called by mistake while trying to reach their sister, and your assistant let them go.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "A misdial; the sister is nobody the user needs to know about and is not named."
+  },
+  {
+    "id": "nothing-line-breaking-up",
+    "class": "no_details",
+    "said": [
+      ["caller", "Hello, can you, hello? The line's really bad, I can't"],
+      ["agent", "Sorry, I can't hear you clearly."]
+    ],
+    "intents": ["undetermined"],
+    "reference": {
+      "headline": "A caller on a very bad line could not be heard, and your assistant got nothing more from them.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made"],
+    "why": "Nothing intelligible was said; a model may read a 'can't' as a refusal, so that kind is left unchecked."
+  },
+  {
+    "id": "nothing-held-by-an-automated-queue",
+    "class": "no_details",
+    "said": [
+      ["caller", "Please hold, your call is important to us."],
+      ["caller", "Please continue to hold."]
+    ],
+    "intents": ["undetermined", "sales", "enquiry"],
+    "reference": {
+      "headline": "An automated line kept your assistant on hold and nobody came on.",
+      "details": []
+    },
+    "absent": ["name", "time", "reference_number", "address", "amount", "commitment_made", "commitment_declined"],
+    "why": "A hold message with no caller behind it says nothing of any kind."
   }
 ]
