@@ -81,6 +81,12 @@ audit: ## Check that nothing private reached a tracked file, or any commit
 		echo "gitleaks: not installed, skipped locally (CI runs it)"; \
 	fi
 
+.PHONY: audit-deps
+audit-deps: ## Check every locked dependency for known vulnerabilities (needs the network)
+	@# Not in verify: the advisory databases are online, and verify runs before every push, offline
+	@# included. CI runs this as a job of its own. An audit that cannot reach its database fails.
+	@cd $(BACKEND) && uv run python ../../scripts/dependency_audit.py
+
 .PHONY: lint
 lint: ## Lint and check formatting
 	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff check . && uv run ruff format --check .; fi
@@ -93,7 +99,7 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 

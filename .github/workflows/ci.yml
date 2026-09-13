@@ -142,6 +142,28 @@ jobs:
           path: apps/backend/coverage.xml
           if-no-files-found: ignore
 
+  dependencies:
+    name: Known vulnerabilities
+    runs-on: ubuntu-latest
+    # Its own job, not a step of the backend's or the mobile app's: it asks advisory databases over
+    # the network, and an advisory published today fails it without any change in this repository,
+    # which should read as exactly that rather than as a broken build.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: The backend's lock and the workspace's, against their advisory databases
+        run: make audit-deps
+
   mobile:
     name: Mobile
     runs-on: ubuntu-latest
