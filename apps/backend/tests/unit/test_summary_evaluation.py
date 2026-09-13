@@ -21,6 +21,7 @@ from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.calls.summary_checks import problems_with
 from letmehandle.application.calls.summary_draft import DetailKind, SummaryRequest
 from letmehandle.bootstrap import call_summariser_on
+from tests.evaluation.estimates import across_runs, below
 from tests.evaluation.summary_suite import LOCALE, load_summary_scenarios, run_summaries
 from tests.support.ended_calls import Ending
 from tests.support.recording_metrics import RecordingMetrics
@@ -75,7 +76,7 @@ async def test_the_reference_summaries_pass_every_class() -> None:
     report = await run_summaries(load_summary_scenarios(), scripted(the_reference))
 
     assert [o.misses for o in report.outcomes if not o.passed] == []
-    assert report.below(1.0) == []
+    assert below(across_runs([report.pass_rates()]), 1.0) == []
 
 
 def test_every_reference_summary_passes_the_checks() -> None:
@@ -140,7 +141,7 @@ async def test_a_degenerate_model_fails_every_class(
     # A set a degenerate answer can pass in any class measures nothing in that class.
     report = await run_summaries(load_summary_scenarios(), scripted(strategy))
 
-    assert sorted(report.below(1.0)) == sorted(CLASSES)
+    assert sorted(below(across_runs([report.pass_rates()]), 1.0)) == sorted(CLASSES)
 
 
 SCENARIO: dict[str, object] = {

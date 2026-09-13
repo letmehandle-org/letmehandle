@@ -145,12 +145,6 @@ class SummaryReport:
             rates[outcome.scenario.summary_class] = (passed + int(outcome.passed), total + 1)
         return rates
 
-    def below(self, minimum: float) -> list[SummaryClass]:
-        """The classes whose pass rate is under `minimum`, a fraction."""
-        return [
-            name for name, (passed, total) in self.pass_rates().items() if passed < minimum * total
-        ]
-
 
 type SummariserFor = Callable[[SummaryScenario], CallSummariser]
 

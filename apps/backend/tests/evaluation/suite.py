@@ -155,12 +155,6 @@ class Report:
             rates[outcome.scenario.scenario_class] = (passed + int(outcome.passed), total + 1)
         return rates
 
-    def below(self, minimum: float) -> list[ScenarioClass]:
-        """The classes whose pass rate is under `minimum`, a fraction."""
-        return [
-            name for name, (passed, total) in self.pass_rates().items() if passed < minimum * total
-        ]
-
 
 # Given the call's actions, because the agent wires its tools and its escalation check around them.
 type AgentFor = Callable[[Scenario, CallActions], CallAgent]
