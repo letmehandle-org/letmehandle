@@ -20,7 +20,9 @@ What each problem means, and how to fix it:
 - too_long: the headline is longer than a summary may be. Keep to about twenty-five words.
 - too_many_sentences: the headline has more than two sentences. Use one or two.
 - outcome_not_named: the headline does not contain any phrase listed under
-  name_the_ending_with_one_of. Use one of them, word for word and in the same order.
+  name_the_ending_with_one_of. Rewrite how the call ended around one of those phrases, copied word
+  for word and in the same order, in a sentence that still says correctly who did what. The same
+  words turned around, such as a passive "was" form of them, are refused.
 - filler: the headline describes the call or the summary, such as "the caller said", "during the
   call" or "in summary". Say what happened instead.
 - restates_the_call: the headline repeats a long stretch of words from one line of the transcript.
