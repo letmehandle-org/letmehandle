@@ -1,9 +1,10 @@
 """Calls on which the assistant needs the user, over the streaming transport.
 
-B: a delivery driver the user has to decide for; the user answers and joins the live call. G: the
-user does not answer, and the assistant takes the call back and concludes it. H: the caller gives up
-while the user's phone is ringing. And two combinations earlier phases marked as risky: the user
-asked for twice on one call, and every notification failing while the ring still goes through.
+B, which is also T6: a delivery driver the user has to decide for, on the streaming transport; the
+user answers and joins the live call. G: the user does not answer, and the assistant takes the call
+back and concludes it. H: the caller gives up while the user's phone is ringing. And two
+combinations earlier phases marked as risky: the user asked for twice on one call, and every
+notification failing while the ring still goes through.
 """
 
 from __future__ import annotations
