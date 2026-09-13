@@ -1,8 +1,4 @@
-"""A tracer that keeps every span it is given, with its parent, so a test can read the tree back.
-
-It checks names and attributes exactly as the real tracers do, so a span that would carry content
-fails the test that opened it here too.
-"""
+"""A tracer that keeps every span with its parent and checks it as the real tracers do."""
 
 from __future__ import annotations
 

@@ -1,9 +1,4 @@
-"""Calls, transcripts and summaries through a real database.
-
-Three promises are tested here, and each has the failure it exists to prevent: a call that
-comes back different from how it went in, one user reaching another's record, and anything
-somebody said sitting in the database where a dump could read it.
-"""
+"""Calls, transcripts and summaries through a real database: faithful, isolated and sealed."""
 
 from __future__ import annotations
 
@@ -178,8 +173,7 @@ class TestCalls:
     async def test_who_called_is_not_stored_in_clear(
         self, session: AsyncSession, calls: SqlCallRepository
     ) -> None:
-        # The summary seals who the caller was taken to be; a plain column beside it would
-        # leave a dump saying who called whom all the same.
+        # The summary seals who the caller was taken to be, with no plain column beside it.
         await users(session)
         await calls.save(a_call())
         await assert_nowhere_in(session, "calls", 1, CALLER_NUMBER.value)
@@ -268,8 +262,7 @@ class TestDatabaseErrors:
     async def test_a_failed_statement_s_error_carries_none_of_its_values(
         self, session: AsyncSession, database_url: str, schema: str
     ) -> None:
-        # A database error's text is what reaches a log line or an error tracker. With its
-        # parameters rendered, a call that failed to save would write who called into it.
+        # Error text reaches logs, so rendered parameters would leak who called.
         engine = create_engine(make_settings(database_url=database_url))
         try:
             async with engine.connect() as connection:
@@ -323,8 +316,7 @@ class TestHistory:
         self, session: AsyncSession, calls: SqlCallRepository
     ) -> None:
         await users(session)
-        # Five calls, three of them starting in the same instant: a cursor on the time alone
-        # would skip or repeat one of those.
+        # Five calls, three starting in the same instant, so a time-only cursor would fail.
         for name, offset in [("a", 0), ("b", 10), ("c", 10), ("d", 10), ("e", 20)]:
             await calls.save(a_call(name, started_at=later(offset)))
         await calls.save(a_call("theirs", THEM, started_at=later(15)))
@@ -722,8 +714,7 @@ class TestSummaries:
         summaries: SqlSummaryRepository,
         change: str,
     ) -> None:
-        # Each of these is what the summary says happened: an urgent call made routine, or an
-        # escalation erased, is as much a forgery as a changed headline.
+        # Changing any of these alters what the summary says happened.
         await users(session)
         await calls.save(a_call(state=CallState.COMPLETED))
         await summaries.add(ME, a_summary())

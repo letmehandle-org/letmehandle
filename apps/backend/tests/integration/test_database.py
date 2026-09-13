@@ -11,10 +11,7 @@ from letmehandle.adapters.database.engine import check_connection, create_engine
 from letmehandle.main import create_app
 from tests.support.config import UNREACHABLE_DATABASE, make_settings
 
-# A real engine against an in-process database. The point of the check is that it issues a
-# query rather than merely taking a connection from the pool — a pooled connection can be dead
-# while the pool still believes in it — so proving it needs a database that answers, not a
-# mock that agrees.
+# A real in-process database, because the check issues a query rather than taking a connection.
 SQLITE = "sqlite+aiosqlite:///:memory:"
 
 
@@ -27,14 +24,7 @@ async def test_check_connection_succeeds_against_a_live_database() -> None:
 
 
 async def test_check_connection_raises_when_the_database_is_unreachable() -> None:
-    """Note the two exception types.
-
-    A refused connection surfaces as the driver's own OSError rather than anything SQLAlchemy
-    wraps, so a caller cannot catch one library's base class and believe it has covered the
-    failure. Readiness handles that by catching broadly and reporting rather than deciding;
-    mapping adapter failures onto a single error taxonomy is phase 13's work, and this test is
-    the evidence that it is needed.
-    """
+    """A refused connection raises the driver's own OSError, not only SQLAlchemy's errors."""
     engine = create_async_engine(UNREACHABLE_DATABASE)
     try:
         with pytest.raises((SQLAlchemyError, OSError)):

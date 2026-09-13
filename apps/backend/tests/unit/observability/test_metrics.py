@@ -21,8 +21,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _unfiltered_logging() -> Iterator[None]:
-    # Another test may have configured logging for the process at a level that drops these
-    # events before they could be captured. Whatever was configured is put back afterwards.
+    # Captures at a level that keeps these events, then restores the previous configuration.
     configured = structlog.get_config()
     structlog.reset_defaults()
     yield
@@ -129,8 +128,7 @@ def test_a_count_cannot_be_recorded_as_a_measurement_or_the_other_way_round(
 
 
 def test_a_refused_value_is_not_repeated_in_the_error() -> None:
-    # The error is logged by whoever catches it, so echoing the value would put the content
-    # exactly where the check was meant to keep it out.
+    # The error never echoes the refused value.
     with pytest.raises(MetricLabelError) as refused:
         LoggingMetricsRecorder().increment(CONVERSATION_ENDED, {"outcome": "call me on 0155"})
 

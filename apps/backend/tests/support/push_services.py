@@ -1,12 +1,4 @@
-"""Stand-ins for Apple's and Google's push servers, at the HTTP layer.
-
-The adapters under test are real: they build real requests, sign real tokens and parse real
-responses. Only the far end is replaced, by handlers mounted on `httpx.MockTransport`, and those
-handlers check what the real services check — the signature on the token, the headers, the path —
-so a request the real service would refuse is refused here too rather than cheerfully accepted.
-
-Keys are generated for each run. None is ever written to the repository.
-"""
+"""Apple's and Google's push servers at the HTTP layer, checking what the real ones check."""
 
 from __future__ import annotations
 
@@ -74,10 +66,7 @@ def service_account_json(**overrides: str) -> str:
 
 @dataclass
 class SimulatedAPNs:
-    """Answers `/3/device/<token>` the way APNs does, after checking what APNs checks.
-
-    `responses` maps a device token to the (status, reason) it gets; anything else is delivered.
-    """
+    """Answers `/3/device/<token>` like APNs; `responses` maps a token to (status, reason)."""
 
     responses: dict[str, tuple[int, str | None]] = field(default_factory=dict)
     requests: list[httpx.Request] = field(default_factory=list)
@@ -136,10 +125,7 @@ class SimulatedAPNs:
 
 @dataclass
 class SimulatedFCM:
-    """Google's token endpoint and FCM's send endpoint, checking what they check.
-
-    `responses` maps a registration token to the (status, error body) it gets.
-    """
+    """Google's token and FCM send endpoints; `responses` maps a token to (status, error body)."""
 
     responses: dict[str, tuple[int, dict[str, Any]]] = field(default_factory=dict)
     requests: list[httpx.Request] = field(default_factory=list)
@@ -183,8 +169,7 @@ class SimulatedFCM:
             rsa_key().public_key(),
             algorithms=["RS256"],
             audience=EXAMPLE_TOKEN_URI,
-            # The tests run on a fixed clock, so the times are checked against each other rather
-            # than against the machine's.
+            # Times are checked against each other, not against the machine clock.
             options={
                 "require": ["iss", "iat", "exp", "scope"],
                 "verify_exp": False,

@@ -51,8 +51,7 @@ async def test_a_deployment_with_calls_and_storage_orchestrates_them_until_it_st
     async with app.router.lifespan_context(app):
         orchestrator = app.state.orchestrator
         assert orchestrator is not None
-        # A call arrives while storage is unreachable: nobody can be found to own it, so it is
-        # let go rather than held, and the run is gone.
+        # A call arriving while storage is unreachable has no owner, so it is let go.
         await app.state.reported_calls.publish(
             UserId("user"),
             CallEvent(CallEventKind.INCOMING, CallId("user:call"), EventId("user:event")),

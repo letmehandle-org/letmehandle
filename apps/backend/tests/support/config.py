@@ -26,14 +26,11 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.ports.voice import Voice
 
-# A database that is syntactically valid and certainly not listening. Port 1 is reserved and
-# nothing in a test environment binds it, so "unreachable" is a property of the address rather
-# than of whatever happens to be running on the machine.
+# Syntactically valid and never listening: nothing binds port 1.
 UNREACHABLE_DATABASE = "postgresql+asyncpg://nobody:nothing@127.0.0.1:1/absent"
 
 
-# Long enough to satisfy the signer, and obviously not a real key. Tests that care about the
-# key's own rules supply their own.
+# Long enough for the signer and obviously not a real key.
 TEST_SIGNING_KEY = "test-signing-key-that-is-long-enough-to-be-accepted"
 
 
@@ -41,9 +38,7 @@ TEST_SIGNING_KEY = "test-signing-key-that-is-long-enough-to-be-accepted"
 TEST_TRANSCRIPT_KEYS: Final = f"test-key:{base64.b64encode(bytes(range(32))).decode()}"
 
 
-# A voice catalogue that says what it is. No speech service speaks these: they exist so that the
-# application can start in a test, and names that sound like real voices would be mistaken for
-# ones somebody could hear. `.env.example` and the development compose file carry the same text.
+# A voice catalogue naming no real voice; `.env.example` and the dev compose file match it.
 EXAMPLE_VOICES_TEXT: Final = (
     "example-voice-a:Example voice A (not a real voice):en,"
     "example-voice-b:Example voice B (not a real voice):en"
@@ -106,11 +101,7 @@ def make_settings(
     tracing_otlp_endpoint: str | None = None,
     diagnostics_token: str | None = None,
 ) -> Settings:
-    """Settings with every field stated explicitly.
-
-    Every value is passed, so a test never inherits a default that later changes underneath it,
-    and never picks up a variable that happens to be set on the machine running it.
-    """
+    """Settings with every field stated, independent of defaults and the environment."""
     return Settings(
         app_env=app_env,
         log_level=log_level,

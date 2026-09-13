@@ -1,8 +1,4 @@
-"""Every metric the product declares is bounded, and none of its labels can carry anything personal.
-
-Asserted over the registry rather than over call sites, so a metric added anywhere is held to it
-the moment the module declaring it is imported: this test imports every module first.
-"""
+"""Every declared metric, in every imported module, is bounded and labels nothing personal."""
 
 from __future__ import annotations
 
@@ -41,15 +37,14 @@ def _every_metric() -> list[MetricSpec]:
 
 EVERY_METRIC: Final = _every_metric()
 
-# Anything a label value could be that identifies somebody or says something: digits in a run, as
-# a number or an identifier has, or an at sign.
+# Label values that identify somebody: a run of three or more digits, or an at sign.
 _IDENTIFYING: Final = re.compile(r"[0-9]{3,}|@")
 
 
 def test_the_product_declares_its_metrics() -> None:
     names = {spec.name for spec in EVERY_METRIC}
 
-    # A registry that came back empty would pass every test below for the wrong reason.
+    # Guards against an empty registry passing every test below.
     assert {"call.transition", "speech.round_trip_seconds", "escalation.delivery"} <= names
 
 

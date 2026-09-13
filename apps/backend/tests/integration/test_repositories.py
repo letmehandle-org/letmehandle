@@ -1,9 +1,4 @@
-"""The repositories, against a real database.
-
-Everything asserted here behaves differently in a substitute: unique constraints, cascading
-deletes, the row count a bulk update reports, and timestamps that keep their timezone. Those are
-exactly the behaviours the sign-in flow relies on.
-"""
+"""The repositories against a real database: constraints, cascades, row counts and timezones."""
 
 from __future__ import annotations
 
@@ -65,8 +60,7 @@ class TestUsers:
         assert await users.find_by_number(NUMBER) is None
 
     async def test_one_number_cannot_have_two_accounts(self, session: AsyncSession) -> None:
-        # Enforced by the database, not by a check that a race can slip between. Two requests
-        # arriving together for a number with no account is the ordinary case, not a rare one.
+        # Enforced by a database constraint, so concurrent requests cannot both create a user.
         users = SqlUserRepository(session, FixedClock(NOW))
         await users.add(a_user("user-1"))
         with pytest.raises(IntegrityError):
@@ -91,8 +85,7 @@ class TestUsers:
         assert found.preferences.locale == "en-GB"
 
     async def test_a_stored_timestamp_keeps_its_timezone(self, session: AsyncSession) -> None:
-        # A naive column means whatever the server was set to when the row was written, and a
-        # service moved between regions cannot tell what that was.
+        # Timestamps come back timezone-aware.
         challenges = SqlOTPChallengeRepository(session)
         await challenges.add(a_challenge())
         stored = await challenges.get("challenge-1")
@@ -221,8 +214,6 @@ class TestChallenges:
         assert await challenges.count_all_issued_since(an_hour_ago, "91") == 0
 
     async def test_expired_challenges_are_removed(self, session: AsyncSession) -> None:
-        # A challenge past its expiry can never succeed, and keeping it is keeping a hash of a
-        # credential for no reason.
         challenges = SqlOTPChallengeRepository(session)
         await challenges.add(a_challenge("fresh"))
         await challenges.add(
@@ -271,8 +262,7 @@ class TestRefreshTokens:
         assert await SqlRefreshTokenRepository(session).find_by_hash("no-such-hash") is None
 
     async def test_rotation_is_stored(self, session: AsyncSession) -> None:
-        # The refresh path: a token is rotated rather than deleted, so that presenting it again
-        # is recognisable as reuse rather than as an unknown token.
+        # Rotation keeps the token, so presenting it again is recognised as reuse.
         await SqlUserRepository(session, FixedClock(NOW)).add(a_user())
         tokens = SqlRefreshTokenRepository(session)
         await tokens.add(a_token())
@@ -313,8 +303,7 @@ class TestRefreshTokens:
     async def test_revoking_a_family_twice_reports_nothing_the_second_time(
         self, session: AsyncSession
     ) -> None:
-        # The count is used to report how many sessions ended. Counting already-revoked rows
-        # again would report sessions that were not there to end.
+        # Already-revoked rows are not counted as sessions ended.
         await SqlUserRepository(session, FixedClock(NOW)).add(a_user())
         tokens = SqlRefreshTokenRepository(session)
         await tokens.add(a_token("one", "family-a"))
@@ -333,8 +322,7 @@ class TestRefreshTokens:
     async def test_deleting_a_user_takes_their_tokens_with_them(
         self, session: AsyncSession
     ) -> None:
-        # The cascade is what makes account deletion complete rather than a promise. Phase 12
-        # relies on it.
+        # The cascade that makes account deletion complete.
         await SqlUserRepository(session, FixedClock(NOW)).add(a_user())
         await SqlRefreshTokenRepository(session).add(a_token())
 
@@ -356,8 +344,7 @@ class TestDevices:
         assert await devices.tokens_for(UserId("user-1")) == [token]
 
     async def test_a_token_belongs_to_one_account_at_a_time(self, session: AsyncSession) -> None:
-        # A handset changes hands. Two accounts sharing a token would deliver one person's
-        # call context to the other's phone.
+        # A shared token would deliver one person's call context to another's phone.
         users = SqlUserRepository(session, FixedClock(NOW))
         await users.add(a_user("user-1", NUMBER))
         await users.add(a_user("user-2", ANOTHER))
@@ -390,9 +377,7 @@ class TestDevices:
 
 class TestIsolation:
     async def test_one_user_cannot_read_another_s_devices(self, session: AsyncSession) -> None:
-        # The helper every later phase reuses: every resource added from here on gets this
-        # proof, because the repository interface is the only thing standing between two
-        # people's data.
+        # The cross-user isolation helper every resource repository reuses.
         users = SqlUserRepository(session, FixedClock(NOW))
         await users.add(a_user("user-1", NUMBER))
         await users.add(a_user("user-2", ANOTHER))

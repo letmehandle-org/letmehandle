@@ -32,8 +32,7 @@ def encoded(key: bytes) -> str:
     return base64.urlsafe_b64encode(key).decode()
 
 
-# Lists that stop startup while holding at least one real-length key. The first carries a valid
-# key ahead of the broken entry, which is what an error echoing its input leaks the most of.
+# Key lists that stop startup; the first holds a valid key ahead of the broken entry.
 MALFORMED_KEY_LISTS = [
     f"key-a:{encoded(KEY_A[1])},key-b:{encoded(b'sixteen bytes!!!')}",
     f"{encoded(KEY_B[1])}",
@@ -249,8 +248,7 @@ class TestConfiguredKeys:
 
     @pytest.mark.parametrize("stray", [" ", "*", "\n", "="])
     def test_a_key_with_anything_but_base64_in_it_is_refused(self, stray: str) -> None:
-        # Lenient decoding drops what it does not recognise, so a key damaged in pasting could
-        # still decode to thirty-two bytes, just not the thirty-two that sealed anything.
+        # Lenient decoding could turn a damaged key into thirty-two wrong bytes.
         valid = encoded(KEY_A[1])
         damaged = valid[:10] + stray + valid[10:]
         with pytest.raises(ValueError, match="TRANSCRIPT_ENCRYPTION_KEYS"):

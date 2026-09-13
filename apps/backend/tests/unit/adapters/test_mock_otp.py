@@ -23,8 +23,7 @@ def test_it_says_it_is_not_safe_for_production() -> None:
 
 
 def test_it_refuses_to_exist_in_production() -> None:
-    # The failure this prevents is silent and total: everybody can sign in as anybody, and
-    # nothing about the running service looks wrong.
+    # A mock provider in production would let anybody sign in as anybody.
     with pytest.raises(InvariantError, match="cannot run in production"):
         MockOTPProvider(is_production=True)
 

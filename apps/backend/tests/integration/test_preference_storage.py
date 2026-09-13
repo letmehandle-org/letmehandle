@@ -1,9 +1,4 @@
-"""Preferences through a real database, and back out unchanged.
-
-A document that survives a round trip is the whole promise of storing one. Every test here is a
-version of the failure that breaks it: a field written and not read, a set that comes back in a
-different order, or a value from an older deployment that today's code cannot make sense of.
-"""
+"""Preferences through a real database, and back out unchanged."""
 
 from __future__ import annotations
 
@@ -58,11 +53,7 @@ ANOTHER = PhoneNumber.parse("+12025550144")
 
 
 def everything() -> UserPreferences:
-    """A preference set with every field set to something other than its default.
-
-    Every field, deliberately. A round-trip test built from the defaults passes even when half
-    the mapping is missing, because the default is what a missing field produces.
-    """
+    """A preference set with every field set to something other than its default."""
     return UserPreferences(
         locale="en-GB",
         formality=Formality.FORMAL,
@@ -108,21 +99,17 @@ class TestMapping:
         assert document_to_preferences(preferences_to_document(original)) == original
 
     def test_the_document_is_the_same_every_time(self) -> None:
-        # A frozenset iterates in hash order, which differs between processes. Without sorting,
-        # two identical preference sets produce different documents and every save looks like a
-        # change.
+        # Frozensets are sorted, so identical preference sets produce identical documents.
         assert preferences_to_document(everything()) == preferences_to_document(everything())
 
     def test_a_document_from_an_older_version_reads_with_today_s_defaults(self) -> None:
-        # What the version field beside it is for: what a reader cannot supply from the
-        # document it supplies from the defaults.
+        # What a document lacks is supplied from the defaults.
         sparse = {"version": 1, "locale": "en"}
         read = document_to_preferences(sparse)
         assert read.formality is Formality.NEUTRAL
         assert read.notifications == NotificationPreferences()
         assert read.rules.escalate_at_or_above is CallImportance.NOTABLE
-        # Written before voices existed, so nothing was chosen — which resolves to the
-        # provider's default rather than to a call with no voice at all.
+        # No stored voice resolves to the provider's default voice.
         assert read.voice == VoiceSelection()
 
     def test_a_document_from_before_retention_was_a_setting_keeps_seven_days(self) -> None:
@@ -133,14 +120,13 @@ class TestMapping:
 
     @pytest.mark.parametrize(("stored", "read"), [(0, 1), (-5, 1), (45, 45)])
     def test_a_retention_below_the_floor_is_raised_to_it(self, stored: int, read: int) -> None:
-        # Keeping a transcript a little longer is the recoverable direction.
+        # Rounding up keeps a transcript longer, which is recoverable.
         document = preferences_to_document(everything())
         document["transcript_retention_days"] = stored
         assert document_to_preferences(document).transcript_retention_days == read
 
     def test_a_retention_above_the_ceiling_is_kept_as_stored(self) -> None:
-        # Written by a deployment with a higher ceiling. Reading it as this version's ceiling
-        # would delete transcripts earlier than the user chose, which cannot be undone.
+        # A higher ceiling from another deployment is honoured, so nothing is deleted early.
         document = preferences_to_document(everything())
         document["transcript_retention_days"] = 365
 
@@ -157,16 +143,14 @@ class TestMapping:
             document_to_preferences(document)
 
     def test_a_voice_stored_as_something_other_than_a_name_reads_as_no_choice(self) -> None:
-        # Not corruption worth refusing a sign-in over: an unusable identifier resolves to the
-        # default, which is a call that sounds wrong rather than one that does not happen.
+        # An unusable identifier resolves to the default voice rather than refusing the load.
         document = preferences_to_document(everything())
         document["voice"] = {"cloned": 7, "persona": "   "}
 
         assert document_to_preferences(document).voice == VoiceSelection()
 
     def test_an_unrecognised_value_is_dropped_rather_than_fatal(self) -> None:
-        # Written by a newer deployment. Refusing to load somebody's settings over a field they
-        # never set would lock them out of their own account.
+        # Values from a newer deployment are dropped so the settings still load.
         document = preferences_to_document(everything())
         document["authority"].append("fly_the_user_to_the_moon")
         document["rules"]["blocked_categories"].append("something_invented")
@@ -177,8 +161,7 @@ class TestMapping:
         assert read.rules.blocked_categories == frozenset({CallerCategory.SPAM})
 
     def test_a_number_that_cannot_be_read_is_refused(self) -> None:
-        # Distinct from an unknown enum: a malformed number is corruption, not a newer version,
-        # and silently dropping a contact would change who gets through.
+        # A malformed number is corruption, unlike an unknown enum value.
         document = preferences_to_document(everything())
         document["important_contacts"][0]["number"] = "not-a-number"
         with pytest.raises(InvariantError, match=r"E\.164"):
@@ -188,10 +171,7 @@ class TestMapping:
         assert preferences_to_document(everything())["version"] == PREFERENCES_VERSION
 
     def test_a_document_read_at_an_older_version_is_written_back_at_this_one(self) -> None:
-        # The field describes the shape of the document, not where the row came from. A row
-        # that gained a version-2 field while still labelled 1 is a row no later migration can
-        # reason about: it cannot tell a value the user chose from one that did not exist when
-        # they answered.
+        # The version field describes the document's shape, so it is always the current one.
         older = preferences_to_document(everything())
         older["version"] = 1
 
@@ -211,8 +191,7 @@ class TestReadingHoursWrittenBeforeD027:
         return document
 
     def test_quiet_hours_are_read_as_around_the_clock(self) -> None:
-        # Outside the assistant's hours calls ring the user, so turning quiet hours into assistant
-        # hours would ring somebody through the very nights they asked to be left alone.
+        # Quiet hours inverted into assistant hours would ring the user through those hours.
         read = document_to_preferences(
             self.older({"quiet_hours": {"start": "22:00", "end": "07:00", "zone": "Europe/London"}})
         )
@@ -222,7 +201,7 @@ class TestReadingHoursWrittenBeforeD027:
         assert document_to_preferences(self.older({"quiet_hours": None})).rules.active_hours is None
 
     def test_working_hours_are_read_as_around_the_clock_too(self) -> None:
-        # They changed no decision, only a phrase, so the design's default applies instead.
+        # Working hours changed no decision, so the default applies.
         read = document_to_preferences(
             self.older(
                 {"working_hours": {"start": "09:00", "end": "17:30", "zone": "Europe/London"}}
@@ -236,7 +215,7 @@ class TestReadingHoursWrittenBeforeD027:
         assert not document_to_preferences(document).notifications.respect_active_hours
 
     def test_a_document_that_says_active_hours_is_read_by_what_it_says(self) -> None:
-        # Written by this version and left carrying an older key: the newer field wins.
+        # A current document carrying an older key: the newer field wins.
         document = preferences_to_document(everything())
         document["rules"]["quiet_hours"] = {"start": "01:00", "end": "02:00", "zone": "UTC"}
         assert (
@@ -262,8 +241,7 @@ class TestPreferencesRepository:
         assert await repository.get(USER) == everything()
 
     async def test_saving_twice_replaces_rather_than_failing(self, session: AsyncSession) -> None:
-        # One statement, so that two requests saving different sections at the same time cannot
-        # leave one of them with nothing to show for it.
+        # One statement, so concurrent saves of different sections both persist.
         await a_user(session, USER, NUMBER)
         repository = SqlPreferencesRepository(session, FixedClock(NOW))
 
@@ -338,8 +316,7 @@ class TestOnboardingRepository:
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
     ) -> None:
-        # A step removed from the flow should not stop somebody signing in (D-032: introduction
-        # was), and one added by a newer deployment means nothing here.
+        # Removed steps (D-032) and steps from a newer deployment are both ignored.
         from sqlalchemy import insert
 
         from letmehandle.adapters.database.models import OnboardingRow
@@ -374,9 +351,7 @@ class TestOnboardingRepository:
 
 class TestMalformedDocuments:
     def test_hours_that_cannot_be_read_are_refused(self) -> None:
-        # Corruption, not a value from a newer deployment — and the two want opposite handling.
-        # Hours that silently disappear mean a phone ringing at three in the morning with nothing
-        # anywhere to say why.
+        # Malformed hours are corruption, refused rather than silently dropped.
         document = preferences_to_document(everything())
         document["rules"]["active_hours"]["start"] = "not a time"
 
@@ -392,8 +367,7 @@ class TestMalformedDocuments:
 
     @pytest.mark.parametrize("stored", [99, "urgent", None, True])
     def test_an_unreadable_escalation_threshold_falls_back(self, stored: object) -> None:
-        # A threshold this version does not recognise becomes the default rather than stopping
-        # somebody loading their settings. Unlike hours, there is a safe answer here.
+        # An unrecognised threshold becomes the default rather than failing the load.
         document = preferences_to_document(everything())
         document["rules"]["escalate_at_or_above"] = stored
 
@@ -402,8 +376,7 @@ class TestMalformedDocuments:
         )
 
 
-# Every section stored as the wrong kind of value. Each once escaped the mapper as a bare
-# AttributeError, TypeError or ValueError, which no caller can tell apart from a bug.
+# Every section stored as the wrong kind of value, each refused with a named error.
 MALFORMED_SHAPES: list[dict[str, object]] = [
     {"notifications": "yes"},
     {"rules": []},
@@ -457,8 +430,7 @@ class TestCorruptEntries:
             document_to_preferences(document)
 
     def test_an_empty_window_document_is_corruption_rather_than_no_window(self) -> None:
-        # `None` is a user who set no hours; `{}` is a row that lost them. Treating the second as
-        # the first is exactly the silent disappearance this module argues against.
+        # `None` is a user who set no hours; `{}` is a row that lost them.
         document = preferences_to_document(everything())
         document["rules"]["active_hours"] = {}
 

@@ -63,7 +63,6 @@ def test_a_failed_run_exits_non_zero_without_its_message(monkeypatch: pytest.Mon
 
 
 async def test_an_engine_it_made_is_released_even_when_the_run_fails() -> None:
-    # Unreachable, so the first statement fails; the engine made for the run is disposed of in
-    # the same breath rather than leaking a pool on every scheduled failure.
+    # Unreachable, so the first statement fails and the run's engine is disposed of.
     with pytest.raises(StorageUnavailableError):
         await command.purge_transcripts(make_settings(database_url=UNREACHABLE_DATABASE))
