@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -70,45 +70,18 @@ class OTPChallenge:
         return self.state_at(instant) is ChallengeState.PENDING
 
     def with_failed_attempt(self) -> OTPChallenge:
-        return OTPChallenge(
-            id=self.id,
-            phone_number=self.phone_number,
-            code_hash=self.code_hash,
-            issued_at=self.issued_at,
-            expires_at=self.expires_at,
-            attempts=self.attempts + 1,
-            verified_at=self.verified_at,
-            superseded_at=self.superseded_at,
-        )
+        return replace(self, attempts=self.attempts + 1)
 
     def verified(self, instant: datetime) -> OTPChallenge:
         if self.verified_at is not None:
             raise InvariantError("a challenge can only be used once")
-        return OTPChallenge(
-            id=self.id,
-            phone_number=self.phone_number,
-            code_hash=self.code_hash,
-            issued_at=self.issued_at,
-            expires_at=self.expires_at,
-            attempts=self.attempts + 1,
-            verified_at=instant,
-            superseded_at=self.superseded_at,
-        )
+        return replace(self, attempts=self.attempts + 1, verified_at=instant)
 
     def superseded(self, instant: datetime) -> OTPChallenge:
         """Closed because a newer code was sent; one verified or superseded is left alone."""
         if self.superseded_at is not None or self.verified_at is not None:
             return self
-        return OTPChallenge(
-            id=self.id,
-            phone_number=self.phone_number,
-            code_hash=self.code_hash,
-            issued_at=self.issued_at,
-            expires_at=self.expires_at,
-            attempts=self.attempts,
-            verified_at=self.verified_at,
-            superseded_at=instant,
-        )
+        return replace(self, superseded_at=instant)
 
     @property
     def code_is_held_by_provider(self) -> bool:
@@ -158,28 +131,10 @@ class RefreshToken:
         )
 
     def rotated(self, instant: datetime) -> RefreshToken:
-        return RefreshToken(
-            id=self.id,
-            family_id=self.family_id,
-            user_id=self.user_id,
-            token_hash=self.token_hash,
-            issued_at=self.issued_at,
-            expires_at=self.expires_at,
-            rotated_at=instant,
-            revoked_at=self.revoked_at,
-        )
+        return replace(self, rotated_at=instant)
 
     def revoked(self, instant: datetime) -> RefreshToken:
-        return RefreshToken(
-            id=self.id,
-            family_id=self.family_id,
-            user_id=self.user_id,
-            token_hash=self.token_hash,
-            issued_at=self.issued_at,
-            expires_at=self.expires_at,
-            rotated_at=self.rotated_at,
-            revoked_at=self.revoked_at or instant,
-        )
+        return replace(self, revoked_at=self.revoked_at or instant)
 
 
 @dataclass(frozen=True, slots=True)
