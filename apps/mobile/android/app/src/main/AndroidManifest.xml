@@ -4,6 +4,9 @@
     <!-- The call state broadcast: ringing, off hook, idle. No number and no audio. Asked for with
          an explanation, and optional: without it only the screening decision is reported. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Installing a newer release of this app, and only that (update/SelfUpdater.kt, D-043). Its
+         first use asks the user to allow installs from this app. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
       android:name=".MainApplication"
@@ -46,5 +49,11 @@
             <action android:name="android.intent.action.PHONE_STATE" />
         </intent-filter>
       </receiver>
+
+      <!-- The result of an update install. Reached only through the pending intent the install
+           session was committed with. -->
+      <receiver
+        android:name=".update.UpdateInstallResultReceiver"
+        android:exported="false" />
     </application>
 </manifest>
