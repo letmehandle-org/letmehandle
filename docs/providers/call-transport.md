@@ -210,6 +210,23 @@ No account is needed for the test suite: `tests/support/simulated_twilio.py` ans
 signs every callback exactly as the provider does, opens real websockets to the application on
 loopback, and can duplicate, reorder and drop callbacks, fail a dial, and hang up either party.
 
+## Adding one
+
+The steps, the contract fixture and the capabilities a SIP, carrier or IMS transport would declare
+are in [`docs/architecture/call-transport.md`](../architecture/call-transport.md#adding-a-transport).
+The contract fixture for a new transport has the shape of the streaming transport's:
+
+```python
+class TestExampleCallTransport(CallTransportContract):
+    @pytest.fixture
+    async def transport(self) -> AsyncIterator[ExampleCallTransport]:
+        async with simulated_example_deployment() as deployment:
+            await deployment.provider.place_call(A_CALL.value)
+            yield deployment.transport
+```
+
+Add its column to the capability matrix in the same pull request; a test fails until it is there.
+
 ## Verified on the first real call, not here
 
 The documentation does not settle these, and the code tolerates either answer where it can.
