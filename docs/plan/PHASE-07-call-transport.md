@@ -168,3 +168,60 @@ and no phone number. An instrumented Android harness for the screening path.
   for phase 13, not a reason to weaken the architecture.
 - **Narrowband audio.** Call audio will degrade recognition relative to the phase 5 harness.
   Measured, reported, treated as a known characteristic.
+
+## Verification report
+
+```
+PHASE 7 VERIFICATION
+
+Planned tasks:        complete, except the calls made by hand on real numbers and handsets
+Acceptance criteria:  9 of 11 passed; 3 and 4 held on a real call, each proven against simulators
+Unit tests:           passed   backend 2020 passed, 14 skipped (make verify); mobile 233 passed;
+                               Android JVM 84 passed (./gradlew :app:testDebugUnitTest)
+Integration tests:    passed   whole calls replayed against the simulated provider, duplicated,
+                               reordered and delivered concurrently; call reports against Postgres
+Contract tests:       passed   one CallTransport suite, run against both transports
+Instrumented tests:   held     CallScreeningInstrumentedTest is written; not run in this report
+Coverage:             100.00%  backend, floor 98
+Lint / Format:        passed   ruff, prettier, eslint
+Typecheck:            passed   mypy --strict, tsc
+Static analysis:      passed   import-linter contracts kept; the transport-names test
+Build:                passed   backend image, debug APK
+Application runs:     yes      with no transport, with the handset transport, and with the
+                               streaming transport against the simulated provider
+Docs updated:         D-027, D-028, docs/providers/call-transport.md, docs/providers/README.md
+Known issues:         none open in code; criteria 3 and 4 held, below
+Commits:              62 on the branch, one change each
+```
+
+## Acceptance criteria, each with its evidence
+
+| # | Criterion | Evidence |
+| --- | --- | --- |
+| 1 | Both transports implement `CallTransport` and pass one contract suite | `tests/contracts/call_transport.py`, run by `test_twilio_call_transport_contract.py` and `test_android_native_transport_contract.py` |
+| 2 | Capabilities declared honestly | The contract suite invokes every operation; one a transport declares unsupported fails naming the capability |
+| 3 | The streaming transport answers, converses, dials a human and joins them | Proven against the simulated provider in `tests/integration/test_twilio_call_flow.py`. **Held** on a real call: no number is provisioned |
+| 4 | The native transport screens before ringing and can allow, reject or silence | Kotlin tests over the rules, the deadline and the service. **Held** on a real handset and on the instrumented run |
+| 5 | The native transport declares no audio and nothing obtains call audio | Capabilities false; a test refuses a recording permission in the merged manifest |
+| 6 | Selection happens once, in bootstrap | `test_transport_names_stay_in_bootstrap.py`, case-insensitive and substring-matched |
+| 7 | Every disconnect path cleans up, per participant | Termination under the call's lock, every step attempted; shutdown ends live calls; the caller's own dial ending ends the call |
+| 8 | Duplicates idempotent; unverified webhooks rejected | Event-id idempotency; signature verification with tampered and repeated parameters; one-time stream tokens |
+| 9 | The suite runs in CI with no account or number | The simulated provider; CI green |
+| 10 | No credential, number or account identifier tracked | Disclosure audit in `make verify` and CI; fixtures from ranges reserved for fiction |
+| 11 | Coverage meets the floors | 100% |
+
+## What changed from the plan
+
+A streaming call is a conference from the moment it is answered (D-027), so bringing the user in
+adds a leg rather than moving a call. A handset decides its own screening from a snapshot of the
+rules and reports what it decided (D-028); the backend is told, never asked, because it cannot
+answer inside the ringing deadline. Choosing a transport per user is left to the orchestrator.
+
+## Reviews, and what they found
+
+An adversarial review reproduced sixteen defects against a green suite, all fixed with a test
+that failed first. Among them: a call ended while a dial was in flight left that leg ringing; a
+provider refusal during termination left the call held forever; a media stream could attach to
+any leg that guessed its path; a user who answered could be reported unreachable; one invalid
+report refused a whole batch, and a handset then resent it forever; an unreadable stored event
+stopped a handset recording any later one.
