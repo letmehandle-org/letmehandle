@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 # The version every judgement uses unless told otherwise. Changing it is a prompt change, and the
 # evaluation suite is how a prompt change earns its place.
-PROMPT_VERSION: Final = "v3"
+PROMPT_VERSION: Final = "v4"
 
 # Each template, and exactly the placeholders it may use. Checked when the templates are read, so
 # a stray `$` or a misspelt placeholder stops a process from loading them rather than failing on
