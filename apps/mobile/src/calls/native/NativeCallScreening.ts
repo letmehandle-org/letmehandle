@@ -19,7 +19,9 @@ export interface Spec extends TurboModule {
   requestRole(): Promise<string>;
   /** Stores the rules the screening service applies. Rejects a document it could not read. */
   writeRulesSnapshot(snapshot: string): Promise<void>;
-  /** Forgets the rules and every unreported call, for a sign-out. */
+  /** Records calls from now on, for the account that has signed in. Nothing is recorded before. */
+  startRecordingCalls(): Promise<void>;
+  /** Forgets the rules and every unreported call, and stops recording, for a sign-out. */
   forgetAccount(): Promise<void>;
   /** The unreported call events, as a JSON array of call reports. */
   pendingCallEvents(): Promise<string>;

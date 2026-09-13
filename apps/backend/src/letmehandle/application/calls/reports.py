@@ -147,5 +147,6 @@ def _to_event(user_id: UserId, report: CallReport) -> CallEvent:
         caller=None if report.caller_number is None else Caller(number=report.caller_number),
         detail=None if report.ending is None else report.ending.value,
         screening=report.screening,
+        occurred_at=report.occurred_at,
         correlation_id=correlation_id.get(),
     )

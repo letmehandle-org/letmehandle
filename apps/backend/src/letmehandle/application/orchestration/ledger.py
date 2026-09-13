@@ -14,6 +14,7 @@ call again, and teardown stores it last.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.resilience.retry import RetryPolicy, retry_idempotent
@@ -50,6 +51,28 @@ FINAL_SAVE: Final = RetryPolicy(attempts=3)
 TRANSITION: Final = catalogue.count("call.transition", outcome=CallState)
 # How long a call spent in the state it has just left, labelled by that state.
 STATE_SECONDS: Final = catalogue.measure("call.state_seconds", outcome=CallState)
+
+# How far ahead of this host's clock a reported moment may be and still be believed: the allowance
+# a handset's rules snapshot is given for the same two clocks disagreeing (D-028). Further ahead,
+# the handset's clock is wrong, and now is the nearest moment that can be true.
+REPORTED_CLOCK_SKEW: Final = timedelta(minutes=5)
+
+
+def reported_instant(
+    reported: datetime | None, *, now: datetime, not_before: datetime | None = None
+) -> datetime:
+    """When something happened to a call: the moment its transport reported, or else now.
+
+    A moment beyond `REPORTED_CLOCK_SKEW` ahead of now is taken as now, and one earlier than
+    `not_before` as `not_before`, so a call's history never runs backwards (D-029).
+    """
+    if reported is None:
+        return now
+    if reported > now + REPORTED_CLOCK_SKEW:
+        reported = now
+    if not_before is not None and reported < not_before:
+        return not_before
+    return reported
 
 
 class CallLedger:
@@ -98,14 +121,17 @@ class CallLedger:
         """Mark something that happened to the call now. Stored with the call's next save."""
         self._marks.append(TimelineMark(self._clock.now(), kind, name))
 
-    async def move(self, state: CallState) -> None:
-        """Move the call, stamped now. Raises for a move the state machine forbids.
+    async def move(self, state: CallState, *, at: datetime | None = None) -> None:
+        """Move the call, stamped `at` or now. Raises for a move the state machine forbids.
+
+        `at` is when the event that moved it happened, where its transport said; it is never
+        recorded earlier than the move before it.
 
         Stored at once, except an ending: that is stored with the summary, once teardown has let
         everything go, so a process that stops part-way through a teardown leaves the call
         unfinished for the next start to end rather than ended with no summary.
         """
-        left, now = self._call.state, self._clock.now()
+        left, now = self._call.state, self._instant(at)
         self._call.move_to(state, at_instant=now)
         self._metrics.increment(TRANSITION, {"outcome": state.value})
         self._metrics.observe(
@@ -116,18 +142,18 @@ class CallLedger:
         if not self._call.is_over:
             await self._save("move")
 
-    async def joined(self, role: ParticipantRole) -> None:
-        """Somebody came on the call. Hearing it twice changes nothing."""
+    async def joined(self, role: ParticipantRole, *, at: datetime | None = None) -> None:
+        """Somebody came on the call, `at` or now. Hearing it twice changes nothing."""
         if self._call.has_participant(role):
             return
-        self._call.add_participant(role, self._clock.now())
+        self._call.add_participant(role, self._instant(at))
         await self._save("join")
 
-    async def left(self, role: ParticipantRole) -> None:
-        """Somebody left it. Hearing it about somebody not there changes nothing."""
+    async def left(self, role: ParticipantRole, *, at: datetime | None = None) -> None:
+        """Somebody left it, `at` or now. Hearing it about somebody not there changes nothing."""
         if not self._call.has_participant(role):
             return
-        self._call.remove_participant(role, self._clock.now())
+        self._call.remove_participant(role, self._instant(at))
         await self._save("leave")
 
     async def said(self, speaker: Speaker, text: str) -> None:
@@ -154,6 +180,9 @@ class CallLedger:
             await stores.summaries.add(self._call.user_id, summary)
 
         await self._write("summary", add)
+
+    def _instant(self, reported: datetime | None) -> datetime:
+        return reported_instant(reported, now=self._clock.now(), not_before=self._state_since)
 
     async def _save(self, stage: str, *, retry: RetryPolicy | None = None) -> bool:
         stored = 0

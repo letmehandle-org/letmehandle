@@ -160,6 +160,7 @@ class CallScreeningInstrumentedTest {
   @Test
   fun the_phone_state_broadcast_becomes_the_shared_event_vocabulary() {
     val receiver = PhoneStateReceiver()
+    graph.rememberAccount()
     graph.ledger.screened(caller, ScreeningDecision.SILENCE, Instant.now())
 
     for (state in

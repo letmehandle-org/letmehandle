@@ -122,6 +122,20 @@ class TestMapping:
         assert ended.detail == "completed"
         assert ended.caller is None
 
+    async def test_each_event_says_when_the_handset_saw_it_happen(
+        self, reporting: CallReporting, sink: RecordingCallEventSink
+    ) -> None:
+        # Not when the report arrived: a handset offline for an hour reports an hour late.
+        rang = CallReport(
+            event_id=EventId("e1"),
+            call_id=CallId("call-1"),
+            kind=CallEventKind.INCOMING,
+            occurred_at=AT - timedelta(hours=1),
+        )
+        await reporting.report(USER, [rang])
+
+        assert [event.occurred_at for event in sink.published] == [AT - timedelta(hours=1)]
+
     async def test_identifiers_name_the_user_as_well_as_the_handset_call(
         self, reporting: CallReporting, sink: RecordingCallEventSink
     ) -> None:

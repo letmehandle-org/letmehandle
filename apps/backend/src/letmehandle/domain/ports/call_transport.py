@@ -21,7 +21,7 @@ from letmehandle.domain.errors import CapabilityNotSupportedError, InvariantErro
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from datetime import timedelta
+    from datetime import datetime, timedelta
 
     from letmehandle.domain.models.audio import AudioFormat, AudioFrame
     from letmehandle.domain.models.caller import Caller
@@ -173,6 +173,11 @@ class CallEvent:
     event announcing the call. It is a report rather than something to act on: the decision has
     already been applied where the call is, because nothing else could have made it in time.
 
+    `occurred_at` is when the event happened, from a transport that reports its calls after the
+    fact and so knows better than the moment of arrival; a handset offline for hours reports hours
+    late. A transport that streams its calls as they happen leaves it unset, and the moment the
+    event is handled is when it happened.
+
     `correlation_id` is the identifier of the request that delivered the event, when a request did,
     so a call's own log lines can be read beside the request that started it. It is a label for
     reading logs and nothing else, so it plays no part in whether two events are the same event.
@@ -186,6 +191,7 @@ class CallEvent:
     participant: ParticipantRole | None = None
     outcome: ParticipantOutcome | None = None
     screening: ScreeningDecision | None = None
+    occurred_at: datetime | None = None
     correlation_id: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
@@ -193,6 +199,8 @@ class CallEvent:
         # event it would read as a second decision, and there is no second one.
         if self.screening is not None and self.kind is not CallEventKind.INCOMING:
             raise InvariantError("a screening decision is reported on the incoming event only")
+        if self.occurred_at is not None and self.occurred_at.tzinfo is None:
+            raise InvariantError("a reported moment must carry its timezone")
         is_participant_event = self.kind in _PARTICIPANT_KINDS
         if is_participant_event != (self.participant is not None):
             raise InvariantError(

@@ -431,6 +431,16 @@ contacts and callers withholding their number are never shown to it and always r
 handset does not classify callers, so only important contacts and the `unknown` category apply
 there.
 
+*Amended:* the handset records calls only while an account is signed in. The app switches recording
+on when a signed-in session starts and sign-out switches it off in the same step that forgets the
+account's rules and unreported calls, under the lock every recording takes. A call with nobody
+signed in is let ring, as it is with no rules, and nothing about it is kept: it is nobody's to
+report, and on a shared phone it is somebody else's, which kept events would have reported to
+whoever signed in next. Stamping each stored event with the account it was recorded under and
+dropping the rest at sending was not chosen: it would still keep callers' numbers on the handset
+for an account that does not exist, and needs an identity for "nobody" that not recording does not.
+An install that was signed in before this starts recording the next time the app is opened.
+
 ## D-029 — One orchestrator, one sequential run per call, and a plan derived from capabilities
 
 **Accepted.** A single `CallOrchestrator` owns every call's life. Each live call is a *run*: an
@@ -486,6 +496,16 @@ none of the account's room. Both hold on every transport, because neither asks w
 as teardown's last write, once the call has been let go at its transport; a process that stops
 part-way through a teardown therefore leaves the call unfinished, for the next start to end and
 summarise, rather than ended with no summary that anything would ever write.
+
+*Amended:* a call is recorded at the moments things happened to it, not the moments the run heard.
+A transport that reports its calls after the fact — the handset, which may be offline for hours —
+sets `occurred_at` on each event, and what that event causes is stamped with it: the call's start,
+the moves routing makes on arrival, somebody joining or leaving, the ending. An event without one,
+as every streaming event is, is stamped with the clock. A reported moment more than five minutes
+ahead of the clock (the skew D-028 allows a rules snapshot) is recorded as now, and one earlier
+than the call's last recorded move as that move, so history never runs backwards. Timers — the
+ring, the call's lifetime — and anything the run decides itself stay on the clock: a call reported
+hours late is given its whole bound from when it was heard of, not ended on arrival.
 
 ## D-030 — Hours are when the assistant answers; none means around the clock
 

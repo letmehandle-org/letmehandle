@@ -150,6 +150,22 @@ class TestCallEvents:
         with pytest.raises(InvariantError, match="incoming event only"):
             CallEvent(kind, CallId("c"), EventId("e"), screening=ScreeningDecision.ALLOW)
 
+    def test_an_event_reported_after_the_fact_says_when_it_happened(self) -> None:
+        at = datetime(2026, 9, 13, 12, 11, 33, tzinfo=UTC)
+        event = CallEvent(CallEventKind.ENDED, CallId("c"), EventId("e"), occurred_at=at)
+        assert event.occurred_at == at
+        assert CallEvent(CallEventKind.ENDED, CallId("c"), EventId("e")).occurred_at is None
+
+    def test_a_moment_without_a_timezone_is_refused(self) -> None:
+        # A naive moment is read as whatever zone the reading host is in: hours out, silently.
+        with pytest.raises(InvariantError, match="timezone"):
+            CallEvent(
+                CallEventKind.ENDED,
+                CallId("c"),
+                EventId("e"),
+                occurred_at=datetime(2026, 9, 13, 12, 11, 33),
+            )
+
 
 class TestNotificationValues:
     def test_an_empty_device_token_is_refused(self) -> None:

@@ -97,6 +97,8 @@ function setUp(): {
   unreadable: string[][];
 } {
   const native = new FakeNativeCallScreening();
+  // A reporter runs only while somebody is signed in, which is when the handset records.
+  native.recording = true;
   const screening = callScreeningFrom(native) as CallScreening;
   const sender = new RecordingSender();
   const waits: number[] = [];

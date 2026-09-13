@@ -23,6 +23,7 @@ export interface CallScreening {
   roleStatus(): Promise<RoleStatus>;
   requestRole(): Promise<RoleRequestOutcome>;
   writeRulesSnapshot(snapshot: RulesSnapshot): Promise<void>;
+  startRecordingCalls(): Promise<void>;
   forgetAccount(): Promise<void>;
   /** The unreported events, as the JSON array the native side holds. */
   pendingCallEvents(): Promise<string>;
@@ -52,6 +53,7 @@ export function callScreeningFrom(
     requestRole: async () => known(await native.requestRole(), ROLE_OUTCOMES),
     writeRulesSnapshot: snapshot =>
       native.writeRulesSnapshot(JSON.stringify(snapshot)),
+    startRecordingCalls: () => native.startRecordingCalls(),
     forgetAccount: () => native.forgetAccount(),
     pendingCallEvents: () => native.pendingCallEvents(),
     acknowledgeCallEvents: eventIds =>
