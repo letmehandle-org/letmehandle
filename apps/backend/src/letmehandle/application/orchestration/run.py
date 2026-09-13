@@ -1,28 +1,4 @@
-"""One live call, from the moment it arrives until it is torn down.
-
-A run reads its inbox one input at a time, and nothing else changes its call, so two things that
-happen at once to one call are two inputs in order rather than an interleaving. What a run waits on
-outside its inbox — a conversation, a judgement, a timer — is a task the run owns, and reports back
-as another input. Every wait is bounded, and running out is an input like any other (D-029).
-
-The state machine, as a run drives it:
-
-    arrival        RECEIVED → ROUTING → REJECTED, PASSTHROUGH or AGENT_HANDLING
-    PASSTHROUGH    → COMPLETED when the user is not reached, or either of them hangs up
-    AGENT_HANDLING → ESCALATION_REQUESTED when an escalation is to ring the user now
-    ESCALATION_REQUESTED → HUMAN_RINGING once the user is being dialled,
-                         → AGENT_HANDLING when the dial is refused
-    HUMAN_RINGING  → HUMAN_JOINED when the user answers,
-                   → AGENT_HANDLING when they do not — no answer, busy, failed, a machine, or the
-                     ring running out — with that outcome in the assistant's context
-    HUMAN_JOINED   → COMPLETED when the user or the caller leaves
-    any            → COMPLETED when the caller hangs up or the agent ends the call,
-                   → FAILED when the transport or the assistant fails, the call outlasts the
-                     longest a call may last, or the process stops
-    RECEIVED       → FAILED when the account already has as many live calls as it may
-
-Every ending goes through `_finish`, the one teardown.
-"""
+"""One live call's run: its inbox read one input at a time, from arrival to teardown (D-029)."""
 
 from __future__ import annotations
 
@@ -107,13 +83,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# While the assistant is on the call and the user is not, something the caller says is worth
-# another look. Once the user has joined, the call is theirs to handle.
+# Where the agent looks at what the caller says: the assistant is on the call and the user is not.
 _JUDGED_IN: Final = frozenset(
     {CallState.AGENT_HANDLING, CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING}
 )
 
-# Where the user is being reached, and may yet not be.
+# Where the user is being reached and may yet not be.
 _USER_BEING_REACHED: Final = frozenset({CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING})
 
 
@@ -153,7 +128,7 @@ class RunContext:
 
 @dataclass(frozen=True, slots=True)
 class CallStanding:
-    """Where one live call is, and since when. A call long in one state is a call stuck in it."""
+    """Where one live call is, and since when."""
 
     call_id: CallId
     state: CallState
@@ -182,7 +157,7 @@ class CallRun:
         degraded: tuple[Dependency, ...] = (),
     ) -> None:
         self._incoming = incoming
-        # What the plan was made without, because its circuit was open when the call arrived.
+        # The dependencies the plan was made without, their circuits open as the call arrived.
         self._degraded = degraded
         self._plan = plan
         self._line = line
@@ -196,7 +171,7 @@ class CallRun:
         self._silence = Timer(self.post)
         self._lifetime = Timer(self.post)
         self._findings = Findings()
-        # The assistant handed the call over to a user not yet on it: its part ends when they join.
+        # Whether the assistant handed the call to a user not yet on it, to stop when they join.
         self._handed_over = False
         self._finished = False
         self._owner: UserId | None = None
@@ -229,11 +204,7 @@ class CallRun:
         self._inbox.put_nowait(item)
 
     async def run(self) -> None:
-        """Act on the arrival, then on every input in turn, until the call is torn down.
-
-        On every exit, cancellation included, nothing the run started is left running, and a
-        request still waiting in the inbox is told the call is over.
-        """
+        """Act on the arrival, then on every input in turn, leaving nothing running on any exit."""
         bind_call(self.call_id.value, self._incoming.correlation_id)
         try:
             with self._context.tracer.span("call", **{CALL_ID: self.call_id.value}):
@@ -249,16 +220,15 @@ class CallRun:
     async def _arrive(self) -> _Live | None:
         owner = await self._find_owner()
         if owner is None:
-            # Nobody's call: there is nobody to record it for, and nobody to put it through to.
+            # Nobody's call: released at the transport with no record.
             await self._telephony.terminate()
             self._finished = True
             self._context.metrics.increment(ROUTED, {"outcome": "nobody"})
             return None
         context = self._context
-        # When the call arrived, where its transport said: a handset reports its calls afterwards.
+        # When the call arrived, as its transport reported it.
         arrived = self._incoming.occurred_at
-        # Asked and answered before anything is awaited, so two calls arriving together cannot both
-        # take the last room. A call refused is given no owner: it holds none of the account's room.
+        # Decided before any await; a refused call is given no owner and so holds none of the room.
         admitted = context.admits(owner.user_id)
         if admitted:
             self._owner = owner.user_id
@@ -310,10 +280,8 @@ class CallRun:
                     return None
                 async with self._context.stores() as stores:
                     return await _owner(stores, user_id)
-        # Nobody can be found for a call while storage is down, and a call nobody owns is released
-        # rather than held: logged and counted by kind, not raised past the run.
+        # An owner that cannot be found makes the call nobody's: logged with no traceback, counted.
         except Exception as error:  # noqa: BLE001
-            # Without a traceback: its frames can hold who called.
             log_failure(logger, "call.owner_unavailable", error)
             self._context.metrics.increment(
                 PROVIDER_FAILED, {"stage": "owner", "kind": classify(error).kind}
@@ -324,7 +292,7 @@ class CallRun:
         await live.ledger.move(CallState.PASSTHROUGH, at=arrived)
         step = self._plan.put_through
         if not isinstance(step, DialTheUser):
-            # It rings where it is, and whoever holds that phone answers it.
+            # The call rings where it already is.
             return
         if not await self._telephony.dial(step.bridge, live.owner.number):
             await self._finish(live, CallState.FAILED)
@@ -364,11 +332,11 @@ class CallRun:
             case EscalationRequested() | EndingRequested() | OutcomeRecorded() | MessageTaken():
                 await self._on_request(live, item)
             case _:
-                # A wait that ran out after it was cancelled: its expiry was already on the way.
+                # The expiry of a wait since cancelled or armed again.
                 pass
 
     async def _on_event(self, live: _Live, event: CallEvent) -> None:
-        # What the event changes is recorded at the moment it happened, where its transport said.
+        # When the event happened, as its transport reported it.
         at = event.occurred_at
         match event.kind:
             case CallEventKind.ENDED:
@@ -377,8 +345,7 @@ class CallRun:
             case CallEventKind.FAILED:
                 await self._finish(live, CallState.FAILED, at=at)
             case CallEventKind.ANSWERED if isinstance(self._plan.put_through, LetItRing):
-                # On a call that rings where it is, answering is the user picking it up. Elsewhere
-                # it is the caller being answered into the call, which changes nothing here.
+                # The user picking up a call that rings where it is.
                 await live.ledger.joined(ParticipantRole.HUMAN, at=at)
             case CallEventKind.PARTICIPANT_JOINED:
                 await self._on_joined(live, event.participant, at)
@@ -387,8 +354,7 @@ class CallRun:
             case CallEventKind.PARTICIPANT_LEFT:
                 await self._on_left(live, event.participant, at)
             case _:
-                # The caller answered into the call, or the call announced again under another
-                # identifier: nothing that was not already known.
+                # Nothing to act on: the caller answered into the call, or it was announced again.
                 pass
 
     async def _on_joined(self, live: _Live, leg: Leg | None, at: datetime | None) -> None:
@@ -403,24 +369,21 @@ class CallRun:
                     ESCALATION_RESOLVED, {"outcome": ParticipantOutcome.ANSWERED.value}
                 )
                 await ledger.move(CallState.HUMAN_JOINED, at=at)
-                # The assistant was on the call before the user was rung, even when the callback
-                # saying so is still on its way: record it first, so the order is the true one.
+                # The assistant is recorded first: it was on the call before the user was rung.
                 if not any(each.role is ParticipantRole.AGENT for each in ledger.call.participants):
                     await ledger.joined(ParticipantRole.AGENT, at=at)
                 await ledger.joined(ParticipantRole.HUMAN, at=at)
                 if self._handed_over:
                     await self._speaking.stop()
                 else:
-                    await self._tell(Situation(UserReach.ON_THE_CALL))
+                    await self._speaking.tell(Situation(UserReach.ON_THE_CALL))
             case CallState.PASSTHROUGH:
                 self._ring.cancel()
                 await ledger.joined(ParticipantRole.HUMAN, at=at)
             case _:
-                # The user answering a ring already given up on, whose cancelling did not reach the
-                # provider in time: they are on the call all the same. The assistant keeps it, and
-                # is told they are there; the record says who was on it.
+                # The user answered a ring already given up on: the assistant keeps the call.
                 await ledger.joined(ParticipantRole.HUMAN, at=at)
-                await self._tell(Situation(UserReach.ON_THE_CALL))
+                await self._speaking.tell(Situation(UserReach.ON_THE_CALL))
 
     async def _on_unreachable(
         self,
@@ -455,18 +418,18 @@ class CallRun:
             await self._finish(live, CallState.COMPLETED, at=at)
 
     async def _ran_too_long(self, live: _Live) -> None:
-        """Nothing reported the call ending in all the time a call may last, so it is ended here."""
+        """End a call that has lasted the longest a call may with nothing reporting it ended."""
         limit = int(self._context.bounds.duration.total_seconds())
         logger.warning("call.ran_too_long", limit_seconds=limit)
         self._context.metrics.increment(CALL_BOUNDED, {"kind": "duration"})
         await self._finish(live, CallState.FAILED)
 
     def _expect_hang_up(self) -> None:
-        """The assistant's audio went: the transport has `speaker_gone` to say the call ended."""
+        """Give the transport the `speaker_gone` bound to report the call ended, its audio gone."""
         self._silence.arm(self._context.bounds.speaker_gone, SilenceRanOut)
 
     async def _assistant_lost(self, live: _Live, at: datetime | None = None) -> None:
-        """The assistant cannot go on. The call stands only while the user is coming or here."""
+        """Stop the assistant, failing the call unless the user is on it or being reached."""
         await self._speaking.stop()
         if live.ledger.state is CallState.AGENT_HANDLING:
             await self._finish(live, CallState.FAILED, at=at)
@@ -488,7 +451,7 @@ class CallRun:
         if live.ledger.state is CallState.HUMAN_RINGING:
             await self._not_reached(live, ParticipantOutcome.NO_ANSWER, cancel=dial)
             return
-        # Put through, and nobody picked up.
+        # A call put through that nobody picked up.
         await self._telephony.cancel(dial.bridge, live.owner.number)
         await self._finish(live, CallState.COMPLETED)
 
@@ -500,8 +463,7 @@ class CallRun:
                 case EscalationRequested(decision=decision):
                     await self._escalate(live, decision)
                 case EndingRequested(ending=ending, assessment=assessment):
-                    # Kept before acting on it: ending the call cancels the judgement that asked,
-                    # and with it the report of what it judged the call to be.
+                    # Kept first, since ending the call cancels the judgement that carried it.
                     self._findings = replace(self._findings, proposal=assessment)
                     await self._end_for_agent(live, ending)
                 case OutcomeRecorded(record=record):
@@ -518,14 +480,13 @@ class CallRun:
     async def _escalate(self, live: _Live, decision: EscalationDecision) -> None:
         ledger = live.ledger
         if ledger.state is not CallState.AGENT_HANDLING:
-            # Already reaching the user, or reached: one ring at a time.
+            # The user is already being reached, or is on the call.
             return
         self._findings = replace(self._findings, escalation_reason=decision.reason)
         step = self._plan.escalation
         reason = decision.reason
         if step is None or reason is None or not decision.is_immediate:
-            # Nothing rings: the plan has no way to add the user, or the rules said not now. The
-            # reason is kept, and the user reads it in the call's history.
+            # Nothing rings: the plan cannot add the user, or the rules say not now.
             return
         with self._context.tracer.span("call.escalation", outcome=reason.value):
             await ledger.move(CallState.ESCALATION_REQUESTED)
@@ -533,13 +494,15 @@ class CallRun:
             self._notify(live, decision, reason)
             # The assistant learns the user is being reached as the dial starts, not after it.
             _, dialled = await asyncio.gather(
-                self._tell(Situation(UserReach.BEING_REACHED)),
+                self._speaking.tell(Situation(UserReach.BEING_REACHED)),
                 self._telephony.dial(step.bridge, live.owner.number),
             )
             if not dialled:
                 self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "dial_refused"})
                 await ledger.move(CallState.AGENT_HANDLING)
-                await self._tell(Situation(UserReach.NOT_REACHED, ParticipantOutcome.FAILED))
+                await self._speaking.tell(
+                    Situation(UserReach.NOT_REACHED, ParticipantOutcome.FAILED)
+                )
                 raise DialRefusedError
             await ledger.move(CallState.HUMAN_RINGING)
             self._ring_for(step)
@@ -547,25 +510,21 @@ class CallRun:
     async def _end_for_agent(self, live: _Live, ending: CallEnding) -> None:
         handed_over = ending is CallEnding.HANDED_OVER
         if handed_over and live.ledger.state is CallState.HUMAN_JOINED:
-            # Handed over to a user who is here: the assistant's part is done, and the call is not
-            # the assistant's to hang up on them.
+            # Handed to a user on the call: the assistant goes and the call stays up.
             await self._speaking.stop()
             return
         if handed_over and live.ledger.state in _USER_BEING_REACHED:
-            # Handed over to a user still being reached. Until they answer, the assistant keeps the
-            # caller company, and takes the call back if they do not: stopping it now would leave
-            # the caller in silence, and the call ended by nobody's choice when the user is busy.
+            # Handed to a user still being reached: the assistant stays until they answer or do not.
             self._handed_over = True
             return
-        # The agent usually asks while the assistant is still saying goodbye. Hung up at once, the
-        # caller hears it cut off mid-sentence and its last words never reach the transcript.
+        # The caller hears the assistant's last words before the call is hung up.
         await self._speaking.finish_speaking()
         await self._finish(live, CallState.COMPLETED)
 
     def _notify(self, live: _Live, decision: EscalationDecision, reason: EscalationReason) -> None:
         call = live.ledger.call
         if len(call.id.value) > MAX_CALL_ID_LENGTH:
-            # A notification that cannot be bound to its call is not sent; the ring still is.
+            # A notification that cannot name its call is not sent; the ring still is.
             logger.warning("call.escalation_not_notified")
             return
         number = call.caller.number
@@ -591,22 +550,18 @@ class CallRun:
         cancel: DialTheUser | None,
         at: datetime | None = None,
     ) -> None:
-        """The user did not come: the assistant takes the call back, and is told why.
-
-        `cancel` is the dial still ringing them, when it is this side that gave up on it; `at` is
-        when the transport said they did not come.
-        """
+        """Hand the call back to the assistant, told why the user did not come; cancel `cancel`."""
         self._ring.cancel()
         self._handed_over = False
         self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": outcome.value})
         if cancel is not None:
             await self._telephony.cancel(cancel.bridge, live.owner.number)
         if not self._speaking.is_speaking:
-            # Nobody is left to take it back.
+            # No assistant is left to take the call back.
             await self._finish(live, CallState.COMPLETED, at=at)
             return
         await live.ledger.move(CallState.AGENT_HANDLING, at=at)
-        await self._tell(Situation(UserReach.NOT_REACHED, outcome))
+        await self._speaking.tell(Situation(UserReach.NOT_REACHED, outcome))
 
     # ------------------------------------------------------------------------------- judgement
 
@@ -635,17 +590,7 @@ class CallRun:
     # -------------------------------------------------------------------------------- teardown
 
     async def _finish(self, live: _Live, state: CallState, *, at: datetime | None = None) -> None:
-        """The one teardown. Every ending of a call reaches it, and it runs once.
-
-        `at` is when the event that ended the call happened, where its transport said.
-
-        The conversation, the speech session, the judgement and the timers stop; the transport lets
-        the call go; the agent forgets it; the call is stored as it ended with its summary; and the
-        user's escalation context, if there is one, is marked ended.
-
-        The summary is written after the transport has let the call go, so however long it takes
-        nobody is left on a line waiting for it, and that wait has a bound of its own.
-        """
+        """The one teardown every ending reaches: stop, record, let go, summarise, store (D-029)."""
         self._finished = True
         ledger = live.ledger
         if ledger.state in _USER_BEING_REACHED:
@@ -700,12 +645,9 @@ class CallRun:
     # ------------------------------------------------------------------------------- utilities
 
     def _note(self, kind: MarkKind, name: str) -> None:
-        # A call nobody owns has no record, and so no timeline to mark.
+        # A call nobody owns has no record to mark.
         if self._ledger is not None:
             self._ledger.note(kind, name)
-
-    async def _tell(self, situation: Situation) -> None:
-        await self._speaking.tell(situation)
 
     def _ring_for(self, dial: DialTheUser) -> None:
         self._ring.arm(self._context.bounds.ring, lambda generation: RingRanOut(dial, generation))
@@ -728,11 +670,7 @@ async def _owner(stores: CallStores, user_id: UserId) -> Owner | None:
 
 
 def _recognised(caller: Caller, preferences: UserPreferences) -> Caller:
-    """The caller as the user knows them: under their own label, when they named the number.
-
-    The same precedence routing gives an important contact over any category, so a call routed as
-    somebody the user named is recorded, listed and summarised as them, not as a stranger.
-    """
+    """The caller under the user's own label for their number, when the user named it."""
     contact = None if caller.number is None else preferences.contact_for(caller.number)
     if contact is None:
         return caller
@@ -744,8 +682,7 @@ def _speaker(turn: TranscriptTurn) -> Speaker:
 
 
 def _settle(reply: asyncio.Future[None], error: DomainError | None) -> None:
-    # A request whose asker has gone — a judgement cancelled while it waited — has nobody to hear
-    # the answer, and an exception set on it would be reported as never retrieved.
+    # A reply already cancelled with its asker is left alone.
     if reply.done():
         return
     if error is None:
