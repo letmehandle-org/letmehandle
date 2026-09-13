@@ -93,23 +93,58 @@ Integration tests:    passed   the real SDK loop on a scripted model; summaries 
                                history listing, filtering, pagination, transcript purged vs absent,
                                deletion
 Evaluation:           passed   tests/evaluation/summaries.json and scripts/summary_evaluation.py
-                               against a real OpenAI-compatible model, prompts v2, three full runs:
-                               every class at or above 90% on the mean, below; degenerate
-                               strategies proven to fail every class
+                               against a real OpenAI-compatible model, prompts v3, three full runs:
+                               no summary fell back; every class but ending at or above 90% on the
+                               mean, below; degenerate strategies proven to fail every class
 Coverage:             100.00%  backend
 Docs updated:         this plan
 Known issues:         mobile activity and call detail screens are not yet built
 ```
 
 A model's draft is kept only when every detail quotes the transcript, the outcome agrees with the
-call's facts, and the headline is short and names the ending; anything else falls back to the
-summary built from the facts. The summariser runs inside teardown's summary bound.
+call's facts, and the headline is short and names the ending. A draft the checks refuse is sent back
+once, with the problems they named, and the corrected draft is held to the same checks; anything
+else falls back to the summary built from the facts. A model that failed is not asked again, and no
+correction is started with less of the bound left than the first draft took. The summariser runs
+inside teardown's summary bound, correction included, and counts each summary as written from the
+first draft, a corrected draft or the fallback (`call.summary_written`).
 
 ## Evaluation
 
 Run against a real OpenAI-compatible model from `apps/backend`:
-`uv run python ../../scripts/summary_evaluation.py`. Three full runs of the summary prompts as
-shipped (v2), each class as the mean of the three with the lowest and highest run:
+`uv run python ../../scripts/summary_evaluation.py`. The script ends by saying how many summaries
+were written from a first draft, a corrected draft and the fallback.
+
+### v3: one correction of a refused draft
+
+v3 keeps v2's instructions word for word and adds the correction turn. Three full runs, each class
+as the mean of the three with the lowest and highest run, beside v2:
+
+| Class | Calls | v3 mean | Min | Max | v2 mean |
+| --- | --- | --- | --- | --- | --- |
+| extraction | 4 | 92% (11 of 12) | 75% | 100% | 92% |
+| absent_detail | 4 | 100% (12 of 12) | 100% | 100% | 92% |
+| ending | 4 | 83% (10 of 12) | 50% | 100% | 92% |
+| no_details | 3 | 100% (9 of 9) | 100% | 100% | 100% |
+
+Of 45 summaries, 43 were kept on the first draft, 2 after a correction and none fell back: both
+drafts the checks refused, one repeating a line of the call and one not naming the ending, were
+corrected. Every miss left is a draft the checks kept whose content was short of the reference: a
+plumber's "can't come out today" and a school's "on my way" left out of the details, and a
+neighbour's call read as an enquiry. The checks cannot see a missed commitment or a misread intent,
+so a correction cannot reach them either, and the ending class moves with them: one run missed two
+of its four, the other two none. That leaves ending below the 90% threshold on these three runs, for
+reasons that belong to the instructions rather than to the correction.
+
+An earlier wording of the correction explained a missing ending only as "use one of the phrases
+word for word". In three runs with it, one refused draft of the unanswered neighbour's call was
+corrected to the same passive "could not be reached" twice and fell back. Saying that the same
+words turned around are refused, and asking for a sentence that says who did what, corrected that
+draft in ten of ten tries on its own.
+
+### v2
+
+Three full runs of v2, before corrections, measured the same way:
 
 | Class | Calls | Mean | Min | Max |
 | --- | --- | --- | --- | --- |
