@@ -17,6 +17,8 @@ from letmehandle.adapters.speech.elevenlabs import protocol
 from letmehandle.adapters.speech.session_support.history import ConversationHistory, Speaker
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from letmehandle.adapters.speech.session_support.history import Turn
 
 # Context updates kept for a resumed conversation. Few are sent in a call — the user joining is
@@ -32,10 +34,26 @@ _RESUMED_HEADING: Final = (
 _LABELS: Final = {Speaker.CALLER: "Caller", Speaker.ASSISTANT: "You"}
 
 
+def switching(languages: Sequence[str]) -> str:
+    """What an agent speaking several languages is told about changing between them.
+
+    The service changes an agent's language, and its voice, only when the agent's model calls its
+    language detection tool, and a model given instructions of the client's own does not call it
+    unprompted: on the real service it went on answering a Hindi caller in English until told.
+    """
+    return (
+        f"This conversation can be held in these languages: {', '.join(languages)}. When the "
+        "caller speaks one of them other than the language you are speaking, call the "
+        "language_detection tool to change to it before you answer, without asking the caller "
+        "first."
+    )
+
+
 class ConversationContext:
     """Instructions, voice, greeting, the updates sent since, and a bounded memory of settled turns.
 
-    `voice_id` is `None` for an agent that chooses its voice per language itself.
+    `voice_id` is `None` for an agent that chooses its voice per language itself, and `switching`
+    is what that agent is told about changing language.
     """
 
     def __init__(
@@ -45,12 +63,14 @@ class ConversationContext:
         voice_id: str | None,
         greeting: str,
         language: str,
+        switching: str | None,
         history_turns: int,
     ) -> None:
         self._instructions = instructions
         self._voice_id = voice_id
         self._greeting = greeting
         self._language = language
+        self._switching = switching
         self._updates: deque[str] = deque(maxlen=CONTEXT_UPDATES_KEPT)
         self.history = ConversationHistory(history_turns)
 
@@ -73,6 +93,8 @@ class ConversationContext:
 
     def _prompt(self, *, resuming: bool) -> str:
         sections = [self._instructions]
+        if self._switching is not None:
+            sections.append(self._switching)
         if self._updates:
             sections.append("\n".join([_UPDATES_HEADING, *self._updates]))
         turns: list[Turn] = list(self.history) if resuming else []

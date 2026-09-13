@@ -180,13 +180,15 @@ async def test_an_agent_speaking_several_languages_chooses_its_own_voice_for_eac
         locale="hi-IN",
         input_format=SPEECH_WIDEBAND,
     ):
-        assert override(service.current) == {
-            "agent": {
-                "prompt": {"prompt": INSTRUCTIONS},
-                "language": "hi",
-                "first_message": "नमस्ते, hello!",
-            }
-        }
+        agent = override(service.current)["agent"]
+        assert "tts" not in override(service.current)
+        assert (agent["language"], agent["first_message"]) == ("hi", "नमस्ते, hello!")
+        # The agent's model changes language only through the service's tool, and is told to.
+        assert (
+            agent["prompt"]["prompt"]
+            == f"{INSTRUCTIONS}\n\n{context_module.switching(('en', 'hi'))}"
+        )
+        assert "language_detection" in context_module.switching(("en", "hi"))
 
 
 async def test_regional_variants_of_one_language_are_still_one_voice(

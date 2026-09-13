@@ -52,11 +52,11 @@ Received:
 - `client_tool_call`: `tool_name`, `tool_call_id`, `parameters` and `expects_response`.
 - `client_error`: `error_event` with an integer `code`, `error_name` and `message`.
 
-There is no event that says the agent changed language. An agent with the language detection tool
-switches language, and the voice its preset for that language names, when the caller speaks
-another; the client hears the replies change and is told nothing, and the tool call does not
-appear among the conversation's recorded tool calls either. Overrides cannot be sent again once a
-conversation has begun, so there is nothing a client could do about a switch if it were told.
+There is no event this adapter reads that says the agent changed language. An agent with the
+language detection tool switches language, and the voice its preset for that language names, when
+its model calls the tool; the client hears the replies change, and the call is listed in the
+conversation's record afterwards. Overrides cannot be sent again once a conversation has begun, so
+there is nothing a client could do about a switch as it happens.
 
 There is no event that stops the agent speaking. Barge-in is the service's own, announced by
 `interruption`; a client that wants silence can only stop playing what arrives.

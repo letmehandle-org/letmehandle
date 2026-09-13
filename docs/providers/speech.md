@@ -64,8 +64,12 @@ language listed the adapter sends no voice: the service holds a client's voice f
 conversation, across a switch of language, so the agent's own voice for each language is used and
 a voice chosen in the app is not. With one language the resolved voice is sent, as before.
 
-What the service does not offer, found against it: no client event when language detection
-switches, and no record of the switch among the conversation's tool calls; so the application
+Such an agent is also told, after the instructions, to change language with the
+`language_detection` tool without asking the caller: against the real service, a model given the
+application's instructions answered a Hindi caller in English and never called the tool until told.
+
+What the service does not offer, found against it: nothing the adapter reads says the agent
+switched — the tool call shows only in the conversation's record afterwards — so the application
 cannot tell which language the assistant ended a call in. A key on the free plan cannot synthesise
 speech in a library voice through the text-to-speech API, although an agent's preset speaks in
 one.

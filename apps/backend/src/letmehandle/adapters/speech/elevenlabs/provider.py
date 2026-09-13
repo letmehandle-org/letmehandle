@@ -20,13 +20,14 @@ An agent told it speaks more than one language is sent no voice (D-039). Its voi
 language is its own configuration — its base voice, and a language preset for every other
 language — and the protocol holds a voice sent by the client for the whole conversation, so a
 caller whose language the agent switched to would be answered in the voice of the one it left.
+Such an agent is also told, after its instructions, to change language with the service's tool.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.adapters.speech.elevenlabs.context import ConversationContext
+from letmehandle.adapters.speech.elevenlabs.context import ConversationContext, switching
 from letmehandle.adapters.speech.elevenlabs.protocol import DEFAULT_WIRE_FORMAT
 from letmehandle.adapters.speech.elevenlabs.session import ElevenLabsSpeechSession, SessionSetup
 from letmehandle.adapters.speech.session_support.bounds import (
@@ -91,7 +92,8 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             reconnection=True,
         )
         self._output_format = output_format
-        self._switches_language = len({language.split("-")[0] for language in languages}) > 1
+        spoken = tuple(dict.fromkeys(language.split("-")[0] for language in languages))
+        self._switching = switching(spoken) if len(spoken) > 1 else None
         self._reconnect = reconnect or ReconnectPolicy()
         self._history_turns = history_turns
         self._audio_ceiling_seconds = audio_ceiling_seconds
@@ -135,9 +137,10 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             ),
             ConversationContext(
                 instructions=system_context,
-                voice_id=None if self._switches_language else voice_id,
+                voice_id=voice_id if self._switching is None else None,
                 greeting=greeting,
                 language=locale.split("-")[0],
+                switching=self._switching,
                 history_turns=self._history_turns,
             ),
             SessionTelemetry(self._metrics, self._timekeeping.clock, self.name),

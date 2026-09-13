@@ -848,11 +848,11 @@ nothing about it is written in code.
 **The caller's language decides how it goes on.** Somebody ringing a Hindi-speaking user may well
 speak English, and the reverse. The speech service detects the language the caller speaks and
 switches the assistant's language and voice to it mid-call; the assistant's instructions tell it to
-answer in the language the caller speaks. The application does not follow the switch itself: the
-ElevenLabs protocol sends the client nothing when its language detection switches — no event, and
-no tool call in the conversation's record — and a conversation's overrides cannot be changed once
-it has begun. A call is not the place to work around that; a service that did announce it would be
-a new capability, not a new branch.
+answer in the language the caller speaks. On ElevenLabs the switch is the agent's language
+detection tool, and a model given the application's instructions did not call it unprompted — it
+answered a Hindi caller in English — so the adapter tells an agent listed for several languages to
+call it. The application does not follow the switch itself: the client is sent nothing it reads
+when the agent switches, and a conversation's overrides cannot be changed once it has begun.
 
 **Each language has a voice.** A catalogue voice lists the locales it speaks (`SPEECH_VOICES`,
 `id:Name:locale|locale`), and the voice a call opens with is resolved for the opening language: the
