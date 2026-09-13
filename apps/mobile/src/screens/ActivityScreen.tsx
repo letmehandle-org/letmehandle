@@ -1,8 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
-
-import type { CallSummary } from '@letmehandle/api-client';
 
 import { describeFailure } from '../api/messages';
 import { useSession } from '../auth/SessionProvider';
@@ -19,11 +17,11 @@ import {
   dayAndMonth,
   FILTERS,
   iconOf,
-  queryFor,
   timeOfDay,
   toneOf,
   type Filter,
 } from '../history/presentation';
+import { useCallPages } from '../history/useCallPages';
 import { callerName, listLine } from '../history/words';
 import { useSecureScreen } from '../security/secureScreen';
 import { theme } from '../theme';
@@ -33,15 +31,6 @@ interface Props {
   /** Changes whenever the history may have changed elsewhere, such as a call being deleted. */
   readonly refreshKey?: number;
 }
-
-type Loaded =
-  | { readonly state: 'loading' }
-  | { readonly state: 'failed'; readonly problem: string }
-  | {
-      readonly state: 'ready';
-      readonly calls: readonly CallSummary[];
-      readonly cursor: string | null;
-    };
 
 /**
  * Every call, newest first, under the day it happened.
@@ -57,58 +46,11 @@ export function ActivityScreen({
   const { t, i18n } = useTranslation();
   const { api } = useSession();
   const [filter, setFilter] = useState<Filter>('all');
-  const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
-  const [attempt, setAttempt] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  useEffect(() => {
-    let current = true;
-    setLoaded({ state: 'loading' });
-    api
-      .calls(queryFor(filter))
-      .then(page => {
-        if (current) {
-          setLoaded({
-            state: 'ready',
-            calls: page.calls,
-            cursor: page.next_cursor,
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        if (current) {
-          setLoaded({
-            state: 'failed',
-            problem: describeFailure(error, t, {
-              refused: t('activity.loadFailed'),
-            }),
-          });
-        }
-      });
-    return () => {
-      current = false;
-    };
-  }, [api, filter, attempt, refreshKey, t]);
-
-  const loadMore = useCallback(() => {
-    if (loaded.state !== 'ready' || loaded.cursor === null) {
-      return;
-    }
-    setLoadingMore(true);
-    api
-      .calls({ ...queryFor(filter), cursor: loaded.cursor })
-      .then(page => {
-        setLoaded({
-          state: 'ready',
-          calls: [...loaded.calls, ...page.calls],
-          cursor: page.next_cursor,
-        });
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        setLoadingMore(false);
-      });
-  }, [api, filter, loaded]);
+  const { list, loadingMore, retry, loadMore } = useCallPages(
+    api,
+    filter,
+    refreshKey,
+  );
 
   const filters = (
     <View
@@ -138,24 +80,24 @@ export function ActivityScreen({
       testID="activity-screen"
     >
       {filters}
-      {loaded.state === 'failed' && (
+      {list.state === 'failed' && (
         <>
           <Notice
             tone="problem"
-            message={loaded.problem}
+            message={describeFailure(list.error, t, {
+              refused: t('activity.loadFailed'),
+            })}
             testID="activity-problem"
           />
           <Button
             label={t('common.tryAgain')}
             variant="ghost"
-            onPress={() => {
-              setAttempt(value => value + 1);
-            }}
+            onPress={retry}
             testID="activity-retry"
           />
         </>
       )}
-      {loaded.state === 'ready' && loaded.calls.length === 0 && (
+      {list.state === 'ready' && list.value.calls.length === 0 && (
         <View style={styles.empty} testID="activity-empty">
           <Dial size={96} blank>
             <Icon name="activity" colour={theme.colour.textGhost} size={28} />
@@ -165,8 +107,8 @@ export function ActivityScreen({
           </Text>
         </View>
       )}
-      {loaded.state === 'ready' &&
-        byDay(loaded.calls, new Date()).map(section => (
+      {list.state === 'ready' &&
+        byDay(list.value.calls, new Date()).map(section => (
           <View key={section.key} style={styles.section}>
             <Text style={styles.label}>
               {section.day.kind === 'date'
@@ -192,7 +134,7 @@ export function ActivityScreen({
             </Card>
           </View>
         ))}
-      {loaded.state === 'ready' && loaded.cursor !== null && (
+      {list.state === 'ready' && list.value.cursor !== null && (
         <Button
           label={t('activity.more')}
           variant="quiet"

@@ -151,6 +151,34 @@ describe('the list', () => {
     expect(view.queryByTestId('activity-more')).toBeNull();
   });
 
+  it('drops an older page that arrives after the filter changed', async () => {
+    const { view } = await openActivity({
+      calls: [aCall({ id: 'a' }), aCall({ id: 'b' }), aCall({ id: 'c' })],
+      pageSize: 2,
+    });
+    await view.findByTestId('call-b');
+    const answer = globalThis.fetch;
+    let deliver: (() => void) | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('cursor=')) {
+        await new Promise<void>(resolve => {
+          deliver = resolve;
+        });
+      }
+      return answer(url, init);
+    }) as typeof fetch;
+
+    await fireEvent.press(view.getByTestId('activity-more'));
+    await fireEvent.press(view.getByTestId('activity-filter-joined'));
+    expect(await view.findByText(en.activity.emptyFiltered)).toBeOnTheScreen();
+    await act(async () => {
+      deliver?.();
+    });
+
+    expect(view.queryByTestId('call-c')).toBeNull();
+    expect(view.getByText(en.activity.emptyFiltered)).toBeOnTheScreen();
+  });
+
   it('says so when the calls cannot be loaded, and tries again', async () => {
     const backend = runningBackend({
       startAt: null,
