@@ -18,10 +18,12 @@ from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.summary import CallOutcome
 from tests.support.orchestration import (
     OWNER,
     WANTS_THE_USER,
     Look,
+    MemoryCallStores,
     Running,
     StreamingLine,
     eventually,
@@ -105,3 +107,29 @@ async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marke
 
         context = running.escalations.contexts.stored[(OWNER, call.id)]
         assert context.status is EscalationStatus.ENDED
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="a summary is added after the final save of the call failed, so the call stays "
+    "unfinished beside its summary and the next start fails it under that summary",
+)
+async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_recovery_to_fail() -> (
+    None
+):
+    storage = MemoryCallStores()
+    await storage.with_owner()
+    async with orchestrating(StreamingLine(), stores=storage) as running:
+        line = await with_the_assistant(running)
+        # One write refused, as a connection reset between two units of work does.
+        storage.calls.refusing_writes = True
+        line.hangs_up(CALL)
+        await eventually(lambda: CallId(CALL) not in running.orchestrator._runs)
+        storage.calls.refusing_writes = False
+
+    async with orchestrating(StreamingLine(), stores=storage):
+        # Whatever the call ends up stored as, its summary must say the same: never a failed call
+        # whose summary says the caller hung up.
+        call = storage.call(CALL)
+        summary = storage.summaries.stored[CallId(CALL)]
+        assert (call.state is CallState.FAILED) == (summary.outcome is CallOutcome.FAILED)
