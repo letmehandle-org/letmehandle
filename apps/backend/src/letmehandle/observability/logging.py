@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Final
 import structlog
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from structlog.typing import EventDict, Processor, WrappedLogger
 
 from letmehandle.config.settings import LogFormat, Settings
@@ -28,7 +30,26 @@ def add_correlation_id(_logger: WrappedLogger, _method: str, event_dict: EventDi
     return event_dict
 
 
-_CONTENT_LOGGERS: Final = ("websockets", "httpx", "httpcore")
+# Libraries that log what passes through them, and the lowest level each may log at whatever the
+# process is set to. A debugging session is exactly when a log is copied somewhere it should not go.
+_CONTENT_LOGGERS: Final[Mapping[str, int]] = {
+    # Request headers and frame text at debug: the speech service's key and what somebody said.
+    "websockets": logging.WARNING,
+    # The model client's request options at debug, which carry the whole prompt and transcript.
+    "openai": logging.WARNING,
+    # Requests and their headers at debug.
+    "httpx": logging.WARNING,
+    # The connection layer beneath it, which logs response headers at debug: a provider's request
+    # and account identifiers ride in those.
+    "httpcore": logging.WARNING,
+    # The formatted request at debug, and up to 200 characters of a tool's unparseable arguments
+    # at warning, which a model may have filled with the caller's words.
+    "strands": logging.ERROR,
+    # A tool name the model asked for and the registry does not have, verbatim, at error. The model
+    # wrote that name, and a caller can dictate it. The agent records the request itself, as a
+    # refusal, and raises any tool that failed, so nothing below critical here is lost.
+    "strands.tools.executors": logging.CRITICAL,
+}
 
 
 def configure_logging(settings: Settings) -> None:
@@ -70,13 +91,9 @@ def configure_logging(settings: Settings) -> None:
         force=True,
     )
 
-    # Libraries that log what passes through them, held at warning whatever the process is set
-    # to. At debug the websocket library prints request headers and frame text — which is the
-    # speech service's key and the words somebody said — and a debugging session is exactly
-    # when a log is copied somewhere it should not go. The HTTP client does it at info: every
-    # request's full URL, which for the telephony API names the account and the calls.
-    for name in _CONTENT_LOGGERS:
-        logging.getLogger(name).setLevel(max(logging.WARNING, logging.getLogger().level))
+    # Held at their floors, or above them when the process is set higher.
+    for name, floor in _CONTENT_LOGGERS.items():
+        logging.getLogger(name).setLevel(max(floor, logging.getLogger().level))
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

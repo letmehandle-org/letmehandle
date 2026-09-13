@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
-from typing import Annotated, Final
+from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import (
     AnyHttpUrl,
@@ -23,6 +24,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class Environment(StrEnum):
@@ -149,6 +153,61 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+# How LLM_HEADERS is written, quoted in every error about it.
+LLM_HEADERS_FORMAT: Final = "Header-Name=value;Other-Header=value"
+
+# What a header name may be made of (RFC 9110's token), so a typo is refused here rather than by
+# the HTTP client on the first call.
+_HEADER_NAME: Final = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+
+
+def parse_llm_headers(text: str) -> tuple[tuple[str, SecretStr], ...]:
+    """The extra headers LLM_HEADERS lists, in the order it lists them.
+
+    Compact rather than JSON, for the reason the voice catalogue gives. A value cannot contain a
+    semicolon, which the headers aggregators and gateways ask for do not need. Values are secrets:
+    a header is as often a second credential as it is a label, and a setting printed in a traceback
+    should not decide which.
+
+    The authorisation header is refused. The key already travels in it, and two sources for one
+    header is a key that is silently not the one somebody configured.
+    """
+    headers: list[tuple[str, SecretStr]] = []
+    for entry in (entry.strip() for entry in text.split(";")):
+        if not entry:
+            continue
+        name, separator, value = (part.strip() for part in entry.partition("="))
+        if not separator or not _HEADER_NAME.fullmatch(name) or not value:
+            raise ValueError(
+                f"LLM_HEADERS entry for {name or 'a header'!r} is not in the form "
+                f"{LLM_HEADERS_FORMAT!r}"
+            )
+        if name.lower() == "authorization":
+            raise ValueError("LLM_HEADERS cannot set Authorization; the key is LLM_API_KEY")
+        headers.append((name, SecretStr(value)))
+
+    names = [name.lower() for name, _ in headers]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise ValueError(f"LLM_HEADERS names the same header more than once: {repeated}")
+    return tuple(headers)
+
+
+def _headers_from_text(value: object) -> object:
+    return parse_llm_headers(value) if isinstance(value, str) else value
+
+
+@dataclass(frozen=True, slots=True)
+class LLMEndpoint:
+    """Everything needed to reach the model the agent runs on (D-007)."""
+
+    base_url: str
+    model: str
+    api_key: str = field(repr=False)
+    headers: Mapping[str, str] = field(repr=False)
+    timeout_seconds: float
+
+
 def _blank_is_absent(value: object) -> object:
     # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
     # leave them unset, not set to an empty string that then fails as a malformed URL.
@@ -247,6 +306,20 @@ class Settings(BaseSettings):
         if value is not None and (value.query or value.fragment):
             raise ValueError("TELEPHONY_WEBHOOK_BASE_URL must not carry a query or a fragment")
         return value
+
+    # The model the agent judges calls with: any OpenAI-compatible endpoint (D-007). Optional at
+    # startup, like the speech service and for the same reason: nothing in a request asks the agent
+    # for a judgement yet. The timeout bounds a whole judgement — every model turn and every tool —
+    # because a caller is waiting on the line while it runs.
+    llm_base_url: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = None
+    llm_api_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    llm_model: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    llm_headers: Annotated[
+        tuple[tuple[str, SecretStr], ...],
+        NoDecode,
+        BeforeValidator(_headers_from_text),
+    ] = ()
+    llm_timeout_seconds: float = Field(default=20, gt=0, le=120)
 
     @field_validator("log_level")
     @classmethod
@@ -389,6 +462,36 @@ class Settings(BaseSettings):
             numbers=numbers,
             app_id=app_id,
             webhook_base_url=str(base_url).rstrip("/"),
+        )
+
+    def require_llm(self) -> LLMEndpoint:
+        """The agent's model endpoint, or a failure naming whichever variables are missing.
+
+        The key is required even for a server that checks none. Such a server accepts any value;
+        leaving it unset would have the model client look for one in its own environment variable,
+        which is a second place configuration comes from.
+        """
+        base_url, api_key, model = self.llm_base_url, self.llm_api_key, self.llm_model
+        if base_url is None or api_key is None or model is None:
+            missing = [
+                name
+                for name, present in (
+                    ("LLM_BASE_URL", base_url),
+                    ("LLM_API_KEY", api_key),
+                    ("LLM_MODEL", model),
+                )
+                if present is None
+            ]
+            raise ConfigurationError(
+                f"{' and '.join(missing)} must be set for the agent to judge a call. "
+                "Set them in .env; see .env.example."
+            )
+        return LLMEndpoint(
+            base_url=str(base_url),
+            model=model,
+            api_key=api_key.get_secret_value(),
+            headers={name: value.get_secret_value() for name, value in self.llm_headers},
+            timeout_seconds=self.llm_timeout_seconds,
         )
 
     def require_database_url(self) -> str:

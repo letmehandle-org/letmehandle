@@ -13,6 +13,7 @@ from letmehandle.config.settings import (
     Settings,
     SpeechProviderName,
     TelephonyProviderName,
+    parse_llm_headers,
     parse_voice_catalogue,
 )
 
@@ -70,6 +71,11 @@ def make_settings(
     telephony_numbers: tuple[PhoneNumber, ...] | None = None,
     telephony_app_id: str | None = None,
     telephony_webhook_base_url: str | None = None,
+    llm_base_url: str | None = None,
+    llm_api_key: str | None = None,
+    llm_model: str | None = None,
+    llm_headers: str = "",
+    llm_timeout_seconds: float = 20,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -105,4 +111,9 @@ def make_settings(
             if telephony_webhook_base_url is not None
             else None
         ),
+        llm_base_url=AnyHttpUrl(llm_base_url) if llm_base_url is not None else None,
+        llm_api_key=SecretStr(llm_api_key) if llm_api_key is not None else None,
+        llm_model=llm_model,
+        llm_headers=parse_llm_headers(llm_headers),
+        llm_timeout_seconds=llm_timeout_seconds,
     )

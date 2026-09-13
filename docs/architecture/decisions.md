@@ -335,6 +335,40 @@ port's module, because it is the one piece of logic that needs both halves, and 
 once so that no caller invents its own order. Silence is the outcome it exists to prevent: an
 unavailable voice makes a call sound different, never makes it not happen.
 
+## D-026 — The agent runs on Strands, behind an application port
+
+**Accepted.** Judgement on a call — what the caller wants, how much it matters, whether the
+assistant may act, whether the user is needed — is produced by an agent built on the Strands
+Agents SDK. Nothing outside `adapters/agent/` imports it. The application sees a `CallAgent`
+port, and the model is configured in exactly the shape D-007 describes: a base URL, a key, a
+model and optional headers, handed to the SDK's OpenAI-compatible model.
+
+Tools are application objects, not framework functions. Each validates its arguments against
+domain types and checks the user's grant before it does anything, inside the tool itself, so the
+guarantee does not depend on the framework calling a hook. The adapter only presents them to the
+SDK. The model proposes; the escalation policy in `domain/policy/` decides.
+
+**This supersedes the `LLMProvider` port** from phase 1. It offered free text and structured
+output and nothing for tool use, and an agent loop needs tool use. Routing the SDK through it
+would have meant growing it into a second agent framework; leaving it beside the SDK would have
+left an interface nothing implements. It is removed with its contract suite. D-006 still holds —
+speech and judgement are separate ports — with `CallAgent` as the judgement one.
+
+Swapping the model is configuration. Swapping the SDK is a new adapter behind `CallAgent`.
+
+Tools that would change the call's course only ask. `request_human_escalation` and `end_call`
+write down what the model asked for, and once the model has finished — outside the bound on its
+time — the application acts on it once: the escalation the policy makes of the most pressing
+reading first, then the ending, only if the rules still allow it. A hang-up can never cancel an
+escalation the rules require.
+
+**Accepted trade: one ring per call, and no limit across calls.** The escalation service reaches
+the user at most once per call for each level of urgency, so the phone rings immediately at most
+once per call. A caller who persuades the model that their call is urgent can have it ring that
+once, even in quiet hours, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
+limits across calls — per caller, per number, per night — belong to a later hardening phase, not to
+this one.
+
 ## D-027 — A streaming call is a conference from the moment it is answered
 
 **Accepted.** On the streaming transport every inbound call is placed in a conference as soon as

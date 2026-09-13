@@ -25,8 +25,8 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 3 | Onboarding and preferences | **complete** |
 | 4 | Voice configuration | **complete** |
 | 5 | Realtime speech foundation | **complete** — live run held |
-| 6 | Agent and decision-making | next |
-| 7 | Call transport | not started |
+| 6 | Agent and decision-making | **complete** — model evaluation held |
+| 7 | Call transport | in progress |
 | 8 | Call orchestration | not started |
 | 9 | Mobile core experience | not started |
 | 10 | Human escalation experience | not started |

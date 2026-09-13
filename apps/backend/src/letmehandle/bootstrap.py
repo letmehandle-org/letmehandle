@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Final, assert_never
 
 from fastapi import APIRouter
 
+from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
+from letmehandle.adapters.agent.strands.model import openai_compatible_model
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
@@ -40,6 +42,9 @@ from letmehandle.adapters.transport.twilio.routes import build_router as build_t
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
+from letmehandle.application.agent.conclusion import JudgementConclusion
+from letmehandle.application.agent.escalation import EscalationService
+from letmehandle.application.agent.tools.registry import tools_for_judgements
 from letmehandle.config.settings import (
     OTPProviderName,
     Settings,
@@ -52,8 +57,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     import httpx
+    from strands.models.model import Model
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
+    from letmehandle.application.agent.ports import CallActions, CallAgent
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -268,6 +275,34 @@ def build_call_transport(
 
 async def _nothing_to_close() -> None:
     return None
+
+
+def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:
+    """The agent that judges calls, on the model this deployment is configured with.
+
+    The call's actions are handed in rather than built here, because only orchestration holds a
+    call. What is chosen here is the framework and the model.
+    """
+    endpoint = settings.require_llm()
+    return call_agent_on(
+        openai_compatible_model(endpoint),
+        actions=actions,
+        timeout=timedelta(seconds=endpoint.timeout_seconds),
+    )
+
+
+def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallAgent:
+    """The agent on `model`, with its tools and the conclusion that acts on what they asked for.
+
+    Built once, here, so every judgement on a call goes through one escalation service and one
+    memory of whether the user was reached. Tests reach the same wiring with a scripted model.
+    """
+    return StrandsCallAgent(
+        model,
+        tools=tools_for_judgements(actions),
+        conclusion=JudgementConclusion(actions, EscalationService(actions)),
+        timeout=timeout,
+    )
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:

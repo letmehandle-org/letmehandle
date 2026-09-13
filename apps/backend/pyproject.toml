@@ -20,6 +20,7 @@ dependencies = [
     # The streaming call transport speaks the telephony REST API with it. Chosen over the
     # vendor SDK, which brings a synchronous client and two more HTTP stacks for five requests.
     "httpx>=0.28,<1",
+    "strands-agents[openai]>=1.55.1,<2",
 ]
 
 [dependency-groups]
@@ -190,5 +191,14 @@ forbidden_modules = [
     "botocore",
     "httpx",
     "requests",
+    "strands",
+    "openai",
     "websockets",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Application code names no agent framework or model client"
+type = "forbidden"
+source_modules = ["letmehandle.application"]
+forbidden_modules = ["strands", "openai", "websockets", "letmehandle.adapters"]
+
