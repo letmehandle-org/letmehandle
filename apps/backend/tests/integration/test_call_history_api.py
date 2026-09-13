@@ -26,6 +26,7 @@ from letmehandle.adapters.database.call_repositories import (
 from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.domain.models.call import (
+    CallHandling,
     CallSession,
     Participant,
     ParticipantRole,
@@ -93,6 +94,8 @@ def a_call(
     caller: Caller = STRANGER,
     participants: tuple[Participant, ...] = (),
     lasting: float = 60,
+    handling: CallHandling | None = None,
+    escalated_at: datetime | None = None,
 ) -> CallSession:
     return CallSession.restore(
         id=CallId(call_id),
@@ -102,6 +105,8 @@ def a_call(
         state=state,
         participants=participants,
         ended_at=started_at + timedelta(seconds=lasting) if is_terminal(state) else None,
+        handling=handling,
+        escalated_at=escalated_at,
     )
 
 
@@ -116,6 +121,8 @@ def escalated_call(owner: Person, call_id: str = "escalated") -> CallSession:
             Participant(ParticipantRole.HUMAN, at(35), at(90)),
         ),
         lasting=90,
+        handling=CallHandling.ASSISTANT,
+        escalated_at=at(30),
     )
 
 
@@ -497,9 +504,11 @@ class TestDetail:
         assert body["timings"] == {
             "received_at": "2026-06-01T12:00:00Z",
             "answered_at": "2026-06-01T12:00:02Z",
+            "escalated_at": "2026-06-01T12:00:30Z",
             "human_joined_at": "2026-06-01T12:00:35Z",
             "ended_at": "2026-06-01T12:01:30Z",
         }
+        assert body["handling"] == "assistant"
         assert body["details"] == [
             {"label": "reference", "value": "ZX-9043", "evidence": EVIDENCE},
             {"label": "slot", "value": "afternoon", "evidence": None},
@@ -543,7 +552,10 @@ class TestDetail:
         body = (await api.client.get("/v1/calls/rejected", headers=me.headers)).json()
 
         assert body["timings"]["answered_at"] is None
+        assert body["timings"]["escalated_at"] is None
         assert body["timings"]["human_joined_at"] is None
+        # Given to nobody: the rules refused it before anybody could take it.
+        assert body["handling"] is None
         assert (body["transcript_available"], body["transcript_expires_at"]) == (False, None)
         assert body["headline"] == "A call from a sales caller was ended by your rules."
         assert body["details"] == []

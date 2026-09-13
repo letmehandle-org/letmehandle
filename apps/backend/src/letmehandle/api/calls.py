@@ -118,12 +118,14 @@ async def read_call(call_id: str, user: CurrentUser, history: CallHistory) -> Ca
     summary = record.summary
     return CallDetailResponse(
         **_list_item(record).model_dump(),
+        handling=record.call.handling,
         intent=None if summary is None else summary.intent,
         importance=None if summary is None else summary.importance,
         escalation_reason=None if summary is None else summary.escalation_reason,
         timings=CallTimingsPayload(
             received_at=record.call.started_at,
             answered_at=record.answered_at,
+            escalated_at=record.call.escalated_at,
             human_joined_at=record.human_joined_at,
             ended_at=record.call.ended_at,
         ),

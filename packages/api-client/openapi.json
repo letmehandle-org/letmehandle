@@ -50,6 +50,16 @@
               }
             ]
           },
+          "handling": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHandling"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "headline": {
             "anyOf": [
               {
@@ -140,6 +150,7 @@
           "headline",
           "human_joined",
           "duration_seconds",
+          "handling",
           "intent",
           "importance",
           "escalation_reason",
@@ -160,6 +171,15 @@
           "completed"
         ],
         "title": "CallEnding",
+        "type": "string"
+      },
+      "CallHandling": {
+        "description": "Whom routing gave the call to, which its final state no longer says.\n\nA completed call was either put straight through to the user or taken by the assistant, and\nhistory tells the two apart. Read from the moves themselves rather than set beside them, so it\ncannot disagree with the path the call took. A rejected call was given to nobody.",
+        "enum": [
+          "passed_through",
+          "assistant"
+        ],
+        "title": "CallHandling",
         "type": "string"
       },
       "CallHandlingPayload": {
@@ -493,6 +513,18 @@
             ],
             "title": "Ended At"
           },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
           "human_joined_at": {
             "anyOf": [
               {
@@ -514,6 +546,7 @@
         "required": [
           "received_at",
           "answered_at",
+          "escalated_at",
           "human_joined_at",
           "ended_at"
         ],

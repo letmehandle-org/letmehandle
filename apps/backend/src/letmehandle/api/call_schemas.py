@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from letmehandle.api.schemas import Response
-from letmehandle.domain.models.call import Speaker
+from letmehandle.domain.models.call import CallHandling, Speaker
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -63,6 +63,8 @@ class CallTimingsPayload(Response):
 
     received_at: datetime
     answered_at: datetime | None
+    # When the assistant first asked for the user, whether or not they were reached.
+    escalated_at: datetime | None
     human_joined_at: datetime | None
     ended_at: datetime | None
 
@@ -81,6 +83,9 @@ class CallDetailResponse(CallListItem):
     there is none to go, or while the call is still going.
     """
 
+    # Whom routing gave the call to: straight through to the user, or the assistant. Null for a
+    # call rejected by the rules, and for one still being routed.
+    handling: CallHandling | None
     intent: CallIntent | None
     importance: CallImportance | None
     escalation_reason: EscalationReason | None

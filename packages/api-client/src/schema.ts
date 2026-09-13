@@ -459,6 +459,7 @@ export interface components {
             /** Duration Seconds */
             duration_seconds: number | null;
             escalation_reason: components["schemas"]["EscalationReason"] | null;
+            handling: components["schemas"]["CallHandling"] | null;
             /** Headline */
             headline: string | null;
             /** Human Joined */
@@ -488,6 +489,16 @@ export interface components {
          * @enum {string}
          */
         CallEnding: "screened_out" | "missed" | "completed";
+        /**
+         * CallHandling
+         * @description Whom routing gave the call to, which its final state no longer says.
+         *
+         *     A completed call was either put straight through to the user or taken by the assistant, and
+         *     history tells the two apart. Read from the moves themselves rather than set beside them, so it
+         *     cannot disagree with the path the call took. A rejected call was given to nobody.
+         * @enum {string}
+         */
+        CallHandling: "passed_through" | "assistant";
         /**
          * CallHandlingPayload
          * @description What happens to a call before anybody has spoken to it.
@@ -620,6 +631,8 @@ export interface components {
             answered_at: string | null;
             /** Ended At */
             ended_at: string | null;
+            /** Escalated At */
+            escalated_at: string | null;
             /** Human Joined At */
             human_joined_at: string | null;
             /**
