@@ -1,27 +1,4 @@
-"""An ElevenLabs agent that runs inside the test process, over a real socket.
-
-A simulation, and it says so. It speaks the subset of the ElevenLabs Agents protocol this project
-uses, so that the real client code — the handshake, the frames, the failures — runs end to end
-with no account and no network beyond loopback. It holds a client to what the real service holds
-it to, because a simulation that forgave a client would pass one that does not work:
-
-- The agent is named in the URL and the key in an `xi-api-key` header, or the handshake is refused.
-- A conversation begins only once the client opens it, and an override the agent does not allow
-  is an error that ends the connection.
-- It pings, and a client that does not answer in time is disconnected.
-- Only the events the agent is configured to send are sent: no caller transcripts unless they are
-  enabled, exactly as an agent configured without them sends none.
-
-What it does not do is understand speech. It has no model and no voice activity detection of its
-own, so it stands in for both with rules a test can reason about:
-
-- A chunk above a small energy level is speech; the first such chunk of a turn starts one.
-- A quiet chunk after speech ends the turn: the transcript it was given is reported, and a reply
-  begins that speaks the caller's own audio back, one audio event per chunk heard.
-- Speech that starts while a reply is still being spoken interrupts it, as the real service does
-  on its own. The reply stops, and one chunk of it that was already on its way still arrives after
-  the interruption, numbered before it — which a client has to know to drop.
-"""
+"""An ElevenLabs agent in the test process over a real socket, holding a client to its rules."""
 
 from __future__ import annotations
 
@@ -30,21 +7,19 @@ import base64
 import binascii
 import contextlib
 import json
-import math
-import struct
 from dataclasses import dataclass, field
 from itertools import count
-from typing import TYPE_CHECKING, Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import parse_qs, urlsplit
 
-from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
+
+from tests.support.simulated_service import SimulatedService, is_speech
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Iterable
-    from types import TracebackType
 
-    from websockets.asyncio.server import Server
+    from websockets.asyncio.server import ServerConnection
     from websockets.http11 import Request, Response
 
 SIMULATED_API_KEY: Final = "simulated-key-accepted-by-nothing-but-this-simulation"
@@ -60,18 +35,6 @@ OVERRIDES_THIS_ADAPTER_NEEDS: Final = frozenset({"prompt", "first_message", "lan
 
 # Close code for a client that broke the rules: a policy the service enforces.
 _POLICY_VIOLATION: Final = 1008
-
-# Below this root-mean-square level a chunk is silence. Energy rather than exact zeros, because a
-# resampling client carries a sample or two of the previous sound into the chunk after it.
-SILENCE_RMS: Final = 500
-
-
-def _is_speech(audio: bytes) -> bool:
-    usable = len(audio) - len(audio) % 2
-    if not usable:
-        return False
-    samples = struct.unpack(f"<{usable // 2}h", audio[:usable])
-    return math.sqrt(sum(sample * sample for sample in samples) / len(samples)) >= SILENCE_RMS
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,12 +69,10 @@ class _Conversation:
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
 
-class SimulatedElevenLabsService:
-    """An ElevenLabs agent on 127.0.0.1 and an ephemeral port, for one test.
+class SimulatedElevenLabsService(SimulatedService["_Conversation"]):
+    """An agent that pings, interrupts itself when talked over, and sends only enabled events."""
 
-    Used as an async context manager. On exit the server is closed and every connection and task
-    it started has finished, which is what lets a test count what is left.
-    """
+    path = "/v1/convai/conversation"
 
     def __init__(
         self,
@@ -121,67 +82,26 @@ class SimulatedElevenLabsService:
         ping_interval: float = 0.02,
         pong_deadline: float = 0.25,
     ) -> None:
+        super().__init__()
         self._client_events = frozenset(client_events)
         self._allowed_overrides = frozenset(allowed_overrides)
         self._ping_interval = ping_interval
         self._pong_deadline = pong_deadline
-        self._server: Server | None = None
-        self._conversations: dict[ServerConnection, _Conversation] = {}
-        self._refusing = False
         self._hold_after: int | None = None
-        self._idle = asyncio.Event()
-        self._idle.set()
         self.handshakes: list[Handshake] = []
         self.openings: list[Opening] = []
         self.context_updates: list[str] = []
-        # The ids of the pings answered and of the interruptions sent, in order, across every
-        # conversation. Ids only mean something within one conversation; tests here hold one.
+        # Ids of the pings answered and interruptions sent, in order, across every conversation.
         self.answered_pings: list[int] = []
         self.interruptions: list[int] = []
         # Whether a reply is stopped where `hold_next_reply` asked.
         self.holding = False
 
-    async def __aenter__(self) -> Self:
-        self._server = await serve(self._converse, "127.0.0.1", 0, process_request=self._admit)
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        server = self._require_server()
-        server.close()
-        await server.wait_closed()
-
-    @property
-    def url(self) -> str:
-        port = self._require_server().sockets[0].getsockname()[1]
-        return f"ws://127.0.0.1:{port}/v1/convai/conversation"
-
-    @property
-    def open_connections(self) -> int:
-        return len(self._conversations)
-
-    async def wait_until_idle(self) -> None:
-        """Return once every connection has finished on this side too."""
-        await self._idle.wait()
-
     # -- What a test can make it do ------------------------------------------------------------
-
-    def refuse_authentication(self) -> None:
-        """Answer every later handshake with 401, whatever key it presents."""
-        self._refusing = True
 
     def hold_next_reply(self, *, after: int) -> None:
         """Stop the next reply after `after` chunks, so that speech can interrupt it for certain."""
         self._hold_after = after
-
-    def drop_connections(self) -> None:
-        """Cut every connection with no close frame, the way a network failure does."""
-        for connection in self._conversations:
-            connection.transport.abort()
 
     # -- The protocol ----------------------------------------------------------------------------
 
@@ -197,16 +117,14 @@ class SimulatedElevenLabsService:
 
     async def _converse(self, connection: ServerConnection) -> None:
         conversation = _Conversation(connection=connection)
-        self._conversations[connection] = conversation
-        self._idle.clear()
+        self._began(connection, conversation)
         try:
             if await self._begin(conversation):
                 self._start(conversation, self._ping(conversation))
                 async for frame in connection:
                     await self._handle(conversation, frame)
         except ConnectionClosed:
-            # The client went away, abruptly or not. Either way this conversation is over, and
-            # the cleanup below is the whole of what is left to do about it.
+            # The client went away; the cleanup below is all that is left.
             pass
         finally:
             for task in conversation.tasks:
@@ -214,9 +132,7 @@ class SimulatedElevenLabsService:
             # Waited on rather than awaited, so a cancellation of this task is not swallowed.
             if conversation.tasks:
                 await asyncio.wait(conversation.tasks)
-            del self._conversations[connection]
-            if not self._conversations:
-                self._idle.set()
+            self._ended(connection)
 
     async def _begin(self, conversation: _Conversation) -> bool:
         event = json.loads(await conversation.connection.recv())
@@ -284,7 +200,7 @@ class SimulatedElevenLabsService:
         except binascii.Error:
             await conversation.connection.close(_POLICY_VIOLATION, "audio is not base64")
             return
-        if _is_speech(audio):
+        if is_speech(audio):
             if not conversation.speaking:
                 conversation.speaking = True
                 await self._interrupt(conversation)
@@ -373,12 +289,6 @@ class SimulatedElevenLabsService:
 
     @staticmethod
     async def _quietly(work: Coroutine[Any, Any, None]) -> None:
-        # A connection closing under a reply or a ping is the end of the conversation, which the
-        # conversation's own cleanup is already handling.
+        # A connection closing under a reply or a ping is handled by the conversation's cleanup.
         with contextlib.suppress(ConnectionClosed):
             await work
-
-    def _require_server(self) -> Server:
-        if self._server is None:
-            raise RuntimeError("the simulated service is used as an async context manager")
-        return self._server

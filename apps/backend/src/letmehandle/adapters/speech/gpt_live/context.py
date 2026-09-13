@@ -1,16 +1,4 @@
-"""What a session is opened with, what it is told as things change, and what a replacement is told.
-
-A running session's instructions cannot be replaced, only added to, and an addition is limited to
-500 tokens. The application hands a session its whole context again whenever something changes —
-usually one line of it — so what is sent is the lines that are new, in pieces small enough to be
-accepted, and the whole context is kept for a session that has to start again.
-
-A session cannot be resumed either. A replacement is a new session started with the context as it
-now stands and a bounded record of what was said, as the protocol's own history, and told not to
-greet the caller again. The model is reminded of the conversation; it does not get it back.
-
-Held in memory only, and bounded, for the reasons the history itself gives (D-013).
-"""
+"""What a GPT-Live session starts with, the lines added as it changes, and a replacement."""
 
 from __future__ import annotations
 
@@ -23,8 +11,7 @@ if TYPE_CHECKING:
     from letmehandle.adapters.speech.session_support.history import Turn
     from letmehandle.domain.models.audio import AudioFormat
 
-# Characters in one addition. The protocol counts tokens, and a character is at most about one token
-# in any script this product speaks, so this stays inside the limit with room to spare.
+# Characters in one addition: at most about one token each, inside the protocol's 500.
 APPEND_CHARACTERS: Final = 1_000
 # Characters of history a replacement session is started with, well inside the protocol's limit.
 HISTORY_CHARACTERS: Final = 12_000

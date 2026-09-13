@@ -1,11 +1,4 @@
-"""The boundary between this adapter and the network.
-
-Everything above this module speaks the protocol as plain JSON-shaped mappings: what to send,
-and what came back. Everything below it is the websocket, its handshake and its credentials.
-Drawing the line here lets the session — reconnection, interruption, backpressure, cleanup — be
-tested against a connection that speaks the same protocol with no network at all, while the real
-connection is tested separately against an in-process server.
-"""
+"""The boundary between a speech session and the network: JSON-shaped events in and out."""
 
 from __future__ import annotations
 
@@ -19,32 +12,21 @@ class EventConnection(Protocol):
     """One open connection to a speech service that speaks in JSON events."""
 
     async def send(self, event: Mapping[str, Any]) -> None:
-        """Send one protocol event.
-
-        Raises `ConnectionClosedError` once the connection has closed, and
-        `ConnectionFailedError` when it fails — never a library exception.
-        """
+        """Send one event; raises only `ConnectionClosedError` or `ConnectionFailedError`."""
 
     async def receive(self) -> Mapping[str, Any] | None:
-        """The next protocol event, or `None` once the service has closed the connection.
-
-        Raises `ConnectionFailedError` when the connection fails mid-stream.
-        """
+        """The next event, `None` once the service closed; raises `ConnectionFailedError`."""
 
     async def close(self) -> None:
         """Close the connection. Safe to call more than once."""
 
 
-# How a session gets a connection: something it can call again, which is what reconnection is.
+# How a session gets a connection, called again for every reconnection.
 type ConnectionOpener = Callable[[], Awaitable[EventConnection]]
 
 
 class EventConnectionError(Exception):
-    """Base for the ways a connection stops working.
-
-    Adapter-internal. The session translates these into the domain's own errors and events, so
-    nothing above the adapter ever catches one.
-    """
+    """Base for the ways a connection stops working, never raised past the adapter."""
 
 
 class ConnectionClosedError(EventConnectionError):
@@ -52,11 +34,7 @@ class ConnectionClosedError(EventConnectionError):
 
 
 class ConnectionFailedError(EventConnectionError):
-    """The connection failed.
-
-    `retryable` is the fact reconnection needs: a dropped connection or a timeout is worth
-    another attempt, and a refused key or an unknown model is not.
-    """
+    """The connection failed; `retryable` says whether another attempt could succeed."""
 
     def __init__(self, message: str, *, retryable: bool) -> None:
         super().__init__(message)

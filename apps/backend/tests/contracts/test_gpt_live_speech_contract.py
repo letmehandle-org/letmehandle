@@ -33,12 +33,7 @@ class TestGptLiveSpeechProvider(SpeechProviderContract):
         )
 
     async def _assert_nothing_queued(self, session: object) -> None:
-        """No assistant audio reaches the consumer once interruption has returned.
-
-        The session exposes no queue to count, so the property is asserted from the outside: the
-        caller is made to say something, and the first thing the consumer receives must be that
-        beginning, not audio the model produced before it was interrupted.
-        """
+        """No assistant audio reaches the consumer ahead of the caller's next words."""
         assert isinstance(session, SpeechSession)
         self.service.current.caller_said("marker")
         events = session.events()

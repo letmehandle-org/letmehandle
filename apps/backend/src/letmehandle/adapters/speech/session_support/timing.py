@@ -1,8 +1,4 @@
-"""The clock, the wait and the dice a session uses, injected.
-
-Injected so that a test of a four-attempt backoff takes no time and gives the same answer every
-run, and so that a latency test measures the session rather than the machine running it.
-"""
+"""The clock, the wait and the random draw a session uses, injected so tests control them."""
 
 from __future__ import annotations
 
@@ -15,8 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-# A reading from a clock that only moves forward, in seconds. Monotonic, because a latency
-# measured against the wall clock goes negative the moment the machine corrects its time.
+# Seconds from a clock that only moves forward, never the wall clock.
 type MonotonicClock = Callable[[], float]
 
 
@@ -26,5 +21,5 @@ class Timekeeping:
 
     clock: MonotonicClock = time.monotonic
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
-    # Jitter spreads retries apart and guards nothing, so a predictable generator is fine.
+    # Jitter guards nothing, so a predictable generator is fine.
     draw: Callable[[], float] = random.random

@@ -1,12 +1,4 @@
-"""What a speech session measures about itself.
-
-Latency is the product here — a reply that arrives a second late is a caller talking over it —
-and a regression in it is invisible without a baseline, so these are recorded from the first
-session rather than added when somebody complains.
-
-Every label is a dimension: which provider, which kind of failure. Nothing said in a call and no
-identifier of a call or a person is ever passed in, and nothing here accepts one.
-"""
+"""What a speech session measures about itself, labelled by dimensions only (D-038)."""
 
 from __future__ import annotations
 
@@ -41,6 +33,9 @@ RECONNECTIONS: Final = catalogue.count(
 )
 RECONNECTION_DURATION: Final = catalogue.measure(
     "speech.reconnection_seconds", provider=catalogue.NAMED_IN_CODE, outcome=_RECONNECTION_OUTCOMES
+)
+SESSION_SECONDS: Final = catalogue.measure(
+    "speech.session_seconds", provider=catalogue.NAMED_IN_CODE
 )
 STREAM_ERRORS: Final = catalogue.count(
     "speech.stream_errors", provider=catalogue.NAMED_IN_CODE, kind=StreamErrorKind
@@ -102,6 +97,10 @@ class SessionTelemetry:
         self._recorder.increment(RECONNECTIONS, labels)
         elapsed = self._clock() - self._reconnecting_since
         self._recorder.observe(RECONNECTION_DURATION, elapsed, labels)
+
+    def billed(self, seconds: float) -> None:
+        """The service reported the voice time a finished session is billed for."""
+        self._recorder.observe(SESSION_SECONDS, seconds, self._labels)
 
     def stream_error(self, kind: StreamErrorKind) -> None:
         """Something went wrong on the stream, whether or not the session survived it."""

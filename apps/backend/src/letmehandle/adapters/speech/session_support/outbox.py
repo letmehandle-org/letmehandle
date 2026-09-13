@@ -1,16 +1,4 @@
-"""What a session holds for its consumer, and why reading the service never waits on it.
-
-A consumer playing through a speaker takes audio at the speed of speech, and the service sends
-it faster than that. A reader that waited for room before reading on would leave everything
-behind the queued audio unread — the interruption that should silence it, and the ping that has
-to be answered or the service hangs up — until the speaker caught up, seconds later.
-
-So events are held without waiting, and only audio is bounded: by how long it would take to
-play, rather than by how many pieces it came in, because the service decides the size of a piece.
-The bound is far beyond one reply, so it is reached only by a consumer that has stopped taking
-audio altogether, and only then does the reader stop reading. Everything else is small, and
-arrives no faster than people speak.
-"""
+"""Events held for a consumer without making the reader wait, audio bounded by its duration."""
 
 from __future__ import annotations
 
@@ -62,12 +50,7 @@ class Outbox:
         audio_seconds: float = 0.0,
         taken: Callable[[], None] | None = None,
     ) -> None:
-        """Hold an event for the consumer. Never waits: `room_for_audio` is the one that does.
-
-        `spoken` marks what an interruption discards: the agent's speech, as each protocol draws
-        it. `taken` is called when the consumer takes the event, which is the only way a session
-        learns what reached the consumer rather than what it discarded before it could.
-        """
+        """Hold an event; `spoken` is discarded on interruption, `taken` runs when it is taken."""
         self._held.append(_Held(event, spoken, audio_seconds, taken))
         self._account(audio_seconds)
         self._arrived.set()
@@ -85,7 +68,7 @@ class Outbox:
         self._account(-self._audio_seconds)
 
     def end(self) -> None:
-        """Nothing more will be put. Everything already held is still delivered."""
+        """Nothing more will be put; everything already held is still delivered."""
         self._held.append(_END)
         self._arrived.set()
 
@@ -103,7 +86,7 @@ class Outbox:
                 await self._arrived.wait()
             held = self._held[0]
             if isinstance(held, _Ended):
-                # Left in place, so that every later iterator ends too.
+                # Left in place, so every later iterator ends too.
                 return
             self._held.popleft()
             self._account(-held.audio_seconds)

@@ -1,16 +1,9 @@
-"""Reading a connection that may fail, and replacing one that has.
-
-The same for every protocol: a failure is a value the reader acts on rather than an exception it
-has to remember to catch, and a replacement is found by waiting, trying, and giving up within the
-policy's bounds. What a new connection has to be told once it is open is each protocol's own
-business, and is whatever `open_connection` does before it returns.
-"""
+"""Reading a connection whose failure is a value, and replacing one that failed."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from letmehandle.adapters.speech.session_support.reconnect import ReconnectBudget
 from letmehandle.adapters.speech.session_support.telemetry import StreamErrorKind
 from letmehandle.adapters.speech.websocket.connection import (
     ConnectionClosedError,
@@ -21,7 +14,10 @@ from letmehandle.adapters.speech.websocket.connection import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from letmehandle.adapters.speech.session_support.reconnect import ReconnectPolicy
+    from letmehandle.adapters.speech.session_support.reconnect import (
+        ReconnectBudget,
+        ReconnectPolicy,
+    )
     from letmehandle.adapters.speech.session_support.telemetry import SessionTelemetry
     from letmehandle.adapters.speech.session_support.timing import Timekeeping
     from letmehandle.adapters.speech.websocket.connection import EventConnection
@@ -34,8 +30,7 @@ async def receive(connection: EventConnection) -> Mapping[str, Any] | EventConne
     except EventConnectionError as error:
         return error
     if event is None:
-        # The service ending a connection on its own is how a session-length limit or a restart
-        # looks from here, and both are worth reconnecting through.
+        # A service ending a connection itself is a restart or a session limit, worth reconnecting.
         return ConnectionFailedError("the service closed the connection", retryable=True)
     return event
 
@@ -52,20 +47,9 @@ async def replace_connection(
     policy: ReconnectPolicy,
     timekeeping: Timekeeping,
     telemetry: SessionTelemetry,
-    budget: ReconnectBudget | None = None,
+    budget: ReconnectBudget,
 ) -> EventConnection | str:
-    """A new connection, or the reason none could be had.
-
-    `abandon` releases whatever a failed attempt left half-open, so `open_connection` holds what
-    it opens where `abandon` will find it. A refusal that cannot change ends the attempts at once
-    rather than spending the rest of them on it.
-
-    `budget` carries attempts from one recovery to the next. A session that passes one resets it
-    only once a replacement has shown it works, so a service that accepts every connection and
-    drops it at once runs out of attempts instead of being reconnected to forever. Without one,
-    every recovery starts with all its attempts.
-    """
-    budget = budget or ReconnectBudget()
+    """A new connection within the policy and the carried `budget`, or why none could be had."""
     telemetry.reconnecting()
     while budget.spent < policy.max_attempts:
         attempt = budget.spent
@@ -76,8 +60,7 @@ async def replace_connection(
         except EventConnectionError as failure:
             await abandon()
             telemetry.stream_error(StreamErrorKind.CONNECTION)
-            # A replacement found closed while it was being set up is worth another attempt: the
-            # service closing it normally is a restart or a limit, not a refusal of the next one.
+            # A replacement closed normally during setup is a restart or a limit: try again.
             if not (is_retryable(failure) or isinstance(failure, ConnectionClosedError)):
                 telemetry.reconnected(succeeded=False)
                 return str(failure)

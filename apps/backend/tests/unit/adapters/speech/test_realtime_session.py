@@ -1,8 +1,4 @@
-"""A realtime session against a service that behaves like one.
-
-Resources are proven by counting what is left — tasks still alive, connections still open — and
-never by looking at a flag the session sets on itself.
-"""
+"""A realtime session against a scripted service, its resources counted rather than read."""
 
 from __future__ import annotations
 
@@ -188,8 +184,7 @@ async def test_caller_audio_reaches_the_service_as_wire_audio(
     async with await connect(provider) as session:
         await session.send_audio(TWENTY_MS_WIDEBAND)
         appended = base64.b64decode(service.current.sent[-1]["audio"])
-    # Twenty milliseconds at 16 kHz is 320 samples, and at 24 kHz it is 480 — less the one the
-    # interpolator holds back until the next frame arrives.
+    # Twenty milliseconds is 480 samples at 24 kHz, less one the interpolator holds back.
     assert abs(len(appended) // 2 - 480) <= 1
 
 
@@ -322,8 +317,7 @@ async def test_the_caller_s_speech_and_words_are_reported(
 async def test_a_consumer_that_stops_taking_audio_stops_reading_at_the_ceiling(
     make_provider: ProviderFactory, service: ScriptedRealtimeService
 ) -> None:
-    # Four ten-millisecond pieces fill four hundredths of a second, so the fifth waits for room
-    # and everything behind it waits with it.
+    # Four ten-millisecond pieces fill the ceiling, so the fifth and all behind it wait.
     provider = make_provider(audio_ceiling_seconds=0.04)
     async with await connect(provider) as session:
         connection = service.current
@@ -333,8 +327,7 @@ async def test_a_consumer_that_stops_taking_audio_stops_reading_at_the_ceiling(
             await asyncio.sleep(0)
         stalled_at = connection.pending
 
-        # The rest of the reply is still with the service. Read: its start, the four pieces that
-        # fit, and the one in hand waiting for room.
+        # Read: the reply's start, the four pieces that fit, and the one waiting for room.
         assert stalled_at == (1 + 40 + 3) - (1 + 4 + 1)
 
         events = session.events()
@@ -447,9 +440,7 @@ async def test_the_service_hearing_the_caller_interrupts_the_model_by_itself(
 async def test_the_caller_speaking_is_acted_on_while_the_consumer_is_behind(
     provider: RealtimeSpeechProvider, service: ScriptedRealtimeService
 ) -> None:
-    # A consumer playing through a speaker takes audio at the speed of speech, and the service
-    # sends a ten-second reply in a moment. The caller talking over it must not wait for the
-    # speaker to work through the reply first.
+    # The caller talking over a held reply is not kept waiting behind it.
     async with await connect(provider) as session:
         connection = service.current
         connection.reply(deltas=1_000)
@@ -687,8 +678,7 @@ async def test_a_service_that_accepts_and_drops_every_replacement_runs_out_of_at
         service.current.hang_up()
         (failed,) = await remaining(session.events())
 
-    # Each replacement was accepted and acknowledged its configuration, and none did anything
-    # else: three attempts, not one after another for as long as the service keeps answering.
+    # Each replacement only acknowledged its configuration: three attempts, not endless ones.
     assert failed == SessionFailed("the connection could not be restored in 3 attempts", False)
     assert len(service.connections) == 1 + 3
     assert metrics.counted(telemetry.RECONNECTIONS, outcome="succeeded") == 3
@@ -733,8 +723,7 @@ async def test_a_context_update_made_while_a_replacement_is_configured_reaches_i
         await service.wait_for_connection_count(2)
         replacement = service.current
 
-        # The replacement's configuration was built with the old instructions and is on its way,
-        # and the connection that dropped hears nothing: the update must follow once it is live.
+        # Made while the replacement is configured, so it follows once the replacement is live.
         await session.update_context("NEW INSTRUCTIONS")
         service.stalled.set()
         await service.wait_until(lambda: "NEW INSTRUCTIONS" in replacement.instructions_sent())
@@ -809,8 +798,7 @@ async def test_three_failed_responses_in_a_row_end_the_session(
             service.current.fail_response()
         events = await remaining(session.events())
 
-        # Silence turn after turn is worse for a caller than a call that ends and can be handled
-        # some other way, and the same service will fail the same way on another connection.
+        # The same service fails the same way on another connection, so the call ends.
         assert events == [SessionFailed("the service failed 3 responses in a row", False)]
         with pytest.raises(ProviderError):
             await session.send_audio(TWENTY_MS_WIDEBAND)

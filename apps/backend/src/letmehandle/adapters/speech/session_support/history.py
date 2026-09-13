@@ -1,9 +1,4 @@
-"""What was said in a session, kept so that a replacement connection can be told it.
-
-Held in memory only, and bounded. The history is somebody's words, kept for exactly as long as
-the session lives (D-013), and a long call must not turn it into an ever-growing replay that
-takes longer to send than the outage it recovers from.
-"""
+"""What was said in a session, bounded and in memory only, to tell a replacement (D-013)."""
 
 from __future__ import annotations
 
@@ -46,12 +41,7 @@ class ConversationHistory:
         self._turns.append(turn)
 
     def replace(self, turn: Turn, replacement: Turn | None) -> None:
-        """Swap a remembered turn for another, or drop it with `None`.
-
-        By identity, so that an identical earlier turn stays: the assistant may well say "one
-        moment" twice, and only the one that was not heard is wrong. A turn already forgotten
-        past the bound is left forgotten.
-        """
+        """Swap a remembered turn, by identity, for another, or drop it with `None`."""
         kept: list[Turn] = []
         for each in self._turns:
             if each is not turn:

@@ -1,8 +1,4 @@
-"""An ElevenLabs session against an agent that behaves like one.
-
-Resources are proven by counting what is left — tasks still alive, connections still open — and
-never by looking at a flag the session sets on itself.
-"""
+"""An ElevenLabs session against a scripted agent, its resources counted rather than read."""
 
 from __future__ import annotations
 
@@ -164,8 +160,7 @@ async def test_the_conversation_is_opened_with_the_session_s_prompt_greeting_lan
 async def test_an_agent_speaking_several_languages_chooses_its_own_voice_for_each(
     service: ScriptedElevenLabsService, metrics: RecordingMetrics
 ) -> None:
-    # A voice sent here would hold for the whole conversation, and a caller the agent followed
-    # into Hindi would be answered in Hindi by the English voice.
+    # A client voice would hold across a language switch (D-039).
     provider = ElevenLabsSpeechProvider(
         service.open,
         metrics,
@@ -246,6 +241,21 @@ async def test_audio_formats_this_adapter_cannot_read_are_a_permanent_failure(
         await connect(provider)
     assert not raised.value.retryable
     assert service.open_connections == 0
+
+
+async def test_an_unreadable_event_before_the_conversation_begins_is_counted_not_fatal(
+    provider: ElevenLabsSpeechProvider,
+    service: ScriptedElevenLabsService,
+    metrics: RecordingMetrics,
+) -> None:
+    service.begins = False
+    connecting = asyncio.create_task(connect(provider))
+    await service.wait_for_sent("conversation_initiation_client_data")
+    service.current.emit({"type": "ping", "ping_event": {"ping_ms": 20}})
+    service.current.begin()
+    async with await connecting:
+        assert metrics.counted(telemetry.STREAM_ERRORS, kind="malformed") == 1
+    assert len(service.connections) == 1
 
 
 @pytest.mark.parametrize("retryable", [True, False])
@@ -398,8 +408,7 @@ async def test_a_connection_lost_before_the_conversation_begins_is_a_retryable_f
 async def test_sending_while_a_replacement_is_opened_is_dropped_not_raised(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService, sleep: RecordedSleep
 ) -> None:
-    # Audio sent into an outage is gone either way; replaying it later answers a caller who has
-    # moved on.
+    # Audio sent into an outage is dropped, not replayed.
     sleep.hold = asyncio.Event()
     async with await connect(provider) as session:
         service.current.drop()
@@ -464,8 +473,7 @@ async def test_service_errors_are_counted_and_survived(
     service: ScriptedElevenLabsService,
     metrics: RecordingMetrics,
 ) -> None:
-    # A refusal the service can continue past is not worth a caller's conversation; one it cannot
-    # continue past closes the connection, and that is the path that ends or replaces it.
+    # A refusal the service continues past is survived.
     async with await connect(provider) as session:
         for _ in range(5):
             service.current.emit({"type": "client_error", "error_event": {"code": 1003}})
@@ -507,8 +515,7 @@ async def test_the_service_s_interruption_drops_what_was_held_and_what_arrives_l
 async def test_an_interruption_is_acted_on_while_the_consumer_is_behind(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService
 ) -> None:
-    # A consumer playing in real time is seconds behind a service that speaks faster than that.
-    # The interruption and the ping behind the audio must not wait for it to catch up.
+    # The interruption and ping behind held audio do not wait for the consumer.
     async with await connect(provider) as session:
         service.current.reply(chunks=400)
         ping = service.current.ping()
@@ -526,16 +533,14 @@ async def test_an_interruption_is_acted_on_while_the_consumer_is_behind(
 async def test_reading_stops_only_once_the_audio_held_reaches_its_ceiling(
     make_provider: ProviderFactory, service: ScriptedElevenLabsService
 ) -> None:
-    # Five chunks of twenty milliseconds fill a tenth of a second, so the sixth waits for room
-    # and the ping behind it waits too.
+    # Five twenty-millisecond chunks fill the ceiling, so the sixth and the ping behind it wait.
     async with await connect(make_provider(audio_ceiling_seconds=0.1)) as session:
         service.current.reply(chunks=8)
         service.current.ping()
         await service.wait_until(lambda: service.current.pending == 3)
         assert service.current.sent_of("pong") == []
 
-        # Words, the start of speech and eight pieces of audio: once the consumer has taken them,
-        # reading resumes and the ping is answered.
+        # Once the consumer takes what was held, reading resumes and the ping is answered.
         await take(session.events(), 10)
         await service.wait_for_sent("pong")
 
@@ -580,9 +585,7 @@ async def test_interrupting_before_a_reply_is_read_drops_it_too(
 async def test_context_is_sent_as_background_the_next_reply_uses_never_as_the_callers_words(
     provider: ElevenLabsSpeechProvider, service: ScriptedElevenLabsService
 ) -> None:
-    # A contextual update is what the service's model reads before its next reply, and does not
-    # itself make a reply. A user message would, and would put the words in the caller's mouth:
-    # the assistant is told everything the caller says is unverified, so it would be discounted.
+    # An update is a contextual update, never a user message in the caller's mouth.
     async with await connect(provider) as session:
         service.current.reply()
         await service.wait_until_delivered()
@@ -689,8 +692,7 @@ async def test_a_context_update_made_while_a_replacement_begins_reaches_it(
         service.current.drop()
         await service.wait_for_connection_count(2)
 
-        # Written into neither the replacement's prompt, which is already on its way, nor the
-        # dead connection: it must be sent once the replacement has begun.
+        # Made while the replacement opens, so it is sent once the replacement has begun.
         await session.update_context("the user has joined the call")
         service.stalled.set()
         await service.wait_for_sent("contextual_update", connection=2)
@@ -901,8 +903,7 @@ def test_it_declares_what_the_protocol_lets_it_implement(
 ) -> None:
     capabilities = provider.capabilities
     assert provider.name == "elevenlabs"
-    # Barge-in is the service's own; context updates are additive; reconnection is a new
-    # conversation reminded of the old one. Each is declared, and each limit is documented.
+    # Barge-in, additive context updates and reconnection as a new conversation are declared.
     assert capabilities.barge_in
     assert capabilities.context_updates_mid_session
     assert capabilities.reconnection

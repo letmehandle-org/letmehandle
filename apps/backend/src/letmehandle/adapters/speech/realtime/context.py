@@ -1,9 +1,4 @@
-"""What a session has to be told again when its connection is replaced.
-
-A reconnect is a new conversation as far as the service knows. Without this the model comes back
-from a dropped connection with no instructions, the wrong voice and no idea what was just said,
-which to the caller is an assistant that has forgotten them mid-sentence.
-"""
+"""What a session has to be told again when its connection is replaced."""
 
 from __future__ import annotations
 

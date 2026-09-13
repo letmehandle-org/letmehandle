@@ -1,8 +1,4 @@
-"""What a provider offers, checked once when it is built and again for each session asked of it.
-
-Refused at construction rather than at the first connect wherever it can be, so a
-misconfiguration stops the application starting instead of failing the first call that uses it.
-"""
+"""What a provider offers, checked when it is built and again for each session asked of it."""
 
 from __future__ import annotations
 
@@ -46,6 +42,11 @@ def checked_capabilities(
         input_formats=tuple(input_formats),
         output_format=output_format,
     )
+
+
+def base_language(locale: str) -> str:
+    """`hi` for `hi-IN`: the language, whatever the region."""
+    return locale.split("-")[0]
 
 
 def check_session_request(
