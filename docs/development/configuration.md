@@ -58,7 +58,7 @@ every paid provider unset.
 | `SPEECH_AGENT_ID` | when the assistant takes calls over `elevenlabs` | — |  |  | The agent an `elevenlabs` service talks as. |
 | `SPEECH_TRANSCRIPTION_MODEL` | no | — |  |  | `realtime` only: the model that writes down what the caller says. Without it only the assistant's side of a call is recorded. |
 | `SPEECH_API_KEY` | no | — |  | yes | The speech service's key. Empty for a service that needs none. |
-| `SPEECH_VOICES` | when the API starts | — |  |  | The voices offered, as `id:Display name:locale\|locale`, comma-separated. They must be voices the speech service can speak. |
+| `SPEECH_VOICES` | when the API starts | — |  |  | The voices offered, as `id:Display name:locale\|locale`, comma-separated, such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices the speech service can speak; a call is spoken in a voice listed for its language. |
 | `SPEECH_DEFAULT_VOICE` | when the API starts | — |  |  | One of the ids in `SPEECH_VOICES`, for a call whose user chose none. |
 
 ## Privacy

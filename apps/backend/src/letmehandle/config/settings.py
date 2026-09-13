@@ -606,8 +606,9 @@ class Settings(BaseSettings):
         BeforeValidator(_blank_is_absent),
         BeforeValidator(_catalogue_from_text),
         Field(
-            description="The voices offered, as `id:Display name:locale|locale`, comma-separated. "
-            "They must be voices the speech service can speak.",
+            description="The voices offered, as `id:Display name:locale|locale`, comma-separated, "
+            "such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices "
+            "the speech service can speak; a call is spoken in a voice listed for its language.",
             json_schema_extra={"required_when": "the API starts"},
         ),
     ] = None
