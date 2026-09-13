@@ -32,7 +32,7 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 10 | Human escalation experience | in progress — backend done, mobile and devices open |
 | 11 | Call summary and history | in progress — backend done, mobile screens open |
 | 12 | Security, privacy and hardening | in progress — review done, mobile and build audits open |
-| 13 | Observability and failure handling | not started |
+| 13 | Observability and failure handling | **complete** — real-call investigation held |
 | 14 | Full system end to end | in progress — automated scenarios pass, manual run held |
 | 15 | Release readiness | not started |
 
