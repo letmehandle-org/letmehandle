@@ -1,29 +1,59 @@
+<p align="center">
+  <a href="https://www.letmehandle.org">
+    <img src="brand/export/readme-banner.png" alt="LetMeHandle — your phone, handled. An open-source assistant that answers your calls and rings you only when it matters." width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.letmehandle.org"><b>🌐 letmehandle.org</b></a>
+  &nbsp;·&nbsp;
+  <a href="PLAN.md">Plan</a>
+  &nbsp;·&nbsp;
+  <a href="docs/architecture/overview.md">Architecture</a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml"><img src="https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue.svg" alt="Licence: MIT"></a>
+  <a href="https://www.letmehandle.org"><img src="https://img.shields.io/badge/website-letmehandle.org-7C6BEA.svg" alt="Website"></a>
+</p>
+
 # LetMeHandle
 
-[![CI](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml/badge.svg)](https://github.com/letmehandle-org/letmehandle/actions/workflows/ci.yml)
-[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+An AI assistant that **answers your phone calls**, works out what the caller wants, and follows
+your preferences. It resolves the routine calls on its own and **brings you into the same live
+call** when it really needs you.
 
-An AI agent that answers your phone calls, understands what the caller wants, applies your
-preferences, resolves the routine ones on its own, and pulls you into the same live call
-when it genuinely needs you.
-
+> [!NOTE]
 > **Status: 0.1, not ready to deploy.** Every piece of a call is built and tested end to end
 > against simulated providers, but no real phone call, real model or real device has been through
 > it yet, and there is no sign-in provider that sends a real text message — so no deployment of
 > this project is safe to expose to anybody but its developers. [Maturity](#maturity) says exactly
 > what that means.
 
-## What it does
+## How it works
 
-A call arrives. Your rules decide whether it goes straight through to you, is rejected, or is
-handled. If it is handled, the assistant talks to the caller in real time, works out what they
-want, and either resolves it or decides you are needed — by your own threshold, never by the
-model's say-so. When you are needed your phone rings, a notification tells you why before you
-answer, and answering joins you to the conversation that is already happening. The caller never
-redials.
+```mermaid
+flowchart LR
+    A[📞 Call arrives] --> B{Your rules}
+    B -->|Blocked| C[🚫 Rejected]
+    B -->|Important| D[🔔 Rings you]
+    B -->|Everyone else| E[🤖 Assistant answers]
+    E -->|Routine| F[✅ Resolved]
+    E -->|Needs you| G[🔔 You join the live call]
+    F --> H[📝 Short summary]
+    G --> H
+```
 
-Afterwards you get a short summary, not a transcript dump. Transcripts are encrypted and deleted
-on a schedule you set.
+1. **A call arrives.** Fixed rules you set decide whether it rings you, is rejected, or is
+   handled.
+2. **The assistant talks to the caller** in real time and works out why they are calling.
+3. **Routine calls get resolved.** When a person is needed, your phone rings, a notification
+   says why before you answer, and answering joins you to the call already in progress. The
+   caller never has to call back.
+4. **You get a short summary** afterwards, not a transcript dump.
 
 How much of that a deployment offers depends on how calls reach it:
 
@@ -107,10 +137,25 @@ Then sign in and look around, or run whole simulated calls with `make e2e`:
 [`docs/development/demo.md`](docs/development/demo.md). The mobile toolchain and everything else
 about working on the project is in [`docs/development/setup.md`](docs/development/setup.md).
 
+## Privacy at a glance
+
+| | |
+| --- | --- |
+| 🎙️ **No recordings** | Calls are not recorded. |
+| 🔐 **Encrypted transcripts** | Encrypted at rest and deleted on a schedule each user controls, 7 days by default. |
+| 📝 **Summaries stay** | The structured summary is kept after the transcript is deleted. |
+| 📇 **Contacts stay on your phone** | Only the contacts you mark as important reach the server. |
+
+The full policy is at [letmehandle.org/privacy](https://www.letmehandle.org/privacy). What the
+project does and does not protect against is written down in
+[`docs/architecture/security.md`](docs/architecture/security.md). Before deploying it anywhere
+reachable, read
+[`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md).
+
 ## Replaceable by design
 
-Every external capability is a port with adapters behind it, and the domain layer imports
-none of them. That is enforced by the build, not by convention.
+Every outside service sits behind a port with adapters, and the domain layer imports none of
+them. The build enforces this, not just convention.
 
 | Port | What you can swap |
 | --- | --- |
@@ -144,16 +189,13 @@ to implement one.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 
-## Privacy
-
-Calls are not recorded. Transcripts are encrypted at rest and deleted on a schedule each user
-controls, defaulting to seven days. The structured summary outlives the transcript. What the
-project does and does not protect against is written down rather than implied — see
-[`docs/architecture/security.md`](docs/architecture/security.md). Before deploying it anywhere
-reachable, read
-[`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md).
-
 ## Licence
 
 MIT. See [`LICENSE`](LICENSE). Third-party licences are listed in
 [`docs/development/licences.md`](docs/development/licences.md).
+
+<p align="center">
+  <a href="https://www.letmehandle.org"><img src="brand/source/lockup.svg" alt="LetMeHandle" width="180"></a>
+  <br>
+  <sub><a href="https://www.letmehandle.org">letmehandle.org</a></sub>
+</p>
