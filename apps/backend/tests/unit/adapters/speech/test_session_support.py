@@ -43,8 +43,7 @@ def test_backoff_grows_exponentially_until_its_ceiling() -> None:
 
 @pytest.mark.parametrize("attempt", range(5))
 def test_jitter_stays_within_half_and_all_of_the_ceiling(attempt: int) -> None:
-    # Never zero, so failures cannot become a tight loop; never over, so a caller is not left
-    # waiting longer than the policy promises.
+    # Never zero and never above the ceiling.
     policy = ReconnectPolicy(initial_delay_seconds=0.25, max_delay_seconds=4.0)
     ceiling = min(4.0, 0.25 * 2**attempt)
     assert policy.delay(attempt, draw=0.0) == pytest.approx(ceiling / 2)
@@ -212,8 +211,7 @@ async def recover(
 async def test_a_budget_carries_attempts_across_recoveries_until_one_is_proven(
     sleep: RecordedSleep, metrics: RecordingMetrics
 ) -> None:
-    # A service that accepts every connection and drops it at once: each recovery succeeds,
-    # and without a carried budget the session would go round forever.
+    # Each recovery succeeds against a service that drops every connection, until the budget ends.
     opener, budget = Opener(), ReconnectBudget()
     outcomes = [await recover(opener, sleep, metrics, budget) for _ in range(4)]
 

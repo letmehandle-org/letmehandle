@@ -1,10 +1,4 @@
-"""What every speech provider must satisfy.
-
-The contract is mostly about resources. A speech session holds a connection, a queue and at
-least one task, and the ways it can be left holding them — an error mid-stream, a cancellation
-mid-utterance, a caller that simply forgets — are the failures that take a service down
-slowly rather than loudly.
-"""
+"""What every speech provider must satisfy, mostly about releasing what a session holds."""
 
 from __future__ import annotations
 
@@ -36,14 +30,12 @@ class SpeechProviderContract:
         assert provider.capabilities is not None
 
     def test_it_declares_at_least_one_language(self, provider: SpeechProvider) -> None:
-        # A provider that speaks nothing cannot be selected for any user, and the failure
-        # would surface as a call that connects and says nothing.
+        # A provider speaking nothing could never be selected for a user.
         assert provider.capabilities.languages
         assert provider.supported_locales()
 
     def test_language_matching_tolerates_a_regional_tag(self, provider: SpeechProvider) -> None:
-        # A user configured for en-GB must match a provider listing en, or the catalogue has
-        # to enumerate every regional variant and will be missing one.
+        # A regional locale matches a provider listing its language.
         base = provider.capabilities.languages[0].split("-")[0]
         assert provider.capabilities.speaks(base)
         assert provider.capabilities.speaks(f"{base}-GB")
@@ -56,19 +48,16 @@ class SpeechProviderContract:
         await session.close()
 
     async def test_closing_twice_is_safe(self, provider: SpeechProvider) -> None:
-        # Teardown paths overlap: the caller closes, and so does the context manager it is
-        # inside. A second close must not raise.
+        # The caller and its context manager may both close.
         session = await self._connect(provider)
         await session.close()
         await session.close()
 
     async def test_leaving_the_context_closes_the_session(self, provider: SpeechProvider) -> None:
-        # The reason a session is a context manager: the only way to leak one is to write code
-        # that would not survive review.
+        # Leaving the context closes the session.
         async with await self._connect(provider) as session:
             await session.send_audio(A_FRAME)
-        with pytest.raises(Exception):  # noqa: B017 - any refusal will do; the point is that
-            # a session outside its context does not quietly accept audio that goes nowhere.
+        with pytest.raises(Exception):  # noqa: B017 - any refusal will do
             await session.send_audio(A_FRAME)
 
     async def test_audio_sent_produces_events(self, provider: SpeechProvider) -> None:
@@ -84,8 +73,7 @@ class SpeechProviderContract:
         if not provider.capabilities.context_updates_mid_session:
             pytest.skip("this provider cannot be told anything once a session is open")
         async with await self._connect(provider) as session:
-            # Escalation depends on this: when the user joins, the model must be told that the
-            # person it was speaking for is now on the call.
+            # The model must be told when the user joins the call.
             await session.update_context("the user has joined the call")
 
     async def test_interruption_discards_what_was_queued(self, provider: SpeechProvider) -> None:
@@ -95,8 +83,7 @@ class SpeechProviderContract:
             for _ in range(3):
                 await session.send_audio(A_FRAME)
             await session.interrupt()
-            # The part implementations forget. Stopping production is not enough: whatever was
-            # already produced will otherwise play out over the caller who interrupted.
+            # Whatever was already produced must not play out over the caller who interrupted.
             await self._assert_nothing_queued(session)
 
     async def test_cancelling_a_consumer_leaves_nothing_running(
@@ -128,11 +115,6 @@ class SpeechProviderContract:
         )
 
     async def _assert_nothing_queued(self, session: object) -> None:
-        """Override where a provider exposes its queue differently.
-
-        The default reads a `queued` property, which the in-memory session provides. A real
-        adapter that cannot expose one asserts the same property another way rather than
-        skipping it: this is the behaviour that decides whether interruption works.
-        """
+        """Assert nothing queued survives an interruption; override where there is no `queued`."""
         queued = getattr(session, "queued", None)
         assert queued == 0, "interruption must discard audio that was already produced"

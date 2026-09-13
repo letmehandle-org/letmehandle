@@ -71,8 +71,7 @@ async def configuration_sent(transcription_model: str | None) -> Mapping[str, An
 
 
 async def test_a_configured_transcription_model_is_asked_for() -> None:
-    # Without it the caller is answered but never written down, and the record of the call holds
-    # only the assistant's side.
+    # The caller's words are transcribed as well as the assistant's.
     configuration = await configuration_sent("a-transcription-model")
     transcription = configuration["session"]["audio"]["input"]["transcription"]
     assert transcription["model"] == "a-transcription-model"

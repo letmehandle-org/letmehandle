@@ -191,8 +191,7 @@ def test_a_new_utterance_after_the_gap_settles_the_one_before() -> None:
 
 
 def test_the_other_speaker_beginning_settles_nothing_by_itself() -> None:
-    # Fragments arrive late: the assistant's reply is often written down before the caller's last
-    # words are, and settling the caller then would split what they said.
+    # The assistant's words often arrive before the caller's last ones.
     turns = TurnAssembler(gap_ms=5_000)
     turns.fragment(fragment(Speaker.CALLER, "book a", 0, 400))
     assert turns.fragment(fragment(Speaker.ASSISTANT, "for how many", 400, 600)) == []

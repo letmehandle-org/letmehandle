@@ -15,6 +15,6 @@ def test_the_parameter_is_added_and_the_rest_of_the_url_kept() -> None:
 
 
 def test_a_value_already_in_the_url_is_replaced_not_duplicated() -> None:
-    # A URL copied from documentation carries an example value; two values is a coin toss.
+    # An example value already in the URL is replaced, not duplicated.
     url = with_query_parameter("wss://speech.example.com/talk?agent_id=example", "agent_id", "real")
     assert parse_qs(urlsplit(url).query) == {"agent_id": ["real"]}

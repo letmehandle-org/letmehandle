@@ -91,8 +91,7 @@ class SimulatedElevenLabsService(SimulatedService["_Conversation"]):
         self.handshakes: list[Handshake] = []
         self.openings: list[Opening] = []
         self.context_updates: list[str] = []
-        # The ids of the pings answered and of the interruptions sent, in order, across every
-        # conversation. Ids only mean something within one conversation; tests here hold one.
+        # Ids of the pings answered and interruptions sent, in order, across every conversation.
         self.answered_pings: list[int] = []
         self.interruptions: list[int] = []
         # Whether a reply is stopped where `hold_next_reply` asked.
@@ -125,8 +124,7 @@ class SimulatedElevenLabsService(SimulatedService["_Conversation"]):
                 async for frame in connection:
                     await self._handle(conversation, frame)
         except ConnectionClosed:
-            # The client went away, abruptly or not. Either way this conversation is over, and
-            # the cleanup below is the whole of what is left to do about it.
+            # The client went away; the cleanup below is all that is left.
             pass
         finally:
             for task in conversation.tasks:
@@ -291,7 +289,6 @@ class SimulatedElevenLabsService(SimulatedService["_Conversation"]):
 
     @staticmethod
     async def _quietly(work: Coroutine[Any, Any, None]) -> None:
-        # A connection closing under a reply or a ping is the end of the conversation, which the
-        # conversation's own cleanup is already handling.
+        # A connection closing under a reply or a ping is handled by the conversation's cleanup.
         with contextlib.suppress(ConnectionClosed):
             await work

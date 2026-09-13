@@ -41,8 +41,7 @@ def test_a_response_is_bracketed() -> None:
 
 @pytest.mark.parametrize("event_type", ["response.output_audio.delta", "response.audio.delta"])
 def test_audio_is_read_under_either_name(event_type: str) -> None:
-    # The earlier protocol called this `response.audio.delta`, and servers built against it
-    # still send that. Recognising only one spelling is a session that connects and says nothing.
+    # Both the current and the beta event names are read.
     event = {**audio_delta("resp_1", "item_1", size=4), "type": event_type}
     assert protocol.parse(event) == AudioDelta("resp_1", "item_1", 0, bytes(4))
 
@@ -148,8 +147,7 @@ def test_session_configuration_uses_the_current_shape() -> None:
         "voice": "calm",
     }
     assert session["audio"]["input"]["turn_detection"] == {"type": "server_vad"}
-    # No transcription model named, so none is asked for: asking a server for one it does not
-    # have fails every session.
+    # No transcription model is named, so none is asked for.
     assert "transcription" not in session["audio"]["input"]
 
 
@@ -164,7 +162,7 @@ def test_transcription_is_requested_only_when_a_model_is_named() -> None:
 
 
 def test_new_instructions_change_nothing_else() -> None:
-    # The voice cannot change mid-session, so an update that repeated it would be refused.
+    # An update carries only the instructions, never the voice.
     assert protocol.update_instructions("the user has joined") == {
         "type": "session.update",
         "session": {"type": "realtime", "instructions": "the user has joined"},

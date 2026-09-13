@@ -16,8 +16,7 @@ class TestEchoSpeechProvider(SpeechProviderContract):
     async def test_connecting_passes_through_what_the_caller_asked_for(
         self, provider: EchoSpeechProvider
     ) -> None:
-        # The input format is the caller's, not the provider's assumption: the audio comes from
-        # a transport whose format this provider does not choose.
+        # The input format is the transport's, which the provider does not choose.
         session = await provider.connect(
             system_context="you are answering for someone",
             voice_id="calm",

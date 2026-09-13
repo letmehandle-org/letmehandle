@@ -27,12 +27,7 @@ class TestRealtimeSpeechProvider(SpeechProviderContract):
         )
 
     async def _assert_nothing_queued(self, session: object) -> None:
-        """No model audio reaches the consumer once interruption has returned.
-
-        The session exposes no queue to count, so the property is asserted from the outside: the
-        service is made to say something new, and the first thing the consumer receives must be
-        that, not audio the model produced before it was interrupted.
-        """
+        """No model audio reaches the consumer ahead of what the service says next."""
         assert isinstance(session, SpeechSession)
         self.service.current.caller_said("marker")
         events = session.events()

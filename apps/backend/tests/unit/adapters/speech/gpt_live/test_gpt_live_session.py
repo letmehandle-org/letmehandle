@@ -1,8 +1,4 @@
-"""A GPT-Live session against a service that behaves like one.
-
-Resources are proven by counting what is left — tasks still alive, connections still open — and
-never by looking at a flag the session sets on itself.
-"""
+"""A GPT-Live session against a scripted service, its resources counted rather than read."""
 
 from __future__ import annotations
 

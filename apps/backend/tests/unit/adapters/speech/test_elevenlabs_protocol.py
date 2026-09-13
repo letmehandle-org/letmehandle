@@ -53,7 +53,6 @@ def test_the_formats_a_conversation_begins_with_are_read(name: str, expected: Au
 
 @pytest.mark.parametrize("name", ["mp3_44100_128", "pcm_12345", "ulaw_16000", "PCM_16000"])
 def test_a_format_this_adapter_cannot_name_is_malformed_not_guessed(name: str) -> None:
-    # Guessed, it would be played as noise to a caller.
     with pytest.raises(MalformedEventError, match="agent_output_audio_format"):
         protocol.parse(metadata(output_format=name))
 
@@ -173,7 +172,7 @@ def test_a_voice_is_only_overridden_when_given() -> None:
 
 
 def test_a_first_message_is_only_overridden_when_given() -> None:
-    # Every field sent is an override the agent must allow, so none is sent without a reason.
+    # Only the overrides given are sent.
     opening = protocol.begin_conversation(prompt="p", language="en", voice_id="v", first_message="")
     assert opening["conversation_config_override"]["agent"]["first_message"] == ""
 

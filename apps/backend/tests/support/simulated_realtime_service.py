@@ -19,8 +19,7 @@ if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
     from websockets.http11 import Request, Response
 
-# The protocol's default input format is 16-bit PCM at 24 kHz: two bytes a sample, 24 000 a
-# second. It is only used to turn bytes heard into the milliseconds the protocol reports.
+# Bytes of the default input format, 16-bit PCM at 24 kHz, in a millisecond.
 BYTES_PER_MILLISECOND: Final = 48
 
 SIMULATED_API_KEY: Final = "simulated-key-accepted-by-nothing-but-this-simulation"
@@ -44,8 +43,7 @@ class Received:
     event_types: list[str] = field(default_factory=list)
     # The instructions of every session.update that carried any.
     instructions: list[str] = field(default_factory=list)
-    # How many events had been received each time the caller was heard to start speaking, so a
-    # test can tell what the client sent after the caller spoke from what it sent before.
+    # How many events had been received each time the caller started speaking.
     speech_started_after: list[int] = field(default_factory=list)
 
     def since_speech_started(self, turn: int) -> list[str]:
@@ -69,11 +67,7 @@ class _Conversation:
 
 
 def _transcribing(session: dict[str, Any]) -> bool:
-    """Whether a session was configured to transcribe what the caller says.
-
-    A real service transcribes nobody who did not ask, and a simulation that did would pass a
-    client that never asked and then shows its caller no words.
-    """
+    """Whether a session asked for what the caller says to be transcribed."""
     audio = session.get("audio")
     audio_input = audio.get("input") if isinstance(audio, dict) else None
     return isinstance(audio_input, dict) and bool(audio_input.get("transcription"))
@@ -96,9 +90,7 @@ class SimulatedRealtimeService(SimulatedService["_Conversation"]):
         self._model = model
         self._transcript = transcript
         self._ids = count(1)
-        # Set means responses flow; cleared, a response waits before its next output delta. A
-        # test holds one mid-sentence this way, which is the only way to interrupt it
-        # deterministically.
+        # Set while responses flow; cleared, a response waits before its next output delta.
         self._flowing = asyncio.Event()
         self._flowing.set()
         self._hold_after: int | None = None
@@ -109,11 +101,7 @@ class SimulatedRealtimeService(SimulatedService["_Conversation"]):
     # -- What a test can make it do ------------------------------------------------------------
 
     def hold_responses(self, *, after_deltas: int = 0) -> None:
-        """Stop responses once each has sent `after_deltas` output deltas, until released.
-
-        Holding after at least one is how a test makes sure the caller has heard part of a reply
-        when they talk over it, so there is something to truncate.
-        """
+        """Stop responses after `after_deltas` output deltas each, until released."""
         self._hold_after = after_deltas
 
     def release_responses(self) -> None:
@@ -139,8 +127,7 @@ class SimulatedRealtimeService(SimulatedService["_Conversation"]):
         if self._refusing or authorization != f"Bearer {self._api_key}":
             return connection.respond(401, "invalid api key\n")
         if model != self._model:
-            # The protocol documents the model as a query parameter; how a real service refuses
-            # one it does not have is not specified, so this picks a client error that says so.
+            # An unknown model is refused with a client error.
             return connection.respond(404, "unknown model\n")
         return None
 
@@ -156,8 +143,7 @@ class SimulatedRealtimeService(SimulatedService["_Conversation"]):
             async for frame in connection:
                 await self._handle(conversation, frame)
         except ConnectionClosed:
-            # The client went away, abruptly or not. Either way this conversation is over, and
-            # the cleanup below is the whole of what is left to do about it.
+            # The client went away; the cleanup below is all that is left.
             pass
         finally:
             await self._stop_response(conversation)
@@ -305,8 +291,7 @@ class SimulatedRealtimeService(SimulatedService["_Conversation"]):
         response, conversation.response = conversation.response, None
         if response is not None:
             response.cancel()
-            # Waited on rather than awaited, so that a cancellation of this task is not mistaken
-            # for the response's own and swallowed with it.
+            # Waited on rather than awaited, so a cancellation of this task is not swallowed.
             await asyncio.wait({response})
 
     async def _error(self, conversation: _Conversation, code: str, message: str) -> None:

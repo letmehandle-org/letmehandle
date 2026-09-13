@@ -27,12 +27,7 @@ class TestElevenLabsSpeechProvider(SpeechProviderContract):
         )
 
     async def _assert_nothing_queued(self, session: object) -> None:
-        """Nothing the agent was saying reaches the consumer once interruption has returned.
-
-        The session exposes no queue to count, so the property is asserted from the outside: the
-        service reports the caller's next turn, and the first thing the consumer receives must be
-        that, not the replies the agent had already sent when it was interrupted.
-        """
+        """Nothing the agent was saying reaches the consumer ahead of the caller's next turn."""
         assert isinstance(session, SpeechSession)
         self.service.current.caller_said("marker")
         events = session.events()
