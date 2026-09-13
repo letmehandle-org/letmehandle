@@ -355,6 +355,18 @@ class TestEscalation:
                 ParticipantRole.HUMAN,
             ]
 
+    async def test_the_user_is_told_why_they_are_rung_in_their_own_language(self) -> None:
+        line = streaming()
+        async with orchestrating(
+            line, preferences=UserPreferences(locale="hi-IN"), looks=[Look(proposal=WANTS_THE_USER)]
+        ) as running:
+            await ringing(running)
+            await eventually(lambda: bool(running.notifications.sent))
+            [(_, notification)] = running.notifications.sent
+            assert notification.title == "कॉल करने वाले ने आपसे बात करनी चाही"
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
     async def test_an_escalation_answered_joins_the_user_and_ends_when_they_leave(self) -> None:
         line = streaming()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:

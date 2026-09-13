@@ -165,7 +165,6 @@ class EscalationDispatcher:
         tracer: Tracer,
         circuits: Circuits,
         timeout: timedelta = DEFAULT_TIMEOUT,
-        locale: str = DEFAULT_LOCALE,
     ) -> None:
         self._providers: dict[DevicePlatform, NotificationProvider] = {}
         for provider in providers:
@@ -177,12 +176,13 @@ class EscalationDispatcher:
         self._tracer = tracer
         self._circuits = circuits
         self._timeout = timeout
-        self._locale = locale
         self._background: set[asyncio.Task[DispatchReport]] = set()
         self._ended: OrderedDict[tuple[UserId, CallId], datetime] = OrderedDict()
 
-    async def dispatch(self, user_id: UserId, context: EscalationContext) -> DispatchReport:
-        """Notify every device this user has about this escalation. Never raises.
+    async def dispatch(
+        self, user_id: UserId, context: EscalationContext, *, locale: str = DEFAULT_LOCALE
+    ) -> DispatchReport:
+        """Notify every device this user has about this escalation, in `locale`. Never raises.
 
         Awaiting it takes at most the timeout plus two short storage round trips. A caller that
         must not wait even that long uses `start`.
@@ -208,7 +208,9 @@ class EscalationDispatcher:
 
         deadline = asyncio.get_running_loop().time() + self._timeout.total_seconds()
         attempts = tuple(
-            await asyncio.gather(*(self._attempt(token, claimed, deadline) for token in tokens))
+            await asyncio.gather(
+                *(self._attempt(token, claimed, deadline, locale) for token in tokens)
+            )
         )
         delivered = any(attempt.result is AttemptResult.DELIVERED for attempt in attempts)
         report = DispatchReport(
@@ -219,13 +221,17 @@ class EscalationDispatcher:
         dead = tuple(a.token for a in attempts if a.result is AttemptResult.TOKEN_INVALID)
         return await self._record(user_id, claimed.call_id, report, dead=dead)
 
-    def start(self, user_id: UserId, context: EscalationContext) -> asyncio.Task[DispatchReport]:
+    def start(
+        self, user_id: UserId, context: EscalationContext, *, locale: str = DEFAULT_LOCALE
+    ) -> asyncio.Task[DispatchReport]:
         """Dispatch in the background and return at once, so the ring is not delayed at all.
 
         The task is held here until it finishes: a task nothing references can be collected
         before it runs.
         """
-        task = asyncio.get_running_loop().create_task(self.dispatch(user_id, context))
+        task = asyncio.get_running_loop().create_task(
+            self.dispatch(user_id, context, locale=locale)
+        )
         self._background.add(task)
         task.add_done_callback(self._background.discard)
         return task
@@ -262,7 +268,7 @@ class EscalationDispatcher:
             await asyncio.gather(*self._background, return_exceptions=True)
 
     async def _attempt(
-        self, token: DeviceToken, context: EscalationContext, deadline: float
+        self, token: DeviceToken, context: EscalationContext, deadline: float, locale: str
     ) -> DeliveryAttempt:
         provider = self._providers.get(token.platform)
         if provider is None:
@@ -275,9 +281,7 @@ class EscalationDispatcher:
         labels = {"platform": token.platform.value, "provider": provider.name}
         stopwatch = Stopwatch()
         try:
-            notification = notification_for(
-                context, fits=_within_limit(provider), locale=self._locale
-            )
+            notification = notification_for(context, fits=_within_limit(provider), locale=locale)
             with self._tracer.span("notification.delivery", platform=token.platform.value):
                 outcome = await self._circuits.push(token.platform).call(
                     lambda: _sent_by(provider, token, notification, deadline),

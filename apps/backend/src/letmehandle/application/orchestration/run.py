@@ -631,6 +631,7 @@ class CallRun:
                 caller_label=None if contact is None else contact.label,
                 established=None if summary is None else summary[:MAX_DETAIL_LENGTH],
             ),
+            locale=live.owner.preferences.locale,
         )
 
     async def _not_reached(
