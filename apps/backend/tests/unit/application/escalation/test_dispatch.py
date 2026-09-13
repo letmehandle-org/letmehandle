@@ -294,7 +294,7 @@ class TestFailureNeverPropagates:
         report = await dispatcher(stores, apple, metrics=metrics).dispatch(ALICE, a_context())
         assert report.result is DispatchResult.STORAGE_UNAVAILABLE
         assert apple.sent == []
-        assert metrics.counted("escalation.storage_failed", stage="claim", kind="error") == 1
+        assert metrics.counted("escalation.storage_failed", stage="claim", kind="unavailable") == 1
         assert metrics.counted("escalation.dispatch", outcome="storage_unavailable") == 1
 
     async def test_storage_unavailable_after_sending_keeps_what_was_sent(self) -> None:

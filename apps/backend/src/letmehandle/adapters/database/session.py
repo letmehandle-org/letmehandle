@@ -10,7 +10,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from letmehandle.domain.errors import StorageUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -39,12 +42,27 @@ async def unit_of_work(
     The rollback is not belt and braces: an exception on the way out of a handler must not
     leave a half-written sign-in behind, and relying on the session's own cleanup leaves that
     to whether the garbage collector gets there first.
+
+    A database that could not be reached, or that dropped the connection, is raised as
+    `StorageUnavailableError`, with the driver's exception as its cause: this is storage's edge,
+    and above it what is worth trying again is decided from the kind of failure, not the driver.
     """
     async with factory() as session:
         try:
-            yield session
-        except Exception:
-            await session.rollback()
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            else:
+                await session.commit()
+        except Exception as error:
+            if _unreachable(error):
+                raise StorageUnavailableError from error
             raise
-        else:
-            await session.commit()
+
+
+def _unreachable(error: Exception) -> bool:
+    if isinstance(error, OperationalError | InterfaceError | OSError):
+        return True
+    return isinstance(error, DBAPIError) and error.connection_invalidated

@@ -34,6 +34,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
+from letmehandle.domain.failures import classify
 from letmehandle.domain.models.escalation_context import NotificationDelivery
 from letmehandle.domain.ports.notification import DeliveryStatus
 from letmehandle.observability.logging import get_logger
@@ -315,7 +316,9 @@ class EscalationDispatcher:
 
     def _failed(self, stage: str, error: Exception) -> None:
         logger.error("escalation.storage_failed", stage=stage, error=type(error).__name__)
-        self._metrics.increment("escalation.storage_failed", {"stage": stage, "kind": _kind(error)})
+        self._metrics.increment(
+            "escalation.storage_failed", {"stage": stage, "kind": classify(error).kind}
+        )
 
 
 def _within_limit(provider: NotificationProvider) -> Callable[[EscalationNotification], bool]:
@@ -323,8 +326,3 @@ def _within_limit(provider: NotificationProvider) -> Callable[[EscalationNotific
         return provider.payload_size(notification) <= provider.payload_limit_bytes
 
     return fits
-
-
-def _kind(error: Exception) -> str:
-    """A bounded category for a metric: never the message, which can carry anything."""
-    return "timeout" if isinstance(error, TimeoutError) else "error"

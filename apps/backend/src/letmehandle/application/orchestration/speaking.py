@@ -20,6 +20,7 @@ from letmehandle.application.speech.conversation import (
     Transcript,
     TranscriptTurn,
 )
+from letmehandle.domain.failures import classify
 from letmehandle.domain.ports.voice import resolve_voice
 from letmehandle.observability.logging import get_logger
 
@@ -151,7 +152,7 @@ class Speaking:
         # go on past it rather than leave the call half ended. Logged by kind and counted.
         except Exception as error:  # noqa: BLE001
             logger.warning("call.speech_close_failed", error=type(error).__name__)
-            self._metrics.increment(SPEECH_CLOSE_FAILED, {"kind": _kind(error)})
+            self._metrics.increment(SPEECH_CLOSE_FAILED, {"kind": classify(error).kind})
 
     async def _converse(self, conversation: Conversation) -> None:
         try:
@@ -170,7 +171,3 @@ class Speaking:
             preferences.authority,
             situation=situation.as_data(),
         )
-
-
-def _kind(error: Exception) -> str:
-    return "timeout" if isinstance(error, TimeoutError) else "error"

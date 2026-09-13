@@ -19,6 +19,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from letmehandle.domain.errors import DomainError, InvariantError
+from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
     CODE_LENGTH,
@@ -52,9 +53,13 @@ class AuthenticationError(DomainError):
     a phone-number identity.
     """
 
+    failure_kind = FailureKind.NOT_PERMITTED
+
 
 class RateLimitedError(AuthenticationError):
     """Too many attempts. Carries when to try again, so a client does not simply retry."""
+
+    failure_kind = FailureKind.RATE_LIMITED
 
     def __init__(self, retry_after_seconds: int) -> None:
         super().__init__("too many attempts; try again shortly")

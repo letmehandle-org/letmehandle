@@ -561,7 +561,7 @@ class TestDegradedProviders:
             await with_the_assistant(running)
             await running.caller_says("Hello?")
             await eventually(
-                lambda: running.metrics.counted("call.judgement_failed", kind="error") == 1
+                lambda: running.metrics.counted("call.judgement_failed", kind="unavailable") == 1
             )
             assert running.stores.call(CALL).state is CallState.AGENT_HANDLING
             session = await running.session()

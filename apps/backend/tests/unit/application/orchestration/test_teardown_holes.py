@@ -66,7 +66,7 @@ async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> Non
         assert line.asked("terminate", CALL) == 1
         assert CallId(CALL) in running.stores.summaries.stored
         assert running.stores.call(CALL).state is CallState.COMPLETED
-        assert running.metrics.counted("call.speech_close_failed", kind="error") == 1
+        assert running.metrics.counted("call.speech_close_failed", kind="refused") == 1
 
 
 async def test_a_speech_session_that_fails_to_close_as_the_assistant_goes_still_ends_the_call() -> (

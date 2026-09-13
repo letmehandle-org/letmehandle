@@ -50,6 +50,7 @@ from letmehandle.application.orchestration.speaking import Situation, Speaking, 
 from letmehandle.application.orchestration.summary import Findings, facts_of, with_findings
 from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
+from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
@@ -110,12 +111,16 @@ _USER_BEING_REACHED: Final = frozenset({CallState.ESCALATION_REQUESTED, CallStat
 class CallIsOverError(DomainError):
     """Something was asked of a call that has already been torn down."""
 
+    failure_kind = FailureKind.CONFLICT
+
     def __init__(self) -> None:
         super().__init__("the call is over, so nothing more can be done on it")
 
 
 class DialRefusedError(DomainError):
     """The user could not be dialled, so the escalation did not reach them."""
+
+    failure_kind = FailureKind.REFUSED
 
     def __init__(self) -> None:
         super().__init__("the user could not be dialled into the call")
@@ -250,7 +255,7 @@ class CallRun:
             # Without a traceback: its frames can hold who called.
             logger.error("call.owner_unavailable", error=type(error).__name__)  # noqa: TRY400
             self._context.metrics.increment(
-                PROVIDER_FAILED, {"stage": "owner", "kind": _kind(error)}
+                PROVIDER_FAILED, {"stage": "owner", "kind": classify(error).kind}
             )
             return None
 
@@ -279,7 +284,7 @@ class CallRun:
         except Exception as error:  # noqa: BLE001
             logger.error("call.speech_unavailable", error=type(error).__name__)  # noqa: TRY400
             self._context.metrics.increment(
-                PROVIDER_FAILED, {"stage": "speech", "kind": _kind(error)}
+                PROVIDER_FAILED, {"stage": "speech", "kind": classify(error).kind}
             )
             await self._finish(live, CallState.FAILED)
 
@@ -538,7 +543,7 @@ class CallRun:
         # carries on, and the next thing the caller says is looked at afresh.
         except Exception as error:  # noqa: BLE001
             logger.warning("call.judgement_failed", error=type(error).__name__)
-            self._context.metrics.increment(JUDGEMENT_FAILED, {"kind": _kind(error)})
+            self._context.metrics.increment(JUDGEMENT_FAILED, {"kind": classify(error).kind})
             self.post(Judged(None))
         else:
             self.post(Judged(judgement))
@@ -595,7 +600,7 @@ class CallRun:
                 return await summariser.summarise(facts, call.transcript, locale=locale)
         except TimeoutError:
             logger.warning("call.summary_failed", error="TimeoutError")
-            self._context.metrics.increment(SUMMARY_FAILED, {"kind": "timeout"})
+            self._context.metrics.increment(SUMMARY_FAILED, {"kind": FailureKind.TIMEOUT})
             return fallback_summary(facts, locale=locale)
 
     async def _release_tasks(self) -> None:
@@ -628,7 +633,9 @@ class CallRun:
                 await work
         except (TimeoutError, DomainError) as error:
             logger.warning("call.provider_failed", stage=stage, error=type(error).__name__)
-            self._context.metrics.increment(PROVIDER_FAILED, {"stage": stage, "kind": _kind(error)})
+            self._context.metrics.increment(
+                PROVIDER_FAILED, {"stage": stage, "kind": classify(error).kind}
+            )
             return False
         return True
 
@@ -711,7 +718,3 @@ def _settle(reply: asyncio.Future[None], error: DomainError | None) -> None:
         reply.set_result(None)
     else:
         reply.set_exception(error)
-
-
-def _kind(error: BaseException) -> str:
-    return "timeout" if isinstance(error, TimeoutError) else "error"

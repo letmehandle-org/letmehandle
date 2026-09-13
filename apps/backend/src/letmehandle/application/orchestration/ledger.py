@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.domain.failures import classify
 from letmehandle.domain.models.call import TranscriptEntry
 from letmehandle.observability.logging import get_logger
 
@@ -143,10 +144,6 @@ class CallLedger:
             logger.error(  # noqa: TRY400
                 "call.storage_failed", stage=stage, error=type(error).__name__
             )
-            self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": _kind(error)})
+            self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": classify(error).kind})
             return False
         return True
-
-
-def _kind(error: Exception) -> str:
-    return "timeout" if isinstance(error, TimeoutError) else "error"

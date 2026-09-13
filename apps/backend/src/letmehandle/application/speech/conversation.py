@@ -23,6 +23,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.domain.errors import DomainError
+from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.ports.speech import (
     AudioProduced,
     SessionFailed,
@@ -58,6 +59,7 @@ class ConversationFailedError(DomainError):
         super().__init__(f"the conversation could not continue: {reason}")
         self.reason = reason
         self.retryable = retryable
+        self.failure_kind = FailureKind.UNAVAILABLE if retryable else FailureKind.REFUSED
 
 
 class ConversationEnd(StrEnum):

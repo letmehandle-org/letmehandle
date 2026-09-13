@@ -6,16 +6,19 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from letmehandle.adapters.database.models import Base, UserRow
 from letmehandle.adapters.database.repositories import SqlUserRepository
 from letmehandle.adapters.database.session import create_session_factory, unit_of_work
+from letmehandle.domain.errors import StorageUnavailableError
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
 from tests.contracts.fakes import FixedClock
+from tests.support.config import UNREACHABLE_DATABASE
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -92,3 +95,39 @@ async def test_objects_stay_readable_after_the_commit(engine: AsyncEngine) -> No
 
     assert written is not None
     assert written.phone_number == NUMBER
+
+
+async def test_a_database_that_cannot_be_reached_is_storage_unavailable() -> None:
+    unreachable = create_async_engine(UNREACHABLE_DATABASE)
+    try:
+        with pytest.raises(StorageUnavailableError) as raised:
+            async with unit_of_work(create_session_factory(unreachable)) as work:
+                await work.execute(text("SELECT 1"))
+    finally:
+        await unreachable.dispose()
+
+    assert isinstance(raised.value.__cause__, OSError)
+
+
+async def test_a_connection_dropped_under_a_unit_of_work_is_storage_unavailable(
+    engine: AsyncEngine,
+) -> None:
+    with pytest.raises(StorageUnavailableError):
+        async with unit_of_work(create_session_factory(engine)) as work:
+            await work.execute(text("SELECT pg_terminate_backend(pg_backend_pid())"))
+
+
+async def test_a_statement_the_database_refuses_is_not_mistaken_for_an_outage(
+    engine: AsyncEngine,
+) -> None:
+    with pytest.raises(ProgrammingError):
+        async with unit_of_work(create_session_factory(engine)) as work:
+            await work.execute(text("SELECT * FROM no_such_table"))
+
+
+async def test_a_failure_that_is_not_the_database_passes_through_unchanged(
+    engine: AsyncEngine,
+) -> None:
+    with pytest.raises(LookupError):
+        async with unit_of_work(create_session_factory(engine)):
+            raise LookupError
