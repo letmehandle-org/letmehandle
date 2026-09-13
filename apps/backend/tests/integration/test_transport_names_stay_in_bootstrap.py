@@ -27,8 +27,9 @@ ADAPTERS = {
     "android_native": ("adapters/transport/android_native/",),
 }
 
-# Where a transport's name belongs.
-ALWAYS_ALLOWED = ("bootstrap.py", "config/settings.py")
+# Where a transport's name belongs: bootstrap, and the configuration it reads, lines by region
+# included.
+ALWAYS_ALLOWED = ("bootstrap.py", "config/settings.py", "config/telephony_lines.py")
 
 # A push is routed by the device's platform, which describes a device rather than branching on a
 # transport: the notification port, the push adapter that delivers to that platform, and the
