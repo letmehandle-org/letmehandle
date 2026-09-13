@@ -72,10 +72,10 @@ async def read_escalation(
         raise ApiError(
             status.HTTP_404_NOT_FOUND, "escalation_not_found", "There is no such escalation."
         )
-    return context_response(context, locale=(await preferences.get(user.id)).locale)
+    return _context_response(context, locale=(await preferences.get(user.id)).locale)
 
 
-def context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:
+def _context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:
     """The response, built from the same notification a push would have carried."""
     shown = notification_for(context, locale=locale)
     return EscalationContextResponse(
