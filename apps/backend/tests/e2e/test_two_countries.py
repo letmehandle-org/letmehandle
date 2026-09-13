@@ -130,14 +130,17 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
 
             us.answering[USERS_LINE] = Answering.ANSWERS
             india.answering[IN_USERS_LINE] = Answering.ANSWERS
+            # The Indian call arrives once the American one has its session, so the sessions are
+            # in the order of the calls; both calls stay live throughout.
             await us.place_call("CAsim-us-call", CALLER, forwarded_from=american.number)
-            await india.place_call("CAsim-in-call", IN_CALLER, forwarded_from=indian.number)
             await system.reaches(american, "CAsim-us-call", CallState.AGENT_HANDLING)
+            await eventually(lambda: len(speech.sessions) == 1, seconds=PATIENCE_SECONDS)
+            await india.place_call("CAsim-in-call", IN_CALLER, forwarded_from=indian.number)
             await system.reaches(indian, "CAsim-in-call", CallState.AGENT_HANDLING)
             assert system.orchestrator.live_calls == 2
 
             # Each caller asks for the user, one after the other, so each judgement is the one
-            # the script expects; both calls stay live throughout.
+            # the script expects.
             await eventually(lambda: len(speech.sessions) == 2, seconds=PATIENCE_SECONDS)
             first, second = speech.sessions
             await first.emit(
