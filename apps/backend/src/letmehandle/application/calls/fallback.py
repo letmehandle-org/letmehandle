@@ -154,8 +154,8 @@ def fallback_summary(facts: CallFacts, *, locale: str) -> CallSummary:
     call = facts.call
     if call.ended_at is None:
         raise InvariantError("only a call that has ended can be summarised")
-    human_joined_at = _human_joined_at(facts, ended_at=call.ended_at)
-    outcome = _outcome(facts, human_joined=human_joined_at is not None)
+    joined_at = _joined_at(facts, ended_at=call.ended_at)
+    outcome = _outcome(facts, human_joined=joined_at is not None)
     return CallSummary(
         call_id=call.id,
         caller=call.caller,
@@ -165,12 +165,12 @@ def fallback_summary(facts: CallFacts, *, locale: str) -> CallSummary:
         headline=_headline(outcome, call.caller, closest_phrasebook(locale, SUMMARY_PHRASEBOOKS)),
         started_at=call.started_at,
         ended_at=call.ended_at,
-        human_joined_at=human_joined_at,
+        human_joined_at=joined_at,
         escalation_reason=facts.escalation_reason,
     )
 
 
-def _human_joined_at(facts: CallFacts, *, ended_at: datetime) -> datetime | None:
+def _joined_at(facts: CallFacts, *, ended_at: datetime) -> datetime | None:
     # Only with the escalation that brought them: a summary refuses a join with no reason, and
     # the reason is what the history shows the user about why they were asked.
     joined = human_joined_at(facts.call)
