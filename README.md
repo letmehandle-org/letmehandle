@@ -76,14 +76,19 @@ Full instructions, including the mobile toolchain, are in
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — the shape of the system
 - [`docs/architecture/decisions.md`](docs/architecture/decisions.md) — why it is shaped that way
 - [`docs/providers/`](docs/providers/) — writing a provider
+- [`docs/architecture/security.md`](docs/architecture/security.md) — the threat model, and what is not defended
+- [`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md) — running a deployment securely
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
 
 ## Privacy
 
-Calls are not recorded. Transcripts are encrypted at rest and deleted on a schedule you
-control, defaulting to seven days. The structured summary outlives the transcript. What the
+Calls are not recorded. Transcripts are encrypted at rest and deleted on a schedule each user
+controls, defaulting to seven days. The structured summary outlives the transcript. What the
 project does and does not protect against is written down rather than implied — see
-`docs/architecture/security.md` once it lands in phase 12.
+[`docs/architecture/security.md`](docs/architecture/security.md). Before deploying it anywhere
+reachable, read
+[`docs/development/self-hosting-security.md`](docs/development/self-hosting-security.md).
 
 ## Licence
 

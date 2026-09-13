@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import structlog
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from structlog.testing import capture_logs
 
+from letmehandle.api import errors
 from letmehandle.api.errors import (
     error_body,
     register_error_handlers,
     resolve_correlation_id,
 )
 from letmehandle.api.middleware import CorrelationMiddleware
-from letmehandle.observability.logging import correlation_id
+from letmehandle.observability.logging import configure_logging, correlation_id
+from tests.support.config import make_settings
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_error_body_omits_the_correlation_id_when_there_is_none() -> None:
@@ -41,6 +50,31 @@ def _app_that_fails() -> FastAPI:
         return {"number": number}
 
     return app
+
+
+async def test_an_unhandled_error_is_logged_by_where_it_happened_never_by_what_it_said(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A database error's detail repeats the values it refused — a caller's number, say — and a log
+    # line outlives the request that caused it. The type and the frames are enough to find it.
+    transport = ASGITransport(app=_app_that_fails(), raise_app_exceptions=False)
+    # Whatever level an earlier test configured stays in force and would filter the event before
+    # the capture sees it, and a logger bound earlier is cached; so the level is set here and the
+    # module's logger is rebound inside the capture.
+    configure_logging(make_settings(log_level="debug"))
+    try:
+        with capture_logs() as events:
+            monkeypatch.setattr(errors, "logger", structlog.get_logger("letmehandle.api.errors"))
+            async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+                await http.get("/boom")
+    finally:
+        configure_logging(make_settings())
+
+    [event] = [each for each in events if each["event"] == "unhandled_exception"]
+    assert event["exc_type"] == "RuntimeError"
+    assert any("boom" in frame for frame in event["frames"])
+    assert "secret detail" not in repr(event)
+    assert "exc_info" not in event
 
 
 async def test_an_unhandled_error_returns_no_internal_detail() -> None:

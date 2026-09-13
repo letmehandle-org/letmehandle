@@ -7,7 +7,8 @@ to the application running on loopback, which is the situation behind a tunnel: 
 request arrives with is not the URL that was signed. The assistant's leg fetches its
 instructions from the application and opens a real websocket to it, with a signed handshake.
 
-A test can hold callbacks back and then deliver them reordered, twice, or not at all; decide how
+A test can hold callbacks back and then deliver them reordered, twice, or not at all; have every
+callback sent twice as it happens; move the provider to a restarted application; decide how
 a dialled person answers, or does not; drop the assistant's websocket; stop the stream without
 closing it; and hang up either party first. No account, no number, and no network beyond
 loopback.
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport
+    from letmehandle.bootstrap import CallTransportBinding
     from letmehandle.config.settings import Settings
     from letmehandle.domain.ports.call_transport import CallEvent
 
@@ -136,6 +138,9 @@ class SimulatedTwilio:
         self._readers: set[asyncio.Task[None]] = set()
         self._ids = itertools.count(1)
         self.fail_next_rest: int | None = None
+        # Every callback sent a second time, with the same idempotency token, straight after the
+        # first: what the provider does when it did not see the first acknowledged.
+        self.duplicate_callbacks = False
         self.sign_handshake_with_slash = False
         self.sign_handshake_url: str | None = None
 
@@ -144,6 +149,12 @@ class SimulatedTwilio:
     def attach(self, app_url: str) -> None:
         self._app_url = app_url
         self._client = httpx.AsyncClient(base_url=app_url, timeout=5.0)
+
+    async def move_to(self, app_url: str) -> None:
+        """Call back an application started in place of the one this was attached to."""
+        if self._client is not None:
+            await self._client.aclose()
+        self.attach(app_url)
 
     async def close(self) -> None:
         for leg in self.legs.values():
@@ -172,8 +183,17 @@ class SimulatedTwilio:
 
     # ------------------------------------------------------ what a test does
 
-    async def place_call(self, call_sid: str = "CAsim-caller", caller: str = CALLER_NUMBER) -> str:
-        """A call arrives at our number. Returns the instructions the application gave."""
+    async def place_call(
+        self,
+        call_sid: str = "CAsim-caller",
+        caller: str = CALLER_NUMBER,
+        *,
+        forwarded_from: PhoneNumber | None = None,
+    ) -> str:
+        """A call arrives at our number, forwarded from `forwarded_from`'s line when it is given.
+
+        Returns the instructions the application gave.
+        """
         params = [
             ("AccountSid", SIMULATED_ACCOUNT),
             ("CallSid", call_sid),
@@ -182,6 +202,8 @@ class SimulatedTwilio:
             ("CallStatus", "ringing"),
             ("Direction", "inbound"),
         ]
+        if forwarded_from is not None:
+            params.append(("ForwardedFrom", forwarded_from.value))
         response = await self.post_signed("/telephony/voice/incoming", params)
         document = response.text
         root = fromstring(document)  # noqa: S314 - the application under test wrote it
@@ -212,7 +234,7 @@ class SimulatedTwilio:
 
     async def send_caller_audio(self, call_sid: str, audio: bytes, *, frames: int = 1) -> None:
         """The call's audio reaching the assistant's leg, in the provider's own framing."""
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         for chunk in range(1, frames + 1):
             await leg.socket.send(
@@ -232,7 +254,7 @@ class SimulatedTwilio:
             )
 
     async def press_digit(self, call_sid: str, digit: str) -> None:
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.send(
             json.dumps(
@@ -256,13 +278,13 @@ class SimulatedTwilio:
 
     async def drop_assistant_socket(self, call_sid: str) -> None:
         """The websocket closes with no stop message, and the leg it carried ends."""
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.close()
 
     async def stop_stream_without_closing(self, call_sid: str) -> None:
         """A stop message, and a socket left open for the application to close."""
-        leg = self.assistant_of(call_sid)
+        leg = await self.assistant_of(call_sid)
         assert leg.socket is not None
         await leg.socket.send(
             json.dumps({"event": "stop", "sequenceNumber": "99", "streamSid": leg.stream_sid})
@@ -307,13 +329,27 @@ class SimulatedTwilio:
             headers={SIGNATURE_HEADER: compute_signature(url, params, token)},
         )
 
-    def assistant_of(self, call_sid: str) -> SimulatedLeg:
-        conference = self.conference_of(call_sid)
-        return next(
-            leg
-            for leg in reversed(conference.legs)
-            if leg.label.startswith("assistant") and leg.socket is not None
-        )
+    async def assistant_of(self, call_sid: str) -> SimulatedLeg:
+        """The call's assistant leg once its media socket is open on this side.
+
+        The application counts a socket once its start arrives, which can be before this side has
+        finished recording the connection it opened, so this waits for that rather than guessing.
+        """
+
+        def streaming() -> SimulatedLeg | None:
+            return next(
+                (
+                    leg
+                    for leg in reversed(self.conference_of(call_sid).legs)
+                    if leg.label.startswith("assistant") and leg.socket is not None
+                ),
+                None,
+            )
+
+        await eventually(lambda: streaming() is not None)
+        leg = streaming()
+        assert leg is not None
+        return leg
 
     def conference_of(self, call_sid: str) -> SimulatedConference:
         conference = self.legs[call_sid].conference
@@ -661,6 +697,8 @@ class SimulatedTwilio:
             self.held.append(delivery)
             return
         await self.deliver(delivery)
+        if self.duplicate_callbacks:
+            await self.deliver(delivery)
 
     def _later(self, work: Coroutine[object, object, None]) -> None:
         task = asyncio.get_running_loop().create_task(work)
@@ -697,6 +735,7 @@ class Deployment:
     transport: TwilioCallTransport
     provider: SimulatedTwilio
     events: list[CallEvent]
+    binding: CallTransportBinding
 
     async def settle(self) -> None:
         await self.provider.settle(self.transport)
@@ -743,7 +782,9 @@ async def simulated_deployment(
     assert binding is not None
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)
-    app = create_app(settings, telephony=binding)
+    # The transport is handed to the application rather than configured on it: this deployment has
+    # no storage, and whoever needs calls orchestrated builds the orchestrator on the transport.
+    app = create_app(make_settings(), telephony=binding)
     events: list[CallEvent] = []
 
     async def collect() -> None:
@@ -752,11 +793,13 @@ async def simulated_deployment(
         async for event in transport.events():
             events.append(event)
 
-    async with _serving(app) as app_url:
+    async with serving(app) as app_url:
         provider.attach(app_url)
         collector = asyncio.get_running_loop().create_task(collect())
         try:
-            yield Deployment(app=app, transport=transport, provider=provider, events=events)
+            yield Deployment(
+                app=app, transport=transport, provider=provider, events=events, binding=binding
+            )
         finally:
             await provider.close()
             collector.cancel()
@@ -765,7 +808,8 @@ async def simulated_deployment(
 
 
 @asynccontextmanager
-async def _serving(app: FastAPI) -> AsyncIterator[str]:
+async def serving(app: FastAPI) -> AsyncIterator[str]:
+    """The application on loopback over real HTTP, lifespan and all, until the block exits."""
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))

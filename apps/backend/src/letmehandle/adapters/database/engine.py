@@ -17,6 +17,10 @@ def create_engine(settings: Settings) -> AsyncEngine:
         settings.require_database_url(),
         pool_pre_ping=True,
         echo=False,
+        # A failed statement's error otherwise renders every bound value, and those include
+        # phone numbers and the caller's name. The error's text is what reaches a log line or an
+        # error tracker; the statement and the driver's own message are enough to diagnose it.
+        hide_parameters=True,
     )
 
 

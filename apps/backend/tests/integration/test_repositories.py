@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
-from letmehandle.adapters.database.models import RefreshTokenRow, UserRow
+from letmehandle.adapters.database.models import DeviceRow, RefreshTokenRow, UserRow
 from letmehandle.adapters.database.repositories import (
     SqlDeviceRepository,
     SqlOTPChallengeRepository,
@@ -349,3 +349,31 @@ class TestIsolation:
         still_there = await tokens.find_by_hash("hash-theirs")
         assert still_there is not None
         assert still_there.revoked_at is None
+
+
+class TestDeviceRegistrationIsIdempotent:
+    async def test_registering_the_same_token_twice_keeps_one_row_and_refreshes_it(
+        self, session: AsyncSession
+    ) -> None:
+        await SqlUserRepository(session, FixedClock(NOW)).add(a_user())
+        clock = FixedClock(NOW)
+        devices = SqlDeviceRepository(session, clock)
+        token = DeviceToken(DevicePlatform.IOS, "a-token")
+
+        await devices.register(UserId("user-1"), token)
+        clock.advance(60)
+        await devices.register(UserId("user-1"), token)
+
+        assert await devices.tokens_for(UserId("user-1")) == [token]
+        session.expunge_all()
+        rows = (await session.execute(select(DeviceRow))).scalars().all()
+        assert [row.registered_at for row in rows] == [NOW + timedelta(seconds=60)]
+
+    async def test_the_same_value_on_two_platforms_is_two_devices(
+        self, session: AsyncSession
+    ) -> None:
+        await SqlUserRepository(session, FixedClock(NOW)).add(a_user())
+        devices = SqlDeviceRepository(session, FixedClock(NOW))
+        await devices.register(UserId("user-1"), DeviceToken(DevicePlatform.IOS, "same"))
+        await devices.register(UserId("user-1"), DeviceToken(DevicePlatform.ANDROID, "same"))
+        assert len(await devices.tokens_for(UserId("user-1"))) == 2

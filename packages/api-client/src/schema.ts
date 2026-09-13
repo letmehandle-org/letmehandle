@@ -105,10 +105,13 @@ export interface paths {
         put?: never;
         /**
          * End this session
-         * @description End the session this refresh token belongs to.
+         * @description End the session this refresh token belongs to, and forget the device signing out.
          *
          *     Always succeeds. Somebody signing out has nothing to gain from being told their token was
          *     already invalid, and saying so would tell an attacker whether a token they hold is real.
+         *
+         *     The device is removed only from the account the refresh token belonged to, so a request can
+         *     never remove somebody else's device by naming it.
          */
         post: operations["sign_out_v1_auth_signout_post"];
         delete?: never;
@@ -137,6 +140,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List calls
+         * @description The user's calls, newest first.
+         *
+         *     `from` is inclusive and `to` exclusive, both on when the call started, and both must carry a
+         *     timezone offset. `outcome` and `human_joined` match only calls that have a summary. Calls still
+         *     in progress are listed, with `status` `in_progress` and no outcome yet.
+         */
+        get: operations["list_calls_v1_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/reports": {
         parameters: {
             query?: never;
@@ -154,6 +181,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open a call
+         * @description One call in full: its summary, its timeline, and whether its transcript can still be read.
+         */
+        get: operations["read_call_v1_calls__call_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a call
+         * @description Delete the call, its transcript and its summary, immediately. `204` even if already gone.
+         */
+        delete: operations["delete_call_v1_calls__call_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a call's transcript
+         * @description What was said, while the user's retention still keeps it.
+         *
+         *     `410 transcript_purged` once retention has deleted it, `404 transcript_not_recorded` for a
+         *     call nothing was said on, `404 call_not_found` for no such call.
+         */
+        get: operations["read_transcript_v1_calls__call_id__transcript_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Register this device for escalation notifications
+         * @description Record this device's push token for the signed-in user.
+         *
+         *     Idempotent: the app calls it on every launch and whenever its platform issues a new token. A
+         *     token previously registered to another account moves to this one.
+         */
+        put: operations["register_device_v1_devices_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/unregister": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop sending escalation notifications to this device
+         * @description Forget this device for the signed-in user. Succeeds whether or not it was registered.
+         *
+         *     A POST with a body rather than a DELETE with the token in the path: a push token identifies a
+         *     handset, and a path is what access logs keep.
+         */
+        post: operations["unregister_device_v1_devices_unregister_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/escalations/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The context of an escalation
+         * @description What the user was, or would have been, told about this escalation.
+         *
+         *     For the app opened without a notification, or opened long after one: the same words, from
+         *     the backend rather than from the lock screen.
+         */
+        get: operations["read_escalation_v1_escalations__call_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -165,7 +308,15 @@ export interface paths {
         get: operations["read_me_v1_me_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete the account
+         * @description Delete the signed-in user's account and everything held because of it, now.
+         *
+         *     Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
+         *     and the sign-in codes sent to the number. A call in progress is ended first. Every token the
+         *     account held stops working with it.
+         */
+        delete: operations["delete_me_v1_me_delete"];
         options?: never;
         head?: never;
         /**
@@ -195,6 +346,10 @@ export interface paths {
          *
          *     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
          *     where somebody was instead of asking them everything again.
+         *
+         *     A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
+         *     deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
+         *     `step_not_asked`, and nothing is recorded.
          */
         post: operations["record_onboarding_step_v1_onboarding_post"];
         delete?: never;
@@ -302,11 +457,71 @@ export interface components {
             capabilities?: components["schemas"]["Capability"][];
         };
         /**
+         * CallDetailResponse
+         * @description One call in full.
+         *
+         *     `transcript_retention_days` is the user's setting as it stands, which is the one the purge
+         *     applies. `transcript_expires_at` is when the last of the transcript is due to go — null when
+         *     there is none to go, or while the call is still going.
+         */
+        CallDetailResponse: {
+            caller: components["schemas"]["CallerPayload"];
+            /** Details */
+            details: components["schemas"]["ExtractedDetailPayload"][];
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            escalation_reason: components["schemas"]["EscalationReason"] | null;
+            handling: components["schemas"]["CallHandling"] | null;
+            /** Headline */
+            headline: string | null;
+            /** Human Joined */
+            human_joined: boolean;
+            /** Id */
+            id: string;
+            importance: components["schemas"]["CallImportance"] | null;
+            intent: components["schemas"]["CallIntent"] | null;
+            outcome: components["schemas"]["CallOutcome"] | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["CallStatus"];
+            timings: components["schemas"]["CallTimingsPayload"];
+            /** Transcript Available */
+            transcript_available: boolean;
+            /** Transcript Expires At */
+            transcript_expires_at: string | null;
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
+        };
+        /**
          * CallEnding
          * @description How a reported call ended.
          * @enum {string}
          */
         CallEnding: "screened_out" | "missed" | "completed";
+        /**
+         * CallForwardingResponse
+         * @description Where the user's phone should forward the calls it does not take.
+         */
+        CallForwardingResponse: {
+            /**
+             * Number
+             * @description The number, in E.164 form, to set the phone's conditional call forwarding to: calls that go unanswered and calls that arrive while the line is busy.
+             */
+            number: string;
+        };
+        /**
+         * CallHandling
+         * @description Whom routing gave the call to, which its final state no longer says.
+         *
+         *     A completed call was either put straight through to the user or taken by the assistant, and
+         *     history tells the two apart. Read from the moves themselves rather than set beside them, so it
+         *     cannot disagree with the path the call took. A rejected call was given to nobody.
+         * @enum {string}
+         */
+        CallHandling: "passed_through" | "assistant";
         /**
          * CallHandlingPayload
          * @description What happens to a call before anybody has spoken to it.
@@ -335,6 +550,58 @@ export interface components {
          * @enum {integer}
          */
         CallImportance: 10 | 20 | 30 | 40 | 50;
+        /**
+         * CallIntent
+         * @description What the call is for.
+         *
+         *     `UNDETERMINED` is a real answer: early in a call, or in a call that never made sense, the
+         *     honest classification is that there is not one yet. A model forced to choose will choose
+         *     something, and downstream rules will act on it.
+         * @enum {string}
+         */
+        CallIntent: "undetermined" | "delivery_in_progress" | "appointment" | "enquiry" | "personal" | "service_issue" | "sales" | "suspected_fraud";
+        /**
+         * CallListItem
+         * @description One call in the list.
+         *
+         *     `outcome` and `headline` are null until the call has a summary: while it is in progress, and
+         *     for the moment between its end and its summary being written.
+         */
+        CallListItem: {
+            caller: components["schemas"]["CallerPayload"];
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Headline */
+            headline: string | null;
+            /** Human Joined */
+            human_joined: boolean;
+            /** Id */
+            id: string;
+            outcome: components["schemas"]["CallOutcome"] | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["CallStatus"];
+        };
+        /**
+         * CallOutcome
+         * @description How it ended, in the terms a person would use.
+         *
+         *     Distinct from `CallState`: the state machine's endings are about the mechanism, and these
+         *     are about what happened. A call that reached COMPLETED could have been resolved, handed
+         *     over, or abandoned, and a user reading their history wants to know which.
+         * @enum {string}
+         */
+        CallOutcome: "resolved_by_agent" | "handed_to_user" | "passed_through" | "rejected_by_rule" | "caller_hung_up" | "unanswered_escalation" | "failed";
+        /** CallPageResponse */
+        CallPageResponse: {
+            /** Calls */
+            calls: components["schemas"]["CallListItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** CallReportBatch */
         CallReportBatch: {
             /** Reports */
@@ -373,6 +640,31 @@ export interface components {
             rejected: components["schemas"]["RejectedReport"][];
         };
         /**
+         * CallStatus
+         * @description Whether a call is still going. An ended call's summary can arrive a moment after it ends.
+         * @enum {string}
+         */
+        CallStatus: "in_progress" | "ended";
+        /**
+         * CallTimingsPayload
+         * @description When each thing happened. A step that never happened is null.
+         */
+        CallTimingsPayload: {
+            /** Answered At */
+            answered_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Escalated At */
+            escalated_at: string | null;
+            /** Human Joined At */
+            human_joined_at: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+        };
+        /**
          * CallerCategory
          * @description What kind of call this appears to be.
          *
@@ -382,6 +674,14 @@ export interface components {
          * @enum {string}
          */
         CallerCategory: "known_contact" | "delivery" | "healthcare" | "education" | "financial" | "service_provider" | "sales" | "spam" | "unknown";
+        /** CallerPayload */
+        CallerPayload: {
+            category: components["schemas"]["CallerCategory"];
+            /** Display Name */
+            display_name: string | null;
+            /** Number Withheld */
+            number_withheld: boolean;
+        };
         /**
          * Capability
          * @description One thing the assistant may be permitted to do.
@@ -403,6 +703,85 @@ export interface components {
             challenge_id: string;
             /** Expires In Seconds */
             expires_in_seconds: number;
+        };
+        /**
+         * DevicePayload
+         * @description One device, as its platform identifies it.
+         */
+        DevicePayload: {
+            platform: components["schemas"]["DevicePlatform"];
+            /** Token */
+            token: string;
+        };
+        /**
+         * DevicePlatform
+         * @description Which delivery path a device needs.
+         * @enum {string}
+         */
+        DevicePlatform: "ios" | "android";
+        /**
+         * EscalationContextResponse
+         * @description An escalation as the app shows it — the same words the notification carried.
+         *
+         *     `title`, `caller_label` and `body` are exactly what a notification would display, untrimmed.
+         *     The structured fields beside them are for the app to lay out itself: `caller` is absent when
+         *     nobody knows who is calling, where `caller_label` says so in words. `status` says whether the
+         *     call is still going; an `ended` escalation is shown as what happened, not as a call to join.
+         *     `delivery` says what became of the push, so a failure can be surfaced rather than hidden.
+         */
+        EscalationContextResponse: {
+            /** Body */
+            body: string;
+            /** Call Id */
+            call_id: string;
+            /** Caller */
+            caller: string | null;
+            /** Caller Label */
+            caller_label: string;
+            delivery: components["schemas"]["NotificationDelivery"];
+            /** Ended At */
+            ended_at: string | null;
+            /** Established */
+            established: string | null;
+            /** Needed */
+            needed: string | null;
+            /**
+             * Raised At
+             * Format: date-time
+             */
+            raised_at: string;
+            reason: components["schemas"]["EscalationReason"];
+            status: components["schemas"]["EscalationStatus"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * EscalationReason
+         * @description Why the assistant wants a person.
+         *
+         *     These are the reasons it can actually distinguish, and each leads somewhere different: an
+         *     unauthorised action may be resolved by granting a capability, a caller's request may be
+         *     resolved by the user answering, and a failure is an operational problem.
+         * @enum {string}
+         */
+        EscalationReason: "caller_asked_for_the_user" | "action_not_authorised" | "decision_needs_the_user" | "important_enough_to_interrupt" | "cannot_understand_the_caller" | "user_rule_requires_it";
+        /**
+         * EscalationStatus
+         * @description Whether the call the escalation belongs to is still going.
+         *
+         *     A notification can arrive after the call has ended, and that is a designed state: the app
+         *     shows what happened instead of a live context for a call nobody can join.
+         * @enum {string}
+         */
+        EscalationStatus: "live" | "ended";
+        /** ExtractedDetailPayload */
+        ExtractedDetailPayload: {
+            /** Evidence */
+            evidence: string | null;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /**
          * Formality
@@ -451,6 +830,12 @@ export interface components {
             /** @default pass_through */
             posture: components["schemas"]["HandlingPosture"];
         };
+        /**
+         * NotificationDelivery
+         * @description What became of telling the user, surfaced in the app rather than raised anywhere.
+         * @enum {string}
+         */
+        NotificationDelivery: "pending" | "delivered" | "failed" | "no_devices";
         /** NotificationsPayload */
         NotificationsPayload: {
             /**
@@ -482,6 +867,10 @@ export interface components {
         /**
          * OnboardingResponse
          * @description Where somebody is in the flow, and what is left.
+         *
+         *     Every list holds only the steps this deployment asks, in the order they are asked.
+         *     `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
+         *     and an answer recorded to it elsewhere is not listed.
          */
         OnboardingResponse: {
             /** Completed */
@@ -502,7 +891,7 @@ export interface components {
          *     two unrelated things is one people abandon.
          * @enum {string}
          */
-        OnboardingStep: "call_handling" | "hours" | "authority" | "notifications";
+        OnboardingStep: "call_handling" | "call_forwarding" | "hours" | "authority" | "notifications";
         /** OnboardingUpdate */
         OnboardingUpdate: {
             /**
@@ -537,6 +926,7 @@ export interface components {
             locale: string;
             notifications: components["schemas"]["NotificationsPayload"];
             personality: components["schemas"]["PersonalityPayload"];
+            privacy: components["schemas"]["PrivacyResponse"];
             /** Version */
             version: number;
         };
@@ -557,9 +947,31 @@ export interface components {
             locale?: string | null;
             notifications?: components["schemas"]["NotificationsPayload"] | null;
             personality?: components["schemas"]["PersonalityPayload"] | null;
+            privacy?: components["schemas"]["PrivacyPayload"] | null;
+        };
+        /**
+         * PrivacyPayload
+         * @description What is kept, and for how long.
+         */
+        PrivacyPayload: {
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
+        };
+        /**
+         * PrivacyResponse
+         * @description What is kept, and for how long, as stored.
+         *
+         *     Unbounded above, unlike the request: a deployment with a higher ceiling may have stored a
+         *     longer retention, and it is reported as it is rather than refused or quietly lowered.
+         */
+        PrivacyResponse: {
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
         };
         /** ProfileResponse */
         ProfileResponse: {
+            /** @description Present when calls reach the assistant only by being forwarded: until the user's phone forwards unanswered and busy calls to this number, no call reaches it. Null when nothing needs forwarding. */
+            call_forwarding: components["schemas"]["CallForwardingResponse"] | null;
             /** Display Name */
             display_name: string | null;
             /** Id */
@@ -594,6 +1006,20 @@ export interface components {
             refresh_token: string;
         };
         /**
+         * RegisterDeviceRequest
+         * @description This device's current push token.
+         *
+         *     `previous_token` is the token the platform rotated away from, when the app knows it. It is
+         *     removed from this user's devices so the old one does not linger until a delivery fails.
+         */
+        RegisterDeviceRequest: {
+            platform: components["schemas"]["DevicePlatform"];
+            /** Previous Token */
+            previous_token?: string | null;
+            /** Token */
+            token: string;
+        };
+        /**
          * RejectedReport
          * @description A report that was not stored, and will not be however often it is sent.
          */
@@ -623,9 +1049,16 @@ export interface components {
         ScreeningDecision: "allow" | "reject" | "silence";
         /** SignOutRequest */
         SignOutRequest: {
+            device?: components["schemas"]["DevicePayload"] | null;
             /** Refresh Token */
             refresh_token: string;
         };
+        /**
+         * Speaker
+         * @description Who said something.
+         * @enum {string}
+         */
+        Speaker: "caller" | "agent" | "human";
         /**
          * TimeWindowPayload
          * @description A daily window, in the user's own zone.
@@ -655,6 +1088,31 @@ export interface components {
              * @default Bearer
              */
             token_type: string;
+        };
+        /** TranscriptLinePayload */
+        TranscriptLinePayload: {
+            /**
+             * Said At
+             * Format: date-time
+             */
+            said_at: string;
+            speaker: components["schemas"]["Speaker"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * TranscriptResponse
+         * @description What remains of a call's transcript, in the order it was said, and when it goes.
+         */
+        TranscriptResponse: {
+            /** Call Id */
+            call_id: string;
+            /** Entries */
+            entries: components["schemas"]["TranscriptLinePayload"][];
+            /** Transcript Expires At */
+            transcript_expires_at: string | null;
+            /** Transcript Retention Days */
+            transcript_retention_days: number;
         };
         /** UpdateProfileRequest */
         UpdateProfileRequest: {
@@ -955,6 +1413,42 @@ export interface operations {
             };
         };
     };
+    list_calls_v1_calls_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                outcome?: components["schemas"]["CallOutcome"] | null;
+                from?: string | null;
+                to?: string | null;
+                human_joined?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     report_calls_v1_calls_reports_post: {
         parameters: {
             query?: never;
@@ -988,6 +1482,190 @@ export interface operations {
             };
         };
     };
+    read_call_v1_calls__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_call_v1_calls__call_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_transcript_v1_calls__call_id__transcript_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_device_v1_devices_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unregister_device_v1_devices_unregister_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevicePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_escalation_v1_escalations__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_me_v1_me_get: {
         parameters: {
             query?: never;
@@ -1005,6 +1683,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
+            };
+        };
+    };
+    delete_me_v1_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

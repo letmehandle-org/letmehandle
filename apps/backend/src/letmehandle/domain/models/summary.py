@@ -74,12 +74,13 @@ class CallSummary:
     intent: CallIntent
     importance: CallImportance
     outcome: CallOutcome
-    headline: str
+    # Out of the repr: they quote the call, and a repr is what a log line or an assertion prints.
+    headline: str = field(repr=False)
     started_at: datetime
     ended_at: datetime
     human_joined_at: datetime | None = None
     escalation_reason: EscalationReason | None = None
-    details: tuple[ExtractedDetail, ...] = field(default_factory=tuple)
+    details: tuple[ExtractedDetail, ...] = field(default_factory=tuple, repr=False)
 
     def __post_init__(self) -> None:
         if not self.headline.strip():

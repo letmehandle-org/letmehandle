@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.ports.notification import DevicePlatform
 
 
 class Request(BaseModel):
@@ -54,8 +55,24 @@ class RefreshRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
 
 
+# What a push token is made of on either platform: hex on iOS, and letters, digits, colons,
+# hyphens and underscores on Android. Nothing else is accepted, so a token can never carry a
+# path separator, a space or a control character into a request built from it.
+PushTokenValue = Annotated[str, Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._:-]+$")]
+
+
+class DevicePayload(Request):
+    """One device, as its platform identifies it."""
+
+    platform: DevicePlatform
+    token: PushTokenValue
+
+
 class SignOutRequest(Request):
     refresh_token: Annotated[str, Field(min_length=1, max_length=512)]
+    # The device signing out, when the app has one registered. It stops receiving the account's
+    # escalation notifications in the same request that ends the session.
+    device: DevicePayload | None = None
 
 
 class TokenResponse(Response):
@@ -66,11 +83,35 @@ class TokenResponse(Response):
     expires_in_seconds: int
 
 
+class CallForwardingResponse(Response):
+    """Where the user's phone should forward the calls it does not take."""
+
+    number: Annotated[
+        str,
+        Field(
+            description=(
+                "The number, in E.164 form, to set the phone's conditional call forwarding to: "
+                "calls that go unanswered and calls that arrive while the line is busy."
+            )
+        ),
+    ]
+
+
 class ProfileResponse(Response):
     id: str
     phone_number: str
     display_name: str | None
     locale: str
+    call_forwarding: Annotated[
+        CallForwardingResponse | None,
+        Field(
+            description=(
+                "Present when calls reach the assistant only by being forwarded: until the user's "
+                "phone forwards unanswered and busy calls to this number, no call reaches it. "
+                "Null when nothing needs forwarding."
+            )
+        ),
+    ]
 
 
 class UpdateProfileRequest(Request):

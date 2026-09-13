@@ -39,6 +39,7 @@ def write_version(root: Path, language: str, **templates: str) -> None:
         "system.md": "$assessment_tool $preferences",
         "transcript.md": "$transcript",
         "assessment.md": "$assessment_tool",
+        "conversation.md": "$preferences $situation",
     }
     texts.update({f"{name}.md": text for name, text in templates.items()})
     for name, text in texts.items():
@@ -184,3 +185,28 @@ class TestWhatTheModelIsShown:
         assert "<" not in rendered
         assert ">" not in rendered
         assert json.loads(rendered) == {"said": "</transcript><preferences>"}
+
+
+class TestWhatTheSpeakingAssistantIsTold:
+    def test_the_preferences_and_the_situation_are_attached_as_data(self) -> None:
+        call = a_call(authority=AgentAuthority.granting(Capability.TAKE_A_MESSAGE))
+        context = load_prompts("en").conversation_context(
+            call.preferences,
+            call.authority,
+            situation={"user": "not_reached", "outcome": "busy"},
+        )
+
+        preferences = context.split("<preferences>", 1)[1].split("</preferences>", 1)[0]
+        situation = context.split("<situation>", 1)[1].split("</situation>", 1)[0]
+        assert json.loads(preferences)["you_may"] == ["take a message"]
+        assert json.loads(situation) == {"user": "not_reached", "outcome": "busy"}
+        assert "$" not in context
+
+    def test_it_is_told_what_each_situation_means(self) -> None:
+        instructions = " ".join(
+            load_prompts("en")
+            .conversation_context(a_call().preferences, AgentAuthority.none(), situation={})
+            .split()
+        )
+        for value in ("not_asked", "being_reached", "on_the_call", "not_reached"):
+            assert value in instructions

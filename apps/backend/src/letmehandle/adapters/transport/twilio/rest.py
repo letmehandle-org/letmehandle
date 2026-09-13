@@ -1,4 +1,4 @@
-"""The five requests this transport makes of the provider's REST API.
+"""The six requests this transport makes of the provider's REST API.
 
 Behind a protocol, so the transport's call handling is exercised against a simulated provider
 that answers the same requests, and this module is exercised against the same simulator through
@@ -79,6 +79,9 @@ class TelephonyApi(Protocol):
     async def end_call(self, call_sid: str, status: EndStatus) -> bool:
         """Hang up a leg, or cancel one still ringing. False when it had already ended."""
 
+    async def end_conferences_named(self, conference_name: str) -> int:
+        """End every conference in progress under this name, saying how many there were."""
+
     async def close(self) -> None:
         """Release the connection pool. Safe to call more than once."""
 
@@ -153,16 +156,29 @@ class HttpTelephonyApi:
             "POST", f"/Calls/{_segment(call_sid)}.json", [("Status", status)], missing_is_done=True
         )
 
+    async def end_conferences_named(self, conference_name: str) -> int:
+        # A conference is ended by its identifier, which only the process that saw it start was
+        # told; by name it has to be looked up first.
+        response = await self._send(
+            "GET",
+            "/Conferences.json",
+            None,
+            params={"FriendlyName": conference_name, "Status": "in-progress"},
+        )
+        _raise_for(response)
+        ended = 0
+        for conference_sid in _conference_sids(_json(response)):
+            if await self.end_conference(conference_sid):
+                ended += 1
+        return ended
+
     async def close(self) -> None:
         await self._client.aclose()
 
     async def _post(self, path: str, form: Sequence[tuple[str, str]]) -> object:
         response = await self._send("POST", path, form)
         _raise_for(response)
-        try:
-            return response.json()
-        except ValueError:
-            raise ProviderError(PROVIDER, "the API answered with no JSON", retryable=True) from None
+        return _json(response)
 
     async def _request(
         self,
@@ -179,10 +195,15 @@ class HttpTelephonyApi:
         return True
 
     async def _send(
-        self, method: str, path: str, form: Sequence[tuple[str, str]] | None
+        self,
+        method: str,
+        path: str,
+        form: Sequence[tuple[str, str]] | None,
+        *,
+        params: dict[str, str] | None = None,
     ) -> httpx.Response:
         try:
-            return await self._client.request(method, path, data=_form(form))
+            return await self._client.request(method, path, data=_form(form), params=params)
         except httpx.TimeoutException:
             raise ProviderError(
                 PROVIDER, "the API did not answer in time", retryable=True
@@ -214,6 +235,24 @@ def _raise_for(response: httpx.Response) -> None:
         + (f" and error {code}" if code is not None else ""),
         retryable=status in _RETRYABLE_STATUSES or status >= _SERVER_ERROR,
     )
+
+
+def _json(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except ValueError:
+        raise ProviderError(PROVIDER, "the API answered with no JSON", retryable=True) from None
+
+
+def _conference_sids(body: object) -> list[str]:
+    conferences = body.get("conferences") if isinstance(body, dict) else None
+    if not isinstance(conferences, list):
+        raise ProviderError(PROVIDER, "the API listed no conferences", retryable=False)
+    return [
+        conference["sid"]
+        for conference in conferences
+        if isinstance(conference, dict) and isinstance(conference.get("sid"), str)
+    ]
 
 
 def _error_code(response: httpx.Response) -> int | None:

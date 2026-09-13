@@ -21,14 +21,15 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from letmehandle.application.orchestration.ports import CallOwnership
+from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.caller import Caller
-from letmehandle.domain.models.identifiers import CallId, EventId
+from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.ports.call_transport import CallEvent, CallEventKind
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.reported_calls import (
         CallEventSink,
@@ -77,6 +78,23 @@ def scoped_call_id(user_id: UserId, call_id: CallId) -> CallId:
 def scoped_event_id(user_id: UserId, event_id: EventId) -> EventId:
     """The event as the rest of the product knows it, for the same reason as the call."""
     return EventId(f"{user_id.value}:{event_id.value}")
+
+
+class ReportedCallOwnership(CallOwnership):
+    """A reported call is the call of the account whose handset reported it.
+
+    Read back from the identifier the call was scoped to when its report was accepted, which is
+    the only place the account is carried: the event handed on names nobody else.
+    """
+
+    async def owner_of(self, incoming: CallEvent) -> UserId | None:
+        owner, separator, _ = incoming.call_id.value.partition(":")
+        if not separator:
+            return None
+        try:
+            return UserId(owner)
+        except InvariantError:
+            return None
 
 
 class CallReporting:

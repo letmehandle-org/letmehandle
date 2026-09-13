@@ -103,6 +103,9 @@ class IncomingCall:
     account_sid: str
     caller: str | None
     called: str | None
+    # The line the call was forwarded from, when the carrier says: the user's own number, reached by
+    # the caller and forwarded to the account's. Absent for a call dialled at the account directly.
+    forwarded_from: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +145,7 @@ def read_incoming_call(params: Parameters) -> IncomingCall:
         account_sid=params.require("AccountSid"),
         caller=params.get("From") or None,
         called=params.get("To") or None,
+        forwarded_from=params.get("ForwardedFrom") or None,
     )
 
 

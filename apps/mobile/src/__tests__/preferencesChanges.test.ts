@@ -23,6 +23,15 @@ describe('showing a change before it is saved', () => {
     expect(shown.authority).toEqual(DEFAULT_PREFERENCES.authority);
   });
 
+  it('replaces how long transcripts are kept without touching anything else', () => {
+    const shown = applyChanges(DEFAULT_PREFERENCES, {
+      privacy: { transcript_retention_days: 30 },
+    });
+
+    expect(shown.privacy.transcript_retention_days).toBe(30);
+    expect(shown.call_handling).toEqual(DEFAULT_PREFERENCES.call_handling);
+  });
+
   it('keeps the version, which only the server sets', () => {
     const shown = applyChanges(DEFAULT_PREFERENCES, { locale: 'fr' });
 
@@ -41,5 +50,3 @@ describe('showing a change before it is saved', () => {
     expect(shown.important_contacts).toHaveLength(1);
   });
 });
-
-describe('keeping call handling and hours together', () => {});

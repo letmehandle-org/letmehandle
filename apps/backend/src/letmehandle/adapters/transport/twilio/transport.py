@@ -174,6 +174,7 @@ class _Call:
     call_id: CallId
     caller: Caller
     from_number: PhoneNumber
+    forwarded_from: PhoneNumber | None = None
     conference_sid: str | None = None
     legs: dict[str, _Leg] = field(default_factory=dict)
     presence: AssistantPresence = AssistantPresence.STAY
@@ -186,7 +187,7 @@ class _Call:
 
     @property
     def conference_name(self) -> str:
-        return f"call-{self.call_id}"
+        return _conference_name(self.call_id)
 
     def next_label(self, prefix: str) -> str:
         self.counter += 1
@@ -289,6 +290,11 @@ class TwilioCallTransport(CallTransport):
     def pending_tasks(self) -> int:
         return len(self._tasks)
 
+    def forwarded_from(self, call_id: CallId) -> PhoneNumber | None:
+        """The line a call in progress was forwarded from, if the carrier said and it is one."""
+        call = self._calls.get(call_id)
+        return None if call is None else call.forwarded_from
+
     async def settled(self) -> None:
         """Wait until every task this transport started has finished."""
         while self._tasks:
@@ -338,6 +344,8 @@ class TwilioCallTransport(CallTransport):
     async def terminate(self, call_id: CallId) -> None:
         call = self._calls.get(call_id)
         if call is None:
+            if call_id.value not in self._finished:
+                await self._end_unheld(call_id)
             return
         # Under the call's lock, so a dial still being placed finishes first and its leg has an
         # identifier to be ended by. Otherwise the leg is released unnamed and rings on.
@@ -445,6 +453,7 @@ class TwilioCallTransport(CallTransport):
                 call_id=call_id,
                 caller=Caller(number=_number_or_none(incoming.caller)),
                 from_number=self._number_to_call_from(incoming.called),
+                forwarded_from=_number_or_none(incoming.forwarded_from),
             )
             self._calls[call_id] = call
             self._emit(CallEventKind.INCOMING, call, "incoming", caller=call.caller)
@@ -793,6 +802,28 @@ class TwilioCallTransport(CallTransport):
         if failures:
             raise failures[0]
 
+    async def _end_unheld(self, call_id: CallId) -> None:
+        """End a call this process never held, such as one a stopped process left up.
+
+        Nothing is known of it here but its identifier, which is the caller's leg, and the name
+        its conference was given. Both are ended, each tried whatever became of the other; a leg
+        dialled into that conference and still ringing has no name to be found by, and answers
+        into a conference that is over. Already ended is done, not a failure, so asking twice is
+        safe.
+        """
+        failures: list[ProviderError] = []
+        steps: tuple[Callable[[], Awaitable[object]], ...] = (
+            lambda: self._api.end_call(call_id.value, "completed"),
+            lambda: self._api.end_conferences_named(_conference_name(call_id)),
+        )
+        for step in steps:
+            try:
+                await step()
+            except ProviderError as failure:
+                failures.append(failure)
+        if failures:
+            raise failures[0]
+
     def _ended_by_provider(self, call: _Call, reason: str) -> None:
         self._emit(CallEventKind.ENDED, call, "ended", detail=reason)
         self._spawn_detached(self._finish_after_provider(call, reason))
@@ -916,3 +947,7 @@ def _number_or_none(raw: str | None) -> PhoneNumber | None:
         return PhoneNumber.parse(raw)
     except InvariantError:
         return None
+
+
+def _conference_name(call_id: CallId) -> str:
+    return f"call-{call_id}"

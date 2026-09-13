@@ -10,7 +10,8 @@ It is also the one place allowed to name a provider. A test asserts that no modu
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from datetime import timedelta
+from typing import TYPE_CHECKING, Annotated, Final
 
 from fastapi import Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,8 +21,15 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 # first request rather than at import.
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from letmehandle.adapters.database.call_repositories import (
+    SqlCallRepository,
+    SqlEscalationContextRepository,
+    SqlSummaryRepository,
+    SqlTranscriptRepository,
+)
 from letmehandle.adapters.database.repositories import (
     SqlCallReportRepository,
+    SqlDeviceRepository,
     SqlOnboardingRepository,
     SqlOTPChallengeRepository,
     SqlPreferencesRepository,
@@ -29,13 +37,18 @@ from letmehandle.adapters.database.repositories import (
     SqlUserRepository,
 )
 from letmehandle.api.errors import ApiError
+from letmehandle.application.auth.deletion import AccountDeletion
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.calls.history import CallHistoryService
 from letmehandle.application.calls.reports import CallReporting
+from letmehandle.application.escalation.devices import DeviceRegistrationService
 from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
+from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.onboarding import OnboardingFlow
 from letmehandle.domain.models.user import User
-from letmehandle.domain.ports.repositories import UserRepository
+from letmehandle.domain.ports.repositories import EscalationContextRepository, UserRepository
 from letmehandle.domain.ports.voice import VoiceProvider
 
 if TYPE_CHECKING:
@@ -54,13 +67,22 @@ def container_of(request: Request) -> Container:
     return container
 
 
+# How many requests one signed-in user may make in a window. The app makes a handful per screen and
+# a few more per call; this is far beyond that, and what it stops is one account, or one stolen
+# token, driving the database as fast as a loop can. Counted per process, as the limiter says.
+SIGNED_IN_REQUESTS_PER_WINDOW: Final = 300
+SIGNED_IN_WINDOW: Final = timedelta(minutes=1)
+
 # auto_error=False so that a missing header produces this module's own 401 rather than
 # FastAPI's, which would have a different body from every other error the API returns.
 _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """One session per request, committed at the end if nothing raised."""
+    """One session per request, committed at the end if nothing raised.
+
+    Reached only through `RequestSession`, which ends it before the response is sent.
+    """
     factory: async_sessionmaker[AsyncSession] | None = request.app.state.session_factory
     if factory is None:
         raise ApiError(
@@ -88,9 +110,16 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
             await session.commit()
 
 
+# The session as routes receive it. Ended when the route function returns, before its response is
+# sent, rather than after as a dependency's teardown otherwise is: a client answered before the
+# commit could read back nothing of what it was told was written, and a commit that failed after
+# the answer would be a success nobody learned was undone.
+type RequestSession = Annotated[AsyncSession, Depends(get_session, scope="function")]
+
+
 def get_authentication_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> AuthenticationService:
     """The sign-in use case, with this request's session."""
     container = container_of(request)
@@ -109,6 +138,22 @@ def get_authentication_service(
         policy=AuthenticationPolicy(
             refresh_token_lifetime=container.refresh_token_lifetime,
         ),
+    )
+
+
+def get_account_deletion(
+    request: Request,
+    session: RequestSession,
+) -> AccountDeletion:
+    """Deleting an account, on this request's session, ending its calls through the orchestrator.
+
+    The orchestrator is the one owner of every live call, and there is none in a deployment that
+    carries no calls.
+    """
+    return AccountDeletion(
+        users=SqlUserRepository(session, container_of(request).clock),
+        challenges=SqlOTPChallengeRepository(session),
+        calls=request.app.state.orchestrator,
     )
 
 
@@ -131,15 +176,32 @@ async def get_authenticated_user(
     if credentials is None or not credentials.credentials:
         raise unauthorised
 
+    container = container_of(request)
     try:
-        return container_of(request).signer.verify(credentials.credentials)
+        authenticated = container.signer.verify(credentials.credentials)
     except DomainError as error:
         raise unauthorised from error
+
+    # After the token is proved, so the count belongs to an account rather than to whatever an
+    # anonymous caller writes in a header, and before anything touches the database.
+    decision = await container.rate_limiter.check(
+        f"signed-in:{authenticated.user_id.value}",
+        limit=SIGNED_IN_REQUESTS_PER_WINDOW,
+        window=SIGNED_IN_WINDOW,
+    )
+    if not decision.allowed:
+        raise ApiError(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many requests. Try again shortly.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+    return authenticated
 
 
 async def get_current_user(
     authenticated: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
     request: Request,
 ) -> User:
     """The user this request is from.
@@ -161,19 +223,49 @@ async def get_current_user(
 
 def get_preferences_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> PreferencesService:
-    """Preferences and onboarding, on this request's session."""
-    clock = container_of(request).clock
+    """Preferences and onboarding, on this request's session.
+
+    Setup asks where to forward calls only on a deployment that has a number to forward them to.
+    """
+    container = container_of(request)
+    clock = container.clock
     return PreferencesService(
         preferences=SqlPreferencesRepository(session, clock),
         onboarding=SqlOnboardingRepository(session, clock),
+        onboarding_flow=OnboardingFlow(calls_are_forwarded=container.forwarding is not None),
+    )
+
+
+def get_call_history_service(
+    request: Request,
+    session: RequestSession,
+) -> CallHistoryService:
+    """A user's calls, on this request's session, or a 503 when nothing here can open them.
+
+    Every call record is sealed, down to who called, so without the keys there is no history to
+    serve — only rows nobody can read. Saying so beats a 500 on every call a user opens.
+    """
+    container = container_of(request)
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "call_history_unavailable",
+            "This service cannot read call history: it has no transcript keys configured.",
+        )
+    return CallHistoryService(
+        calls=SqlCallRepository(session, cipher, container.clock),
+        summaries=SqlSummaryRepository(session, cipher, container.clock),
+        transcripts=SqlTranscriptRepository(session, cipher),
+        preferences=SqlPreferencesRepository(session, container.clock),
     )
 
 
 def get_call_reporting(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> CallReporting:
     """Accepting a handset's reports about its calls, on this request's session."""
     container = container_of(request)
@@ -193,17 +285,54 @@ def get_voice_provider(request: Request) -> VoiceProvider:
     return container_of(request).voices
 
 
+def get_call_forwarding(request: Request) -> CallForwarding | None:
+    """The number this deployment's users forward their calls to, if it has one."""
+    return container_of(request).forwarding
+
+
 def get_user_repository(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> UserRepository:
     """Storage for accounts, on this request's session."""
     return SqlUserRepository(session, container_of(request).clock)
 
 
+def get_device_service(
+    request: Request,
+    session: RequestSession,
+) -> DeviceRegistrationService:
+    """The device token lifecycle, on this request's session."""
+    return DeviceRegistrationService(SqlDeviceRepository(session, container_of(request).clock))
+
+
+def get_escalation_contexts(
+    request: Request,
+    session: RequestSession,
+) -> EscalationContextRepository:
+    """Stored escalation contexts, on this request's session, or a 503 as call history gives.
+
+    What the user was told is sealed like the call it was about, so without the keys there is
+    nothing here to read either.
+    """
+    cipher = container_of(request).transcript_cipher
+    if cipher is None:
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "escalations_unavailable",
+            "This service cannot read escalations: it has no transcript keys configured.",
+        )
+    return SqlEscalationContextRepository(session, cipher)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthService = Annotated[AuthenticationService, Depends(get_authentication_service)]
+Deletion = Annotated[AccountDeletion, Depends(get_account_deletion)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]
+Forwarding = Annotated[CallForwarding | None, Depends(get_call_forwarding)]
 CallReports = Annotated[CallReporting, Depends(get_call_reporting)]
+CallHistory = Annotated[CallHistoryService, Depends(get_call_history_service)]
+Devices = Annotated[DeviceRegistrationService, Depends(get_device_service)]
+EscalationContexts = Annotated[EscalationContextRepository, Depends(get_escalation_contexts)]

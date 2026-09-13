@@ -99,21 +99,23 @@ AUTHORSHIP_RULE = "an address in who wrote or committed it"
 # two rules only and by exact id, so the history scan can pass without rewriting what every
 # clone already holds. A commit is added only by a deliberate decision to leave a published
 # commit as it is, recorded in the commit that adds it.
-PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset({
-    "a489677da53ff0d88dbf7cbe720093173887d625",
-    "0234d7a8eaea66909a96321ed9912e8d7a0e37bf",
-    "09da9e3591e760939dc0f880fb05cc66d61720bc",
-    "16c7600fd831b21de38ccc6f0a75bd479383d81a",
-    "205d87d6865508be23234c106d2159c51aa30686",
-    "2ebb698526c13d081d84d59198fb8d01353c1956",
-    "5b21fc24a6ffb919e8929edfd12e6b5821f0be7e",
-    "71b5205e791eb1bebce99aed8416b1c6a2b8077a",
-    "a8d2436b647bc517ef94a5589a4af4d1f807e73b",
-    "a8d90b8b67df50367b71ffb45df4c0891c07326a",
-    "b6e63de1c4670b0df6d58925ca8a4932cc9cd159",
-    "bfccd87faa5b0568e31fce8de4ef2385568365ad",
-    "d704945b689912b7d567c6786f0643865af305db",
-})
+PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset(
+    {
+        "a489677da53ff0d88dbf7cbe720093173887d625",
+        "0234d7a8eaea66909a96321ed9912e8d7a0e37bf",
+        "09da9e3591e760939dc0f880fb05cc66d61720bc",
+        "16c7600fd831b21de38ccc6f0a75bd479383d81a",
+        "205d87d6865508be23234c106d2159c51aa30686",
+        "2ebb698526c13d081d84d59198fb8d01353c1956",
+        "5b21fc24a6ffb919e8929edfd12e6b5821f0be7e",
+        "71b5205e791eb1bebce99aed8416b1c6a2b8077a",
+        "a8d2436b647bc517ef94a5589a4af4d1f807e73b",
+        "a8d90b8b67df50367b71ffb45df4c0891c07326a",
+        "b6e63de1c4670b0df6d58925ca8a4932cc9cd159",
+        "bfccd87faa5b0568e31fce8de4ef2385568365ad",
+        "d704945b689912b7d567c6786f0643865af305db",
+    }
+)
 
 # Identity terms: names, and the names of unrelated projects whose mention would say more
 # about who wrote this than about the code.
@@ -172,7 +174,10 @@ STRUCTURAL = [
     ),
     # A street address, loosely. Deliberately loose: a false positive here is cheap and a
     # miss is not.
-    (r"\b\d{1,5}\s+[A-Z][a-z]+\s+(?:Street|Road|Avenue|Lane|Drive|Marg|Nagar)\b", "a postal address"),
+    (
+        r"\b\d{1,5}\s+[A-Z][a-z]+\s+(?:Street|Road|Avenue|Lane|Drive|Marg|Nagar)\b",
+        "a postal address",
+    ),
     # A private key, in any of the usual wrappers. gitleaks catches these too; two gates
     # with different bypasses is the point.
     (r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY", "a private key"),
@@ -199,10 +204,11 @@ VOCABULARY = [
 
 def compiled_tier1():
     """Tier 1 patterns, with the identity terms decoded at run time."""
-    out = [(re.compile(base64.b64decode(t).decode(), re.I), "an identifying name")
-           for t in IDENTITY_B64]
-    out += [(re.compile(p, re.I if "PRIVATE KEY" not in p else 0), why)
-            for p, why in STRUCTURAL]
+    out = [
+        (re.compile(base64.b64decode(t).decode(), re.I), "an identifying name")
+        for t in IDENTITY_B64
+    ]
+    out += [(re.compile(p, re.I if "PRIVATE KEY" not in p else 0), why) for p, why in STRUCTURAL]
     return out
 
 
@@ -332,8 +338,9 @@ def audit_range(args):
     findings = []
     for sha in revs.stdout.split():
         grandfathered = sha in PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES
-        authorship = subprocess.run(["git", "log", "-1", "--format=%ae%n%ce", sha],
-                                    capture_output=True, text=True).stdout.split()
+        authorship = subprocess.run(
+            ["git", "log", "-1", "--format=%ae%n%ce", sha], capture_output=True, text=True
+        ).stdout.split()
         made_by_the_forge = authorship[-1:] == [FORGE_COMMITTER]
         if (
             not grandfathered
@@ -343,8 +350,9 @@ def audit_range(args):
             # The address itself is not repeated: printing it would publish it in a CI log.
             findings.append((f"{sha[:8]} authorship", AUTHORSHIP_RULE, "(address withheld)"))
 
-        message = subprocess.run(["git", "log", "-1", "--format=%B", sha],
-                                 capture_output=True, text=True).stdout
+        message = subprocess.run(
+            ["git", "log", "-1", "--format=%B", sha], capture_output=True, text=True
+        ).stdout
         for line in message.splitlines():
             one, two = scan_line(line, tier1, tier2)
             if grandfathered and COAUTHOR_TRAILER.match(line):
@@ -352,8 +360,9 @@ def audit_range(args):
             for why in one + two:
                 findings.append((f"{sha[:8]} message", why, line))
 
-        diff = subprocess.run(["git", "show", "--format=", "--unified=0", sha],
-                              capture_output=True, text=True).stdout
+        diff = subprocess.run(
+            ["git", "show", "--format=", "--unified=0", sha], capture_output=True, text=True
+        ).stdout
         path = "?"
         for line in diff.splitlines():
             if line.startswith("+++ b/"):
@@ -367,14 +376,19 @@ def audit_range(args):
             for why in one + two:
                 findings.append((f"{sha[:8]} {path}", why, line[1:]))
 
-    return 1 if report(findings, "a commit being pushed carries text that must not be published") else 0
+    return (
+        1
+        if report(findings, "a commit being pushed carries text that must not be published")
+        else 0
+    )
 
 
 def audit_staged():
     """What is about to be committed: the added side of the staged diff."""
     tier1, tier2 = compiled_tier1(), compiled_tier2()
-    diff = subprocess.run(["git", "diff", "--cached", "--unified=0", "--no-color"],
-                          capture_output=True, text=True).stdout
+    diff = subprocess.run(
+        ["git", "diff", "--cached", "--unified=0", "--no-color"], capture_output=True, text=True
+    ).stdout
     findings, path = [], "?"
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
@@ -398,9 +412,7 @@ def main():
         "--range", nargs=argparse.REMAINDER, help="audit the commits in this rev range"
     )
     parser.add_argument("--staged", action="store_true", help="audit the staged diff")
-    parser.add_argument(
-        "--history", action="store_true", help="audit every commit on every ref"
-    )
+    parser.add_argument("--history", action="store_true", help="audit every commit on every ref")
     parser.add_argument("--text", action="store_true", help="audit stdin")
     parser.add_argument("--label", default="the text", help="what to call stdin in messages")
     parser.add_argument("--show-terms", action="store_true", help="print the decoded patterns")

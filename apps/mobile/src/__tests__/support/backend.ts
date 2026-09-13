@@ -31,7 +31,11 @@ export const PROFILE = {
   phone_number: '+12025550143',
   display_name: null,
   locale: 'en',
+  call_forwarding: null,
 };
+
+/** The number a deployment whose calls arrive forwarded asks its users to forward to. */
+export const FORWARDING_NUMBER = '+12025550100';
 
 /** What the backend returns for somebody who has chosen nothing. */
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -55,6 +59,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     respect_active_hours: true,
   },
   personality: { formality: 'neutral', verbosity: 'normal', topics: [] },
+  privacy: { transcript_retention_days: 7 },
 };
 
 /** What the shipped provider offers: a few voices, and nothing else it can do with them. */
@@ -147,10 +152,16 @@ export function runningBackend(options?: {
   readonly startAt?: OnboardingStep | null;
   readonly preferences?: Preferences;
   readonly voice?: VoiceSetup;
+  /** Whether calls reach this deployment forwarded, which adds a step to setup. */
+  readonly forwarded?: boolean;
 }): RunningBackend {
+  const forwarded = options?.forwarded ?? false;
+  const steps: readonly OnboardingStep[] = forwarded
+    ? [ORDER[0], 'call_forwarding', ...ORDER.slice(1)]
+    : ORDER;
   const start = options?.startAt === undefined ? null : options.startAt;
   const settled = new Set<OnboardingStep>(
-    start === null ? ORDER : ORDER.slice(0, ORDER.indexOf(start)),
+    start === null ? steps : steps.slice(0, steps.indexOf(start)),
   );
   let stored = options?.preferences ?? DEFAULT_PREFERENCES;
   let refusal: Reply | null = null;
@@ -186,9 +197,9 @@ export function runningBackend(options?: {
   });
 
   const progress = (): Onboarding => {
-    const remaining = ORDER.filter(step => !settled.has(step));
+    const remaining = steps.filter(step => !settled.has(step));
     return {
-      completed: ORDER.filter(step => settled.has(step)),
+      completed: steps.filter(step => settled.has(step)),
       skipped: [],
       remaining,
       next_step: remaining[0] ?? null,
@@ -210,7 +221,10 @@ export function runningBackend(options?: {
       typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
 
     if (path === '/v1/me') {
-      return answer(200, PROFILE);
+      return answer(200, {
+        ...PROFILE,
+        call_forwarding: forwarded ? { number: FORWARDING_NUMBER } : null,
+      });
     }
     if (path === '/v1/preferences' && method === 'GET') {
       return answer(200, stored);

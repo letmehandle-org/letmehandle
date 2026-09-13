@@ -51,6 +51,9 @@ class InMemoryUserRepository(UserRepository):
             raise DomainError("cannot update a user that was never added")
         self.by_id[user.id.value] = user
 
+    async def delete(self, user_id: UserId) -> None:
+        self.by_id.pop(user_id.value, None)
+
 
 class InMemoryChallengeRepository(OTPChallengeRepository):
     def __init__(self) -> None:
@@ -77,6 +80,13 @@ class InMemoryChallengeRepository(OTPChallengeRepository):
         for key in expired:
             del self.by_id[key]
         return len(expired)
+
+    async def delete_for_number(self, number: PhoneNumber) -> None:
+        self.by_id = {
+            key: challenge
+            for key, challenge in self.by_id.items()
+            if challenge.phone_number != number
+        }
 
 
 class InMemoryRefreshTokenRepository(RefreshTokenRepository):

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Response, status
 
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import (
     CurrentUser,
     Preferences,
@@ -54,7 +55,9 @@ def build_voice_router(provider: VoiceProvider) -> APIRouter:
     deployments and the schema should say so. A client reading the generated schema learns what
     exists here, which is the same thing the interface renders from.
     """
-    router = APIRouter(prefix="/v1", tags=["voice"])
+    router = APIRouter(
+        prefix="/v1", tags=["voice"], route_class=limited_body_route(JSON_BODY_LIMIT_BYTES)
+    )
     _add_always(router)
 
     if provider.capabilities.preview:

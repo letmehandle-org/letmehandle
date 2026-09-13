@@ -158,6 +158,49 @@ async def test_ending_a_conference_or_a_call_already_ended_is_not_a_failure(
     assert recorder.form() == [("Status", "canceled")]
 
 
+async def test_conferences_are_ended_by_name_once_looked_up() -> None:
+    listing = {"conferences": [{"sid": "CFsim-1"}, {"sid": "CFsim-2"}, {"friendly_name": "x"}]}
+    requests: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=listing)
+        # The second ended on its own between the listing and the request.
+        return httpx.Response(404 if "CFsim-2" in request.url.path else 200, json={})
+
+    client = HttpTelephonyApi(
+        account_id=ACCOUNT, auth_token=TOKEN, transport=httpx.MockTransport(answer)
+    )
+    assert await client.end_conferences_named("call-CAsim 1") == 1
+    lookup = requests[0]
+    assert lookup.url.path.endswith("/Conferences.json")
+    assert dict(lookup.url.params) == {"FriendlyName": "call-CAsim 1", "Status": "in-progress"}
+    assert [request.url.path.rsplit("/", 1)[-1] for request in requests[1:]] == [
+        "CFsim-1.json",
+        "CFsim-2.json",
+    ]
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    ("response", "retryable"),
+    [
+        (httpx.Response(200, text="<html>"), True),
+        (httpx.Response(200, json={"conferences": "none"}), False),
+        (httpx.Response(200, json=["x"]), False),
+        (httpx.Response(503, json={}), True),
+    ],
+)
+async def test_a_conference_listing_that_cannot_be_read_is_a_failure(
+    response: httpx.Response, retryable: bool
+) -> None:
+    client = api(Recorder(response))
+    with pytest.raises(ProviderError) as failure:
+        await client.end_conferences_named("call-c")
+    assert failure.value.retryable is retryable
+
+
 @pytest.mark.parametrize(
     ("status", "retryable"),
     [(400, False), (401, False), (403, False), (429, True), (409, True), (500, True), (503, True)],

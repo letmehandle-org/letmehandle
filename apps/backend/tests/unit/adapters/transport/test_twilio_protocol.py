@@ -268,6 +268,21 @@ class TestCallbacks:
             "+12025550123",
             None,
         )
+        assert call.forwarded_from is None
+
+    def test_a_forwarded_call_says_whose_line_it_came_from(self) -> None:
+        call = read_incoming_call(
+            Parameters(
+                [
+                    ("CallSid", "CAsim-1"),
+                    ("AccountSid", "acct"),
+                    ("From", "+12025550123"),
+                    ("To", "+12025550100"),
+                    ("ForwardedFrom", "+12025550143"),
+                ]
+            )
+        )
+        assert call.forwarded_from == "+12025550143"
 
     def test_a_conference_update(self) -> None:
         update = read_conference_update(

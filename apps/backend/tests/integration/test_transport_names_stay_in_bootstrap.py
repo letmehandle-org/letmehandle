@@ -28,9 +28,14 @@ ADAPTERS = {
 # Where a transport's name belongs.
 ALWAYS_ALLOWED = ("bootstrap.py", "config/settings.py")
 
-# The notification port routes a push by device platform, which is describing a device rather
-# than branching on a transport. The domain check records the same exemption with its reason.
-EXEMPT = {("domain/ports/notification.py", "android")}
+# A push is routed by the device's platform, which describes a device rather than branching on a
+# transport: the notification port, the push adapter that delivers to that platform, and the
+# schema a device registers with. The domain check records the port's exemption with its reason.
+EXEMPT = {
+    ("domain/ports/notification.py", "android"),
+    ("adapters/notification/fcm/provider.py", "android"),
+    ("api/schemas.py", "android"),
+}
 
 
 def mentions(name: str, line: str) -> bool:

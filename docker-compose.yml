@@ -47,6 +47,14 @@ services:
       # SPEECH_VOICES and SPEECH_DEFAULT_VOICE in .env to your service's own.
       SPEECH_VOICES: ${SPEECH_VOICES:-example-voice-a:Example voice A (not a real voice):en,example-voice-b:Example voice B (not a real voice):en}
       SPEECH_DEFAULT_VOICE: ${SPEECH_DEFAULT_VOICE:-example-voice-a}
+      # Push notifications, each platform optional. Empty unless set in .env.
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
+      APNS_TOPIC: ${APNS_TOPIC:-}
+      APNS_ENVIRONMENT: ${APNS_ENVIRONMENT:-}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
       TELEPHONY_PROVIDER: ${TELEPHONY_PROVIDER:-}
       TELEPHONY_ACCOUNT_ID: ${TELEPHONY_ACCOUNT_ID:-}
       TELEPHONY_AUTH_TOKEN: ${TELEPHONY_AUTH_TOKEN:-}

@@ -14,6 +14,8 @@ from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
+    TRANSCRIPT_RETENTION_CEILING_DAYS,
+    TRANSCRIPT_RETENTION_FLOOR_DAYS,
     CallRules,
     DisclosableFact,
     Formality,
@@ -23,6 +25,7 @@ from letmehandle.domain.models.preferences import (
     TimeWindow,
     Topic,
     UserPreferences,
+    check_retention_choice,
 )
 
 NUMBER = PhoneNumber.parse("+12025550143")
@@ -345,3 +348,35 @@ class TestDisclosableFacts:
 
     def test_a_fact_rendered_is_its_text(self) -> None:
         assert str(DisclosableFact("works from home")) == "works from home"
+
+
+class TestTranscriptRetention:
+    def test_the_default_is_seven_days(self) -> None:
+        # D-014.
+        assert UserPreferences().transcript_retention_days == 7
+
+    @pytest.mark.parametrize(
+        "days", [TRANSCRIPT_RETENTION_FLOOR_DAYS, TRANSCRIPT_RETENTION_CEILING_DAYS]
+    )
+    def test_the_floor_and_the_ceiling_are_both_allowed(self, days: int) -> None:
+        assert UserPreferences(transcript_retention_days=days).transcript_retention_days == days
+
+    def test_below_the_floor_is_refused(self) -> None:
+        with pytest.raises(InvariantError, match="at least"):
+            UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_FLOOR_DAYS - 1)
+
+    def test_above_the_ceiling_is_held_and_says_so(self) -> None:
+        # Stored by a deployment with a higher ceiling: kept as it is, and marked as more than
+        # this version can honour, so nothing here deletes earlier than the user chose.
+        longer = UserPreferences(transcript_retention_days=TRANSCRIPT_RETENTION_CEILING_DAYS + 1)
+        assert longer.retention_exceeds_ceiling
+        assert not UserPreferences(
+            transcript_retention_days=TRANSCRIPT_RETENTION_CEILING_DAYS
+        ).retention_exceeds_ceiling
+
+    @pytest.mark.parametrize(
+        "days", [TRANSCRIPT_RETENTION_FLOOR_DAYS - 1, TRANSCRIPT_RETENTION_CEILING_DAYS + 1]
+    )
+    def test_choosing_beyond_either_is_refused(self, days: int) -> None:
+        with pytest.raises(InvariantError, match="kept for between"):
+            check_retention_choice(days)

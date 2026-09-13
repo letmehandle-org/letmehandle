@@ -244,16 +244,19 @@ class AuthenticationService:
 
     # --------------------------------------------------------------- ending it
 
-    async def sign_out(self, refresh_token: str) -> None:
-        """End this session.
+    async def sign_out(self, refresh_token: str) -> UserId | None:
+        """End this session, returning whose it was, or nothing for a token nobody holds.
 
-        Silent when the token is unknown. A caller signing out has nothing to gain from being
-        told their token was already invalid, and saying so tells an attacker whether a token
-        they hold is real.
+        Silent to the client when the token is unknown. A caller signing out has nothing to gain
+        from being told their token was already invalid, and saying so tells an attacker whether
+        a token they hold is real. The owner is returned for the server's own use: the device
+        signing out stops receiving that account's notifications.
         """
         stored = await self._refresh_tokens.find_by_hash(self._token_hasher.hash(refresh_token))
-        if stored is not None:
-            await self._refresh_tokens.revoke_family(stored.family_id, self._clock.now())
+        if stored is None:
+            return None
+        await self._refresh_tokens.revoke_family(stored.family_id, self._clock.now())
+        return stored.user_id
 
     async def sign_out_everywhere(self, user_id: UserId) -> int:
         """End every session this user has, returning how many were ended."""
@@ -281,3 +284,17 @@ class AuthenticationService:
             refresh_token=raw_refresh,
             expires_in_seconds=int((expires_at - now).total_seconds()),
         )
+
+
+async def forget_spent_challenges(
+    challenges: OTPChallengeRepository, clock: Clock, policy: AuthenticationPolicy | None = None
+) -> int:
+    """Delete the challenges nothing can use or count any more, returning how many went.
+
+    Each holds the number a code was sent to, for anybody who typed one in, account or not. One
+    that has expired can never be verified, but it is still counted against its number until the
+    per-number window has passed it, so that is when it goes: sooner would hand a number its limit
+    back as each code expired.
+    """
+    window = (policy or AuthenticationPolicy()).challenges_per_number_window
+    return await challenges.delete_expired(clock.now() - window)

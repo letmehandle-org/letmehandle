@@ -86,6 +86,7 @@ def everything() -> UserPreferences:
             ),
         ),
         voice=VoiceSelection(cloned_voice_id="a-clone", persona_voice_id="ava"),
+        transcript_retention_days=30,
         rules=CallRules(
             default_posture=HandlingPosture.REJECT,
             anonymous_posture=HandlingPosture.PASS_THROUGH,
@@ -123,6 +124,37 @@ class TestMapping:
         # Written before voices existed, so nothing was chosen — which resolves to the
         # provider's default rather than to a call with no voice at all.
         assert read.voice == VoiceSelection()
+
+    def test_a_document_from_before_retention_was_a_setting_keeps_seven_days(self) -> None:
+        document = preferences_to_document(everything())
+        del document["transcript_retention_days"]
+        document["version"] = 2
+        assert document_to_preferences(document).transcript_retention_days == 7
+
+    @pytest.mark.parametrize(("stored", "read"), [(0, 1), (-5, 1), (45, 45)])
+    def test_a_retention_below_the_floor_is_raised_to_it(self, stored: int, read: int) -> None:
+        # Keeping a transcript a little longer is the recoverable direction.
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = stored
+        assert document_to_preferences(document).transcript_retention_days == read
+
+    def test_a_retention_above_the_ceiling_is_kept_as_stored(self) -> None:
+        # Written by a deployment with a higher ceiling. Reading it as this version's ceiling
+        # would delete transcripts earlier than the user chose, which cannot be undone.
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = 365
+
+        read = document_to_preferences(document)
+
+        assert read.transcript_retention_days == 365
+        assert preferences_to_document(read)["transcript_retention_days"] == 365
+
+    @pytest.mark.parametrize("stored", ["7", 7.5, True, {"days": 7}])
+    def test_a_retention_that_is_not_a_whole_number_is_corruption(self, stored: object) -> None:
+        document = preferences_to_document(everything())
+        document["transcript_retention_days"] = stored
+        with pytest.raises(InvariantError, match="retention"):
+            document_to_preferences(document)
 
     def test_a_voice_stored_as_something_other_than_a_name_reads_as_no_choice(self) -> None:
         # Not corruption worth refusing a sign-in over: an unusable identifier resolves to the
@@ -301,7 +333,7 @@ class TestOnboardingRepository:
         )
 
         stored = await repository.get(USER)
-        assert stored.next_step is OnboardingStep.AUTHORITY
+        assert stored.completed == frozenset({OnboardingStep.CALL_HANDLING, OnboardingStep.HOURS})
 
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
@@ -327,7 +359,6 @@ class TestOnboardingRepository:
 
         assert progress.completed == frozenset({OnboardingStep.CALL_HANDLING})
         assert progress.skipped == frozenset()
-        assert progress.next_step is OnboardingStep.HOURS
 
     async def test_progress_is_per_user(self, session: AsyncSession) -> None:
         await a_user(session, USER, NUMBER)
@@ -369,6 +400,44 @@ class TestMalformedDocuments:
         assert document_to_preferences(document).rules.escalate_at_or_above is (
             CallImportance.NOTABLE
         )
+
+
+# Every section stored as the wrong kind of value. Each once escaped the mapper as a bare
+# AttributeError, TypeError or ValueError, which no caller can tell apart from a bug.
+MALFORMED_SHAPES: list[dict[str, object]] = [
+    {"notifications": "yes"},
+    {"rules": []},
+    {"voice": "abc"},
+    {"topics": [1]},
+    {"topics": "work"},
+    {"disclosable_facts": [None]},
+    {"version": "x"},
+    {"version": True},
+    {"locale": ["en"]},
+    {"authority": 5},
+    {"important_contacts": {"number": "+12025550143"}},
+    {"important_contacts": ["+12025550143"]},
+    {"important_contacts": [{"number": 12025550143, "label": "Home"}]},
+    {"important_contacts": [{"number": "+12025550143", "label": 7}]},
+    {"rules": {"posture_by_category": ["spam"]}},
+    {"rules": {"blocked_categories": "spam"}},
+    {"rules": {"quiet_hours": "22:00-07:00"}},
+    {"rules": {"quiet_hours": {"start": 22, "end": "07:00", "zone": "UTC"}}},
+]
+
+
+class TestMalformedShapes:
+    @pytest.mark.parametrize("document", MALFORMED_SHAPES, ids=repr)
+    def test_a_section_of_the_wrong_shape_is_the_domain_error(
+        self, document: dict[str, object]
+    ) -> None:
+        with pytest.raises(InvariantError):
+            document_to_preferences(document)
+
+    @pytest.mark.parametrize("document", [[], "preferences", 7], ids=repr)
+    def test_a_document_that_is_not_an_object_is_the_domain_error(self, document: object) -> None:
+        with pytest.raises(InvariantError):
+            document_to_preferences(document)
 
 
 class TestCorruptEntries:

@@ -17,12 +17,12 @@ from letmehandle.application.preferences.service import (
     PreferenceChanges,
     PreferencesService,
 )
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import InvariantError, StepNotAskedError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.intent import CallImportance
-from letmehandle.domain.models.onboarding import ORDER, OnboardingStep
+from letmehandle.domain.models.onboarding import OnboardingFlow, OnboardingProgress, OnboardingStep
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
@@ -44,6 +44,9 @@ from tests.contracts.preference_fakes import (
 USER = UserId("user-1")
 SOMEBODY_ELSE = UserId("user-2")
 NUMBER = PhoneNumber.parse("+12025550143")
+
+NOT_FORWARDED = OnboardingFlow(calls_are_forwarded=False)
+FORWARDED = OnboardingFlow(calls_are_forwarded=True)
 
 ACTIVE_HOURS = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
@@ -72,7 +75,19 @@ def onboarding() -> InMemoryOnboardingRepository:
 def service(
     preferences: InMemoryPreferencesRepository, onboarding: InMemoryOnboardingRepository
 ) -> PreferencesService:
-    return PreferencesService(preferences=preferences, onboarding=onboarding)
+    return PreferencesService(
+        preferences=preferences, onboarding=onboarding, onboarding_flow=NOT_FORWARDED
+    )
+
+
+@pytest.fixture
+def forwarded(
+    preferences: InMemoryPreferencesRepository, onboarding: InMemoryOnboardingRepository
+) -> PreferencesService:
+    """The same storage, on a deployment whose calls arrive forwarded."""
+    return PreferencesService(
+        preferences=preferences, onboarding=onboarding, onboarding_flow=FORWARDED
+    )
 
 
 class TestReading:
@@ -125,6 +140,7 @@ class TestPartialUpdates:
             important_contacts=(ImportantContact(number=NUMBER, label="Mum"),),
             call_handling=REJECT_UNKNOWN,
             persona_voice=PersonaVoice("ava"),
+            transcript_retention_days=30,
         )
         await service.replace_all(USER, full)
 
@@ -140,6 +156,7 @@ class TestPartialUpdates:
         assert after.important_contacts == full.important_contacts
         assert after.rules.default_posture is HandlingPosture.REJECT
         assert after.voice.persona_voice_id == "ava"
+        assert after.transcript_retention_days == 30
 
     async def test_an_empty_value_clears_a_section_where_absence_would_not(
         self, service: PreferencesService
@@ -294,7 +311,7 @@ class TestOnboarding:
         self, service: PreferencesService
     ) -> None:
         progress = await service.progress(USER)
-        assert progress.next_step is ORDER[0]
+        assert progress.next_step is OnboardingStep.CALL_HANDLING
         assert not progress.is_complete
 
     async def test_answering_a_step_moves_to_the_next(self, service: PreferencesService) -> None:
@@ -327,11 +344,69 @@ class TestOnboarding:
             await service.record_step(USER, OnboardingStep.CALL_HANDLING, skipped=True)
 
     async def test_finishing_every_step_completes_it(self, service: PreferencesService) -> None:
-        for step in ORDER:
+        for step in NOT_FORWARDED.steps:
             progress = await service.record_step(USER, step)
         assert progress.is_complete
         assert progress.next_step is None
 
     async def test_progress_is_per_user(self, service: PreferencesService) -> None:
         await service.record_step(USER, OnboardingStep.CALL_HANDLING)
-        assert (await service.progress(SOMEBODY_ELSE)).next_step is ORDER[0]
+        assert (await service.progress(SOMEBODY_ELSE)).next_step is OnboardingStep.CALL_HANDLING
+
+
+class TestForwardingStep:
+    async def test_where_calls_are_forwarded_it_follows_call_handling(
+        self, forwarded: PreferencesService
+    ) -> None:
+        progress = await forwarded.record_step(USER, OnboardingStep.CALL_HANDLING)
+        assert progress.next_step is OnboardingStep.CALL_FORWARDING
+
+    async def test_where_it_is_not_asked_recording_it_is_refused_and_nothing_is_stored(
+        self, service: PreferencesService, onboarding: InMemoryOnboardingRepository
+    ) -> None:
+        with pytest.raises(StepNotAskedError):
+            await service.record_step(USER, OnboardingStep.CALL_FORWARDING)
+        assert await onboarding.get(USER) == OnboardingProgress()
+
+    async def test_an_answer_given_where_it_was_asked_is_kept_but_not_shown_elsewhere(
+        self,
+        service: PreferencesService,
+        forwarded: PreferencesService,
+        onboarding: InMemoryOnboardingRepository,
+    ) -> None:
+        # The row outlives the deployment's configuration; reading it must not break or lie.
+        await forwarded.record_step(USER, OnboardingStep.CALL_FORWARDING)
+
+        assert (await service.progress(USER)).completed == ()
+        assert (await forwarded.progress(USER)).completed == (OnboardingStep.CALL_FORWARDING,)
+
+
+class TestTranscriptRetention:
+    async def test_it_starts_at_seven_days(self, service: PreferencesService) -> None:
+        assert (await service.get(USER)).transcript_retention_days == 7
+
+    async def test_a_change_is_stored_and_leaves_the_rest_alone(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(locale="en-GB"))
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=1))
+
+        after = await service.get(USER)
+        assert after.transcript_retention_days == 1
+        assert after.locale == "en-GB"
+
+    async def test_changing_something_else_keeps_it(self, service: PreferencesService) -> None:
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=90))
+        await service.apply(USER, PreferenceChanges(verbosity=Verbosity.BRIEF))
+        assert (await service.get(USER)).transcript_retention_days == 90
+
+    async def test_a_replace_that_does_not_mention_it_resets_it(
+        self, service: PreferencesService
+    ) -> None:
+        await service.apply(USER, PreferenceChanges(transcript_retention_days=90))
+        await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
+        assert (await service.get(USER)).transcript_retention_days == 7
+
+    async def test_a_value_outside_the_bounds_is_refused(self, service: PreferencesService) -> None:
+        with pytest.raises(InvariantError):
+            await service.apply(USER, PreferenceChanges(transcript_retention_days=91))

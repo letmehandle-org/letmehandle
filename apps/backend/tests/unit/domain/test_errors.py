@@ -10,12 +10,16 @@ from __future__ import annotations
 import pytest
 
 from letmehandle.domain.errors import (
+    AlreadyRecordedError,
     CapabilityNotSupportedError,
+    DecryptionError,
     DomainError,
     IllegalTransitionError,
     InvariantError,
     NotAuthorisedError,
     ProviderError,
+    RecordNotFoundError,
+    UnknownKeyError,
 )
 
 EVERY_ERROR = [
@@ -24,6 +28,10 @@ EVERY_ERROR = [
     CapabilityNotSupportedError,
     NotAuthorisedError,
     ProviderError,
+    RecordNotFoundError,
+    AlreadyRecordedError,
+    DecryptionError,
+    UnknownKeyError,
 ]
 
 
@@ -67,3 +75,22 @@ def test_not_authorised_and_not_supported_are_different_failures() -> None:
     # permission decision look like a technical fault, and the right response to each differs.
     assert not issubclass(NotAuthorisedError, CapabilityNotSupportedError)
     assert not issubclass(CapabilityNotSupportedError, NotAuthorisedError)
+
+
+def test_a_missing_record_names_what_was_looked_for() -> None:
+    error = RecordNotFoundError("call", "call-1")
+    assert (error.kind, error.identifier) == ("call", "call-1")
+
+
+def test_a_second_recording_names_what_was_recorded() -> None:
+    error = AlreadyRecordedError("summary", "call-1")
+    assert (error.kind, error.identifier) == ("summary", "call-1")
+
+
+def test_a_missing_key_is_a_decryption_failure_with_its_own_remedy() -> None:
+    # Caught as a decryption failure by anything that only cares that the bytes did not open,
+    # and told apart by an operator who needs to know that a key has to be put back.
+    refused, missing = DecryptionError("key-a"), UnknownKeyError("key-a")
+    assert isinstance(missing, DecryptionError)
+    assert refused.key_id == missing.key_id == "key-a"
+    assert str(refused) != str(missing)

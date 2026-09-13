@@ -37,13 +37,46 @@ if TYPE_CHECKING:
 # rather than "chose nothing" — and the difference matters, because the first resolves to the
 # provider's default and the second would mean silence.
 #
-# 3 is the privacy section's (transcript retention), written by the orchestration work.
-#
 # 4 replaced working hours and quiet hours with one window of hours the assistant answers in
 # (D-030). A document written earlier is read as around the clock: neither older window meant
 # "the assistant answers now", and the one that is closest to the user's intent at night is the
 # assistant still answering rather than their phone ringing.
-PREFERENCES_VERSION: Final = 4
+#
+# 5 added how long transcripts are kept. A document written before it has none, which reads as
+# the default rather than as any particular choice. (3 was never released.)
+PREFERENCES_VERSION: Final = 5
+# How long what was said on a call is kept, in days (D-014).
+#
+# Seven by default: long enough to check what was said after a busy week, short enough that a
+# transcript is not an archive.
+#
+# The floor is one day. A transcript is how a user checks what was said once the call is over and
+# how a failure is diagnosed, and both happen after the call rather than during it; a shorter
+# setting would purge the words before anybody could read them, leaving a summary whose evidence
+# nobody can check. The purge runs in whole days, so a finer setting would promise a precision
+# that is not kept.
+#
+# The ceiling is ninety days. The summary is what outlives a call; a transcript kept past a
+# quarter has no use left that the summary does not serve, and is only a larger thing to lose.
+# It also bounds how long a retired encryption key must be kept for transcripts sealed under it.
+#
+# The ceiling bounds what somebody can choose here, not what a stored set may hold. A deployment
+# with a higher ceiling may have written a longer retention, and reading it as ninety would have
+# this version delete transcripts earlier than the user chose — the one direction that cannot be
+# undone. Such a set is held as stored and marked as beyond what this version honours.
+TRANSCRIPT_RETENTION_DEFAULT_DAYS: Final = 7
+TRANSCRIPT_RETENTION_FLOOR_DAYS: Final = 1
+TRANSCRIPT_RETENTION_CEILING_DAYS: Final = 90
+
+
+def check_retention_choice(days: int) -> int:
+    """A retention somebody is choosing now: between the floor and the ceiling, or refused."""
+    if not TRANSCRIPT_RETENTION_FLOOR_DAYS <= days <= TRANSCRIPT_RETENTION_CEILING_DAYS:
+        raise InvariantError(
+            f"transcripts are kept for between {TRANSCRIPT_RETENTION_FLOOR_DAYS} and "
+            f"{TRANSCRIPT_RETENTION_CEILING_DAYS} days"
+        )
+    return days
 
 
 class HandlingPosture(StrEnum):
@@ -324,6 +357,9 @@ class UserPreferences:
     # What the assistant may say about the user unprompted. Empty by default: the safe answer
     # to "where are they?" is not a location.
     disclosable_facts: frozenset[DisclosableFact] = field(default_factory=frozenset)
+    # Whole days, at least the floor above. Beyond the ceiling only when a deployment with a
+    # higher one stored it; see `retention_exceeds_ceiling`.
+    transcript_retention_days: int = TRANSCRIPT_RETENTION_DEFAULT_DAYS
     version: int = PREFERENCES_VERSION
 
     MAX_CONTACTS: ClassVar[int] = 200
@@ -335,6 +371,10 @@ class UserPreferences:
             raise InvariantError("a locale is required; the agent's language is configuration")
         if self.version < 1:
             raise InvariantError("preferences are written in a version, and versions start at 1")
+        if self.transcript_retention_days < TRANSCRIPT_RETENTION_FLOOR_DAYS:
+            raise InvariantError(
+                f"transcripts are kept for at least {TRANSCRIPT_RETENTION_FLOOR_DAYS} day"
+            )
         if len(self.important_contacts) > self.MAX_CONTACTS:
             raise InvariantError(
                 f"at most {self.MAX_CONTACTS} important contacts. Beyond that the list is an "
@@ -355,6 +395,15 @@ class UserPreferences:
                 "one number appears twice in the important contacts, so which rule applies "
                 "would depend on which entry is read first"
             )
+
+    @property
+    def retention_exceeds_ceiling(self) -> bool:
+        """Whether this set keeps transcripts for longer than this version lets anyone choose.
+
+        True only of a set a deployment with a higher ceiling stored. Nothing here may purge on
+        its behalf: honouring it is beyond this version, and the alternative is deleting early.
+        """
+        return self.transcript_retention_days > TRANSCRIPT_RETENTION_CEILING_DAYS
 
     def contact_for(self, number: PhoneNumber) -> ImportantContact | None:
         """The user's own entry for this number, if they have one."""

@@ -181,6 +181,20 @@ dump. A scheduled purge deletes expired rows, and the purge is tested.
 Retention is a user-facing setting with a documented floor and ceiling. The structured call
 summary is retained separately and outlives the transcript.
 
+*Amended:* who called is sealed alongside transcripts and summaries — the caller's number and
+display name on the call record, under the same cipher and key id, bound to the user and the
+call. The summary already sealed who the caller was taken to be; a plain column beside it on
+the call would leave a dump saying who called whom all the same, and a phone number is as
+personal as anything said on the line. The category stays readable, being a classification
+rather than an identity, and history decrypts the caller per row.
+
+*Amended:* escalation contexts are sealed the same way. The caller's label, what was established
+and what the caller needs are one ciphertext under the transcript keys, bound to the user, the call,
+the reason and the moment the escalation was raised; the reason, status, delivery and times stay
+readable. Together those words are an account of the call as personal as its transcript, and they
+are kept for as long as the call is, so they are held to the same rule. The sealed record in full is
+therefore transcripts, summaries, the caller on the call record, and escalation contexts.
+
 ## D-015 — Notifications: direct APNs and direct FCM, one adapter each
 
 **Accepted.** Two adapters behind one `NotificationProvider` port. The iOS path does not
@@ -417,6 +431,54 @@ contacts and callers withholding their number are never shown to it and always r
 handset does not classify callers, so only important contacts and the `unknown` category apply
 there.
 
+## D-029 — One orchestrator, one sequential run per call, and a plan derived from capabilities
+
+**Accepted.** A single `CallOrchestrator` owns every call's life. Each live call is a *run*: an
+inbox of inputs — transport events, the agent's judgements, speech failures, timer expiries —
+processed one at a time by that run alone. Nothing else changes a call's state. Two inputs for one
+call cannot interleave, because only one is ever being handled; two calls never wait on each other.
+
+**The plan comes before anything happens.** When a call arrives, the run derives a plan from the
+transport that carried it: whether the assistant can hold a conversation on it, whether the user can
+be bridged in, whether a screening decision was already made on the handset. The steps that plan
+does not include are never constructed — there is no escalation step on a transport that cannot
+bridge, so escalating there is not a refused request but a path that does not exist.
+
+**Routing is one pure function.** Given the caller, the user's preferences and the plan, it returns
+pass-through, the assistant, or rejection. It is the one place the routing rules live, so a change to
+those rules is a change to that function and its table.
+
+**The agent proposes; the run acts.** The run implements the agent's `CallActions`. An escalation
+moves the call to ringing the user, dispatches the notification without waiting on it (D-016), and
+bounds the ring. An unanswered, busy, failed or machine-answered ring returns the call to the
+assistant with that outcome in its context, rather than ending the call.
+
+**Every wait is bounded and every bound is a transition.** A ring that is not answered, a judgement
+that takes too long, a speech session that will not open and a provider call that hangs each move the
+call to a defined state; none is an exception left to escape.
+
+**One teardown.** Every ending — rejected, completed, failed, the caller hanging up, the process
+stopping — reaches the same routine: stop the conversation and the speech session, cancel the
+timers, end the call at the transport, release the escalation service's memory of the call, write the
+summary (the agent's if it recorded one, otherwise the fallback built from the call's facts), store
+the final state, and mark the escalation context ended.
+
+**State is durable; a live call is not resumable.** The call is stored on every transition. After a
+restart the audio stream and the speech session are gone, so a call found unfinished is ended at its
+transport where that is possible and recorded as failed, never left in an indeterminate state.
+
+*Amended:* the summary teardown writes is the model summariser's for a call the assistant handled,
+with the agent's recorded outcome, when it recorded one that holds, laid over it; any other call, and
+one whose summariser does not answer within teardown's summary bound, is summarised by the fallback
+built from the call's facts. The summariser is given that same bound, so the two cannot disagree.
+The final state is stored with the summary, as described below, and a call whose final state could
+not be stored is given no summary.
+
+*Amended:* an ending is the one move not stored the moment it is made. It is stored with the summary,
+as teardown's last write, once the call has been let go at its transport; a process that stops
+part-way through a teardown therefore leaves the call unfinished, for the next start to end and
+summarise, rather than ended with no summary that anything would ever write.
+
 ## D-030 — Hours are when the assistant answers; none means around the clock
 
 **Accepted. Supersedes the separate working-hours and quiet-hours windows of phase 1.** The design
@@ -511,3 +573,54 @@ formality, verbosity, topics, facts and important contacts.
 Progress recorded against a removed step is ignored on read rather than refused (D-022): the
 step no longer exists, so having answered it neither advances nor blocks anybody. Call handling
 stays unskippable.
+
+## D-033 — Whose call a call is, the transport side says
+
+**Accepted.** Every call is recorded for, routed by and escalated to one user, and the transport's
+events do not say which. How a call reached the product is the transport's business (D-004), so
+each transport's side answers it through an application port, `CallOwnership`, chosen in bootstrap
+with the transport, and the orchestrator asks without knowing which answered.
+
+A handset reports on behalf of the account it signed in as, and its reports are scoped to that
+account when they are accepted, so a reported call is the reporting account's. A streaming call is
+the caller dialling the user's own number and the user's carrier forwarding it to the account's
+number, which every user shares and which therefore names nobody; the carrier's `ForwardedFrom`
+names the user's line, and the call is the call of the user who signed in with that number.
+
+A call nobody owns — dialled at the account's number directly, forwarded from a line no user has, or
+arriving while storage cannot say — is let go at its transport and recorded nowhere: there is nobody
+to record it for and nobody to put it through to.
+
+Whether a carrier sends `ForwardedFrom` on a conditionally forwarded call is verified on the first
+real call, like the other provider behaviours phase 7 left to it. Assigning numbers to users, which
+would make it unnecessary, is a provisioning feature and not decided here.
+
+
+## D-034 — Setup asks for call forwarding only where calls arrive forwarded
+
+**Accepted.** A streaming call reaches the product only when the user's carrier forwards it
+(D-033), and the product cannot set that up: it is a setting on the user's line. So the backend
+says where to forward, and setup asks for it — on the deployments that need it and nowhere else.
+
+**The number.** Bootstrap decides it once: on the streaming transport, the first configured
+telephony number; on the handset transport or none, nothing. It reaches the rest of the
+application as a capability, `CallForwarding`, never as a transport's name. `GET /v1/me` carries
+it as `call_forwarding: {"number": "+E164"}`, meaning forward unanswered and busy calls there, or
+`null` where nothing needs forwarding.
+
+**The step.** `call_forwarding` is declared in the one order, right after `call_handling`: where
+calls go is settled before the hours they are handled in. Which declared steps a deployment asks
+is an `OnboardingFlow` built from that capability, so the domain reads no configuration and no
+screen decides a step's position. The step cannot be skipped. Skipped, no call ever arrives, and a
+setup that then reports itself complete tells somebody the product works when it cannot.
+Answering it is the user's word that forwarding is on; the backend cannot see a carrier setting,
+and whether a forwarded call arrives is verified by the call.
+
+**Progress stays valid across deployments.** It is stored as the steps recorded, and read against
+the flow. An answer to `call_forwarding` recorded where it was asked is ignored where it is not,
+as a removed step's is (D-032). A deployment that starts forwarding asks it of everybody,
+including those who had finished: finished meant finished for calls that no longer arrive.
+
+**Recording it where it is not asked is a 422, `step_not_asked`,** and nothing is stored. Not a
+409: nothing about the user's state would make it succeed on another try. It is the same answer a
+removed or invented step gets — the request names something that does not exist here.

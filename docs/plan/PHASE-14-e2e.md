@@ -110,3 +110,19 @@ no sensitive data in anything the run emitted.
 - **Flakiness.** An end-to-end suite with timing in it is the natural home of flaky tests. The
   rule is that a flake is a defect until proven otherwise, and it is investigated rather than
   retried.
+
+## Verification report
+
+```
+PHASE 14 VERIFICATION
+
+Planned tasks:        automated harness and scenarios complete; manual script written, not run
+Scenarios:            A–H, T1, T2, T6, T7 and the risky combinations pass (make e2e)
+                      T3 records a silenced report; the handset rules no longer choose silence
+                      T4 covered by the JVM deadline tests only; T5 held for a device
+Coverage:             100.00%  backend; e2e runs inside make test and make coverage
+Stability:            the e2e suite ran fifteen times in a row without a failure
+Real model run:       held     no model endpoint configured
+Manual verification:  held     docs/testing/manual-verification.md, needs a number and devices
+Defects found:        three, each fixed with the scenario that found it
+```

@@ -24,6 +24,8 @@ from letmehandle.domain.models.caller import CallerCategory
 from letmehandle.domain.models.intent import CallImportance
 from letmehandle.domain.models.onboarding import OnboardingStep
 from letmehandle.domain.models.preferences import (
+    TRANSCRIPT_RETENTION_CEILING_DAYS,
+    TRANSCRIPT_RETENTION_FLOOR_DAYS,
     Formality,
     HandlingPosture,
     Verbosity,
@@ -110,6 +112,35 @@ class PersonalityPayload(Request):
     )
 
 
+class PrivacyPayload(Request):
+    """What is kept, and for how long."""
+
+    # Whole days. Bounded here as well as in the domain, so a client learns which field was out
+    # of range rather than getting a refusal with no field attached to it.
+    #
+    # Required, with no default. It is the section's only field, so a default would make an
+    # empty section mean "reset my retention" — an update that deletes transcripts the user
+    # chose to keep, sent by a client that only meant to send nothing.
+    transcript_retention_days: Annotated[
+        int,
+        Field(
+            ge=TRANSCRIPT_RETENTION_FLOOR_DAYS,
+            le=TRANSCRIPT_RETENTION_CEILING_DAYS,
+            strict=True,
+        ),
+    ]
+
+
+class PrivacyResponse(Response):
+    """What is kept, and for how long, as stored.
+
+    Unbounded above, unlike the request: a deployment with a higher ceiling may have stored a
+    longer retention, and it is reported as it is rather than refused or quietly lowered.
+    """
+
+    transcript_retention_days: int
+
+
 class PreferencesResponse(Response):
     """Everything, as it stands."""
 
@@ -121,6 +152,7 @@ class PreferencesResponse(Response):
     authority: AuthorityPayload
     notifications: NotificationsPayload
     personality: PersonalityPayload
+    privacy: PrivacyResponse
 
 
 class PreferencesUpdate(Request):
@@ -145,10 +177,16 @@ class PreferencesUpdate(Request):
     authority: AuthorityPayload | None = None
     notifications: NotificationsPayload | None = None
     personality: PersonalityPayload | None = None
+    privacy: PrivacyPayload | None = None
 
 
 class OnboardingResponse(Response):
-    """Where somebody is in the flow, and what is left."""
+    """Where somebody is in the flow, and what is left.
+
+    Every list holds only the steps this deployment asks, in the order they are asked.
+    `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
+    and an answer recorded to it elsewhere is not listed.
+    """
 
     completed: list[OnboardingStep]
     skipped: list[OnboardingStep]

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from letmehandle.bootstrap import call_agent_on
+from letmehandle.bootstrap import call_judging_on
 from tests.evaluation.suite import load_scenarios, run
 from tests.support.scripted_model import CallTool, Fail, ScriptedModel, assess
 
@@ -78,9 +78,9 @@ def write(path: Path, scenarios: list[dict[str, object]]) -> Path:
 
 
 def scripted(scenario: Scenario, actions: CallActions) -> CallAgent:
-    return call_agent_on(
+    return call_judging_on(
         ScriptedModel(SCRIPTS[scenario.id]), actions=actions, timeout=timedelta(seconds=5)
-    )
+    ).agent
 
 
 async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path) -> None:
@@ -132,7 +132,9 @@ def always(*steps: Step) -> AgentFor:
     """An agent whose model gives the same answer to every call."""
 
     def agent_for(_scenario: Scenario, actions: CallActions) -> CallAgent:
-        return call_agent_on(ScriptedModel(steps), actions=actions, timeout=timedelta(seconds=5))
+        return call_judging_on(
+            ScriptedModel(steps), actions=actions, timeout=timedelta(seconds=5)
+        ).agent
 
     return agent_for
 

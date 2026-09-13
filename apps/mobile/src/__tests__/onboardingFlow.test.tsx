@@ -12,7 +12,11 @@ import React from 'react';
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
 import { twoLanes } from '../preferences/rules';
-import { DEFAULT_PREFERENCES, runningBackend } from './support/backend';
+import {
+  DEFAULT_PREFERENCES,
+  FORWARDING_NUMBER,
+  runningBackend,
+} from './support/backend';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -36,6 +40,32 @@ async function next(view: View, from: string, to: string): Promise<void> {
     expect(view.getByTestId(to)).toBeOnTheScreen();
   });
 }
+
+describe('where calls arrive forwarded', () => {
+  it('asks for forwarding after how calls work, shows the number, and counts it', async () => {
+    const backend = runningBackend({
+      startAt: 'call_forwarding',
+      forwarded: true,
+    });
+    const view = await render(<App />);
+
+    expect(
+      await view.findByTestId('onboarding-call_forwarding'),
+    ).toBeOnTheScreen();
+    expect(view.getByTestId('steps')).toHaveAccessibleName(
+      en.setup.progress.replace('{{done}}', '2').replace('{{total}}', '5'),
+    );
+    await waitFor(() => {
+      expect(view.getByTestId('forwarding-number')).toHaveTextContent(
+        FORWARDING_NUMBER,
+      );
+    });
+
+    await next(view, 'onboarding-call_forwarding', 'onboarding-hours');
+    expect(backend.patches).toEqual([]);
+    expect(backend.onboarding().completed).toContain('call_forwarding');
+  });
+});
 
 describe('where somebody lands', () => {
   it('opens on how calls work for somebody who has just signed in', async () => {

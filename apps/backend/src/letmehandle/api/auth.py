@@ -6,9 +6,18 @@ from dataclasses import replace
 
 from fastapi import APIRouter, Request, Response, status
 
-from letmehandle.api.dependencies import AuthService, CurrentUser, Users
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
+from letmehandle.api.dependencies import (
+    AuthService,
+    CurrentUser,
+    Deletion,
+    Devices,
+    Forwarding,
+    Users,
+)
 from letmehandle.api.errors import ApiError
 from letmehandle.api.schemas import (
+    CallForwardingResponse,
     ChallengeRequest,
     ChallengeResponse,
     ProfileResponse,
@@ -20,10 +29,16 @@ from letmehandle.api.schemas import (
 )
 from letmehandle.application.auth.service import AuthenticationError, RateLimitedError
 from letmehandle.domain.models.auth import TokenPair
+from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.user import User
+from letmehandle.domain.ports.notification import DeviceToken
 
-router = APIRouter(prefix="/v1", tags=["authentication"])
+router = APIRouter(
+    prefix="/v1",
+    tags=["authentication"],
+    route_class=limited_body_route(JSON_BODY_LIMIT_BYTES),
+)
 
 
 def _source_of(request: Request) -> str | None:
@@ -54,12 +69,15 @@ def _tokens(pair: TokenPair) -> TokenResponse:
     )
 
 
-def _profile(user: User) -> ProfileResponse:
+def _profile(user: User, forwarding: CallForwarding | None) -> ProfileResponse:
     return ProfileResponse(
         id=user.id.value,
         phone_number=user.phone_number.value,
         display_name=user.display_name,
         locale=user.preferences.locale,
+        call_forwarding=(
+            None if forwarding is None else CallForwardingResponse(number=forwarding.number.value)
+        ),
     )
 
 
@@ -122,23 +140,30 @@ async def refresh(body: RefreshRequest, service: AuthService) -> TokenResponse:
 
 
 @router.post("/auth/signout", status_code=status.HTTP_204_NO_CONTENT, summary="End this session")
-async def sign_out(body: SignOutRequest, service: AuthService) -> Response:
-    """End the session this refresh token belongs to.
+async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices) -> Response:
+    """End the session this refresh token belongs to, and forget the device signing out.
 
     Always succeeds. Somebody signing out has nothing to gain from being told their token was
     already invalid, and saying so would tell an attacker whether a token they hold is real.
+
+    The device is removed only from the account the refresh token belonged to, so a request can
+    never remove somebody else's device by naming it.
     """
-    await service.sign_out(body.refresh_token)
+    owner = await service.sign_out(body.refresh_token)
+    if owner is not None and body.device is not None:
+        await devices.remove(owner, DeviceToken(body.device.platform, body.device.token))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=ProfileResponse, summary="The signed-in user")
-async def read_me(user: CurrentUser) -> ProfileResponse:
-    return _profile(user)
+async def read_me(user: CurrentUser, forwarding: Forwarding) -> ProfileResponse:
+    return _profile(user, forwarding)
 
 
 @router.patch("/me", response_model=ProfileResponse, summary="Update the profile")
-async def update_me(body: UpdateProfileRequest, user: CurrentUser, users: Users) -> ProfileResponse:
+async def update_me(
+    body: UpdateProfileRequest, user: CurrentUser, users: Users, forwarding: Forwarding
+) -> ProfileResponse:
     """Change what the assistant knows about the person it represents.
 
     A field that is absent is left alone rather than cleared. A client sending only what it
@@ -154,4 +179,16 @@ async def update_me(body: UpdateProfileRequest, user: CurrentUser, users: Users)
     if updated != user:
         await users.update(updated)
 
-    return _profile(updated)
+    return _profile(updated, forwarding)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")
+async def delete_me(user: CurrentUser, deletion: Deletion) -> Response:
+    """Delete the signed-in user's account and everything held because of it, now.
+
+    Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
+    and the sign-in codes sent to the number. A call in progress is ended first. Every token the
+    account held stops working with it.
+    """
+    await deletion.delete(user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

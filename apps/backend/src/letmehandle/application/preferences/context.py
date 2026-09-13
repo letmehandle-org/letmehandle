@@ -194,15 +194,25 @@ def normalise_locale(locale: str) -> str:
     return locale.strip().lower().replace("_", "-")
 
 
-def phrasebook_for(locale: str) -> Phrasebook:
-    """The closest phrasing available, narrowing from the full locale to its language."""
+def closest_phrasebook[Book](locale: str, books: Mapping[str, Book]) -> Book:
+    """The closest phrasing in `books`, narrowing from the full locale to its language.
+
+    Generic because more than one kind of phrasing is written per locale, and every kind has to
+    fall back the same way: two lookups that narrow differently would put one user's summary in
+    one language and their assistant's instructions in another.
+    """
     normalised = normalise_locale(locale)
     language = normalised.split("-", 1)[0]
     for key in (normalised, language):
-        book = PHRASEBOOKS.get(key)
+        book = books.get(key)
         if book is not None:
             return book
-    return PHRASEBOOKS[DEFAULT_LOCALE]
+    return books[DEFAULT_LOCALE]
+
+
+def phrasebook_for(locale: str) -> Phrasebook:
+    """The closest phrasing available, narrowing from the full locale to its language."""
+    return closest_phrasebook(locale, PHRASEBOOKS)
 
 
 def build_preference_context(preferences: UserPreferences, *, now: datetime) -> PreferenceContext:

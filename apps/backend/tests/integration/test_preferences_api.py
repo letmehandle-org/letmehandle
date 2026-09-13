@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from sqlalchemy import text
 
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
 
@@ -539,3 +540,80 @@ class TestIsolation:
 
         response = await api.client.get("/v1/onboarding", headers=bearer(theirs))
         assert response.json()["next_step"] == "call_handling"
+
+
+class TestTranscriptRetention:
+    async def test_a_new_user_keeps_transcripts_for_seven_days(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        assert (await read(api, tokens))["privacy"] == {"transcript_retention_days": 7}
+
+    async def test_a_change_round_trips_and_leaves_other_sections_alone(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"locale": "en-GB"})
+
+        updated = await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+
+        assert updated["privacy"]["transcript_retention_days"] == 30
+        stored = await read(api, tokens)
+        assert stored["privacy"]["transcript_retention_days"] == 30
+        assert stored["locale"] == "en-GB"
+
+    async def test_another_section_s_change_keeps_it(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 1}})
+        await patch(api, tokens, {"locale": "en-GB"})
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 1
+
+    async def test_a_longer_retention_from_a_newer_deployment_survives_an_unrelated_change(
+        self, api: Api
+    ) -> None:
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+        async with api.app.state.engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE user_preferences SET document = "
+                    "jsonb_set(document, '{transcript_retention_days}', '365')"
+                )
+            )
+
+        await patch(api, tokens, {"locale": "en-GB"})
+
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 365
+        async with api.app.state.engine.connect() as connection:
+            stored = await connection.execute(
+                text("SELECT document->'transcript_retention_days' FROM user_preferences")
+            )
+            assert stored.scalar_one() == 365
+
+    async def test_an_empty_privacy_section_is_refused_rather_than_resetting_it(
+        self, api: Api
+    ) -> None:
+        # The section has one field. Filling it from the default would turn "I sent the privacy
+        # screen with nothing on it" into "delete my transcripts after seven days".
+        tokens = await sign_in(api)
+        await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
+
+        response = await api.client.patch(
+            "/v1/preferences", headers=bearer(tokens), json={"privacy": {}}
+        )
+
+        assert response.status_code == 422, response.text
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 30
+
+    @pytest.mark.parametrize("days", [1, 90])
+    async def test_the_floor_and_ceiling_are_accepted(self, api: Api, days: int) -> None:
+        tokens = await sign_in(api)
+        updated = await patch(api, tokens, {"privacy": {"transcript_retention_days": days}})
+        assert updated["privacy"]["transcript_retention_days"] == days
+
+    @pytest.mark.parametrize("days", [0, 91, -1, "7", 7.5, True, None])
+    async def test_a_value_outside_them_is_refused(self, api: Api, days: object) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/preferences",
+            headers=bearer(tokens),
+            json={"privacy": {"transcript_retention_days": days}},
+        )
+        assert response.status_code == 422, response.text
+        assert (await read(api, tokens))["privacy"]["transcript_retention_days"] == 7

@@ -33,7 +33,7 @@ export TEST_DATABASE_URL ?= postgresql+asyncpg://letmehandle:letmehandle@127.0.0
 
 .PHONY: help
 help: ## Show this help
-	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
+	@grep -hE '^[a-z0-9-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: hooks
@@ -93,7 +93,7 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/summary_evaluation.py && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 
@@ -101,6 +101,10 @@ typecheck: ## Type check both applications, and the import boundaries
 test: ## Run the unit and integration suites
 	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run pytest; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile test; fi
+
+.PHONY: e2e
+e2e: database-or-explain ## Run only the whole-system scenarios (they run in `test` too)
+	@cd $(BACKEND) && uv run pytest tests/e2e
 
 .PHONY: coverage
 coverage: database-or-explain ## Enforce the coverage floors from D-020

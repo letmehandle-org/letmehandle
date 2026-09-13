@@ -8,6 +8,7 @@ import pytest
 
 from letmehandle.domain.errors import IllegalTransitionError, InvariantError
 from letmehandle.domain.models.call import (
+    CallHandling,
     CallSession,
     Participant,
     ParticipantRole,
@@ -17,6 +18,7 @@ from letmehandle.domain.models.call import (
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId, UserId
+from letmehandle.domain.models.phone_number import PhoneNumber
 
 START = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -68,6 +70,15 @@ class TestState:
 
     def test_duration_is_unknown_while_the_call_is_running(self) -> None:
         assert a_call().duration_seconds() is None
+
+    def test_an_end_reported_before_the_start_is_recorded_as_the_start(self) -> None:
+        # The start comes from the carrier and the end from this host's clock; a few
+        # milliseconds of skew between them must not make the call unrecordable.
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.FAILED, at_instant=START - timedelta(milliseconds=5))
+        assert call.ended_at == START
+        assert call.duration_seconds() == 0
 
     def test_the_state_cannot_be_assigned_around_the_rules(self) -> None:
         # The whole reason the field is private: without this, any caller could put a call in
@@ -168,6 +179,26 @@ class TestTranscript:
         assert len(call.transcript) == 1
 
 
+class TestRepresentation:
+    def test_neither_a_call_nor_an_entry_prints_what_was_said_or_who_said_it(self) -> None:
+        # A repr is what a debugger, a log line or a failing assertion prints.
+        call = CallSession(
+            id=CallId("call-1"),
+            user_id=UserId("user-1"),
+            caller=Caller(
+                number=PhoneNumber.parse("+12025550123"), display_name="Wrenfield Parcel Desk"
+            ),
+            started_at=START,
+        )
+        call.record(Speaker.CALLER, "the gate code is violet-kestrel-5521", START)
+
+        printed = repr(call) + repr(call.transcript[0])
+
+        for secret in ("violet-kestrel", "5550123", "Wrenfield"):
+            assert secret not in printed
+        assert "call-1" in printed
+
+
 class TestEscalationSequence:
     def test_the_whole_escalation_path_is_expressible(self) -> None:
         # Scenario B from the plan, at the level the domain is responsible for.
@@ -178,7 +209,7 @@ class TestEscalationSequence:
         call.add_participant(ParticipantRole.AGENT, later(1))
         call.record(Speaker.CALLER, "I have a parcel for you.", later(5))
 
-        call.move_to(CallState.ESCALATION_REQUESTED)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
         call.move_to(CallState.HUMAN_RINGING)
         call.move_to(CallState.HUMAN_JOINED)
         call.add_participant(ParticipantRole.HUMAN, later(20))
@@ -191,8 +222,163 @@ class TestEscalationSequence:
         call = a_call()
         call.move_to(CallState.ROUTING)
         call.move_to(CallState.AGENT_HANDLING)
-        call.move_to(CallState.ESCALATION_REQUESTED)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
         call.move_to(CallState.HUMAN_RINGING)
         call.move_to(CallState.AGENT_HANDLING)
         assert call.state is CallState.AGENT_HANDLING
         assert not call.is_over
+
+
+class TestHowTheCallWasHandled:
+    def test_a_call_put_through_is_recorded_as_passed_through(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        assert call.handling is None
+        call.move_to(CallState.PASSTHROUGH)
+        assert call.handling is CallHandling.PASSED_THROUGH
+
+    def test_a_call_given_to_the_assistant_stays_the_assistants_through_escalation(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.AGENT_HANDLING)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
+        call.move_to(CallState.HUMAN_RINGING)
+        call.move_to(CallState.AGENT_HANDLING)
+        assert call.handling is CallHandling.ASSISTANT
+
+    def test_a_rejected_call_was_handled_by_nobody(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.REJECTED, at_instant=later(1))
+        assert call.handling is None
+
+    def test_asking_for_the_user_records_when_and_needs_the_moment(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.AGENT_HANDLING)
+        with pytest.raises(InvariantError, match="when"):
+            call.move_to(CallState.ESCALATION_REQUESTED)
+        assert call.state is CallState.AGENT_HANDLING
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
+        assert call.escalated_at == later(10)
+
+    def test_a_second_escalation_keeps_when_the_user_was_first_asked_for(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.AGENT_HANDLING)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(10))
+        call.move_to(CallState.AGENT_HANDLING)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=later(40))
+        assert call.escalated_at == later(10)
+
+    def test_an_escalation_a_moment_before_the_start_is_recorded_at_the_start(self) -> None:
+        call = a_call()
+        call.move_to(CallState.ROUTING)
+        call.move_to(CallState.AGENT_HANDLING)
+        call.move_to(CallState.ESCALATION_REQUESTED, at_instant=START - timedelta(milliseconds=3))
+        assert call.escalated_at == START
+
+
+class TestRestore:
+    def test_a_stored_call_comes_back_exactly(self) -> None:
+        participants = (
+            Participant(ParticipantRole.CALLER, START, later(60)),
+            Participant(ParticipantRole.AGENT, later(1)),
+        )
+        call = CallSession.restore(
+            id=CallId("call-1"),
+            user_id=UserId("user-1"),
+            caller=Caller(),
+            started_at=START,
+            state=CallState.COMPLETED,
+            participants=participants,
+            ended_at=later(60),
+        )
+        assert call.state is CallState.COMPLETED
+        assert call.participants == participants
+        assert call.duration_seconds() == 60
+        assert call.transcript == ()
+        assert call.handling is None
+        assert call.escalated_at is None
+
+    def test_how_it_was_handled_and_when_the_user_was_asked_for_come_back(self) -> None:
+        call = CallSession.restore(
+            id=CallId("call-1"),
+            user_id=UserId("user-1"),
+            caller=Caller(),
+            started_at=START,
+            state=CallState.HUMAN_RINGING,
+            participants=(),
+            ended_at=None,
+            handling=CallHandling.ASSISTANT,
+            escalated_at=later(5),
+        )
+        assert call.handling is CallHandling.ASSISTANT
+        assert call.escalated_at == later(5)
+
+    @pytest.mark.parametrize(
+        ("handling", "escalated_at"),
+        [
+            (None, later(5)),
+            (CallHandling.PASSED_THROUGH, later(5)),
+            (CallHandling.ASSISTANT, START - timedelta(seconds=1)),
+        ],
+    )
+    def test_an_escalation_no_legal_sequence_could_produce_is_refused(
+        self, handling: CallHandling | None, escalated_at: datetime
+    ) -> None:
+        with pytest.raises(InvariantError):
+            CallSession.restore(
+                id=CallId("call-1"),
+                user_id=UserId("user-1"),
+                caller=Caller(),
+                started_at=START,
+                state=CallState.AGENT_HANDLING,
+                participants=(),
+                ended_at=None,
+                handling=handling,
+                escalated_at=escalated_at,
+            )
+
+    @pytest.mark.parametrize(
+        ("state", "ended_at", "participants"),
+        [
+            (CallState.COMPLETED, None, ()),
+            (CallState.AGENT_HANDLING, later(5), ()),
+            (CallState.FAILED, START - timedelta(seconds=1), ()),
+            (
+                CallState.AGENT_HANDLING,
+                None,
+                (
+                    Participant(ParticipantRole.AGENT, START),
+                    Participant(ParticipantRole.AGENT, START),
+                ),
+            ),
+        ],
+    )
+    def test_a_record_no_legal_sequence_could_produce_is_refused(
+        self,
+        state: CallState,
+        ended_at: datetime | None,
+        participants: tuple[Participant, ...],
+    ) -> None:
+        with pytest.raises(InvariantError):
+            CallSession.restore(
+                id=CallId("call-1"),
+                user_id=UserId("user-1"),
+                caller=Caller(),
+                started_at=START,
+                state=state,
+                participants=participants,
+                ended_at=ended_at,
+            )
+
+
+def test_a_departure_a_moment_before_the_join_is_recorded_at_the_join() -> None:
+    # Joined by one clock and left by another, a few milliseconds apart. The departure happened, so
+    # it is recorded, at the join rather than before it.
+    joined = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    departed = Participant(ParticipantRole.CALLER, joined).departing(
+        joined - timedelta(milliseconds=5)
+    )
+    assert departed.left_at == joined

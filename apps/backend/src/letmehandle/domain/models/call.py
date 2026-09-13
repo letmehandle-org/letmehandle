@@ -32,6 +32,24 @@ class Speaker(StrEnum):
     HUMAN = "human"
 
 
+class CallHandling(StrEnum):
+    """Whom routing gave the call to, which its final state no longer says.
+
+    A completed call was either put straight through to the user or taken by the assistant, and
+    history tells the two apart. Read from the moves themselves rather than set beside them, so it
+    cannot disagree with the path the call took. A rejected call was given to nobody.
+    """
+
+    PASSED_THROUGH = "passed_through"
+    ASSISTANT = "assistant"
+
+
+_HANDLING_BY_STATE: dict[CallState, CallHandling] = {
+    CallState.PASSTHROUGH: CallHandling.PASSED_THROUGH,
+    CallState.AGENT_HANDLING: CallHandling.ASSISTANT,
+}
+
+
 class ParticipantRole(StrEnum):
     """What someone is doing on the call.
 
@@ -61,7 +79,10 @@ class Participant:
         return self.left_at is None
 
     def departing(self, at_instant: datetime) -> Participant:
-        return Participant(self.role, self.joined_at, at_instant)
+        # Never before they joined. The two instants can come from different clocks — a carrier's
+        # and this host's — a few milliseconds apart, and a departure that happened must be
+        # recordable; the call's own end is clamped the same way.
+        return Participant(self.role, self.joined_at, max(at_instant, self.joined_at))
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +94,8 @@ class TranscriptEntry:
     """
 
     speaker: Speaker
-    text: str
+    # Out of the repr: a repr is what a log line or a failing assertion prints.
+    text: str = field(repr=False)
     at_instant: datetime
 
     def __post_init__(self) -> None:
@@ -98,6 +120,54 @@ class CallSession:
     _participants: list[Participant] = field(default_factory=list, init=False)
     _transcript: list[TranscriptEntry] = field(default_factory=list, init=False)
     ended_at: datetime | None = field(default=None, init=False)
+    handling: CallHandling | None = field(default=None, init=False)
+    # When the assistant first asked for the user. Kept apart from who joined, because a user
+    # asked for and never reached is exactly the call history has to show.
+    escalated_at: datetime | None = field(default=None, init=False)
+
+    @classmethod
+    def restore(
+        cls,
+        *,
+        id: CallId,  # noqa: A002 - the field is called id, and the argument names the field
+        user_id: UserId,
+        caller: Caller,
+        started_at: datetime,
+        state: CallState,
+        participants: tuple[Participant, ...],
+        ended_at: datetime | None,
+        handling: CallHandling | None = None,
+        escalated_at: datetime | None = None,
+    ) -> CallSession:
+        """A call read back from storage, exactly as it was written.
+
+        For a storage adapter, and nothing else: it places the call in a state without walking
+        the transitions, because the transitions were walked before the call was stored. What
+        it still refuses is a record no sequence of legal moves could have produced — an ending
+        with no moment, a moment with no ending, or one role present twice.
+
+        The transcript is not restored here. It is stored apart, encrypted and on its own
+        retention clock, and is read through its own repository.
+        """
+        if is_terminal(state) != (ended_at is not None):
+            raise InvariantError("a stored call has an end time exactly when it has ended")
+        if ended_at is not None and ended_at < started_at:
+            raise InvariantError("a call cannot end before it started")
+        present = [participant.role for participant in participants if participant.is_present]
+        if len(present) != len(set(present)):
+            raise InvariantError("a stored call has one role present twice")
+        if escalated_at is not None and handling is not CallHandling.ASSISTANT:
+            raise InvariantError("only a call the assistant took can have asked for the user")
+        if escalated_at is not None and escalated_at < started_at:
+            raise InvariantError("a call cannot ask for the user before it started")
+
+        call = cls(id=id, user_id=user_id, caller=caller, started_at=started_at)
+        call._state = state
+        call._participants = list(participants)
+        call.ended_at = ended_at
+        call.handling = handling
+        call.escalated_at = escalated_at
+        return call
 
     @property
     def state(self) -> CallState:
@@ -125,15 +195,31 @@ class CallSession:
 
         `at_instant` is required when moving to an ending, because a call's duration is the
         difference between two recorded moments and a missing one makes every later summary
-        and metric wrong.
+        and metric wrong. It is required when asking for the user too, and the first time is
+        kept: history shows when the user was first wanted.
+
+        An end earlier than the start is recorded as the start. The two moments come from
+        different clocks — the start from the carrier, the end from this host — and a few
+        milliseconds of skew between them is ordinary. Refusing would leave a call that
+        happened with no record at all, and storing the earlier moment would make every read
+        of the history refuse it instead; a zero-length call is the honest nearest truth.
         """
-        self._state = move(self._state, state)
-        if is_terminal(self._state):
+        moved = move(self._state, state)
+        if is_terminal(moved):
             if at_instant is None:
                 raise InvariantError(
                     "a call that has ended must record when; its duration is read from it"
                 )
-            self.ended_at = at_instant
+            self.ended_at = max(at_instant, self.started_at)
+        if moved is CallState.ESCALATION_REQUESTED:
+            if at_instant is None:
+                raise InvariantError(
+                    "a call that asks for the user must record when; history shows it"
+                )
+            if self.escalated_at is None:
+                self.escalated_at = max(at_instant, self.started_at)
+        self.handling = _HANDLING_BY_STATE.get(moved, self.handling)
+        self._state = moved
 
     def add_participant(self, role: ParticipantRole, at_instant: datetime) -> None:
         """Put somebody on the call.

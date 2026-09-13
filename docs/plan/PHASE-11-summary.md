@@ -80,3 +80,25 @@ so that a prompt change that degrades summaries is caught.
 - **Summaries as the only record.** Once the transcript is purged the summary is all there
   is. That raises the bar for the evaluation threshold and is the reason the fallback summary
   exists.
+
+## Verification report
+
+```
+PHASE 11 VERIFICATION
+
+Planned tasks:        backend complete; mobile history screens pending; real-model scoring held
+Acceptance criteria:  1–7 and 9 passed for the backend; 8 held (no model endpoint configured)
+Unit tests:           passed   summary checks, summariser fallbacks, prompts, schema
+Integration tests:    passed   the real SDK loop on a scripted model; summaries sealed in PostgreSQL;
+                               history listing, filtering, pagination, transcript purged vs absent,
+                               deletion
+Evaluation:           held     tests/evaluation/summaries.json and scripts/summary_evaluation.py;
+                               degenerate strategies proven to fail every class
+Coverage:             100.00%  backend
+Docs updated:         this plan
+Known issues:         mobile activity and call detail screens are not yet built
+```
+
+A model's draft is kept only when every detail quotes the transcript, the outcome agrees with the
+call's facts, and the headline is short and names the ending; anything else falls back to the
+summary built from the facts. The summariser runs inside teardown's summary bound.

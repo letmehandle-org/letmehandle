@@ -22,6 +22,8 @@ from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingS
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
+    TRANSCRIPT_RETENTION_DEFAULT_DAYS,
+    TRANSCRIPT_RETENTION_FLOOR_DAYS,
     CallRules,
     DisclosableFact,
     Formality,
@@ -55,6 +57,7 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
         "topics": sorted(topic.name for topic in preferences.topics),
         "disclosable_facts": sorted(fact.text for fact in preferences.disclosable_facts),
         "authority": sorted(capability.value for capability in preferences.authority.capabilities),
+        "transcript_retention_days": preferences.transcript_retention_days,
         "voice": {
             "cloned": preferences.voice.cloned_voice_id,
             "persona": preferences.voice.persona_voice_id,
@@ -92,35 +95,44 @@ def preferences_to_document(preferences: UserPreferences) -> dict[str, Any]:
     }
 
 
-def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
+def document_to_preferences(document: object) -> UserPreferences:
     """Back into the domain, with every value validated on the way.
 
     A document written by an older version is read with today's defaults for anything it does
     not mention. That is the point of the version field beside it: what a reader cannot supply
     from the document it supplies from the defaults, and a migration can tell which is which.
+
+    Every shape is checked before it is used. A section stored as the wrong kind of value — a
+    list where an object belongs, a number where text does — is corruption, and it arrives as
+    `InvariantError` like every other corruption here. Left to Python, it would arrive as
+    whichever of `AttributeError`, `TypeError` or `ValueError` the first misused value happened
+    to raise, and no caller can tell those apart from a bug.
     """
-    rules_document: dict[str, Any] = document.get("rules", {})
+    if not isinstance(document, dict):
+        raise InvariantError("stored preferences are not an object")
+    rules_document = _section(document, "rules")
 
     return UserPreferences(
-        version=int(document.get("version", PREFERENCES_VERSION)),
-        locale=str(document.get("locale", "en")),
+        version=_version(document.get("version")),
+        locale=_text(document, "locale", "en"),
         formality=_enum(Formality, document.get("formality"), Formality.NEUTRAL),
         verbosity=_enum(Verbosity, document.get("verbosity"), Verbosity.NORMAL),
-        topics=frozenset(Topic(name) for name in document.get("topics", [])),
+        topics=frozenset(Topic(name) for name in _strings(document, "topics")),
         disclosable_facts=frozenset(
-            DisclosableFact(text) for text in document.get("disclosable_facts", [])
+            DisclosableFact(text) for text in _strings(document, "disclosable_facts")
         ),
         authority=AgentAuthority(
             frozenset(
                 capability
-                for value in document.get("authority", [])
+                for value in _items(document, "authority")
                 if (capability := _enum(Capability, value, None)) is not None
             )
         ),
-        notifications=_notifications_from_document(document.get("notifications", {})),
-        voice=_voice_from_document(document.get("voice", {})),
+        notifications=_notifications_from_document(_section(document, "notifications")),
+        voice=_voice_from_document(_section(document, "voice")),
+        transcript_retention_days=_retention_days(document.get("transcript_retention_days")),
         important_contacts=tuple(
-            _contact_from_document(entry) for entry in document.get("important_contacts", [])
+            _contact_from_document(entry) for entry in _items(document, "important_contacts")
         ),
         rules=CallRules(
             default_posture=_enum(
@@ -135,21 +147,66 @@ def document_to_preferences(document: dict[str, Any]) -> UserPreferences:
             ),
             posture_by_category={
                 category: posture
-                for raw_category, raw_posture in rules_document.get(
-                    "posture_by_category", {}
+                for raw_category, raw_posture in _section(
+                    rules_document, "posture_by_category"
                 ).items()
                 if (category := _enum(CallerCategory, raw_category, None)) is not None
                 and (posture := _enum(HandlingPosture, raw_posture, None)) is not None
             },
             blocked_categories=frozenset(
                 category
-                for raw in rules_document.get("blocked_categories", [])
+                for raw in _items(rules_document, "blocked_categories")
                 if (category := _enum(CallerCategory, raw, None)) is not None
             ),
             escalate_at_or_above=_importance(rules_document.get("escalate_at_or_above")),
             active_hours=_active_hours_from_document(rules_document),
         ),
     )
+
+
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    """A nested object: empty when absent, and corruption when it is anything but an object."""
+    value = document.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise InvariantError(f"stored preferences hold {key!r} as something other than an object")
+    return value
+
+
+def _items(document: dict[str, Any], key: str) -> list[object]:
+    """A nested list: empty when absent, and corruption when it is anything but a list."""
+    value = document.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise InvariantError(f"stored preferences hold {key!r} as something other than a list")
+    return value
+
+
+def _strings(document: dict[str, Any], key: str) -> list[str]:
+    """A nested list of text. A member that is not text is corruption, not a newer value."""
+    values = _items(document, key)
+    texts = [value for value in values if isinstance(value, str)]
+    if len(texts) != len(values):
+        raise InvariantError(f"stored preferences hold something other than text in {key!r}")
+    return texts
+
+
+def _text(document: dict[str, Any], key: str, default: str) -> str:
+    value = document.get(key, default)
+    if not isinstance(value, str):
+        raise InvariantError(f"stored preferences hold {key!r} as something other than text")
+    return value
+
+
+def _version(raw: object) -> int:
+    """The shape the document was written in. Absent reads as today's."""
+    if raw is None:
+        return PREFERENCES_VERSION
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise InvariantError("stored preferences carry a version that is not a whole number")
+    return raw
 
 
 def progress_to_document(progress: OnboardingProgress) -> dict[str, list[str]]:
@@ -175,20 +232,24 @@ def document_to_progress(completed: list[str], skipped: list[str]) -> Onboarding
     )
 
 
-def _contact_from_document(entry: dict[str, Any]) -> ImportantContact:
+def _contact_from_document(entry: object) -> ImportantContact:
     """One stored contact, or the domain's own error rather than a bare `KeyError`.
 
     A missing key is corruption, and it should arrive as the failure everything else in this
     module raises — otherwise it escapes as a server fault with nothing naming the cause.
     """
-    try:
-        return ImportantContact(
-            number=PhoneNumber(entry["number"]),
-            label=entry["label"],
-            posture=_enum(HandlingPosture, entry.get("posture"), HandlingPosture.PASS_THROUGH),
-        )
-    except KeyError as error:
-        raise InvariantError(f"a stored contact is missing {error}") from error
+    if not isinstance(entry, dict):
+        raise InvariantError("a stored contact is not an object")
+    for key in ("number", "label"):
+        if key not in entry:
+            raise InvariantError(f"a stored contact is missing {key!r}")
+        if not isinstance(entry[key], str):
+            raise InvariantError(f"a stored contact holds {key!r} as something other than text")
+    return ImportantContact(
+        number=PhoneNumber(entry["number"]),
+        label=entry["label"],
+        posture=_enum(HandlingPosture, entry.get("posture"), HandlingPosture.PASS_THROUGH),
+    )
 
 
 def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
@@ -201,7 +262,7 @@ def _window_to_document(window: TimeWindow | None) -> dict[str, str] | None:
     }
 
 
-def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
+def _window_from_document(document: object) -> TimeWindow | None:
     """No window at all is `None`; a window that is there and unreadable raises.
 
     `None` and `{}` are not the same thing. The first is a user who set no hours; the
@@ -210,17 +271,19 @@ def _window_from_document(document: dict[str, str] | None) -> TimeWindow | None:
     """
     if document is None:
         return None
+    # Raised, not dropped. This is corruption rather than a value from a newer deployment, and
+    # the two want opposite handling: an unknown enum member is safely ignored, while quiet hours
+    # that silently disappear mean a phone ringing at three in the morning with nothing anywhere
+    # to say why.
+    if not isinstance(document, dict):
+        raise InvariantError("stored hours could not be read: they are not an object")
+    parts = [document.get(key) for key in ("start", "end", "zone")]
+    start, end, zone = (part if isinstance(part, str) else None for part in parts)
+    if start is None or end is None or zone is None:
+        raise InvariantError("stored hours could not be read: a start, end or zone is missing")
     try:
-        return TimeWindow(
-            start=_parse_time(document["start"]),
-            end=_parse_time(document["end"]),
-            zone=document["zone"],
-        )
-    except (KeyError, ValueError) as error:
-        # Raised, not dropped. This is corruption rather than a value from a newer deployment,
-        # and the two want opposite handling: an unknown enum member is safely ignored, while
-        # quiet hours that silently disappear mean a phone ringing at three in the morning with
-        # nothing anywhere to say why.
+        return TimeWindow(start=_parse_time(start), end=_parse_time(end), zone=zone)
+    except ValueError as error:
         raise InvariantError(f"stored hours could not be read: {error}") from error
 
 
@@ -264,6 +327,25 @@ def _voice_from_document(document: dict[str, Any]) -> VoiceSelection:
 def _optional_text(value: object) -> str | None:
     """A stored string, or nothing. Anything else stored here is not a voice identifier."""
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _retention_days(raw: object) -> int:
+    """How long this user keeps transcripts, as stored.
+
+    Absent — a document from before retention was a setting — is the default. Below the floor
+    is raised to it: keeping a transcript a day longer is recoverable, and refusing would lock
+    somebody out of every other setting over this one. Above the ceiling is kept exactly as
+    stored, never lowered: a deployment with a higher ceiling wrote it, and reading it as this
+    version's ceiling would purge transcripts earlier than the user chose and write the lower
+    number back on the next unrelated save. Anything that is not a whole number is corruption
+    and raises, because a retention silently reset is a transcript kept for a length of time
+    nobody chose.
+    """
+    if raw is None:
+        return TRANSCRIPT_RETENTION_DEFAULT_DAYS
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise InvariantError("a stored transcript retention is not a whole number of days")
+    return max(TRANSCRIPT_RETENTION_FLOOR_DAYS, raw)
 
 
 def _notifications_from_document(document: dict[str, Any]) -> NotificationPreferences:

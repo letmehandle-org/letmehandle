@@ -27,13 +27,13 @@ Each phase file is `docs/plan/PHASE-NN-<name>.md` and has the same shape:
 | 5 | Realtime speech foundation | **complete** — live run held |
 | 6 | Agent and decision-making | **complete** — model evaluation held |
 | 7 | Call transport | **complete** — real-call checks held |
-| 8 | Call orchestration | not started |
+| 8 | Call orchestration | **complete** — real-call checks held |
 | 9 | Mobile core experience | not started |
-| 10 | Human escalation experience | not started |
-| 11 | Call summary and history | not started |
-| 12 | Security, privacy and hardening | not started |
+| 10 | Human escalation experience | in progress — backend done, mobile and devices open |
+| 11 | Call summary and history | in progress — backend done, mobile screens open |
+| 12 | Security, privacy and hardening | in progress — review done, mobile and build audits open |
 | 13 | Observability and failure handling | not started |
-| 14 | Full system end to end | not started |
+| 14 | Full system end to end | in progress — automated scenarios pass, manual run held |
 | 15 | Release readiness | not started |
 
 ## The completion rule

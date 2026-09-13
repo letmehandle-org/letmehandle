@@ -12,6 +12,7 @@ from datetime import time
 
 from fastapi import APIRouter, status
 
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import CurrentUser, Preferences
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.preference_schemas import (
@@ -25,6 +26,7 @@ from letmehandle.api.preference_schemas import (
     PersonalityPayload,
     PreferencesResponse,
     PreferencesUpdate,
+    PrivacyResponse,
     TimeWindowPayload,
 )
 from letmehandle.application.preferences.service import (
@@ -32,9 +34,9 @@ from letmehandle.application.preferences.service import (
     Hours,
     PreferenceChanges,
 )
-from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.errors import InvariantError, StepNotAskedError
 from letmehandle.domain.models.authority import AgentAuthority
-from letmehandle.domain.models.onboarding import ORDER, OnboardingProgress
+from letmehandle.domain.models.onboarding import Onboarding
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
     DisclosableFact,
@@ -45,7 +47,9 @@ from letmehandle.domain.models.preferences import (
     UserPreferences,
 )
 
-router = APIRouter(prefix="/v1", tags=["preferences"])
+router = APIRouter(
+    prefix="/v1", tags=["preferences"], route_class=limited_body_route(JSON_BODY_LIMIT_BYTES)
+)
 
 
 @router.get("/preferences", response_model=PreferencesResponse, summary="Read preferences")
@@ -105,9 +109,18 @@ async def record_onboarding_step(
 
     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
     where somebody was instead of asking them everything again.
+
+    A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
+    deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
+    `step_not_asked`, and nothing is recorded.
     """
     try:
         progress = await service.record_step(user.id, body.step, skipped=body.skipped)
+    except StepNotAskedError as error:
+        # A 422 like any other step this deployment has no screen for, removed or invented:
+        # the request names something that does not exist here, rather than conflicting with
+        # a state somebody could change by trying again.
+        raise ApiError(UNPROCESSABLE, "step_not_asked", str(error)) from error
     except InvariantError as error:
         # The only way to reach this is skipping a step that has no safe default, which the
         # client should not have offered — so it is a request problem rather than a fault.
@@ -184,6 +197,9 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
                     for entry in body.important_contacts
                 )
             ),
+            transcript_retention_days=(
+                None if body.privacy is None else body.privacy.transcript_retention_days
+            ),
         )
     except InvariantError as error:
         raise _refused(error) from error
@@ -242,6 +258,7 @@ def _to_response(preferences: UserPreferences) -> PreferencesResponse:
             topics=sorted(topic.name for topic in preferences.topics),
             disclosable_facts=sorted(fact.text for fact in preferences.disclosable_facts),
         ),
+        privacy=PrivacyResponse(transcript_retention_days=preferences.transcript_retention_days),
     )
 
 
@@ -255,10 +272,10 @@ def _window_payload(window: TimeWindow | None) -> TimeWindowPayload | None:
     )
 
 
-def _progress_response(progress: OnboardingProgress) -> OnboardingResponse:
+def _progress_response(progress: Onboarding) -> OnboardingResponse:
     return OnboardingResponse(
-        completed=[step for step in ORDER if step in progress.completed],
-        skipped=[step for step in ORDER if step in progress.skipped],
+        completed=list(progress.completed),
+        skipped=list(progress.skipped),
         remaining=list(progress.remaining),
         next_step=progress.next_step,
         is_complete=progress.is_complete,

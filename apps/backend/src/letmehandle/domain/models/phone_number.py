@@ -31,9 +31,7 @@ class PhoneNumber:
 
     def __post_init__(self) -> None:
         if not _E164.fullmatch(self.value):
-            raise InvariantError(
-                f"{self.value!r} is not a phone number in E.164 form, such as +12025550143"
-            )
+            raise InvariantError("that is not a phone number in E.164 form, such as +12025550143")
 
     @classmethod
     def parse(cls, raw: str) -> PhoneNumber:
@@ -52,9 +50,9 @@ class PhoneNumber:
             candidate = "+" + candidate[2:]
         if not candidate.startswith("+"):
             raise InvariantError(
-                f"{raw!r} has no country code. Numbers must be international, such as "
-                f"+12025550143, because a national number means nothing without knowing "
-                f"which country it is national to"
+                "that number has no country code. Numbers must be international, such as "
+                "+12025550143, because a national number means nothing without knowing "
+                "which country it is national to"
             )
         return cls(candidate)
 

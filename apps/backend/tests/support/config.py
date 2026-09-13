@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 from typing import TYPE_CHECKING, Final
 
 from pydantic import AnyHttpUrl, AnyWebsocketUrl, PostgresDsn, SecretStr
 
 from letmehandle.config.settings import (
+    APNsEnvironmentName,
     Environment,
     LogFormat,
     OTPProviderName,
@@ -30,6 +32,10 @@ UNREACHABLE_DATABASE = "postgresql+asyncpg://nobody:nothing@127.0.0.1:1/absent"
 # Long enough to satisfy the signer, and obviously not a real key. Tests that care about the
 # key's own rules supply their own.
 TEST_SIGNING_KEY = "test-signing-key-that-is-long-enough-to-be-accepted"
+
+
+# Thirty-two bytes counting up from zero: a key nobody would choose, under an id that says so.
+TEST_TRANSCRIPT_KEYS: Final = f"test-key:{base64.b64encode(bytes(range(32))).decode()}"
 
 
 # A voice catalogue that says what it is. No speech service speaks these: they exist so that the
@@ -65,6 +71,7 @@ def make_settings(
     speech_agent_id: str | None = None,
     speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
+    transcript_encryption_keys: str | None = None,
     telephony_provider: TelephonyProviderName | None = None,
     telephony_account_id: str | None = None,
     telephony_auth_token: str | None = None,
@@ -76,6 +83,13 @@ def make_settings(
     llm_model: str | None = None,
     llm_headers: str = "",
     llm_timeout_seconds: float = 20,
+    apns_key_id: str | None = None,
+    apns_team_id: str | None = None,
+    apns_private_key: str | None = None,
+    apns_topic: str | None = None,
+    apns_environment: APNsEnvironmentName | None = None,
+    fcm_project_id: str | None = None,
+    fcm_service_account_json: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -99,6 +113,11 @@ def make_settings(
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
+        transcript_encryption_keys=(
+            SecretStr(transcript_encryption_keys)
+            if transcript_encryption_keys is not None
+            else None
+        ),
         telephony_provider=telephony_provider,
         telephony_account_id=telephony_account_id,
         telephony_auth_token=(
@@ -116,4 +135,13 @@ def make_settings(
         llm_model=llm_model,
         llm_headers=parse_llm_headers(llm_headers),
         llm_timeout_seconds=llm_timeout_seconds,
+        apns_key_id=apns_key_id,
+        apns_team_id=apns_team_id,
+        apns_private_key=SecretStr(apns_private_key) if apns_private_key is not None else None,
+        apns_topic=apns_topic,
+        apns_environment=apns_environment,
+        fcm_project_id=fcm_project_id,
+        fcm_service_account_json=(
+            SecretStr(fcm_service_account_json) if fcm_service_account_json is not None else None
+        ),
     )

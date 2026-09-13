@@ -9,15 +9,38 @@ It is also the only module permitted to name a provider. A test asserts that no 
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Final, assert_never
+from functools import partial
+from typing import TYPE_CHECKING, Final, Protocol, assert_never, runtime_checkable
 
 from fastapi import APIRouter
 
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
+from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
+from letmehandle.adapters.database.call_repositories import (
+    SqlCallRepository,
+    SqlEscalationContextRepository,
+    SqlSummaryRepository,
+    SqlTranscriptRepository,
+)
+from letmehandle.adapters.database.repositories import (
+    SqlDeviceRepository,
+    SqlPreferencesRepository,
+    SqlUserRepository,
+)
+from letmehandle.adapters.database.session import unit_of_work
+from letmehandle.adapters.notification.apns.provider import (
+    APNsEnvironment,
+    APNsNotificationProvider,
+)
+from letmehandle.adapters.notification.apns.token import APNsProviderToken
+from letmehandle.adapters.notification.fcm import provider as fcm
+from letmehandle.adapters.notification.fcm.credentials import AccessTokenSource, ServiceAccount
+from letmehandle.adapters.notification.shared import CredentialError
 from letmehandle.adapters.otp.mock import MockOTPProvider
 from letmehandle.adapters.rate_limit.in_memory import InMemoryRateLimiter
 from letmehandle.adapters.security.hashing import (
@@ -26,6 +49,7 @@ from letmehandle.adapters.security.hashing import (
     SystemSecretGenerator,
 )
 from letmehandle.adapters.security.tokens import JWTTokenSigner
+from letmehandle.adapters.security.transcript_cipher import AesGcmTranscriptCipher
 from letmehandle.adapters.speech.elevenlabs.protocol import (
     DEFAULT_WIRE_FORMAT as ELEVENLABS_WIRE_FORMAT,
 )
@@ -37,6 +61,7 @@ from letmehandle.adapters.speech.realtime.protocol import WIRE_FORMAT as REALTIM
 from letmehandle.adapters.speech.realtime.provider import RealtimeSpeechProvider
 from letmehandle.adapters.speech.realtime.websocket import websocket_opener as realtime_opener
 from letmehandle.adapters.transport.android_native.transport import AndroidNativeCallTransport
+from letmehandle.adapters.transport.twilio.ownership import ForwardedCallOwnership
 from letmehandle.adapters.transport.twilio.rest import HttpTelephonyApi
 from letmehandle.adapters.transport.twilio.routes import build_router as build_twilio_router
 from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
@@ -45,29 +70,53 @@ from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
+from letmehandle.application.calls.reports import ReportedCallOwnership
+from letmehandle.application.calls.summariser import ModelCallSummariser
+from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
+from letmehandle.application.orchestration.orchestrator import CallOrchestrator
+from letmehandle.application.orchestration.ports import (
+    AssistantServices,
+    Bounds,
+    CallJudging,
+    CallOwnership,
+    CallStores,
+)
 from letmehandle.config.settings import (
+    APNsEnvironmentName,
+    ConfigurationError,
     OTPProviderName,
     Settings,
     SpeechProviderName,
     TelephonyProviderName,
 )
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
+from letmehandle.domain.models.forwarding import CallForwarding
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     import httpx
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
     from strands.models.model import Model
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
-    from letmehandle.application.agent.ports import CallActions, CallAgent
+    from letmehandle.application.agent.ports import CallActions
+    from letmehandle.application.calls.summariser import CallSummariser
+    from letmehandle.domain.models.identifiers import UserId
+    from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
+    from letmehandle.domain.ports.notification import NotificationProvider
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.reported_calls import CallEventSink
-    from letmehandle.domain.ports.security import SecretGenerator, SecretHasher, TokenSigner
+    from letmehandle.domain.ports.security import (
+        SecretGenerator,
+        SecretHasher,
+        TokenSigner,
+        TranscriptCipher,
+    )
     from letmehandle.domain.ports.speech import SpeechProvider
     from letmehandle.domain.ports.voice import VoiceProvider
 
@@ -92,10 +141,19 @@ class Container:
     voices: VoiceProvider
     rate_limiter: RateLimiter
     refresh_token_lifetime: timedelta
+    # None when no transcript keys are configured. Call history cannot be read without them, and
+    # its routes say so; everything else, which never opens a sealed record, runs regardless.
+    transcript_cipher: TranscriptCipher | None
     # Where a handset's reports about its own calls become call events. The transport that
     # represents handsets is that sink, so the one instance is both what the reporting route
     # feeds and what anything consuming that transport's events reads.
     reported_calls: CallEventSink
+    # The number users forward their unanswered and busy calls to, or None where nothing needs
+    # forwarding. Decided here once, so the profile and the setup flow cannot disagree about it.
+    forwarding: CallForwarding | None
+    # One per configured platform, possibly none. A platform without one is an outcome at
+    # dispatch, not a startup failure: escalation works without push (D-016).
+    notifications: tuple[NotificationProvider, ...] = ()
 
 
 def build_container(
@@ -130,8 +188,129 @@ def build_container(
         voices=voices,
         rate_limiter=InMemoryRateLimiter(clock),
         refresh_token_lifetime=timedelta(seconds=settings.auth_refresh_token_ttl_seconds),
+        transcript_cipher=(
+            None
+            if settings.transcript_encryption_keys is None
+            else AesGcmTranscriptCipher(settings.require_transcript_keys())
+        ),
+        notifications=build_notification_providers(settings, clock=clock),
         reported_calls=reported_calls,
+        forwarding=build_call_forwarding(settings),
     )
+
+
+def build_call_forwarding(settings: Settings) -> CallForwarding | None:
+    """Which number, if any, users must forward their calls to for any to arrive.
+
+    A streaming call reaches the product only when the user's carrier forwards it to one of the
+    account's numbers, and every user is told the first. A handset screens its own calls and
+    needs nothing forwarded, and a deployment with no transport takes no calls at all.
+    """
+    if settings.telephony_provider is TelephonyProviderName.TWILIO:
+        return CallForwarding(settings.require_streaming_telephony().numbers[0])
+    return None
+
+
+def build_notification_providers(
+    settings: Settings, *, clock: Clock
+) -> tuple[NotificationProvider, ...]:
+    """A provider for each platform the deployment has credentials for.
+
+    A platform is built when any of its variables is set, and then every one is required: a
+    half-configured platform stops the process naming what is missing rather than starting and
+    silently never delivering. Credentials are parsed here, so an unreadable key fails at startup
+    too — with a message that names the variable and never repeats the key.
+    """
+    providers: list[NotificationProvider] = []
+    if settings.apns_configured:
+        apns = settings.require_apns()
+        try:
+            token = APNsProviderToken(
+                key_id=apns.key_id, team_id=apns.team_id, private_key=apns.private_key, clock=clock
+            )
+        except CredentialError as error:
+            raise ConfigurationError(
+                f"APNS_PRIVATE_KEY, APNS_KEY_ID or APNS_TEAM_ID: {error}"
+            ) from None
+        providers.append(
+            APNsNotificationProvider(
+                token=token,
+                topic=apns.topic,
+                environment=_APNS_ENVIRONMENTS[apns.environment],
+                clock=clock,
+            )
+        )
+    if settings.fcm_configured:
+        credentials = settings.require_fcm()
+        try:
+            account = ServiceAccount.parse(credentials.service_account_json)
+        except CredentialError as error:
+            raise ConfigurationError(f"FCM_SERVICE_ACCOUNT_JSON: {error}") from None
+        client = fcm.build_client(timeout=fcm.DEFAULT_REQUEST_TIMEOUT)
+        providers.append(
+            fcm.FCMNotificationProvider(
+                project_id=credentials.project_id,
+                tokens=AccessTokenSource(account, client=client, clock=clock),
+                client=client,
+            )
+        )
+    return tuple(providers)
+
+
+_APNS_ENVIRONMENTS: Final = {
+    APNsEnvironmentName.SANDBOX: APNsEnvironment.SANDBOX,
+    APNsEnvironmentName.PRODUCTION: APNsEnvironment.PRODUCTION,
+}
+
+
+def build_escalation_dispatcher(
+    container: Container,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    metrics: MetricsRecorder,
+) -> EscalationDispatcher:
+    """The dispatcher, storing through its own short units of work.
+
+    This is the object the call orchestration asks to notify a user. It opens a unit of work to
+    claim the context and read devices, closes it, sends, and opens another to record the result,
+    so no transaction is held open across a push.
+
+    What the user is told about an escalation is sealed like the call it is about, so the
+    transcript keys are required, as they are to carry calls at all.
+    """
+    clock = container.clock
+    cipher = _sealing(container, "escalate: what the user is told about a call is sealed")
+
+    @asynccontextmanager
+    async def stores() -> AsyncIterator[EscalationStores]:
+        async with unit_of_work(session_factory) as session:
+            yield EscalationStores(
+                devices=SqlDeviceRepository(session, clock),
+                contexts=SqlEscalationContextRepository(session, cipher),
+            )
+
+    return EscalationDispatcher(providers=container.notifications, stores=stores, metrics=metrics)
+
+
+def _sealing(container: Container, needed_to: str) -> TranscriptCipher:
+    """The transcript cipher, or a failure naming the keys and what they are needed for."""
+    cipher = container.transcript_cipher
+    if cipher is None:
+        raise ConfigurationError(f"TRANSCRIPT_ENCRYPTION_KEYS is required to {needed_to}.")
+    return cipher
+
+
+@runtime_checkable
+class _Closable(Protocol):
+    async def aclose(self) -> None:
+        """Release what it holds."""
+
+
+async def close_notification_providers(container: Container) -> None:
+    """Close each provider's connection. Called once, as the application stops."""
+    for provider in container.notifications:
+        if isinstance(provider, _Closable):
+            await provider.aclose()
 
 
 def build_voice_provider(settings: Settings) -> VoiceProvider:
@@ -198,17 +377,24 @@ def build_speech_provider(
             assert_never(unknown)
 
 
+# How a user is found by the number they signed in with, for a transport that needs to.
+type FindUser = Callable[[PhoneNumber], Awaitable[UserId | None]]
+
+
 @dataclass(frozen=True, slots=True)
 class CallTransportBinding:
-    """A call transport, the routes its provider calls, and how to release it.
+    """A call transport, its provider's routes, how to release it, and whose calls are whose.
 
-    Handed to the application as one value so that what mounts the routes and what closes the
-    transport never have to know which transport it is.
+    Handed to the application as one value so that what mounts the routes, what closes the
+    transport and what orchestrates its calls never have to know which transport it is.
+    `ownership` is given how to find a user by number, which needs storage the binding is chosen
+    before.
     """
 
     transport: CallTransport
     router: APIRouter
     close: Callable[[], Awaitable[None]]
+    ownership: Callable[[FindUser], CallOwnership]
 
 
 def build_reported_calls() -> AndroidNativeCallTransport:
@@ -244,7 +430,10 @@ def build_call_transport(
             # whichever transport is chosen, so this transport brings no routes of its own and
             # holds nothing that needs releasing.
             return CallTransportBinding(
-                transport=reported_calls, router=APIRouter(), close=_nothing_to_close
+                transport=reported_calls,
+                router=APIRouter(),
+                close=_nothing_to_close,
+                ownership=_reported_ownership,
             )
         case TelephonyProviderName.TWILIO:
             telephony = settings.require_streaming_telephony()
@@ -268,6 +457,7 @@ def build_call_transport(
                 transport=transport,
                 router=build_twilio_router(transport),
                 close=transport.close,
+                ownership=partial(ForwardedCallOwnership, transport),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
             assert_never(unknown)
@@ -277,32 +467,125 @@ async def _nothing_to_close() -> None:
     return None
 
 
-def build_call_agent(settings: Settings, *, actions: CallActions) -> CallAgent:
+def _reported_ownership(_find_user: FindUser) -> CallOwnership:
+    # A handset's report names its account already; nobody needs finding by number.
+    return ReportedCallOwnership()
+
+
+def build_call_orchestrator(
+    settings: Settings,
+    *,
+    container: Container,
+    session_factory: async_sessionmaker[AsyncSession],
+    telephony: CallTransportBinding,
+    dispatcher: EscalationDispatcher,
+    metrics: MetricsRecorder,
+    assistant: AssistantServices | None = None,
+    summariser: CallSummariser | None = None,
+) -> CallOrchestrator:
+    """The orchestrator for this deployment's transport, storing through short units of work.
+
+    Every write is its own unit of work, so a call holds no transaction open while it rings. Calls
+    are recorded with who called sealed, so the transcript keys are required. The speech service
+    and the agent are built only for a transport the assistant can take calls on; `assistant` lets
+    a caller supply them instead, the way `build_call_transport` takes a simulated provider.
+
+    Calls the assistant took are summarised by a model when one is configured, and `summariser`
+    stands in for it the same way; with neither, every call is summarised from its facts.
+    """
+    clock = container.clock
+    cipher = _sealing(container, "carry calls: every call is recorded, sealed")
+
+    @asynccontextmanager
+    async def stores() -> AsyncIterator[CallStores]:
+        async with unit_of_work(session_factory) as session:
+            yield CallStores(
+                users=SqlUserRepository(session, clock),
+                preferences=SqlPreferencesRepository(session, clock),
+                calls=SqlCallRepository(session, cipher, clock),
+                transcripts=SqlTranscriptRepository(session, cipher),
+                summaries=SqlSummaryRepository(session, cipher, clock),
+            )
+
+    async def find_user(number: PhoneNumber) -> UserId | None:
+        async with unit_of_work(session_factory) as session:
+            user = await SqlUserRepository(session, clock).find_by_number(number)
+        return None if user is None else user.id
+
+    capabilities = telephony.transport.capabilities
+    takes_calls = (
+        capabilities.supports_agent_conversation and capabilities.can_answer_under_program_control
+    )
+    if assistant is None and takes_calls:
+        assistant = AssistantServices(
+            speech=build_speech_provider(settings, metrics=metrics),
+            voices=container.voices,
+            judging=lambda actions: build_call_judging(settings, actions=actions),
+        )
+    # One set of bounds, so the summariser gives up on a model when teardown would give up on it.
+    bounds = Bounds()
+    if summariser is None and settings.llm_configured:
+        summariser = build_call_summariser(settings, timeout=bounds.summary)
+    return CallOrchestrator(
+        transport=telephony.transport,
+        ownership=telephony.ownership(find_user),
+        stores=stores,
+        dispatcher=dispatcher,
+        clock=clock,
+        metrics=metrics,
+        assistant=assistant,
+        summariser=summariser,
+        bounds=bounds,
+    )
+
+
+def build_call_judging(settings: Settings, *, actions: CallActions) -> CallJudging:
     """The agent that judges calls, on the model this deployment is configured with.
 
     The call's actions are handed in rather than built here, because only orchestration holds a
     call. What is chosen here is the framework and the model.
     """
     endpoint = settings.require_llm()
-    return call_agent_on(
+    return call_judging_on(
         openai_compatible_model(endpoint),
         actions=actions,
         timeout=timedelta(seconds=endpoint.timeout_seconds),
     )
 
 
-def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallAgent:
+def call_judging_on(model: Model, *, actions: CallActions, timeout: timedelta) -> CallJudging:
     """The agent on `model`, with its tools and the conclusion that acts on what they asked for.
 
     Built once, here, so every judgement on a call goes through one escalation service and one
-    memory of whether the user was reached. Tests reach the same wiring with a scripted model.
+    memory of whether the user was reached — and so the one thing that may release that memory,
+    the service's `forget`, is handed to orchestration beside the agent rather than dug out of it.
+    Tests reach the same wiring with a scripted model.
     """
-    return StrandsCallAgent(
-        model,
-        tools=tools_for_judgements(actions),
-        conclusion=JudgementConclusion(actions, EscalationService(actions)),
-        timeout=timeout,
+    escalation = EscalationService(actions)
+    return CallJudging(
+        agent=StrandsCallAgent(
+            model,
+            tools=tools_for_judgements(actions),
+            conclusion=JudgementConclusion(actions, escalation),
+            timeout=timeout,
+        ),
+        forget=escalation.forget,
     )
+
+
+def build_call_summariser(settings: Settings, *, timeout: timedelta) -> CallSummariser:
+    """What writes a call's summary when it ends, on the same model the agent judges with.
+
+    Bounded by `timeout`, which is teardown's own bound on a summary: nobody is waiting on the line
+    by then, but a teardown that waits minutes for a summary is a call whose history appears
+    minutes late, and a summariser given longer than teardown waits would be abandoned mid-draft.
+    """
+    return call_summariser_on(openai_compatible_model(settings.require_llm()), timeout=timeout)
+
+
+def call_summariser_on(model: Model, *, timeout: timedelta) -> CallSummariser:
+    """The summariser on `model`. Tests reach the same wiring with a scripted model."""
+    return ModelCallSummariser(StrandsSummaryDrafter(model), timeout=timeout)
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:

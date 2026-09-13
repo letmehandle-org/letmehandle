@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -53,6 +55,37 @@ class SpeechProviderName(StrEnum):
 
     REALTIME = "realtime"
     ELEVENLABS = "elevenlabs"
+
+
+class APNsEnvironmentName(StrEnum):
+    """Which of Apple's push servers a deployment talks to.
+
+    No default. A device token belongs to one environment and is `BadDeviceToken` to the other,
+    and that response removes the token — so a production deployment left pointing at the sandbox
+    would quietly delete every user's device. It is safer to refuse to guess.
+    """
+
+    SANDBOX = "sandbox"
+    PRODUCTION = "production"
+
+
+@dataclass(frozen=True, slots=True)
+class APNsCredentials:
+    """Everything direct delivery to iOS needs, once it is known to be complete."""
+
+    key_id: str
+    team_id: str
+    private_key: str
+    topic: str
+    environment: APNsEnvironmentName
+
+
+@dataclass(frozen=True, slots=True)
+class FCMCredentials:
+    """Everything direct delivery to Android needs, once it is known to be complete."""
+
+    project_id: str
+    service_account_json: str
 
 
 class TelephonyProviderName(StrEnum):
@@ -121,6 +154,54 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
         # than an invariant somebody has to trace back to a line in an environment file.
         raise ValueError(f"SPEECH_VOICES lists the same id more than once: {repeated}")
     return tuple(voices)
+
+
+# How TRANSCRIPT_ENCRYPTION_KEYS is written, quoted in every error about it.
+TRANSCRIPT_KEYS_FORMAT: Final = "newest-id:base64-key,older-id:base64-key"
+TRANSCRIPT_KEY_BYTES: Final = 32
+_KEY_ID: Final = re.compile(r"[a-z0-9][a-z0-9_-]{0,15}")
+
+
+def parse_transcript_keys(text: str) -> tuple[tuple[str, bytes], ...]:
+    """The transcript keys, newest first, each as its id and its 32 bytes.
+
+    Every error names the entry by position and never repeats what it contains: an entry that
+    fails to parse is most often a key pasted without its id, and an error message is copied
+    into chat, tickets and logs far more readily than an environment file is.
+    """
+    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
+    if not entries:
+        raise ValueError(
+            f"TRANSCRIPT_ENCRYPTION_KEYS lists no keys; expected {TRANSCRIPT_KEYS_FORMAT!r}"
+        )
+    keys: list[tuple[str, bytes]] = []
+    for position, entry in enumerate(entries, start=1):
+        key_id, separator, encoded = (part.strip() for part in entry.partition(":"))
+        if not separator or not _KEY_ID.fullmatch(key_id):
+            raise ValueError(
+                f"TRANSCRIPT_ENCRYPTION_KEYS entry {position} is not in the form "
+                f"{TRANSCRIPT_KEYS_FORMAT!r}; an id is 1-16 lower-case letters, digits, - or _"
+            )
+        try:
+            # Strict: lenient decoding drops characters it does not recognise, so a key damaged
+            # in pasting could still come out as thirty-two bytes — just not the ones that
+            # sealed anything, which would surface as every transcript failing to open.
+            key = base64.b64decode(encoded.replace("-", "+").replace("_", "/"), validate=True)
+        except (binascii.Error, ValueError):
+            key = b""
+        if len(key) != TRANSCRIPT_KEY_BYTES:
+            raise ValueError(
+                f"TRANSCRIPT_ENCRYPTION_KEYS entry {position} ({key_id!r}) is not "
+                f"{TRANSCRIPT_KEY_BYTES} bytes of base64. Generate one with "
+                '`python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32))'
+                '.decode())"`'
+            )
+        keys.append((key_id, key))
+    ids = [key_id for key_id, _ in keys]
+    repeated = sorted({key_id for key_id in ids if ids.count(key_id) > 1})
+    if repeated:
+        raise ValueError(f"TRANSCRIPT_ENCRYPTION_KEYS uses the same id more than once: {repeated}")
+    return tuple(keys)
 
 
 def _catalogue_from_text(value: object) -> object:
@@ -227,6 +308,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
+        # A validation error otherwise quotes the value it refused, and a value here can be a
+        # signing key or an encryption key. The variable's name is what anybody needs to fix it;
+        # the message is copied into logs, tickets and chat far more readily than a .env file.
+        hide_input_in_errors=True,
     )
 
     app_env: Environment = Environment.DEVELOPMENT
@@ -274,6 +359,15 @@ class Settings(BaseSettings):
     ] = None
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
+    # The keys transcripts are encrypted under, newest first (D-014). Optional at startup, like
+    # the database URL: call history cannot be read without them and answers 503 instead, while
+    # a migration or the purge, which never read a sealed record, must not need them. Checked
+    # for shape whenever present, so a truncated key fails at startup rather than on the first
+    # call.
+    transcript_encryption_keys: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = (
+        None
+    )
+
     # Telephony. All optional at startup, like the speech service. The provider chooses the call
     # transport; the rest is the streaming transport's account, which a deployment without one
     # needs none of, and one with it is refused by what builds the transport, naming every
@@ -320,6 +414,23 @@ class Settings(BaseSettings):
         BeforeValidator(_headers_from_text),
     ] = ()
     llm_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    # Push notifications for escalations (D-015). Each platform is optional and independent: a
+    # deployment with neither still escalates, because the phone ringing is the escalation (D-016)
+    # and the app fetches the context when no push arrives. Setting any variable of a platform
+    # commits to that platform, and a missing companion stops the process naming it.
+    #
+    # Keys are given as their content rather than a path. A secret store or a container runtime
+    # injects a value, not a file; a path would need a mounted volume as well as a variable, and a
+    # second place for the secret to be left behind.
+    apns_key_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_team_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_private_key: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    apns_topic: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    apns_environment: Annotated[APNsEnvironmentName | None, BeforeValidator(_blank_is_absent)] = (
+        None
+    )
+    fcm_project_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    fcm_service_account_json: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
 
     @field_validator("log_level")
     @classmethod
@@ -366,6 +477,19 @@ class Settings(BaseSettings):
                 "listed in SPEECH_VOICES"
             )
         return self
+
+    @field_validator("transcript_encryption_keys", mode="after")
+    @classmethod
+    def _transcript_keys_are_well_formed(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the keys' shape once they are already a `SecretStr`.
+
+        A field validator after the secret is wrapped, rather than a model validator: an error
+        raised from the model sees the whole raw input, and an error that carries its input
+        carries every key in it.
+        """
+        if value is not None:
+            parse_transcript_keys(value.get_secret_value())
+        return value
 
     @property
     def is_production(self) -> bool:
@@ -418,14 +542,41 @@ class Settings(BaseSettings):
             )
         return str(endpoint), value
 
+    def require_transcript_keys(self) -> tuple[tuple[str, bytes], ...]:
+        """The transcript keys, newest first, or a failure naming the variable to set."""
+        if self.transcript_encryption_keys is None:
+            raise ConfigurationError(
+                "TRANSCRIPT_ENCRYPTION_KEYS is required to store or read transcripts. "
+                f"Set it in .env as {TRANSCRIPT_KEYS_FORMAT!r}; see .env.example."
+            )
+        return parse_transcript_keys(self.transcript_encryption_keys.get_secret_value())
+
     def require_telephony_configuration(self) -> None:
         """Refuse a chosen call transport that is missing what it needs, before anything starts.
 
         Only the streaming transport needs an account. A handset transport is configured on the
-        handset, and no transport at all needs nothing.
+        handset, and no transport at all needs nothing. Either transport needs storage and the
+        transcript keys: calls are owned, recorded and sealed by an orchestrator that is built
+        only with them, and a transport with no orchestrator answers callers into a call that
+        nothing will ever act on.
         """
+        if self.telephony_provider is None:
+            return
         if self.telephony_provider is TelephonyProviderName.TWILIO:
             self.require_streaming_telephony()
+        missing = [
+            name
+            for name, value in (
+                ("DATABASE_URL", self.database_url),
+                ("TRANSCRIPT_ENCRYPTION_KEYS", self.transcript_encryption_keys),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to carry calls. "
+                "Set them in .env; see .env.example."
+            )
 
     def require_streaming_telephony(self) -> StreamingTelephony:
         """What a streaming call transport needs, or a failure naming every variable missing."""
@@ -492,6 +643,83 @@ class Settings(BaseSettings):
             api_key=api_key.get_secret_value(),
             headers={name: value.get_secret_value() for name, value in self.llm_headers},
             timeout_seconds=self.llm_timeout_seconds,
+        )
+
+    @property
+    def llm_configured(self) -> bool:
+        """Whether any model variable is set, which commits the deployment to all of them."""
+        return any(
+            value is not None for value in (self.llm_base_url, self.llm_api_key, self.llm_model)
+        )
+
+    @property
+    def apns_configured(self) -> bool:
+        """Whether any APNs variable is set, which commits the deployment to all of them."""
+        return any(
+            value is not None
+            for value in (
+                self.apns_key_id,
+                self.apns_team_id,
+                self.apns_private_key,
+                self.apns_topic,
+                self.apns_environment,
+            )
+        )
+
+    @property
+    def fcm_configured(self) -> bool:
+        """Whether any FCM variable is set, which commits the deployment to both."""
+        return self.fcm_project_id is not None or self.fcm_service_account_json is not None
+
+    def require_apns(self) -> APNsCredentials:
+        """Direct delivery to iOS, or a failure naming every variable still missing."""
+        key = self.apns_private_key
+        named = (
+            ("APNS_KEY_ID", self.apns_key_id),
+            ("APNS_TEAM_ID", self.apns_team_id),
+            ("APNS_PRIVATE_KEY", key),
+            ("APNS_TOPIC", self.apns_topic),
+            ("APNS_ENVIRONMENT", self.apns_environment),
+        )
+        missing = [name for name, value in named if value is None]
+        if (
+            missing
+            or self.apns_key_id is None
+            or self.apns_team_id is None
+            or key is None
+            or self.apns_topic is None
+            or self.apns_environment is None
+        ):
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to deliver notifications to iOS devices. "
+                "Set every APNS_ variable or none; see .env.example."
+            )
+        return APNsCredentials(
+            key_id=self.apns_key_id,
+            team_id=self.apns_team_id,
+            private_key=key.get_secret_value(),
+            topic=self.apns_topic,
+            environment=self.apns_environment,
+        )
+
+    def require_fcm(self) -> FCMCredentials:
+        """Direct delivery to Android, or a failure naming whichever variable is missing."""
+        account = self.fcm_service_account_json
+        if self.fcm_project_id is None or account is None:
+            missing = [
+                name
+                for name, value in (
+                    ("FCM_PROJECT_ID", self.fcm_project_id),
+                    ("FCM_SERVICE_ACCOUNT_JSON", account),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{' and '.join(missing)} must be set to deliver notifications to Android "
+                "devices. Set both or neither; see .env.example."
+            )
+        return FCMCredentials(
+            project_id=self.fcm_project_id, service_account_json=account.get_secret_value()
         )
 
     def require_database_url(self) -> str:

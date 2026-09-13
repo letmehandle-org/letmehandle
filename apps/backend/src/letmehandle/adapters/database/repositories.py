@@ -108,6 +108,11 @@ class SqlUserRepository(UserRepository):
             )
         )
 
+    async def delete(self, user_id: UserId) -> None:
+        # One statement: everything else stored for the account references the user row and goes
+        # with it, which the schema's cascades say once rather than a list here saying again.
+        await self._session.execute(delete(UserRow).where(UserRow.id == user_id.value))
+
     def _to_user(self, row: UserRow) -> User:
         # Only the preferences this phase stores. The rest of `UserPreferences` arrives in
         # phase 3 with its own tables; defaulting them here keeps the domain type whole
@@ -139,7 +144,10 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         await self._session.flush()
 
     async def get(self, challenge_id: str) -> OTPChallenge | None:
-        row = await self._session.get(OTPChallengeRow, challenge_id)
+        # Locked, because the attempt count is read, checked and written back. Two guesses that
+        # both read it before either writes it back are counted as one, and a burst of them
+        # makes the attempt limit no limit at all.
+        row = await self._session.get(OTPChallengeRow, challenge_id, with_for_update=True)
         if row is None:
             return None
         return OTPChallenge(
@@ -177,6 +185,11 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
         )
         return _affected(result)
 
+    async def delete_for_number(self, number: PhoneNumber) -> None:
+        await self._session.execute(
+            delete(OTPChallengeRow).where(OTPChallengeRow.phone_number == number.value)
+        )
+
 
 class SqlRefreshTokenRepository(RefreshTokenRepository):
     def __init__(self, session: AsyncSession) -> None:
@@ -198,8 +211,13 @@ class SqlRefreshTokenRepository(RefreshTokenRepository):
         await self._session.flush()
 
     async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
+        # Locked, because whether the token was already used is read and then acted on. Two
+        # exchanges that both read it before either rotates it would both succeed, and reuse
+        # detection would miss a replay that arrives at the same moment as the real use.
         result = await self._session.execute(
-            select(RefreshTokenRow).where(RefreshTokenRow.token_hash == token_hash)
+            select(RefreshTokenRow)
+            .where(RefreshTokenRow.token_hash == token_hash)
+            .with_for_update()
         )
         row = result.scalar_one_or_none()
         if row is None:
@@ -337,22 +355,24 @@ class SqlDeviceRepository(DeviceRepository):
         self._clock = clock
 
     async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # Removed from wherever it was first. A handset changes hands, and two accounts sharing
-        # a token would send one person's call context to the other's phone.
+        # One statement that moves the token to this account if another holds it. A handset
+        # changes hands, and two accounts sharing a token would send one person's call context to
+        # the other's phone. Not a delete and then an insert: an app registers on every launch,
+        # and two launches racing through a delete-then-insert both insert, and one fails on the
+        # unique constraint.
+        now = self._clock.now()
+        statement = insert(DeviceRow).values(
+            user_id=user_id.value,
+            platform=token.platform.value,
+            token=token.value,
+            registered_at=now,
+        )
         await self._session.execute(
-            delete(DeviceRow).where(
-                DeviceRow.platform == token.platform.value, DeviceRow.token == token.value
+            statement.on_conflict_do_update(
+                constraint="uq_user_devices_platform_token",
+                set_={"user_id": user_id.value, "registered_at": now},
             )
         )
-        self._session.add(
-            DeviceRow(
-                user_id=user_id.value,
-                platform=token.platform.value,
-                token=token.value,
-                registered_at=self._clock.now(),
-            )
-        )
-        await self._session.flush()
 
     async def tokens_for(self, user_id: UserId) -> list[DeviceToken]:
         result = await self._session.execute(
@@ -392,7 +412,6 @@ class SqlCallReportRepository(CallReportRepository):
                 kind=report.kind.value,
                 screening=None if report.screening is None else report.screening.value,
                 ending=None if report.ending is None else report.ending.value,
-                caller_number=None if report.caller_number is None else report.caller_number.value,
                 occurred_at=report.occurred_at,
                 received_at=self._clock.now(),
             )
