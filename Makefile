@@ -6,8 +6,8 @@ SHELL := /usr/bin/env bash
 
 BACKEND := apps/backend
 MOBILE  := apps/mobile
-TYPED_SCRIPTS := agent_evaluation comment_audit dependency_audit generate_config_reference \
-	licence_report live_rehearsal summary_evaluation
+TYPED_SCRIPTS := agent_evaluation comment_audit dependency_audit evaluation_runs \
+	generate_config_reference licence_report live_rehearsal summary_evaluation
 
 define CHECK_DATABASE
 import asyncio, os, sys
