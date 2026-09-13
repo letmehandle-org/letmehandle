@@ -15,6 +15,7 @@ from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
 from letmehandle.application.orchestration.run import CallIsOverError
 from letmehandle.application.orchestration.summary import MESSAGE_LABEL
 from letmehandle.domain.errors import ProviderError
+from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFrame
 from letmehandle.domain.models.authority import AgentAuthority, Capability
 from letmehandle.domain.models.call import CallHandling, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
@@ -38,7 +39,12 @@ from letmehandle.domain.models.summary import CallOutcome
 from letmehandle.domain.policy.escalation import EscalationProposal
 from letmehandle.domain.ports.call_transport import ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
-from letmehandle.domain.ports.speech import SessionFailed, SpeechEnded, TranscriptProduced
+from letmehandle.domain.ports.speech import (
+    AudioProduced,
+    SessionFailed,
+    SpeechEnded,
+    TranscriptProduced,
+)
 from tests.support.orchestration import (
     OWNERS_NUMBER,
     QUICK,
@@ -283,6 +289,58 @@ class TestTheAssistantHandlesACall:
             assert summary.outcome is CallOutcome.RESOLVED_BY_AGENT
             assert summary.headline == "Took a message about the parcel."
             assert summary.detail(MESSAGE_LABEL) is not None
+            assert line.asked("terminate", CALL) == 1
+
+    async def test_the_agent_ending_the_call_lets_the_assistant_finish_its_goodbye(self) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        async with orchestrating(line, looks=looks) as running:
+            await with_the_assistant(running)
+            await running.caller_says("That's all, thank you.")
+            await eventually(lambda: running.judgements == 1)
+            speaker = line.speakers[CallId(CALL)]
+            speaker.hold()
+            session = await running.session()
+            await session.emit(AudioProduced(AudioFrame(b"\x00\x10" * 320, SPEECH_WIDEBAND)))
+            await session.emit(
+                TranscriptProduced("Thank you, goodbye.", speaker_is_caller=False, is_final=True)
+            )
+            await eventually(lambda: speaker.playing)
+            judged.set()
+            # Asked to end while the goodbye is still playing: the caller hears it out.
+            await asyncio.sleep(QUICK.goodbye.total_seconds() / 5)
+            assert line.asked("terminate", CALL) == 0
+
+            speaker.release()
+            call = await running.ended(CALL)
+
+            assert call.state is CallState.COMPLETED
+            assert line.asked("terminate", CALL) == 1
+            said = running.stores.transcripts.lines[CallId(CALL)]
+            assert [(each.speaker, each.text) for each in said][-1] == (
+                Speaker.AGENT,
+                "Thank you, goodbye.",
+            )
+
+    async def test_a_goodbye_that_never_ends_does_not_hold_the_call(self) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        async with orchestrating(line, looks=looks) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Bye.")
+            await eventually(lambda: running.judgements == 1)
+            speaker = line.speakers[CallId(CALL)]
+            speaker.hold()
+            session = await running.session()
+            await session.emit(AudioProduced(AudioFrame(b"\x00\x10" * 320, SPEECH_WIDEBAND)))
+            await eventually(lambda: speaker.playing)
+            judged.set()
+
+            call = await running.ended(CALL)
+
+            assert call.state is CallState.COMPLETED
             assert line.asked("terminate", CALL) == 1
 
     async def test_the_agent_ending_the_call_keeps_what_it_assessed_the_call_to_be(self) -> None:

@@ -110,12 +110,14 @@ class Bounds:
     `ring` is how long the user's phone rings before the assistant takes the call back. `judgement`
     bounds one look at the call by the agent, `speech_open` the speech service opening, `provider`
     one request to the transport, and `storage` one unit of work. `speaker_gone` is how long a
-    conversation whose audio stopped waits for the transport to say the call ended. `summary` is how
-    long teardown waits for a summary to be written before writing the facts' own; it is shorter
-    than `shutdown`, which is how long stopping waits for every call to be torn down. `duration` is
-    how long a call may last at all: a transport whose report of a call ending is lost, as a
-    handset's is when the app is killed or offline, would otherwise leave the call held for as long
-    as the process runs.
+    conversation whose audio stopped waits for the transport to say the call ended. `goodbye` is
+    how long a call the agent ended waits for the assistant to finish speaking before it is hung
+    up, and `goodbye_pause` how long the assistant must have been quiet to count as finished.
+    `summary` is how long teardown waits for a summary to be written before writing the facts' own;
+    it is shorter than `shutdown`, which is how long stopping waits for every call to be torn down.
+    `duration` is how long a call may last at all: a transport whose report of a call ending is
+    lost, as a handset's is when the app is killed or offline, would otherwise leave the call held
+    for as long as the process runs.
     """
 
     ring: timedelta = timedelta(seconds=30)
@@ -124,6 +126,8 @@ class Bounds:
     provider: timedelta = timedelta(seconds=10)
     storage: timedelta = timedelta(seconds=5)
     speaker_gone: timedelta = timedelta(seconds=5)
+    goodbye: timedelta = timedelta(seconds=10)
+    goodbye_pause: timedelta = timedelta(seconds=1)
     summary: timedelta = timedelta(seconds=10)
     shutdown: timedelta = timedelta(seconds=15)
     duration: timedelta = timedelta(hours=4)

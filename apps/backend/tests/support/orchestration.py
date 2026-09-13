@@ -119,6 +119,8 @@ QUICK: Final = Bounds(
     provider=timedelta(seconds=0.3),
     storage=timedelta(seconds=0.3),
     speaker_gone=timedelta(seconds=0.2),
+    goodbye=timedelta(seconds=0.5),
+    goodbye_pause=timedelta(seconds=0.05),
     summary=timedelta(seconds=0.3),
     shutdown=timedelta(seconds=1),
 )
@@ -357,16 +359,29 @@ class CallAudio(AudioSource):
 
 
 class CallSpeaker(AudioSink):
-    """Where the assistant's voice goes: nowhere, counted."""
+    """Where the assistant's voice goes: nowhere, counted, and as slowly as a test holds it."""
 
     def __init__(self) -> None:
         self.written = 0
+        self.playing = False
+        self._played = asyncio.Event()
+        self._played.set()
 
     @property
     def format(self) -> AudioFormat:
         return SPEECH_WIDEBAND
 
+    def hold(self) -> None:
+        """Keep every frame playing until `release`, as a long reply plays out on a line."""
+        self._played.clear()
+
+    def release(self) -> None:
+        self._played.set()
+
     async def write(self, frame: AudioFrame) -> None:
+        self.playing = True
+        await self._played.wait()
+        self.playing = False
         self.written += 1
 
     async def discard(self) -> None:

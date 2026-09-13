@@ -8,6 +8,7 @@ safe at any point and more than once, and releases the task and the session befo
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
@@ -95,6 +96,7 @@ class Speaking:
         self._metrics = metrics
         self._session: tuple[SpeechSession, UserPreferences] | None = None
         self._task: asyncio.Task[None] | None = None
+        self._conversation: Conversation | None = None
 
     @property
     def is_speaking(self) -> bool:
@@ -123,7 +125,19 @@ class Speaking:
             metrics=self._metrics,
             clock=self._clock,
         )
+        self._conversation = conversation
         self._task = asyncio.get_running_loop().create_task(self._converse(conversation))
+
+    async def finish_speaking(self, bound: timedelta, pause: timedelta) -> None:
+        """Let the caller hear the assistant out: quiet for `pause`, waited for at most `bound`."""
+        conversation = self._conversation
+        if conversation is None or not self.is_speaking:
+            return
+        # A reply that runs past the bound is cut off: the call was asked to end, and an assistant
+        # that never stops talking must not keep it open.
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(bound.total_seconds()):
+                await conversation.quiet(pause.total_seconds())
 
     async def tell(self, situation: Situation, bound: timedelta) -> None:
         """Tell a running assistant what has changed. A failure to is logged, not raised."""
@@ -140,6 +154,7 @@ class Speaking:
     async def stop(self) -> None:
         """End the conversation and close the session. Safe to call again, and never raises."""
         task, self._task = self._task, None
+        self._conversation = None
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
