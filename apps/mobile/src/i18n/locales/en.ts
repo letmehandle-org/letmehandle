@@ -334,7 +334,7 @@ export const en = {
     what:
       'With the call screening role, Android asks LetMeHandle about each incoming call from a ' +
       'number that is not in your contacts, before the phone rings. It applies your rules on the ' +
-      'phone itself: it lets the call ring, rings silently during your quiet hours, or refuses it.',
+      'phone itself: it lets the call ring, or refuses it.',
     whatNot:
       'It never hears a call, never answers one, and cannot hand one to your assistant. Calls ' +
       'you asked the assistant to handle ring as normal on this phone. Android does not show it ' +
