@@ -8,6 +8,10 @@ prompts' `as_data` so no caller can speak a closing delimiter.
 
 The phrases a headline may name its ending with are rendered from the same vocabulary the checks
 read, so the model is asked for exactly what will be accepted.
+
+From v3 a version may also say how to ask for a draft again once the checks refused one. It is sent
+as a message after the call's, with the refused draft as data and the problems by name, and the
+template explains every name: the checks' own words for why, never anything the call contained.
 """
 
 from __future__ import annotations
@@ -26,14 +30,15 @@ from letmehandle.domain.errors import InvariantError
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
 
-    from letmehandle.application.calls.summary_draft import SummaryRequest
+    from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
-SUMMARY_PROMPT_VERSION: Final = "v2"
+SUMMARY_PROMPT_VERSION: Final = "v3"
 
 _PLACEHOLDERS: Final = {
     "instructions.md": frozenset({"answer_tool"}),
     "call.md": frozenset({"call", "transcript"}),
     "answer.md": frozenset({"answer_tool"}),
+    "correction.md": frozenset({"answer_tool", "draft", "problems"}),
 }
 
 
@@ -46,6 +51,7 @@ class SummaryPrompts:
     instructions: Template
     call: Template
     answer: Template
+    correction: Template | None
 
     def instructions_prompt(self, *, answer_tool: str) -> str:
         """The instructions, which carry nothing from any call."""
@@ -78,6 +84,32 @@ class SummaryPrompts:
         """What the model is told when it stops without writing the summary."""
         return self.answer.substitute(answer_tool=answer_tool)
 
+    def correction_message(self, correction: DraftCorrection, *, answer_tool: str) -> str:
+        """What the model is told after the call when the checks refused its draft.
+
+        The draft is the model's own, but made of words from the call, so it is delimited as data
+        the same way the transcript is.
+        """
+        if self.correction is None:
+            raise InvariantError(
+                f"version {self.version!r} of the summary prompts cannot ask for a correction"
+            )
+        refused = correction.refused
+        draft = {
+            "headline": refused.headline,
+            "intent": refused.intent.value,
+            "outcome": refused.outcome.value,
+            "details": [
+                {"kind": each.kind.value, "value": each.value, "evidence": each.evidence}
+                for each in refused.details
+            ],
+        }
+        return self.correction.substitute(
+            answer_tool=answer_tool,
+            draft=as_data(draft),
+            problems=as_data([problem.value for problem in correction.problems]),
+        )
+
 
 @lru_cache(maxsize=16)
 def load_summary_prompts(locale: str, version: str = SUMMARY_PROMPT_VERSION) -> SummaryPrompts:
@@ -100,8 +132,14 @@ def read_summary_prompts(templates: Traversable, locale: str, version: str) -> S
                 instructions=_template(directory, "instructions.md"),
                 call=_template(directory, "call.md"),
                 answer=_template(directory, "answer.md"),
+                correction=_optional_template(directory, "correction.md"),
             )
     raise InvariantError(f"version {version!r} of the summary prompts has no {DEFAULT_LOCALE} text")
+
+
+def _optional_template(directory: Traversable, name: str) -> Template | None:
+    # Optional only because the versions before v3 were written without it.
+    return _template(directory, name) if directory.joinpath(name).is_file() else None
 
 
 def _template(directory: Traversable, name: str) -> Template:
