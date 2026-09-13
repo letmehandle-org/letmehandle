@@ -407,25 +407,53 @@ class TestEscalation:
             await eventually(lambda: len(agent.judged) == 2)
             assert line.dialled == [OWNERS_NUMBER]
 
-    async def test_handing_over_to_a_user_on_the_way_leaves_the_call_standing(self) -> None:
+    async def test_handing_over_to_a_user_on_the_way_keeps_the_assistant_until_they_join(
+        self,
+    ) -> None:
         line = streaming()
         looks = [Look(proposal=WANTS_THE_USER, ending=CallEnding.HANDED_OVER)]
         async with orchestrating(line, looks=looks) as running:
             await ringing(running)
             session = await running.session()
-            await eventually(lambda: session.is_closed)
+            await eventually(lambda: '"being_reached"' in "".join(session.context_updates))
+            await running.caller_says("Are they coming?")
+            await eventually(lambda: running.judgements == 2)
+            # Still ringing, and the caller still has somebody to talk to.
             assert running.stores.call(CALL).state is CallState.HUMAN_RINGING
+            assert not session.is_closed
             line.user_answers(CALL)
             await running.settled(CALL, CallState.HUMAN_JOINED)
+            await eventually(lambda: session.is_closed)
             line.hangs_up(CALL)
-            await running.ended(CALL)
+            call = await running.ended(CALL)
+            assert call.state is CallState.COMPLETED
+
+    async def test_handing_over_once_the_user_has_joined_lets_the_assistant_go(self) -> None:
+        line = streaming()
+        released = asyncio.Event()
+        looks = [
+            Look(proposal=WANTS_THE_USER),
+            Look(proposal=WANTS_THE_USER, ending=CallEnding.HANDED_OVER, waits_for=released),
+        ]
+        async with orchestrating(line, looks=looks) as running:
+            await ringing(running)
+            await running.caller_says("I will wait.")
+            await eventually(lambda: running.judgements == 2)
+            line.user_answers(CALL)
+            await running.settled(CALL, CallState.HUMAN_JOINED)
+            session = await running.session()
+            assert not session.is_closed
+            # The look taken while the phone rang concludes with the user already on the call.
+            released.set()
+            await eventually(lambda: session.is_closed)
+            assert running.stores.call(CALL).state is CallState.HUMAN_JOINED
 
     async def test_with_the_assistant_gone_a_user_not_reached_ends_the_call(self) -> None:
         line = streaming()
-        looks = [Look(proposal=WANTS_THE_USER, ending=CallEnding.HANDED_OVER)]
-        async with orchestrating(line, looks=looks) as running:
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
             await ringing(running)
             session = await running.session()
+            await session.emit(SessionFailed("gone", retryable=True))
             await eventually(lambda: session.is_closed)
             line.user_unreachable(CALL, ParticipantOutcome.BUSY)
             call = await running.ended(CALL)

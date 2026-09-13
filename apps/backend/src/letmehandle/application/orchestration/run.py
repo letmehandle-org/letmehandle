@@ -103,10 +103,8 @@ _JUDGED_IN: Final = frozenset(
 
 _REQUESTS: Final = (EscalationRequested, EndingRequested, OutcomeRecorded, MessageTaken)
 
-# Where the user is coming or has come, so the call stands without the assistant.
-_USER_ON_THE_WAY: Final = frozenset(
-    {CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING, CallState.HUMAN_JOINED}
-)
+# Where the user is being reached, and may yet not be.
+_USER_BEING_REACHED: Final = frozenset({CallState.ESCALATION_REQUESTED, CallState.HUMAN_RINGING})
 
 
 class CallIsOverError(DomainError):
@@ -163,6 +161,8 @@ class CallRun:
         self._ring = _Timer(self.post)
         self._silence = _Timer(self.post)
         self._findings = Findings()
+        # The assistant handed the call over to a user not yet on it: its part ends when they join.
+        self._handed_over = False
         self._finished = False
         self._owner: UserId | None = None
 
@@ -341,7 +341,10 @@ class CallRun:
                 self._ring.cancel()
                 await ledger.move(CallState.HUMAN_JOINED)
                 await ledger.joined(ParticipantRole.HUMAN)
-                await self._tell(Situation(UserReach.ON_THE_CALL))
+                if self._handed_over:
+                    await self._speaking.stop()
+                else:
+                    await self._tell(Situation(UserReach.ON_THE_CALL))
             case CallState.PASSTHROUGH:
                 self._ring.cancel()
                 await ledger.joined(ParticipantRole.HUMAN)
@@ -449,10 +452,17 @@ class CallRun:
         await self._tell(Situation(UserReach.BEING_REACHED))
 
     async def _end_for_agent(self, live: _Live, ending: CallEnding) -> None:
-        if ending is CallEnding.HANDED_OVER and live.ledger.state in _USER_ON_THE_WAY:
-            # Handed over to a user who is coming or here: the assistant's part is done, and the
-            # call is not the assistant's to hang up on them.
+        handed_over = ending is CallEnding.HANDED_OVER
+        if handed_over and live.ledger.state is CallState.HUMAN_JOINED:
+            # Handed over to a user who is here: the assistant's part is done, and the call is not
+            # the assistant's to hang up on them.
             await self._speaking.stop()
+            return
+        if handed_over and live.ledger.state in _USER_BEING_REACHED:
+            # Handed over to a user still being reached. Until they answer, the assistant keeps the
+            # caller company, and takes the call back if they do not: stopping it now would leave
+            # the caller in silence, and the call ended by nobody's choice when the user is busy.
+            self._handed_over = True
             return
         await self._finish(live, CallState.COMPLETED)
 
@@ -484,6 +494,7 @@ class CallRun:
         `cancel` is the dial still ringing them, when it is this side that gave up on it.
         """
         self._ring.cancel()
+        self._handed_over = False
         if cancel is not None:
             await self._cancel_dial(live, cancel)
         if not self._speaking.is_speaking:
