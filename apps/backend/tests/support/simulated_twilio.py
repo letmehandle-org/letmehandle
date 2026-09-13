@@ -38,7 +38,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
 from letmehandle.adapters.transport.twilio.signature import SIGNATURE_HEADER, compute_signature
-from letmehandle.bootstrap import build_call_transport, build_reported_calls
+from letmehandle.bootstrap import build_call_transports, build_reported_calls
 from letmehandle.config.settings import TelephonyProviderName
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.main import create_app
@@ -829,18 +829,17 @@ async def simulated_deployment(
 
     provider = SimulatedTwilio(public_base_url=public_base_url)
     settings = telephony_settings(public_base_url)
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         settings,
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
         http_transport=provider.rest,
     )
-    assert binding is not None
     transport = binding.transport
     assert isinstance(transport, TwilioCallTransport)
     # The transport is handed to the application rather than configured on it: this deployment has
     # no storage, and whoever needs calls orchestrated builds the orchestrator on the transport.
-    app = create_app(make_settings(), telephony=binding)
+    app = create_app(make_settings(), telephony=[binding])
     events: list[CallEvent] = []
 
     async def collect() -> None:

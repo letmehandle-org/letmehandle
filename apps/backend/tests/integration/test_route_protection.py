@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 
 from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.api.dependencies import CurrentUser, get_authenticated_user
-from letmehandle.bootstrap import build_call_transport, build_reported_calls
+from letmehandle.bootstrap import build_call_transports, build_reported_calls
 from letmehandle.domain.ports.voice import VoiceSample
 from letmehandle.main import create_app
 from tests.support.config import EXAMPLE_DEFAULT_VOICE, EXAMPLE_VOICES, make_settings
@@ -44,7 +44,7 @@ OVERSIZED_BODY: Final = b"{" + b" " * (2 * 1024 * 1024) + b"}"
 
 def _application() -> FastAPI:
     """The application with every optional route present: telephony, and voice preview."""
-    binding = build_call_transport(
+    bindings = build_call_transports(
         telephony_settings(),
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
@@ -56,7 +56,7 @@ def _application() -> FastAPI:
     )
     # Handed the transport rather than configured with it: nothing here carries a call, so there
     # is no storage for the orchestrator a configured transport would refuse to start without.
-    return create_app(make_settings(), voices=voices, telephony=binding)
+    return create_app(make_settings(), voices=voices, telephony=bindings)
 
 
 def _routes(app: FastAPI) -> Iterator[tuple[str, str, APIRoute, bool]]:

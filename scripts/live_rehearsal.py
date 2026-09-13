@@ -52,7 +52,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from letmehandle import bootstrap
 from letmehandle.adapters.database.models import Base
 from letmehandle.application.calls.summary_checks import words
-from letmehandle.bootstrap import build_call_transport, build_observability, build_reported_calls
+from letmehandle.bootstrap import build_call_transports, build_observability, build_reported_calls
 from letmehandle.config.settings import (
     SpeechProviderName,
     TelephonyProviderName,
@@ -860,7 +860,7 @@ async def main_async(env_file: Path, server_url: str, only: str | None, log_leve
         settings = rehearsal_settings(env, database, token, log_level)
         provider = SimulatedTwilio()
         observability = build_observability(settings)
-        binding = build_call_transport(
+        bindings = build_call_transports(
             settings,
             reported_calls=build_reported_calls(),
             observability=observability,
@@ -868,7 +868,7 @@ async def main_async(env_file: Path, server_url: str, only: str | None, log_leve
         )
         # No assistant is handed in: the composition root builds the speech service and the agent
         # from settings, as a deployment's does.
-        app = create_app(settings, telephony=binding, observability=observability)
+        app = create_app(settings, telephony=bindings, observability=observability)
         async with serving(app) as url:
             provider.attach(url)
             api = AppClient(app, url)

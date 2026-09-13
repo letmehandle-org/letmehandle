@@ -23,7 +23,7 @@ from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
 from letmehandle.bootstrap import (
     build_call_orchestrator,
-    build_call_transport,
+    build_call_transports,
     build_container,
     build_escalation_dispatcher,
     build_observability,
@@ -35,7 +35,7 @@ from letmehandle.config.settings import ConfigurationError, Settings, get_settin
 from letmehandle.observability.logging import configure_logging, get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
 
     from letmehandle.application.orchestration.ports import AssistantServices
     from letmehandle.bootstrap import CallTransportBinding, Observability
@@ -70,15 +70,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = build_container(
             settings, voices=app.state.voices, reported_calls=app.state.reported_calls
         )
-        telephony: CallTransportBinding | None = app.state.telephony
-        if app.state.session_factory is not None and telephony is not None:
+        telephony: tuple[CallTransportBinding, ...] = app.state.telephony
+        if app.state.session_factory is not None and telephony:
             # What call orchestration asks to notify a user, and nothing else does. It needs
             # storage and the transcript keys, so a process that carries no calls builds none.
             app.state.escalations = build_escalation_dispatcher(
                 app.state.container, app.state.session_factory, observability=observability
             )
-            # One owner of every call on the transport, started before the application takes
-            # requests and stopped before the transport is closed beneath it. Starting ends
+            # One owner of every call on every line, started before the application takes
+            # requests and stopped before the transports are closed beneath it. Starting ends
             # whatever calls a previous process left unfinished.
             orchestrator = build_call_orchestrator(
                 settings,
@@ -110,8 +110,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.escalations = None
         if app.state.container is not None:
             await close_providers(app.state.container)
-        binding: CallTransportBinding | None = app.state.telephony
-        if binding is not None:
+        bindings: tuple[CallTransportBinding, ...] = app.state.telephony
+        for binding in bindings:
             await binding.close()
         if engine is not None:
             await engine.dispose()
@@ -128,7 +128,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     voices: VoiceProvider | None = None,
-    telephony: CallTransportBinding | None = None,
+    telephony: Sequence[CallTransportBinding] | None = None,
     assistant: AssistantServices | None = None,
     observability: Observability | None = None,
 ) -> FastAPI:
@@ -142,9 +142,9 @@ def create_app(
     depends on what it can do, and there is no configuration that selects a second provider
     yet — so a test of that behaviour has no other way in.
 
-    The call transport is chosen here for the same reason as the voices: its provider's routes
-    exist only when it does. A test passes one wired to a simulated provider, and the speech
-    service and agent its calls are taken with, which production builds from settings.
+    The call transports are chosen here for the same reason as the voices: a provider's routes
+    exist only when its transport does. A test passes them wired to a simulated provider, and the
+    speech service and agent its calls are taken with, which production builds from settings.
 
     Observability is a parameter for the transport's sake: its routes record and trace through it,
     so a test that builds the transport builds it first and hands the same one on here.
@@ -161,9 +161,9 @@ def create_app(
     reported_calls = build_reported_calls()
     chosen_observability = observability or build_observability(resolved)
     chosen_telephony = (
-        telephony
+        tuple(telephony)
         if telephony is not None
-        else build_call_transport(
+        else build_call_transports(
             resolved, reported_calls=reported_calls, observability=chosen_observability
         )
     )
@@ -200,8 +200,8 @@ def create_app(
     app.include_router(call_reports_router)
     app.include_router(diagnostics_router)
     app.include_router(build_voice_router(chosen_voices))
-    if chosen_telephony is not None:
-        app.include_router(chosen_telephony.router)
+    for binding in chosen_telephony:
+        app.include_router(binding.router)
     return app
 
 

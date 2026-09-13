@@ -8,7 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from letmehandle.bootstrap import (
-    build_call_transport,
+    build_call_transports,
     build_container,
     build_reported_calls,
     build_voice_provider,
@@ -76,21 +76,20 @@ async def statuses(app: FastAPI) -> set[int]:
 async def test_a_deployment_with_no_telephony_account_has_no_transport_and_no_routes() -> None:
     settings = make_settings()
     assert (
-        build_call_transport(
+        build_call_transports(
             settings, reported_calls=build_reported_calls(), observability=recorded_observability()
         )
-        is None
+        == ()
     )
     assert await statuses(create_app(settings)) == {404}
 
 
 async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares() -> None:
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         telephony_settings(),
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
     )
-    assert binding is not None
     transport = binding.transport
     # Narrowing raises when a declaration and an implementation disagree; here none do.
     answering(transport)
@@ -103,26 +102,27 @@ async def test_the_configured_transport_is_built_and_narrows_to_what_it_declares
 def test_a_configured_transport_missing_its_account_names_what_is_missing() -> None:
     settings = make_settings(telephony_provider=TelephonyProviderName.TWILIO)
     with pytest.raises(ConfigurationError, match="TELEPHONY_AUTH_TOKEN"):
-        build_call_transport(
+        build_call_transports(
             settings, reported_calls=build_reported_calls(), observability=recorded_observability()
         )
 
 
 async def test_the_application_mounts_the_providers_routes_and_closes_the_transport() -> None:
-    binding = build_call_transport(
+    (binding,) = build_call_transports(
         telephony_settings(),
         reported_calls=build_reported_calls(),
         observability=recorded_observability(),
     )
     # Handed over rather than configured, so the lifespan runs without the storage a configured
     # transport refuses to start without.
-    app = create_app(make_settings(), telephony=binding)
+    app = create_app(make_settings(), telephony=[binding])
     # Present, and refusing what is not signed.
     assert await statuses(app) == {403}
     # Not in the documented schema: the provider is not one of the API's clients.
     assert not any(path.startswith("/telephony") for path in app.openapi()["paths"])
     async with app.router.lifespan_context(app):
-        transport = app.state.telephony.transport
+        (mounted,) = app.state.telephony
+        transport = mounted.transport
     events = [event async for event in transport.events()]
     assert events == []
 
@@ -137,7 +137,8 @@ async def test_the_handset_transport_is_the_one_its_reports_feed() -> None:
             transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
         )
     )
-    transport = app.state.telephony.transport
+    (binding,) = app.state.telephony
+    transport = binding.transport
     screening(transport)
     assert await statuses(app) == {404}
     reported = CallEvent(CallEventKind.INCOMING, CallId("handset-call"), EventId("handset-event"))

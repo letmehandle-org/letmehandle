@@ -105,7 +105,7 @@ from letmehandle.observability.metrics import LoggingMetricsRecorder
 from letmehandle.observability.tracing import NoTracer
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from ipaddress import IPv4Network, IPv6Network
 
     import httpx
@@ -185,7 +185,7 @@ def build_container(
     is settled before anything starts. Handing the same instance on is what stops a second
     one being built that could answer differently.
 
-    Where handsets' reports go is passed in for the same reason: the call transport is chosen
+    Where handsets' reports go is passed in for the same reason: the call transports are chosen
     before routing too, and when it is the handset transport it must be this very instance, or
     the reports would feed one feed while the product read another.
     """
@@ -465,8 +465,9 @@ type FindUser = Callable[[PhoneNumber], Awaitable[UserId | None]]
 class CallTransportBinding:
     """A call transport, its provider's routes, how to release it, and whose calls are whose.
 
-    Handed to the application as one value so that what mounts the routes, what closes the
-    transport and what orchestrates its calls never have to know which transport it is.
+    One per line calls arrive on. Handed to the application as one value so that what mounts the
+    routes, what closes the transport and what orchestrates its calls never have to know which
+    transport it is.
     `ownership` is given how to find a user by number, which needs storage the binding is chosen
     before.
     """
@@ -481,40 +482,42 @@ def build_reported_calls() -> AndroidNativeCallTransport:
     """Where handsets' reports about their own calls become call events.
 
     Built once per application and handed both to the container, whose reporting route feeds
-    it, and to `build_call_transport`, which offers it as the transport when handsets are the
+    it, and to `build_call_transports`, which offers it as the transport when handsets are the
     configured one. A deployment carrying streaming calls still accepts handsets' reports: they
     are stored either way, and only which feed the product reads changes.
     """
     return AndroidNativeCallTransport()
 
 
-def build_call_transport(
+def build_call_transports(
     settings: Settings,
     *,
     reported_calls: AndroidNativeCallTransport,
     observability: Observability,
     http_transport: httpx.AsyncBaseTransport | None = None,
-) -> CallTransportBinding | None:
-    """The call transport this deployment is configured for, if any.
+) -> tuple[CallTransportBinding, ...]:
+    """The call transports this deployment is configured for: one for each line, if any.
 
-    `None` is a supported answer: a deployment configured with no transport carries no calls,
+    None is a supported answer: a deployment configured with no transport carries no calls,
     and no provider's routes exist in it. `reported_calls` is the application's one handset
     transport, offered rather than built here so that there is never a second. `http_transport`
     lets a test put a simulated provider where the provider's API would be, without
     constructing the adapter.
     """
     if settings.telephony_provider is None:
-        return None
+        return ()
     match settings.telephony_provider:
         case TelephonyProviderName.ANDROID_NATIVE:
             # The handset reports over the application's own authenticated route, which exists
             # whichever transport is chosen, so this transport brings no routes of its own and
             # holds nothing that needs releasing.
-            return CallTransportBinding(
-                transport=reported_calls,
-                router=APIRouter(),
-                close=_nothing_to_close,
-                ownership=_reported_ownership,
+            return (
+                CallTransportBinding(
+                    transport=reported_calls,
+                    router=APIRouter(),
+                    close=_nothing_to_close,
+                    ownership=_reported_ownership,
+                ),
             )
         case TelephonyProviderName.TWILIO:
             telephony = settings.require_streaming_telephony()
@@ -534,16 +537,18 @@ def build_call_transport(
                     public_base_url=telephony.webhook_base_url,
                 ),
             )
-            return CallTransportBinding(
-                transport=transport,
-                router=build_twilio_router(
-                    transport, tracer=observability.tracer, metrics=observability.metrics
-                ),
-                close=transport.close,
-                ownership=partial(
-                    ForwardedCallOwnership,
-                    transport,
-                    unforwarded_line=settings.telephony_unforwarded_calls_owner,
+            return (
+                CallTransportBinding(
+                    transport=transport,
+                    router=build_twilio_router(
+                        transport, tracer=observability.tracer, metrics=observability.metrics
+                    ),
+                    close=transport.close,
+                    ownership=partial(
+                        ForwardedCallOwnership,
+                        transport,
+                        unforwarded_line=settings.telephony_unforwarded_calls_owner,
+                    ),
                 ),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above
@@ -564,18 +569,18 @@ def build_call_orchestrator(
     *,
     container: Container,
     session_factory: async_sessionmaker[AsyncSession],
-    telephony: CallTransportBinding,
+    telephony: Sequence[CallTransportBinding],
     dispatcher: EscalationDispatcher,
     observability: Observability,
     assistant: AssistantServices | None = None,
     summariser: CallSummariser | None = None,
 ) -> CallOrchestrator:
-    """The orchestrator for this deployment's transport, storing through short units of work.
+    """The orchestrator for this deployment's lines, storing through short units of work.
 
     Every write is its own unit of work, so a call holds no transaction open while it rings. Calls
     are recorded with who called sealed, so the transcript keys are required. The speech service
-    and the agent are built only for a transport the assistant can take calls on; `assistant` lets
-    a caller supply them instead, the way `build_call_transport` takes a simulated provider.
+    and the agent are built only where the assistant can take calls on some line; `assistant` lets
+    a caller supply them instead, the way `build_call_transports` takes a simulated provider.
 
     Calls the assistant took are summarised by a model when one is configured, and `summariser`
     stands in for it the same way; with neither, every call is summarised from its facts.
@@ -600,9 +605,10 @@ def build_call_orchestrator(
             user = await SqlUserRepository(session, clock).find_by_number(number)
         return None if user is None else user.id
 
-    capabilities = telephony.transport.capabilities
-    takes_calls = (
-        capabilities.supports_agent_conversation and capabilities.can_answer_under_program_control
+    takes_calls = any(
+        binding.transport.capabilities.supports_agent_conversation
+        and binding.transport.capabilities.can_answer_under_program_control
+        for binding in telephony
     )
     if assistant is None and takes_calls:
         assistant = AssistantServices(
@@ -617,7 +623,7 @@ def build_call_orchestrator(
             settings, timeout=bounds.summary, metrics=observability.metrics
         )
     return CallOrchestrator(
-        lines=(CallLine(telephony.transport, telephony.ownership(find_user)),),
+        lines=[CallLine(binding.transport, binding.ownership(find_user)) for binding in telephony],
         stores=stores,
         dispatcher=dispatcher,
         clock=clock,
