@@ -99,6 +99,47 @@ class RecordingOTPProvider(OTPProvider):
         self.sent.append((number, code))
 
 
+class CheckingOTPProvider(RecordingOTPProvider):
+    """Makes and checks its own codes, as a provider that composes its own message does (D-042).
+
+    Its code is the one given, so a test can type it, and each is accepted once. `failure` is raised
+    by the next send or check instead, so a provider's outage can be exercised on either.
+    """
+
+    def __init__(self, code: str = "987654") -> None:
+        super().__init__()
+        self.code = code
+        self.issued: list[PhoneNumber] = []
+        self.checked: list[tuple[PhoneNumber, str]] = []
+        self.failure: ProviderError | None = None
+        self._pending: dict[str, str] = {}
+
+    @property
+    def name(self) -> str:
+        return "checking"
+
+    def issues_its_own_codes(self, number: PhoneNumber) -> bool:
+        return True
+
+    async def send_own_code(self, number: PhoneNumber) -> None:
+        self._fail_if_told()
+        self.issued.append(number)
+        self._pending[number.value] = self.code
+
+    async def check(self, number: PhoneNumber, code: str) -> bool:
+        self.checked.append((number, code))
+        self._fail_if_told()
+        if self._pending.get(number.value) != code:
+            return False
+        del self._pending[number.value]
+        return True
+
+    def _fail_if_told(self) -> None:
+        failure, self.failure = self.failure, None
+        if failure is not None:
+            raise failure
+
+
 class RecordingNotificationProvider(NotificationProvider):
     """Reports whatever it is told to report, so failure paths can be exercised."""
 

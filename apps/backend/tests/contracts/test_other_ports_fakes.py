@@ -15,6 +15,7 @@ from letmehandle.domain.ports.notification import (
 )
 from letmehandle.domain.ports.voice import resolve_voice
 from tests.contracts.fakes import (
+    CheckingOTPProvider,
     CountingIdGenerator,
     FixedClock,
     RecordingNotificationProvider,
@@ -65,6 +66,20 @@ class TestRecordingOTPProvider(OTPProviderContract):
         number = PhoneNumber.parse("+12025550143")
         await otp.send(number, "123456")
         assert otp.sent == [(number, "123456")]
+
+
+class TestCheckingOTPProvider(OTPProviderContract):
+    @pytest.fixture
+    def otp(self) -> CheckingOTPProvider:
+        return CheckingOTPProvider()
+
+    async def test_the_code_it_sent_is_accepted_once(self, otp: CheckingOTPProvider) -> None:
+        number = PhoneNumber.parse("+12025550143")
+        await otp.send_own_code(number)
+        assert otp.sent == []
+        assert await otp.check(number, "000000") is False
+        assert await otp.check(number, otp.code) is True
+        assert await otp.check(number, otp.code) is False
 
 
 class TestRecordingNotificationProvider(NotificationProviderContract):

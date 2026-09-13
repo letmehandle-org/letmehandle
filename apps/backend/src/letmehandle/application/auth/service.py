@@ -22,6 +22,10 @@ different attack, and each counted where that attack cannot reset it (D-036):
      that spreads across numbers and sources to earn from the messages eventually meets.
 
 Only the latest code to a number works, so asking for more codes never opens more to guess at.
+
+Where a provider makes and checks a number's code itself (D-042), only the comparison moves to it.
+Every layer above, the expiry, the attempt limits and single use are still decided here, and a
+provider that cannot say whether a code is right never signs anybody in.
 """
 
 from __future__ import annotations
@@ -30,7 +34,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.domain.errors import DeliveryUncertainError, DomainError, InvariantError
+from letmehandle.domain.errors import (
+    DeliveryUncertainError,
+    DomainError,
+    InvariantError,
+    ProviderError,
+)
 from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
@@ -98,6 +107,27 @@ class CodeMayHaveBeenSentError(DomainError):
     def __init__(self, retry_after_seconds: int) -> None:
         super().__init__("the code may have been sent; try again shortly")
         self.retry_after_seconds = retry_after_seconds
+
+
+# How long to wait before offering the same code again when its provider could not check it. Short,
+# because the challenge expires in minutes; not zero, so a client does not hammer a failing one.
+CHECK_RETRY_AFTER_SECONDS: Final = 5
+
+
+class CodeNotCheckedError(DomainError):
+    """The provider that holds the code could not say whether it was right.
+
+    Neither a right code nor a wrong one: no attempt is counted and nobody is signed in. Carries
+    when to try the same code again, since the challenge is still open.
+    """
+
+    failure_kind = FailureKind.UNAVAILABLE
+
+    def __init__(self, provider: str, reason: str) -> None:
+        super().__init__("the code could not be checked; try again shortly")
+        self.provider = provider
+        self.reason = reason
+        self.retry_after_seconds = CHECK_RETRY_AFTER_SECONDS
 
 
 class RateLimitedError(AuthenticationError):
@@ -256,11 +286,12 @@ class AuthenticationService:
 
         await self._refuse_over_budget(number, now)
 
-        code = self._challenge_code()
+        # None where the provider makes the code: then nothing about it is known here to hash.
+        code = None if self._otp.issues_its_own_codes(number) else self._challenge_code()
         challenge = OTPChallenge(
             id=self._ids.generate(),
             phone_number=number,
-            code_hash=self._code_hasher.hash(code),
+            code_hash=None if code is None else self._code_hasher.hash(code),
             issued_at=now,
             expires_at=now + CHALLENGE_LIFETIME,
         )
@@ -271,7 +302,10 @@ class AuthenticationService:
         # Sent after the challenge is stored. The other order can deliver a code that nothing
         # will accept, which looks to the user exactly like the product being broken.
         try:
-            await self._otp.send(number, code)
+            if code is None:
+                await self._otp.send_own_code(number)
+            else:
+                await self._otp.send(number, code)
         except DeliveryUncertainError as error:
             # Kept, and counted: a slow provider may have delivered it, and an uncounted delivery
             # is a way past the cooldown and the budgets while the bill still arrives.
@@ -398,7 +432,7 @@ class AuthenticationService:
 
         await self._refuse_if_locked(challenge.phone_number, now)
 
-        if challenge.code_hash is None or not self._code_hasher.verify(code, challenge.code_hash):
+        if not await self._is_the_code(challenge, code):
             # The attempt is consumed on failure, or the limit is advisory.
             await self._challenges.update(challenge.with_failed_attempt())
             raise AuthenticationError("that code is not valid")
@@ -411,6 +445,25 @@ class AuthenticationService:
             await self._users.add(user)
 
         return await self._issue_pair(user.id, family_id=self._ids.generate(), now=now)
+
+    async def _is_the_code(self, challenge: OTPChallenge, code: str) -> bool:
+        """Whether `code` is the challenge's: by its hash, or by asking the provider that made it.
+
+        Asked while the challenge's row is held, as the hash is compared, so two guesses at one
+        challenge are still counted one after the other. A provider that could not answer is
+        `CodeNotCheckedError`, never a yes: the caller counts no attempt and signs nobody in.
+        """
+        if challenge.code_hash is not None:
+            return self._code_hasher.verify(code, challenge.code_hash)
+        number = challenge.phone_number
+        if not self._otp.issues_its_own_codes(number):
+            # The provider serving this number changed since the code was sent, and none that is
+            # configured now can check it. The challenge can never be satisfied.
+            return False
+        try:
+            return await self._otp.check(number, code)
+        except ProviderError as error:
+            raise CodeNotCheckedError(error.provider, error.reason) from error
 
     # -------------------------------------------------------------- refreshing
 

@@ -81,7 +81,22 @@ class OTPProviderContract:
             assert otp.fixed_code is None
 
     async def test_it_accepts_a_code_for_a_number(self, otp: OTPProvider) -> None:
-        await otp.send(A_NUMBER, "000000")
+        # A provider that makes its own codes is asked to send one, and never handed one.
+        if otp.issues_its_own_codes(A_NUMBER):
+            await otp.send_own_code(A_NUMBER)
+        else:
+            await otp.send(A_NUMBER, "000000")
+
+    async def test_only_a_provider_that_makes_its_codes_checks_them(self, otp: OTPProvider) -> None:
+        if not otp.issues_its_own_codes(A_NUMBER):
+            with pytest.raises(CapabilityNotSupportedError):
+                await otp.send_own_code(A_NUMBER)
+            with pytest.raises(CapabilityNotSupportedError):
+                await otp.check(A_NUMBER, "000000")
+            return
+        # A code never sent signs nobody in, and a provider that makes its codes has none fixed.
+        assert otp.fixed_code is None
+        assert await otp.check(A_NUMBER, "000000") is False
 
 
 class NotificationProviderContract:
