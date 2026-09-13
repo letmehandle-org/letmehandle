@@ -98,6 +98,7 @@ from letmehandle.config.settings import (
     SpeechProviderName,
     TelephonyProviderName,
 )
+from letmehandle.config.telephony_lines import LineProviderName
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, TELEPHONY_NARROWBAND
 from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.observability.in_process import InProcessMetrics, MetricsFanOut
@@ -115,8 +116,10 @@ if TYPE_CHECKING:
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions
     from letmehandle.application.calls.summariser import CallSummariser
+    from letmehandle.config.telephony_lines import TelephonyLine
     from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
+    from letmehandle.domain.models.region import TelephonyRegion
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -229,13 +232,19 @@ def build_container(
 def build_call_forwarding(settings: Settings) -> ForwardingNumbers:
     """Which number, if any, each user must forward their calls to for any to arrive.
 
-    A streaming call reaches the product only when the user's carrier forwards it to one of the
-    account's numbers, and every user is told the first. A handset screens its own calls and
-    needs nothing forwarded, and a deployment with no transport takes no calls at all.
+    A streaming call reaches the product only when the user's carrier forwards it to one of a
+    line's numbers, and the users a line serves are told its first. A line for every region is
+    the number for anybody no line of their own region serves. A handset screens its own calls
+    and needs nothing forwarded, and a deployment with no transport takes no calls at all.
     """
-    if settings.telephony_provider is TelephonyProviderName.TWILIO:
-        return ForwardingNumbers(elsewhere=settings.require_streaming_telephony().numbers[0])
-    return ForwardingNumbers()
+    by_region: dict[TelephonyRegion, PhoneNumber] = {}
+    elsewhere: PhoneNumber | None = None
+    for line in settings.require_telephony_lines():
+        if line.regions is None:
+            elsewhere = line.numbers[0]
+        else:
+            by_region.update(dict.fromkeys(line.regions, line.numbers[0]))
+    return ForwardingNumbers(by_region=by_region, elsewhere=elsewhere)
 
 
 def build_notification_providers(
@@ -504,8 +513,6 @@ def build_call_transports(
     lets a test put a simulated provider where the provider's API would be, without
     constructing the adapter.
     """
-    if settings.telephony_provider is None:
-        return ()
     match settings.telephony_provider:
         case TelephonyProviderName.ANDROID_NATIVE:
             # The handset reports over the application's own authenticated route, which exists
@@ -519,36 +526,71 @@ def build_call_transports(
                     ownership=_reported_ownership,
                 ),
             )
-        case TelephonyProviderName.TWILIO:
-            telephony = settings.require_streaming_telephony()
+        case TelephonyProviderName.TWILIO | None:
+            return tuple(
+                _line_binding(
+                    line,
+                    unforwarded_line=settings.telephony_unforwarded_calls_owner,
+                    observability=observability,
+                    http_transport=http_transport,
+                )
+                for line in settings.require_telephony_lines()
+            )
+        case unknown:  # pragma: no cover - unreachable while every member has a case above
+            assert_never(unknown)
+
+
+# Where a named line's callbacks are, under the service's own path: `/lines/<name>/telephony/...`.
+_LINES_PATH: Final = "/lines"
+
+
+def _path_prefix(line: TelephonyLine) -> str:
+    """What every path a line's provider calls begins with.
+
+    Nothing for the one line `TELEPHONY_PROVIDER` configures, whose provider was set up with paths
+    at the root before there could be a second line; its own name for any other, so two lines of
+    one provider each receive only their own callbacks.
+    """
+    return "" if line.name is None else f"{_LINES_PATH}/{line.name}"
+
+
+def _line_binding(
+    line: TelephonyLine,
+    *,
+    unforwarded_line: PhoneNumber | None,
+    observability: Observability,
+    http_transport: httpx.AsyncBaseTransport | None,
+) -> CallTransportBinding:
+    """A streaming line's transport, routes and ownership, by the provider it is an account with.
+
+    A match with an exhaustiveness check, for the reason `_build_otp_provider` gives.
+    """
+    match line.provider:
+        case LineProviderName.TWILIO:
             transport = TwilioCallTransport(
                 config=TwilioConfig(
-                    account_id=telephony.account_id,
-                    app_id=telephony.app_id,
-                    numbers=telephony.numbers,
+                    account_id=line.account_id,
+                    app_id=line.app_id,
+                    numbers=line.numbers,
+                    path_prefix=_path_prefix(line),
                 ),
                 api=HttpTelephonyApi(
-                    account_id=telephony.account_id,
-                    auth_token=telephony.auth_token,
+                    account_id=line.account_id,
+                    auth_token=line.auth_token,
                     transport=http_transport,
                 ),
                 verifier=SignatureVerifier(
-                    auth_token=telephony.auth_token,
-                    public_base_url=telephony.webhook_base_url,
+                    auth_token=line.auth_token, public_base_url=line.webhook_base_url
                 ),
             )
-            return (
-                CallTransportBinding(
-                    transport=transport,
-                    router=build_twilio_router(
-                        transport, tracer=observability.tracer, metrics=observability.metrics
-                    ),
-                    close=transport.close,
-                    ownership=partial(
-                        ForwardedCallOwnership,
-                        transport,
-                        unforwarded_line=settings.telephony_unforwarded_calls_owner,
-                    ),
+            return CallTransportBinding(
+                transport=transport,
+                router=build_twilio_router(
+                    transport, tracer=observability.tracer, metrics=observability.metrics
+                ),
+                close=transport.close,
+                ownership=partial(
+                    ForwardedCallOwnership, transport, unforwarded_line=unforwarded_line
                 ),
             )
         case unknown:  # pragma: no cover - unreachable while every member has a case above

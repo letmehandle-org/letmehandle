@@ -18,6 +18,7 @@ from letmehandle.config.settings import (
     parse_llm_headers,
     parse_voice_catalogue,
 )
+from letmehandle.config.telephony_lines import parse_telephony_lines
 
 if TYPE_CHECKING:
     from letmehandle.domain.models.phone_number import PhoneNumber
@@ -82,6 +83,8 @@ def make_settings(
     telephony_numbers: tuple[PhoneNumber, ...] | None = None,
     telephony_app_id: str | None = None,
     telephony_webhook_base_url: str | None = None,
+    telephony_lines: str | None = None,
+    telephony_line_auth_tokens: str | None = None,
     call_max_duration_seconds: int = 14_400,
     llm_base_url: str | None = None,
     llm_api_key: str | None = None,
@@ -139,6 +142,12 @@ def make_settings(
         telephony_webhook_base_url=(
             AnyHttpUrl(telephony_webhook_base_url)
             if telephony_webhook_base_url is not None
+            else None
+        ),
+        telephony_lines=None if telephony_lines is None else parse_telephony_lines(telephony_lines),
+        telephony_line_auth_tokens=(
+            SecretStr(telephony_line_auth_tokens)
+            if telephony_line_auth_tokens is not None
             else None
         ),
         call_max_duration_seconds=call_max_duration_seconds,

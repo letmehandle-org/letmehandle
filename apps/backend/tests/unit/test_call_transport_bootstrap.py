@@ -17,6 +17,7 @@ from letmehandle.config.settings import ConfigurationError, Settings, TelephonyP
 from letmehandle.domain.models.forwarding import ForwardingNumbers
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.domain.models.region import IN, US
 from letmehandle.domain.ports.call_transport import (
     CallEvent,
     CallEventKind,
@@ -212,3 +213,64 @@ def test_a_handset_deployment_needs_nothing_forwarded() -> None:
 
 def test_a_deployment_carrying_no_calls_needs_nothing_forwarded() -> None:
     assert forwarding_for(make_settings()) == ForwardingNumbers()
+
+
+# ------------------------------------------------------------------------ lines by region
+
+# The India line's number is shorter than any in India's plan, so it reaches nobody.
+LINES_BY_REGION = (
+    "us:provider=twilio;regions=US;numbers=+12025550100;account=account-us;app=app-us;"
+    "webhook=https://calls.example.com,"
+    "in:provider=twilio;regions=IN;numbers=+91555010;account=account-in;app=app-in;"
+    "webhook=https://calls.example.com"
+)
+
+
+def lines_settings(lines: str = LINES_BY_REGION) -> Settings:
+    return make_settings(telephony_lines=lines, telephony_line_auth_tokens="us:t-us,in:t-in")
+
+
+async def test_each_line_gets_a_transport_whose_routes_are_under_its_own_name() -> None:
+    bindings = build_call_transports(
+        lines_settings(),
+        reported_calls=build_reported_calls(),
+        observability=recorded_observability(),
+    )
+    app = create_app(make_settings(), telephony=bindings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        statuses_by_path = {
+            path: (await client.post(path)).status_code
+            for path in (
+                "/lines/us/telephony/voice/incoming",
+                "/lines/in/telephony/voice/incoming",
+                "/telephony/voice/incoming",
+            )
+        }
+    for binding in bindings:
+        bridging(binding.transport)
+        await binding.close()
+
+    assert len({id(binding.transport) for binding in bindings}) == 2
+    # Present and refusing what is not signed under each line's name; nothing at the root.
+    assert statuses_by_path == {
+        "/lines/us/telephony/voice/incoming": 403,
+        "/lines/in/telephony/voice/incoming": 403,
+        "/telephony/voice/incoming": 404,
+    }
+
+
+def test_each_region_is_told_its_own_lines_number() -> None:
+    assert forwarding_for(lines_settings()) == ForwardingNumbers(
+        by_region={
+            US: PhoneNumber.parse("+12025550100"),
+            IN: PhoneNumber.parse("+91555010"),
+        }
+    )
+
+
+def test_a_line_for_every_region_is_the_number_for_everyone_without_one() -> None:
+    lines = LINES_BY_REGION.replace("regions=US", "regions=*")
+    assert forwarding_for(lines_settings(lines)) == ForwardingNumbers(
+        by_region={IN: PhoneNumber.parse("+91555010")},
+        elsewhere=PhoneNumber.parse("+12025550100"),
+    )
