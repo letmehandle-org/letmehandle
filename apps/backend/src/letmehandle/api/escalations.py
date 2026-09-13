@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Response, status
 
 from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
-from letmehandle.api.dependencies import CurrentUser, Devices, EscalationContexts
+from letmehandle.api.dependencies import CurrentUser, Devices, EscalationContexts, Preferences
 from letmehandle.api.errors import UNPROCESSABLE, ApiError
 from letmehandle.api.escalation_schemas import EscalationContextResponse, RegisterDeviceRequest
 from letmehandle.api.schemas import DevicePayload
@@ -73,6 +73,7 @@ async def read_escalation(
     call_id: Annotated[str, Path(min_length=1, max_length=MAX_CALL_ID_LENGTH)],
     user: CurrentUser,
     contexts: EscalationContexts,
+    preferences: Preferences,
 ) -> EscalationContextResponse:
     """What the user was, or would have been, told about this escalation.
 
@@ -89,7 +90,8 @@ async def read_escalation(
         raise ApiError(
             status.HTTP_404_NOT_FOUND, "escalation_not_found", "There is no such escalation."
         )
-    return context_response(context, locale=user.preferences.locale)
+    # In the preferences' locale, which is the one the notification was sent in.
+    return context_response(context, locale=(await preferences.get(user.id)).locale)
 
 
 def context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:

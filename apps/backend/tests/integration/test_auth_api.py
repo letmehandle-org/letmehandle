@@ -410,6 +410,24 @@ class TestProtectedRoutes:
         assert after.json()["display_name"] == "Alex"
         assert after.json()["locale"] == "en-GB"
 
+    async def test_the_locale_is_the_one_calls_are_handled_in(self, api: Api) -> None:
+        # One locale: the one the assistant, its summaries and its notifications use.
+        tokens = await sign_in(api)
+
+        await api.client.patch("/v1/me", headers=bearer(tokens), json={"locale": "hi"})
+        preferences = await api.client.get("/v1/preferences", headers=bearer(tokens))
+        assert preferences.json()["locale"] == "hi"
+
+        await api.client.patch("/v1/preferences", headers=bearer(tokens), json={"locale": "en"})
+        profile = await api.client.get("/v1/me", headers=bearer(tokens))
+        assert profile.json()["locale"] == "en"
+
+    async def test_a_blank_locale_is_refused_as_the_request_s_problem(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch("/v1/me", headers=bearer(tokens), json={"locale": "  "})
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_request"
+
 
 class TestDegradedService:
     async def test_requests_that_need_the_database_say_so_when_there_is_none(

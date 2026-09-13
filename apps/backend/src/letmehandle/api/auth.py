@@ -14,6 +14,7 @@ from letmehandle.api.dependencies import (
     Deletion,
     Devices,
     Forwarding,
+    Preferences,
     Users,
     container_of,
 )
@@ -36,7 +37,8 @@ from letmehandle.application.auth.service import (
     RateLimitedError,
     UnservedNumberError,
 )
-from letmehandle.domain.errors import UnreachableNumberError
+from letmehandle.application.preferences.service import PreferenceChanges
+from letmehandle.domain.errors import InvariantError, UnreachableNumberError
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -84,12 +86,13 @@ def _tokens(pair: TokenPair) -> TokenResponse:
     )
 
 
-def _profile(user: User, forwarding: CallForwarding | None) -> ProfileResponse:
+def _profile(user: User, locale: str, forwarding: CallForwarding | None) -> ProfileResponse:
+    # The locale is the preferences' own: the one calls, summaries and notifications are in.
     return ProfileResponse(
         id=user.id.value,
         phone_number=user.phone_number.value,
         display_name=user.display_name,
-        locale=user.preferences.locale,
+        locale=locale,
         call_forwarding=(
             None if forwarding is None else CallForwardingResponse(number=forwarding.number.value)
         ),
@@ -205,13 +208,20 @@ async def sign_out(body: SignOutRequest, service: AuthService, devices: Devices)
 
 
 @router.get("/me", response_model=ProfileResponse, summary="The signed-in user")
-async def read_me(user: CurrentUser, forwarding: Forwarding) -> ProfileResponse:
-    return _profile(user, forwarding.for_user(user.phone_number))
+async def read_me(
+    user: CurrentUser, preferences: Preferences, forwarding: Forwarding
+) -> ProfileResponse:
+    locale = (await preferences.get(user.id)).locale
+    return _profile(user, locale, forwarding.for_user(user.phone_number))
 
 
 @router.patch("/me", response_model=ProfileResponse, summary="Update the profile")
 async def update_me(
-    body: UpdateProfileRequest, user: CurrentUser, users: Users, forwarding: Forwarding
+    body: UpdateProfileRequest,
+    user: CurrentUser,
+    users: Users,
+    preferences: Preferences,
+    forwarding: Forwarding,
 ) -> ProfileResponse:
     """Change what the assistant knows about the person it represents.
 
@@ -222,13 +232,16 @@ async def update_me(
     updated = user
     if body.display_name is not None:
         updated = replace(updated, display_name=body.display_name)
-    if body.locale is not None:
-        updated = replace(updated, preferences=replace(updated.preferences, locale=body.locale))
-
-    if updated != user:
         await users.update(updated)
+    if body.locale is None:
+        stored = await preferences.get(user.id)
+    else:
+        try:
+            stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
+        except InvariantError as error:
+            raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
 
-    return _profile(updated, forwarding.for_user(updated.phone_number))
+    return _profile(updated, stored.locale, forwarding.for_user(updated.phone_number))
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")

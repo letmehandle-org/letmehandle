@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
@@ -16,6 +16,9 @@ import { timeOfDay } from '../../history/presentation';
 import { useLoaded } from '../../history/useLoaded';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
+
+/** How often a live escalation is read again, so it follows the call to its end. */
+export const ESCALATION_REFRESH_MS = 5_000;
 
 interface Props {
   readonly callId: string;
@@ -39,10 +42,22 @@ export function EscalationScreen({
   const { t } = useTranslation();
   const { api } = useSession();
   const load = useCallback(() => api.escalation(callId), [api, callId]);
-  const { loaded, retry } = useLoaded(load);
+  const { loaded, retry, refresh } = useLoaded(load);
 
   const escalation = loaded.state === 'ready' ? loaded.value : null;
   const live = escalation?.status === 'live';
+
+  // Opened while the phone rings, the screen stays open through the call: read once, it would go
+  // on asking the user to answer a call that has already ended.
+  useEffect(() => {
+    if (!live) {
+      return;
+    }
+    const timer = setInterval(refresh, ESCALATION_REFRESH_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [live, refresh]);
   const openSummary = (): void => {
     onOpenSummary(callId);
   };

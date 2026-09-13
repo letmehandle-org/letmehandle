@@ -614,6 +614,10 @@ class CallRun:
             # the caller in silence, and the call ended by nobody's choice when the user is busy.
             self._handed_over = True
             return
+        # The agent usually asks while the assistant is still saying goodbye. Hung up at once, the
+        # caller hears it cut off mid-sentence and its last words never reach the transcript.
+        bounds = self._context.bounds
+        await self._speaking.finish_speaking(bounds.goodbye, bounds.goodbye_pause)
         await self._finish(live, CallState.COMPLETED)
 
     def _notify(self, live: _Live, decision: EscalationDecision, reason: EscalationReason) -> None:
@@ -729,6 +733,7 @@ class CallRun:
         """
         self._finished = True
         ledger = live.ledger
+        await self._keep_what_was_heard(ledger)
         if ledger.state in _USER_BEING_REACHED:
             self._context.metrics.increment(ESCALATION_RESOLVED, {"outcome": "call_ended"})
         with self._context.tracer.span("call.teardown", **{"call.state": state.value}):
@@ -744,6 +749,22 @@ class CallRun:
                 live.owner.user_id, self.call_id, summary.ended_at
             )
         self._context.metrics.increment(CALL_ENDED, {"outcome": state.value})
+
+    async def _keep_what_was_heard(self, ledger: CallLedger) -> None:
+        """Record the lines still waiting in the inbox, which the run stops reading once it ends.
+
+        While a goodbye plays out the run is waiting, and what was said meanwhile is queued behind
+        it. Everything else waiting is put back, in order, for the run's own way of refusing it.
+        """
+        waiting: list[Input] = []
+        while not self._inbox.empty():
+            waiting.append(self._inbox.get_nowait())
+        for item in waiting:
+            if isinstance(item, Heard):
+                speaker = Speaker.CALLER if item.turn.speaker_is_caller else Speaker.AGENT
+                await ledger.said(speaker, item.turn.text)
+            else:
+                self._inbox.put_nowait(item)
 
     async def _summary(self, live: _Live, facts: CallFacts) -> CallSummary:
         """The summariser's summary of a call the assistant took; the facts' own of any other.

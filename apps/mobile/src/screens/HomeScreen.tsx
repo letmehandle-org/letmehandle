@@ -78,6 +78,7 @@ export function HomeScreen({
           onOpenCall={onOpenCall}
           onOpenEscalation={onOpenEscalation}
           onOpenScreening={onOpenScreening}
+          callsForwarded={Boolean(profile?.call_forwarding)}
         />
       )}
       {snapshot !== null && stale && (
@@ -138,15 +139,18 @@ function Loaded({
   onOpenCall,
   onOpenEscalation,
   onOpenScreening,
+  callsForwarded,
 }: {
   readonly snapshot: HomeSnapshot;
   readonly stale: boolean;
   readonly onOpenCall: (callId: string) => void;
   readonly onOpenEscalation: (callId: string) => void;
   readonly onOpenScreening: () => void;
+  readonly callsForwarded: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const state = homeState({
+    callsForwarded,
     escalatedCallId: snapshot.escalation?.callId ?? null,
     screeningRole: snapshot.screeningRole,
     anyCalls: snapshot.latest.length > 0,

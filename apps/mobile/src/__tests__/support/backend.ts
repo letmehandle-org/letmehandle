@@ -184,7 +184,7 @@ export function aCall(changes: Partial<CallDetail> = {}): CallDetail {
     human_joined: false,
     escalation_reason: null,
     details: [
-      { label: 'Left at', value: 'Gate, with the guard', evidence: null },
+      { label: 'address', value: 'Gate, with the guard', evidence: null },
     ],
     timings: {
       received_at: new Date().toISOString(),

@@ -4,12 +4,20 @@
  * The whole tree against a backend that remembers, because what matters here happens across
  * requests — a filter asking the server rather than hiding rows, a deleted call leaving the list.
  */
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
+
+import type { Escalation } from '@letmehandle/api-client';
 
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
-import { aCall, runningBackend, type HistorySetup } from './support/backend';
+import { ESCALATION_REFRESH_MS } from '../screens/calls/EscalationScreen';
+import {
+  aCall,
+  runningBackend,
+  type Held,
+  type HistorySetup,
+} from './support/backend';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -186,6 +194,7 @@ describe('one call', () => {
       view.getAllByText(en.call.intent.delivery_in_progress).length,
     ).toBeGreaterThan(0);
     expect(view.getByText('Gate, with the guard')).toBeOnTheScreen();
+    expect(view.getByText(en.call.detail.address)).toBeOnTheScreen();
     expect(view.getByTestId('call-open-transcript')).toHaveTextContent(
       /Kept until 19 September/,
     );
@@ -298,6 +307,32 @@ describe('one call', () => {
     );
   });
 
+  it('names each detail in words, not as the key the backend files it under', async () => {
+    const { view } = await openActivity({
+      calls: [
+        aCall({
+          details: [
+            {
+              label: 'commitment_declined',
+              value: 'No refund',
+              evidence: null,
+            },
+            { label: 'reference_number', value: 'A-1234', evidence: null },
+            { label: 'something_new', value: 'Kept as sent', evidence: null },
+          ],
+        }),
+      ],
+    });
+    await openCall(view, 'call-1');
+
+    expect(
+      view.getByText(en.call.detail.commitment_declined),
+    ).toBeOnTheScreen();
+    expect(view.getByText(en.call.detail.reference_number)).toBeOnTheScreen();
+    expect(view.queryByText('commitment_declined')).toBeNull();
+    expect(view.getByText('something_new')).toBeOnTheScreen();
+  });
+
   it('says a deleted call is gone rather than failing', async () => {
     const { backend, view } = await openActivity({ calls: [aCall()] });
     await view.findByTestId('call-call-1');
@@ -370,6 +405,50 @@ describe('an escalation opened after its call', () => {
     expect(view.getByText('It asked you about a payment.')).toBeOnTheScreen();
     await fireEvent.press(view.getByTestId('escalation-open-summary'));
     expect(await view.findByTestId('call-detail')).toBeOnTheScreen();
+  });
+
+  it('follows a live escalation to its end without being opened again', async () => {
+    // Only the refresh interval is faked; promises and the test's own waits run on real timers.
+    jest.useFakeTimers({
+      doNotFake: [
+        'Date',
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    try {
+      const escalations: Record<string, Held<Escalation>> = {
+        'call-1': { ...ended, status: 'live', ended_at: null },
+      };
+      const { view } = await openEscalation(escalations);
+      expect(await view.findByTestId('escalation-status')).toHaveTextContent(
+        en.escalation.live,
+      );
+
+      escalations['call-1'] = ended;
+      await act(() => {
+        jest.advanceTimersByTime(ESCALATION_REFRESH_MS);
+      });
+
+      await waitFor(() => {
+        expect(view.getByTestId('escalation-status')).toHaveTextContent(
+          en.escalation.ended,
+        );
+      });
+      expect(view.queryByTestId('escalation-answer')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('still leads to the summary where escalations cannot be read', async () => {

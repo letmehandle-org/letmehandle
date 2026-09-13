@@ -135,6 +135,27 @@ class Conversation:
         self._transcript = transcript
         self._metrics = metrics
         self._clock = clock
+        # Whether a frame is being played, and when the last one finished, on the event loop's
+        # clock: what `quiet` needs to tell a finished reply from a pause inside one.
+        self._playing = False
+        self._played_at: float | None = None
+
+    async def quiet(self, pause: float) -> None:
+        """Return once nothing has played for `pause` seconds, counted from no earlier than now.
+
+        How an owner lets the speaker hear the end of what the session is saying before stopping
+        it. It waits for as long as the session goes on speaking, so the owner bounds it.
+        """
+        loop = asyncio.get_running_loop()
+        since = loop.time()
+        while True:
+            last = since if self._played_at is None else max(since, self._played_at)
+            left = pause - (loop.time() - last)
+            if not self._playing and left <= 0:
+                return
+            # A frame playing says nothing about when the reply ends, so it is looked at again a
+            # pause later rather than awaited.
+            await asyncio.sleep(pause if self._playing else left)
 
     async def run(self) -> ConversationEnd:
         """Carry the conversation to its end.
@@ -193,7 +214,12 @@ class Conversation:
                 # Awaited, one frame at a time. A sink playing slowly therefore slows this loop,
                 # which stops draining the session's bounded queue, which is how backpressure
                 # reaches the model instead of piling up in memory here.
-                await self._sink.write(frame)
+                self._playing = True
+                try:
+                    await self._sink.write(frame)
+                finally:
+                    self._playing = False
+                    self._played_at = asyncio.get_running_loop().time()
             case SpeechStarted(by_caller=True):
                 heard_at = self._clock.now()
                 await self._sink.discard()
