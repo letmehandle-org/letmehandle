@@ -52,6 +52,9 @@ const colour = {
   heroTop: '#E9E3FF',
   heroBottom: '#D8CFFB',
   heroText: '#2C1F63',
+  /** The hero when a call needs the user: the same card, in apricot. */
+  heroNeedsTop: '#FFEBD8',
+  heroNeedsBottom: '#FFD9B8',
   heroMuted: '#7166AC',
   /** The unfilled part of the ring. */
   dialRest: '#E4DEF6',

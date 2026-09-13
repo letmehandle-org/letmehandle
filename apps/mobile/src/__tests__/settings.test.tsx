@@ -95,12 +95,6 @@ describe('the settings list', () => {
       `${en.settings.who}, ${en.settings.whoCustom}`,
     );
   });
-
-  it('has no privacy row, because retention cannot be changed yet', async () => {
-    runningBackend({ startAt: null });
-    const view = await openSettings();
-    expect(view.queryByTestId('settings-open-privacy')).toBeNull();
-  });
 });
 
 describe('who gets through', () => {

@@ -10,12 +10,16 @@
  * because it miscounted says nothing about the behaviour it was written for.
  */
 import type {
+  CallDetail,
   CallReport,
   CallReportBatch,
+  CallSummary,
+  Escalation,
   Onboarding,
   OnboardingStep,
   Preferences,
   PreferencesUpdate,
+  Transcript,
 } from '@letmehandle/api-client';
 
 import type { Voice, VoiceCapabilities } from '../../api/voice';
@@ -139,6 +143,74 @@ export interface RunningBackend {
   readonly reports: CallReport[];
   /** Fail the next report request as a server fault, as a backend that is down does. */
   failNextReport(): void;
+  /** The calls still held, after any the app deleted. */
+  calls(): readonly CallDetail[];
+  /** Every call listing asked for, as its query string. */
+  readonly listings: string[];
+  /** Whether the app asked for the account to be deleted. */
+  accountDeleted(): boolean;
+  /** Fail the next request to this path prefix, with this reply. */
+  failNext(pathPrefix: string, reply: Reply): void;
+}
+
+/** A reply that stands in for a resource: the body, or a refusal with the API's own code. */
+export type Held<T> = T | { readonly status: number; readonly error: string };
+
+export interface HistorySetup {
+  readonly calls: readonly CallDetail[];
+  readonly transcripts?: Readonly<Record<string, Held<Transcript>>>;
+  readonly escalations?: Readonly<Record<string, Held<Escalation>>>;
+  /** How many calls a page holds. */
+  readonly pageSize?: number;
+}
+
+/** A finished call the assistant settled, with every field something a screen may read. */
+export function aCall(changes: Partial<CallDetail> = {}): CallDetail {
+  return {
+    id: 'call-1',
+    caller: {
+      category: 'delivery',
+      display_name: null,
+      number_withheld: false,
+    },
+    status: 'ended',
+    started_at: new Date().toISOString(),
+    duration_seconds: 192,
+    outcome: 'resolved_by_agent',
+    handling: 'assistant',
+    headline: 'Your parcel will be left at the gate before 6 pm.',
+    intent: 'delivery_in_progress',
+    importance: 30,
+    human_joined: false,
+    escalation_reason: null,
+    details: [
+      { label: 'Left at', value: 'Gate, with the guard', evidence: null },
+    ],
+    timings: {
+      received_at: new Date().toISOString(),
+      answered_at: new Date().toISOString(),
+      escalated_at: null,
+      human_joined_at: null,
+      ended_at: new Date().toISOString(),
+    },
+    transcript_available: true,
+    transcript_expires_at: '2026-09-19T10:24:00Z',
+    transcript_retention_days: 7,
+    ...changes,
+  };
+}
+
+function summaryOf(call: CallDetail): CallSummary {
+  return {
+    id: call.id,
+    caller: call.caller,
+    status: call.status,
+    started_at: call.started_at,
+    duration_seconds: call.duration_seconds,
+    outcome: call.outcome,
+    headline: call.headline,
+    human_joined: call.human_joined,
+  };
 }
 
 /**
@@ -154,7 +226,25 @@ export function runningBackend(options?: {
   readonly voice?: VoiceSetup;
   /** Whether calls reach this deployment forwarded, which adds a step to setup. */
   readonly forwarded?: boolean;
+  readonly history?: HistorySetup;
 }): RunningBackend {
+  let held = [...(options?.history?.calls ?? [])];
+  const listings: string[] = [];
+  const pageSize = options?.history?.pageSize ?? 20;
+  let deleted = false;
+  const failures: { prefix: string; reply: Reply }[] = [];
+  const heldReply = (value: Held<unknown> | undefined): Response =>
+    value === undefined
+      ? answer(404, { error: 'not_found', message: 'no' })
+      : typeof value === 'object' &&
+        value !== null &&
+        'error' in value &&
+        'status' in value
+      ? answer((value as { status: number }).status, {
+          error: (value as { error: string }).error,
+          message: 'no',
+        })
+      : answer(200, value);
   const forwarded = options?.forwarded ?? false;
   const steps: readonly OnboardingStep[] = forwarded
     ? [ORDER[0], 'call_forwarding', ...ORDER.slice(1)]
@@ -220,6 +310,62 @@ export function runningBackend(options?: {
     const body: unknown =
       typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
 
+    const failure = failures.findIndex(entry => path.startsWith(entry.prefix));
+    if (failure !== -1) {
+      const [{ reply }] = failures.splice(failure, 1);
+      return answer(reply.status, reply.body ?? {});
+    }
+    if (
+      path.startsWith('/v1/calls?') ||
+      (path === '/v1/calls' && method === 'GET')
+    ) {
+      const query = new URLSearchParams(path.split('?')[1] ?? '');
+      listings.push(query.toString());
+      const matching = held.filter(
+        call =>
+          (!query.has('outcome') || call.outcome === query.get('outcome')) &&
+          (!query.has('human_joined') ||
+            String(call.human_joined) === query.get('human_joined')),
+      );
+      const from = Number(query.get('cursor') ?? '0');
+      const page = matching.slice(from, from + pageSize);
+      return answer(200, {
+        calls: page.map(summaryOf),
+        next_cursor:
+          from + pageSize < matching.length ? String(from + pageSize) : null,
+      });
+    }
+    const transcript = /^\/v1\/calls\/([^/]+)\/transcript$/.exec(path);
+    if (transcript !== null) {
+      return heldReply(
+        options?.history?.transcripts?.[decodeURIComponent(transcript[1])],
+      );
+    }
+    const oneCall = /^\/v1\/calls\/([^/]+)$/.exec(path);
+    if (oneCall !== null && path !== '/v1/calls/reports') {
+      const id = decodeURIComponent(oneCall[1]);
+      if (method === 'DELETE') {
+        held = held.filter(call => call.id !== id);
+        return answer(204, null);
+      }
+      const call = held.find(entry => entry.id === id);
+      return call === undefined
+        ? answer(404, { error: 'call_not_found', message: 'no' })
+        : answer(200, call);
+    }
+    const escalation = /^\/v1\/escalations\/([^/]+)$/.exec(path);
+    if (escalation !== null) {
+      return heldReply(
+        options?.history?.escalations?.[decodeURIComponent(escalation[1])],
+      );
+    }
+    if (path === '/v1/me' && method === 'DELETE') {
+      deleted = true;
+      return answer(204, null);
+    }
+    if (path === '/v1/auth/signout') {
+      return answer(204, null);
+    }
     if (path === '/v1/me') {
       return answer(200, {
         ...PROFILE,
@@ -314,6 +460,12 @@ export function runningBackend(options?: {
     reports,
     failNextReport: () => {
       reportFailure = true;
+    },
+    calls: () => held,
+    listings,
+    accountDeleted: () => deleted,
+    failNext: (prefix, reply) => {
+      failures.push({ prefix, reply });
     },
   };
 }

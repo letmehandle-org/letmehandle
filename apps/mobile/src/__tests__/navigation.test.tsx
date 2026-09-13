@@ -50,7 +50,11 @@ describe('RootNavigator', () => {
       'Personalise',
       'Topics',
       'Account',
+      'Privacy',
       'CallScreening',
+      'Call',
+      'Transcript',
+      'Escalation',
     ]);
     expect(Object.values(ONBOARDING_ROUTES)).toEqual(['Step']);
   });
