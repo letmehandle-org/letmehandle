@@ -24,6 +24,7 @@ import type {
 
 import type { Voice, VoiceCapabilities } from '../../api/voice';
 import { applyChanges } from '../../preferences/changes';
+import { jsonResponse } from './http';
 
 export interface Reply {
   readonly status: number;
@@ -297,12 +298,7 @@ export function runningBackend(options?: {
     };
   };
 
-  const answer = (status: number, payload: unknown): Response =>
-    ({
-      ok: status >= 200 && status < 300,
-      status,
-      json: async () => payload,
-    } as Response);
+  const answer = jsonResponse;
 
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const path = url.replace(/^https?:\/\/[^/]+/, '');

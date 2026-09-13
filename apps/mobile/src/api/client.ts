@@ -402,7 +402,7 @@ export class ApiClient {
     const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      const retryAfter = Number(response.headers?.get('Retry-After'));
+      const retryAfter = Number(response.headers.get('Retry-After'));
       throw new ApiError(
         response.status,
         {

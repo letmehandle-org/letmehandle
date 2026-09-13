@@ -7,6 +7,7 @@
  */
 import { ApiClient, type SessionHandle } from '../api/client';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const BASE = 'http://localhost:8000';
 
@@ -25,7 +26,7 @@ function fetching(body: unknown): { calls: Call[]; client: ApiClient } {
   const calls: Call[] = [];
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    return { ok: true, status: 200, json: async () => body } as Response;
+    return jsonResponse(200, body);
   }) as unknown as typeof fetch;
 
   return { calls, client: new ApiClient(handle, BASE) };

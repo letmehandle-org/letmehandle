@@ -20,6 +20,7 @@ import {
   type RunningBackend,
   type VoiceSetup,
 } from './support/backend';
+import { jsonResponse } from './support/http';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -149,11 +150,7 @@ describe('when the voices cannot be loaded', () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       if (!failed && url.endsWith('/v1/voices')) {
         failed = true;
-        return {
-          ok: false,
-          status: 503,
-          json: async () => ({ error: 'unavailable', message: 'x' }),
-        } as Response;
+        return jsonResponse(503, { error: 'unavailable', message: 'x' });
       }
       return original(url, init);
     }) as typeof fetch;

@@ -7,6 +7,7 @@
  */
 import { ApiClient, type SessionHandle } from '../api/client';
 import { ApiError, NetworkError } from '../api/errors';
+import { jsonResponse } from './support/http';
 
 const BASE = 'http://localhost:8000';
 
@@ -27,11 +28,7 @@ class FakeFetch {
     return (async (url: string, init: RequestInit) => {
       this.calls.push({ url, init });
       const reply = this.replies.shift() ?? { status: 200, body: {} };
-      return {
-        ok: reply.status >= 200 && reply.status < 300,
-        status: reply.status,
-        json: async () => reply.body ?? {},
-      } as Response;
+      return jsonResponse(reply.status, reply.body ?? {});
     }) as unknown as typeof fetch;
   }
 
@@ -211,12 +208,11 @@ describe('failures', () => {
 
   it('reads how long to wait from a refusal', async () => {
     globalThis.fetch = (async () =>
-      ({
-        ok: false,
-        status: 429,
-        headers: new Headers({ 'Retry-After': '90' }),
-        json: async () => ({ error: 'rate_limited', message: 'no' }),
-      } as Response)) as unknown as typeof fetch;
+      jsonResponse(
+        429,
+        { error: 'rate_limited', message: 'no' },
+        { 'Retry-After': '90' },
+      )) as unknown as typeof fetch;
 
     const refused = await new ApiClient(handleFor({}), BASE)
       .requestChallenge('+12025550143')

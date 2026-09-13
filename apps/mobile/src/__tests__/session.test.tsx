@@ -18,6 +18,7 @@ import { App } from '../App';
 import { SessionProvider, useSession } from '../auth/SessionProvider';
 import * as tokenStore from '../auth/tokenStore';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const NUMBER = '+12025550143';
 const PROFILE = {
@@ -55,11 +56,7 @@ function replyWith(replies: Reply[]): jest.Mock {
     // make each of these tests fail whenever a screen gains a request.
     const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
     const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
-    return {
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status,
-      json: async () => reply.body ?? {},
-    } as Response;
+    return jsonResponse(reply.status, reply.body ?? {});
   });
   globalThis.fetch = fake as unknown as typeof fetch;
   return fake;
@@ -263,11 +260,7 @@ describe('never being asked for the number again without cause', () => {
     globalThis.fetch = (async () => {
       calls += 1;
       if (calls === 1) {
-        return {
-          ok: false,
-          status: 401,
-          json: async () => ({ error: 'not_authenticated', message: 'no' }),
-        } as Response;
+        return jsonResponse(401, { error: 'not_authenticated', message: 'no' });
       }
       throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
@@ -329,7 +322,7 @@ describe('signing out', () => {
       if (standing === undefined) {
         throw new TypeError('Network request failed');
       }
-      return { ok: true, status: 200, json: async () => standing } as Response;
+      return jsonResponse(200, standing);
     }) as unknown as typeof fetch;
 
     const view = await render(<App />);

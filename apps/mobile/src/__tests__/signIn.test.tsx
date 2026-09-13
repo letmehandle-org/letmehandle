@@ -11,6 +11,7 @@ import React from 'react';
 import { App } from '../App';
 import { en } from '../i18n/locales/en';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const NUMBER = '+12025550143';
 
@@ -28,12 +29,7 @@ function replyWith(replies: Reply[]): jest.Mock {
     // make each of these tests fail whenever a screen gains a request.
     const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
     const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
-    return {
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status,
-      headers: new Headers(reply.headers ?? {}),
-      json: async () => reply.body ?? {},
-    } as Response;
+    return jsonResponse(reply.status, reply.body ?? {}, reply.headers ?? {});
   });
   globalThis.fetch = fake as unknown as typeof fetch;
   return fake;

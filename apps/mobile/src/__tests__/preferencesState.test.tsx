@@ -29,6 +29,7 @@ import {
   ONBOARDING_COMPLETE,
   onboardingAt,
 } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const PROFILE = {
   id: 'u1',
@@ -70,11 +71,7 @@ function backendHoldingPatch(patch: () => { status: number; body: unknown }): {
         letGo = resolve;
       });
       const reply = patch();
-      return {
-        ok: reply.status >= 200 && reply.status < 300,
-        status: reply.status,
-        json: async () => reply.body,
-      } as Response;
+      return jsonResponse(reply.status, reply.body);
     }
 
     const bodies: Record<string, unknown> = {
@@ -82,11 +79,7 @@ function backendHoldingPatch(patch: () => { status: number; body: unknown }): {
       '/v1/preferences': DEFAULT_PREFERENCES,
       '/v1/onboarding': ONBOARDING_COMPLETE,
     };
-    return {
-      ok: true,
-      status: 200,
-      json: async () => bodies[path],
-    } as Response;
+    return jsonResponse(200, bodies[path]);
   }) as unknown as typeof fetch;
 
   return {
@@ -139,11 +132,7 @@ describe('loading', () => {
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await render(
@@ -175,11 +164,7 @@ describe('loading', () => {
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await render(
@@ -249,22 +234,14 @@ describe('saving a change', () => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       if (init?.method === 'PATCH') {
         calls.push(String(init.body));
-        return {
-          ok: true,
-          status: 200,
-          json: async () => DEFAULT_PREFERENCES,
-        } as Response;
+        return jsonResponse(200, DEFAULT_PREFERENCES);
       }
       const bodies: Record<string, unknown> = {
         '/v1/me': PROFILE,
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await loaded();
@@ -294,22 +271,14 @@ describe('recording a step', () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       if (path === '/v1/onboarding' && init?.method === 'POST') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => onboardingAt('hours'),
-        } as Response;
+        return jsonResponse(200, onboardingAt('hours'));
       }
       const bodies: Record<string, unknown> = {
         '/v1/me': PROFILE,
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': onboardingAt('call_handling'),
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await loaded();

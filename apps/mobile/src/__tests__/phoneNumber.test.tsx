@@ -18,6 +18,7 @@ import {
   type Country,
 } from '../auth/countries';
 import { en } from '../i18n/locales/en';
+import { jsonResponse } from './support/http';
 
 const mockNetwork: { country: string | null } = { country: 'in' };
 jest.mock('../calls/native/NativeDeviceCountry', () => ({
@@ -127,13 +128,12 @@ describe('the number screen', () => {
           (JSON.parse(init?.body as string) as { phone_number: string })
             .phone_number,
         );
-        return {
-          ok: true,
-          status: 202,
-          json: async () => ({ challenge_id: 'c', expires_in_seconds: 300 }),
-        } as Response;
+        return jsonResponse(202, {
+          challenge_id: 'c',
+          expires_in_seconds: 300,
+        });
       }
-      return { ok: true, status: 200, json: async () => ({}) } as Response;
+      return jsonResponse(200, {});
     }) as unknown as typeof fetch;
   });
 
