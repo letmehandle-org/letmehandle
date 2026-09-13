@@ -19,6 +19,10 @@ taken from that section.
 
 ## [Unreleased]
 
+### Added
+
+- A third speech adapter, for GPT-Live, chosen with `SPEECH_PROVIDER=gpt_live` (D-040).
+
 ## [2026.9.13]
 
 The first public release. Every part of a call is built and tested end to end against simulated

@@ -115,7 +115,7 @@ them. It is the same port with a different honest answer to one question: that s
 resume a dropped conversation, so reconnecting starts a new conversation whose prompt carries the
 instructions and a bounded recent history. The realtime protocol restores the same things into a
 fresh session. Neither hides the difference from the caller's side of the port, and both run the
-same contract suite.
+same contract suite. A third speaks the GPT-Live session protocol (D-040).
 
 Supported languages, voices, audio formats and whether it supports barge-in are declared as
 capabilities rather than assumed by callers. Because a compatible server decides its own voices,
@@ -878,3 +878,50 @@ in whatever language that was.
 **Accepted trade: a chosen voice is not honoured on a multilingual ElevenLabs agent.** The agent's
 voices are the agent's. Honouring a choice would mean one agent per voice, or giving up the switch
 mid-call, and a caller understood in their own language is worth more than a voice the user picked.
+
+## D-040 — GPT-Live is a third speech adapter, chosen by configuration
+
+**Accepted.** `SPEECH_PROVIDER=gpt_live` holds calls over the GPT-Live session protocol, through
+`adapters/speech/gpt_live/`, reading the same `SPEECH_ENDPOINT_URL`, `SPEECH_MODEL` and
+`SPEECH_API_KEY` as the realtime adapter. Nothing else changes: `realtime` and `elevenlabs` are
+untouched, and switching between the three is configuration alone (D-008).
+
+The protocol is full duplex and says less than the other two, so the adapter derives what the port
+reports:
+
+- **Barge-in is the model's.** It listens while it speaks and stops when talked over; there is no
+  cancel to send. The caller's `SpeechStarted` is emitted with the first words of each utterance
+  written down, which is later than a voice activity signal, and the consumer drops what it held on
+  it as for every provider. The assistant's start and end of speech are read from the loudness of
+  its audio, which the service streams silence included.
+- **Turns are settled by the adapter.** Transcript fragments carry timestamps on the session's
+  timeline and nothing marks a turn complete. A speaker's words settle as a final transcript after
+  a second and a half of quiet on that timeline, or when the session ends or drops. Quiet is the
+  only signal: fragments arrive late and the speakers overlap, so settling one speaker because the
+  other began splits utterances whenever a late fragment turns up.
+- **Language rules are written in the language they ask for.** With English instructions, a Hindi
+  caller is answered mostly in English unless the language rule is itself written in Hindi, which is
+  also what the service's prompting guidance advises. So a session opens with its language rule and
+  greeting in the opening language, and when a caller's settled utterance is clearly written in
+  another language listed in `SPEECH_LANGUAGES`, the model is told in that language to switch and
+  stay. Clearly means most of its letters in one script, eight letters or more, and a script no
+  other listed language shares; a short "OK" switches nothing, and a Hindi sentence with an English
+  name in it is still Hindi. The switch is sent as quiet context rather than as instructions: by the
+  time the utterance settles the model is usually answering, and instructions interrupt it, which
+  cut replies off mid-word. A language without its own phrasing is asked for in English by its code.
+- **It greets.** After the session starts it is told to say the locale's greeting without waiting,
+  then listen (D-039).
+- **Context is added, not replaced.** A running session's instructions cannot be replaced, so an
+  update sends the lines that are new, in pieces within the protocol's limit. A replacement session
+  starts with the whole context as it stands, the recent turns as its history, and an instruction
+  not to greet again.
+- **No tools.** Sessions use client delegation; a delegation the model opens is answered, quietly,
+  that no help is available. The product's own agent reads the transcript and acts (D-026).
+- **Audio passes through.** A session speaks the format its caller audio arrives in where the
+  protocol carries it, so a phone call's G.711 is not converted either way.
+- **Closing finalises.** The adapter asks the service to close and waits a bounded time for its
+  final word, which carries the voice seconds billed; they are recorded as `speech.session_seconds`.
+
+**Accepted trade: the caller's start of speech arrives late.** Nothing in the protocol reports it
+sooner than the words, and the model has already stopped by then; what is late is only the signal to
+the consumer, not the barge-in.
