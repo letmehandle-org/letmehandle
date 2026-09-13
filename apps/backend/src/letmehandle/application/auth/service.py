@@ -513,10 +513,6 @@ class AuthenticationService:
         await self._refresh_tokens.revoke_family(stored.family_id, self._clock.now())
         return stored.user_id
 
-    async def sign_out_everywhere(self, user_id: UserId) -> int:
-        """End every session this user has, returning how many were ended."""
-        return await self._refresh_tokens.revoke_all_for_user(user_id, self._clock.now())
-
     # ----------------------------------------------------------------- shared
 
     async def _issue_pair(self, user_id: UserId, *, family_id: str, now: datetime) -> TokenPair:

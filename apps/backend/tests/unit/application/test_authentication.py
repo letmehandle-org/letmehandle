@@ -342,19 +342,6 @@ class TestSigningOut:
         # Saying so would tell an attacker whether a token they hold is real.
         await harness.service.sign_out("not-a-token")
 
-    async def test_signing_out_everywhere_ends_every_session(self, harness: Harness) -> None:
-        first = await harness.sign_in()
-        second = await harness.sign_in()
-        user = await harness.users.find_by_number(NUMBER)
-        assert user is not None
-
-        ended = await harness.service.sign_out_everywhere(user.id)
-
-        assert ended == 2
-        for token in (first, second):
-            with pytest.raises(AuthenticationError):
-                await harness.service.refresh(token)
-
 
 class FixedCodeOTPProvider(RecordingOTPProvider):
     """A testing provider that fixes the code, optionally claiming to be safe for production."""
