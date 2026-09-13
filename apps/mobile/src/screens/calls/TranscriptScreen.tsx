@@ -46,7 +46,6 @@ export function TranscriptScreen({
     loaded.state === 'failed' && loaded.error instanceof ApiError
       ? loaded.error.code
       : null;
-  const days = preferences.privacy?.transcript_retention_days ?? 7;
 
   return (
     <Screen
@@ -63,9 +62,9 @@ export function TranscriptScreen({
         <View style={styles.gone} testID="transcript-purged">
           <Disc icon="clock" tone="quiet" size={72} />
           <Text style={styles.goneText}>
-            {days === 1
-              ? t('transcript.purgedOne')
-              : t('transcript.purged', { days })}
+            {t('transcript.purged', {
+              count: preferences.privacy.transcript_retention_days,
+            })}
           </Text>
           <Button
             label={t('transcript.backToSummary')}

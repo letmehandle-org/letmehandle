@@ -144,7 +144,7 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
           icon="lock"
           title={t('settings.privacy')}
           value={t('privacy.days', {
-            count: preferences.privacy?.transcript_retention_days ?? 7,
+            count: preferences.privacy.transcript_retention_days,
           })}
           onPress={() => {
             onOpen('privacy');

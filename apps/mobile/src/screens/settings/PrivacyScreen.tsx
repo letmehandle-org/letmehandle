@@ -33,7 +33,7 @@ export function PrivacyScreen({ onBack }: Props): React.JSX.Element {
   const { api, signOut } = useSession();
   const { preferences } = usePreferences();
   const { problem, save } = useImmediateSave();
-  const days = preferences.privacy?.transcript_retention_days ?? 7;
+  const days = preferences.privacy.transcript_retention_days;
   const offered = RETENTION_DAYS.some(option => option === days)
     ? [...RETENTION_DAYS]
     : [...RETENTION_DAYS, days].sort((a, b) => a - b);

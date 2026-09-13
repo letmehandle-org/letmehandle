@@ -293,8 +293,8 @@ export const en = {
   transcript: {
     title: 'What was said',
     deletesOn: 'Deleted on {{date}}. The summary stays.',
-    purged: 'These words were deleted, as you set: {{days}} days.',
-    purgedOne: 'These words were deleted, as you set: 1 day.',
+    purged_one: 'These words were deleted, as you set: {{count}} day.',
+    purged_other: 'These words were deleted, as you set: {{count}} days.',
     notRecorded:
       'Nothing was said on this call, so there are no words to keep.',
     loadFailed: 'Could not load what was said.',
