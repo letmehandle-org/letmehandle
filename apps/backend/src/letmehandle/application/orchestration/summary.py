@@ -1,9 +1,10 @@
-"""The summary written as a call ends: the agent's, when it wrote one that holds, else the facts'.
+"""The summary written as a call ends: what the run learned, laid over the summary it was given.
 
-The fallback is built first either way, because it is the one reading of the call's facts — who
-joined and when, why the user was asked for — and the agent's summary is those facts with the
-agent's account of the outcome laid over them. A record the domain refuses, such as a headline too
-long to be one, falls back rather than leaving the call without a summary.
+The facts come first, because they are the one reading of the call that needs nobody — who joined
+and when, why the user was asked for, what the agent last judged the call to be. The summary under
+them is the summariser's for a call the assistant took, and the facts' own otherwise; the agent's
+account of the outcome, when it wrote one that holds, goes over either. A record the domain refuses,
+such as a headline too long to be one, is left out rather than leaving the call without a summary.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.calls.fallback import CallFacts, fallback_summary
+from letmehandle.application.calls.fallback import CallFacts
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.intent import CallImportance, CallIntent
@@ -39,31 +40,33 @@ class Findings:
     messages: tuple[str, ...] = ()
 
 
-def summary_of(call: CallSession, findings: Findings, *, locale: str) -> CallSummary:
-    """The summary of an ended call. Never raises for one that has ended."""
+def facts_of(call: CallSession, findings: Findings) -> CallFacts:
+    """What is known for certain about an ended call, with the agent's last reading of it."""
     proposal = findings.proposal
-    facts = fallback_summary(
-        CallFacts(
-            call=call,
-            escalation_reason=findings.escalation_reason,
-            caller_hung_up=findings.caller_hung_up,
-            intent=CallIntent.UNDETERMINED if proposal is None else proposal.intent,
-            importance=CallImportance.ROUTINE if proposal is None else proposal.importance,
-        ),
-        locale=locale,
+    return CallFacts(
+        call=call,
+        escalation_reason=findings.escalation_reason,
+        caller_hung_up=findings.caller_hung_up,
+        intent=CallIntent.UNDETERMINED if proposal is None else proposal.intent,
+        importance=CallImportance.ROUTINE if proposal is None else proposal.importance,
     )
+
+
+def with_findings(summary: CallSummary, call: CallSession, findings: Findings) -> CallSummary:
+    """`summary`, with the messages taken and the agent's own record. Never raises."""
     messages = tuple(ExtractedDetail(MESSAGE_LABEL, message) for message in findings.messages)
+    kept = replace(summary, details=(*summary.details, *messages))
     record = findings.outcome
     # Only for a call that ran its course. A rejected or failed call is what its state says it was,
     # whatever the agent wrote down before that happened.
     if record is None or call.state is not CallState.COMPLETED:
-        return replace(facts, details=messages)
+        return kept
     try:
         return replace(
-            facts,
+            summary,
             outcome=record.outcome,
             headline=record.headline,
             details=(*record.details, *messages),
         )
     except InvariantError:
-        return replace(facts, details=messages)
+        return kept

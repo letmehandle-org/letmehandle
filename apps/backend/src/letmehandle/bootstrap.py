@@ -450,6 +450,7 @@ def build_call_orchestrator(
     dispatcher: EscalationDispatcher,
     metrics: MetricsRecorder,
     assistant: AssistantServices | None = None,
+    summariser: CallSummariser | None = None,
 ) -> CallOrchestrator:
     """The orchestrator for this deployment's transport, storing through short units of work.
 
@@ -457,6 +458,9 @@ def build_call_orchestrator(
     are recorded with who called sealed, so the transcript keys are required. The speech service
     and the agent are built only for a transport the assistant can take calls on; `assistant` lets
     a caller supply them instead, the way `build_call_transport` takes a simulated provider.
+
+    Calls the assistant took are summarised by a model when one is configured, and `summariser`
+    stands in for it the same way; with neither, every call is summarised from its facts.
     """
     clock = container.clock
     cipher = container.transcript_cipher
@@ -491,6 +495,8 @@ def build_call_orchestrator(
             voices=container.voices,
             judging=lambda actions: build_call_judging(settings, actions=actions),
         )
+    if summariser is None and settings.llm_configured:
+        summariser = build_call_summariser(settings)
     return CallOrchestrator(
         transport=telephony.transport,
         ownership=telephony.ownership(find_user),
@@ -499,6 +505,7 @@ def build_call_orchestrator(
         clock=clock,
         metrics=metrics,
         assistant=assistant,
+        summariser=summariser,
     )
 
 

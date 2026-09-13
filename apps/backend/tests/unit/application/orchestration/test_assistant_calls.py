@@ -36,10 +36,12 @@ from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from letmehandle.domain.ports.speech import SessionFailed, SpeechEnded, TranscriptProduced
 from tests.support.orchestration import (
     OWNERS_NUMBER,
+    QUICK,
     WANTS_THE_USER,
     Look,
     Running,
     StreamingLine,
+    WritingSummariser,
     eventually,
     orchestrating,
 )
@@ -97,6 +99,75 @@ class TestTheUsersHours:
 
             assert line.asked("answer", CALL) == 1
             assert line.dialled == []
+
+
+class TestTheSummary:
+    """Written by the summariser for a call the assistant took, and by the facts otherwise."""
+
+    async def test_a_call_the_assistant_took_is_summarised_with_what_the_agent_judged(
+        self,
+    ) -> None:
+        line = streaming()
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Is she there? It is urgent.")
+            await eventually(lambda: running.judgements == 1)
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+            [(facts, transcript)] = running.summariser.asked
+            assert facts.intent is CallIntent.PERSONAL
+            assert facts.importance is CallImportance.URGENT
+            assert [each.text for each in transcript] == ["Is she there? It is urgent."]
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            # The model writes the headline; the outcome stays the facts'.
+            assert summary.headline == WritingSummariser.HEADLINE
+            assert summary.outcome is CallOutcome.UNANSWERED_ESCALATION
+
+    async def test_a_call_put_straight_through_is_summarised_from_its_facts(self) -> None:
+        line = streaming()
+        passing = UserPreferences(rules=CallRules(active_hours=TimeWindow(time(0), time(1), "UTC")))
+        async with orchestrating(line, preferences=passing) as running:
+            line.arrives(CALL, STRANGER)
+            await running.settled(CALL, CallState.PASSTHROUGH)
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+            assert running.summariser.asked == []
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert summary.headline != WritingSummariser.HEADLINE
+
+    async def test_a_summariser_that_never_answers_cannot_hold_the_call(self) -> None:
+        line = streaming()
+        async with orchestrating(line) as running:
+            running.summariser.hanging = True
+            await with_the_assistant(running)
+            await running.caller_says("Just checking in.")
+            line.hangs_up(CALL)
+            # Let go at the transport before anybody waits on a summary.
+            await eventually(lambda: bool(running.summariser.asked))
+            assert line.asked("terminate", CALL) == 1
+
+            call = await running.ended(CALL)
+
+            assert call.state is CallState.COMPLETED
+            summary = running.stores.summaries.stored[CallId(CALL)]
+            assert summary.outcome is CallOutcome.CALLER_HUNG_UP
+            assert summary.headline != WritingSummariser.HEADLINE
+            assert running.metrics.counted("call.summary_failed") == 1
+
+    async def test_stopping_is_not_held_up_by_a_summariser_that_never_answers(self) -> None:
+        line = streaming()
+        async with orchestrating(line) as running:
+            running.summariser.hanging = True
+            await with_the_assistant(running)
+            await running.caller_says("Still there?")
+
+            async with asyncio.timeout(QUICK.shutdown.total_seconds()):
+                await running.orchestrator.stop()
+
+            assert running.stores.call(CALL).state is CallState.FAILED
+            assert CallId(CALL) in running.stores.summaries.stored
 
 
 class TestTheAssistantHandlesACall:

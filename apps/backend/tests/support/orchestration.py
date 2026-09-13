@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final
 
@@ -23,6 +23,8 @@ from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.notes import JudgementNotes
 from letmehandle.application.agent.ports import AgentJudgement, CallAgent
+from letmehandle.application.calls.fallback import fallback_summary
+from letmehandle.application.calls.summariser import CallSummariser
 from letmehandle.application.escalation.dispatch import EscalationDispatcher
 from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.ports import (
@@ -89,6 +91,7 @@ if TYPE_CHECKING:
         CallSoFar,
         OutcomeRecord,
     )
+    from letmehandle.application.calls.fallback import CallFacts
     from letmehandle.domain.models.call import TranscriptEntry
     from letmehandle.domain.models.call_state import CallState
     from letmehandle.domain.models.caller import Caller
@@ -110,6 +113,7 @@ QUICK: Final = Bounds(
     provider=timedelta(seconds=0.3),
     storage=timedelta(seconds=0.3),
     speaker_gone=timedelta(seconds=0.2),
+    summary=timedelta(seconds=0.3),
     shutdown=timedelta(seconds=1),
 )
 
@@ -605,6 +609,24 @@ class HeldNotifications(RecordingNotificationProvider):
         return await super().send(token, notification)
 
 
+class WritingSummariser(CallSummariser):
+    """Writes the facts' summary under a headline of its own, or never answers when `hanging`."""
+
+    HEADLINE: Final = "A model's account of the call."
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[CallFacts, tuple[TranscriptEntry, ...]]] = []
+        self.hanging = False
+
+    async def summarise(
+        self, facts: CallFacts, transcript: Sequence[TranscriptEntry], *, locale: str
+    ) -> CallSummary:
+        self.asked.append((facts, tuple(transcript)))
+        if self.hanging:
+            await asyncio.Event().wait()
+        return replace(fallback_summary(facts, locale=locale), headline=self.HEADLINE)
+
+
 def an_assistance() -> Assistance:
     """What an assistant step speaks with, for a test that only looks at plans."""
     return Assistance(
@@ -630,6 +652,7 @@ class Running:
     escalations: InMemoryStores
     dispatcher: EscalationDispatcher
     metrics: RecordingMetrics
+    summariser: WritingSummariser
 
     async def settled(self, call: str, state: CallState) -> CallSession:
         """Wait until the stored call is in `state`, and return it."""
@@ -708,6 +731,7 @@ async def orchestrating(
     )
     speech = ControlledSpeech()
     agent = Agent(list(looks))
+    summariser = WritingSummariser()
     orchestrator = CallOrchestrator(
         transport=line,
         ownership=EveryCallIsTheOwners(),
@@ -718,6 +742,7 @@ async def orchestrating(
         assistant=AssistantServices(
             speech=speech, voices=StaticVoiceProvider(), judging=agent.judging
         ),
+        summariser=summariser,
         bounds=bounds,
     )
     running = Running(
@@ -730,6 +755,7 @@ async def orchestrating(
         escalations=escalations,
         dispatcher=dispatcher,
         metrics=metrics,
+        summariser=summariser,
     )
     if start:
         await orchestrator.start()

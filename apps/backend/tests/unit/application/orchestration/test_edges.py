@@ -335,6 +335,7 @@ def test_a_streaming_line_without_an_assistant_cannot_be_orchestrated() -> None:
             clock=FixedClock(),
             metrics=RecordingMetrics(),
             assistant=None,
+            summariser=None,
         )
 
 

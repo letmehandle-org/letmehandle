@@ -29,6 +29,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallEnding, CallSoFar
+from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.orchestration.inputs import (
     ConversationStopped,
     EndingRequested,
@@ -46,10 +47,10 @@ from letmehandle.application.orchestration.ledger import CallLedger
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
 from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
-from letmehandle.application.orchestration.summary import Findings, summary_of
+from letmehandle.application.orchestration.summary import Findings, facts_of, with_findings
 from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
-from letmehandle.domain.models.call import CallSession, ParticipantRole, Speaker
+from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.escalation_context import (
@@ -68,6 +69,8 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from letmehandle.application.agent.ports import AgentJudgement
+    from letmehandle.application.calls.fallback import CallFacts
+    from letmehandle.application.calls.summariser import CallSummariser
     from letmehandle.application.escalation.dispatch import EscalationDispatcher
     from letmehandle.application.orchestration.inputs import Input, Request
     from letmehandle.application.orchestration.plan import CallPlan, Converse
@@ -80,6 +83,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.escalation import EscalationDecision, EscalationReason
     from letmehandle.domain.models.identifiers import CallId, EventId, UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
+    from letmehandle.domain.models.summary import CallSummary
     from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -88,6 +92,7 @@ logger = get_logger(__name__)
 
 PROVIDER_FAILED: Final = "call.provider_failed"
 JUDGEMENT_FAILED: Final = "call.judgement_failed"
+SUMMARY_FAILED: Final = "call.summary_failed"
 CALL_ENDED: Final = "call.ended"
 
 # While the assistant is on the call and the user is not, something the caller says is worth
@@ -129,6 +134,7 @@ class RunContext:
     clock: Clock
     metrics: MetricsRecorder
     bounds: Bounds
+    summariser: CallSummariser | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,6 +536,9 @@ class CallRun:
         The conversation, the speech session, the judgement and the timers stop; the transport lets
         the call go; the agent forgets it; the call is stored as it ended with its summary; and the
         user's escalation context, if there is one, is marked ended.
+
+        The summary is written after the transport has let the call go, so however long it takes
+        nobody is left on a line waiting for it, and that wait has a bound of its own.
         """
         self._finished = True
         ledger = live.ledger
@@ -538,12 +547,33 @@ class CallRun:
         await self._provider("terminate", self._context.transport.terminate(self.call_id))
         if self._plan.assistant is not None:
             self._plan.assistant.assistance.judging.forget(self.call_id)
-        summary = summary_of(ledger.call, self._findings, locale=live.owner.preferences.locale)
+        written = await self._summary(live, facts_of(ledger.call, self._findings))
+        summary = with_findings(written, ledger.call, self._findings)
         await ledger.summarised(summary)
         await self._context.dispatcher.call_ended(
             live.owner.user_id, self.call_id, summary.ended_at
         )
         self._context.metrics.increment(CALL_ENDED, {"outcome": state.value})
+
+    async def _summary(self, live: _Live, facts: CallFacts) -> CallSummary:
+        """The summariser's summary of a call the assistant took; the facts' own of any other.
+
+        A call nobody spoke with has nothing a model could read, and one the summariser cannot
+        write in time is summarised from its facts, which is what the summariser itself does with
+        a model that is down or slow.
+        """
+        call = live.ledger.call
+        locale = live.owner.preferences.locale
+        summariser = self._context.summariser
+        if summariser is None or call.handling is not CallHandling.ASSISTANT:
+            return fallback_summary(facts, locale=locale)
+        try:
+            async with asyncio.timeout(self._context.bounds.summary.total_seconds()):
+                return await summariser.summarise(facts, call.transcript, locale=locale)
+        except TimeoutError:
+            logger.warning("call.summary_failed", error="TimeoutError")
+            self._context.metrics.increment(SUMMARY_FAILED, {"kind": "timeout"})
+            return fallback_summary(facts, locale=locale)
 
     async def _release_tasks(self) -> None:
         """Stop the judgement, the timers and the conversation, and wait for each to go."""

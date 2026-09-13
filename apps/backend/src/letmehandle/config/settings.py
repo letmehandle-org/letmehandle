@@ -628,6 +628,13 @@ class Settings(BaseSettings):
         )
 
     @property
+    def llm_configured(self) -> bool:
+        """Whether any model variable is set, which commits the deployment to all of them."""
+        return any(
+            value is not None for value in (self.llm_base_url, self.llm_api_key, self.llm_model)
+        )
+
+    @property
     def apns_configured(self) -> bool:
         """Whether any APNs variable is set, which commits the deployment to all of them."""
         return any(

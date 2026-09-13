@@ -96,8 +96,9 @@ class Bounds:
     `ring` is how long the user's phone rings before the assistant takes the call back. `judgement`
     bounds one look at the call by the agent, `speech_open` the speech service opening, `provider`
     one request to the transport, and `storage` one unit of work. `speaker_gone` is how long a
-    conversation whose audio stopped waits for the transport to say the call ended. `shutdown` is
-    how long stopping waits for every call to be torn down.
+    conversation whose audio stopped waits for the transport to say the call ended. `summary` is how
+    long teardown waits for a summary to be written before writing the facts' own; it is shorter
+    than `shutdown`, which is how long stopping waits for every call to be torn down.
     """
 
     ring: timedelta = timedelta(seconds=30)
@@ -106,6 +107,7 @@ class Bounds:
     provider: timedelta = timedelta(seconds=10)
     storage: timedelta = timedelta(seconds=5)
     speaker_gone: timedelta = timedelta(seconds=5)
+    summary: timedelta = timedelta(seconds=10)
     shutdown: timedelta = timedelta(seconds=15)
 
     def __post_init__(self) -> None:

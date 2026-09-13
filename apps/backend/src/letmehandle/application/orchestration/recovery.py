@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Final
 
+from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.application.orchestration.ledger import CallLedger
-from letmehandle.application.orchestration.summary import Findings, summary_of
 from letmehandle.application.preferences.context import DEFAULT_LOCALE
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.ports.repositories import MAX_CALL_PAGE
@@ -92,7 +92,7 @@ class Recovery:
             call, stores=self._stores, clock=self._clock, bounds=self._bounds, metrics=self._metrics
         )
         await ledger.move(CallState.FAILED)
-        summary = summary_of(call, Findings(), locale=await self._locale(call))
+        summary = fallback_summary(CallFacts(call), locale=await self._locale(call))
         await ledger.summarised(summary)
         await self._dispatcher.call_ended(call.user_id, call.id, summary.ended_at)
         self._metrics.increment(RECOVERED, {"outcome": "failed"})

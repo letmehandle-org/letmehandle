@@ -37,6 +37,7 @@ from letmehandle.bootstrap import (
     build_container,
     build_escalation_dispatcher,
     call_judging_on,
+    call_summariser_on,
 )
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import CallHandling, CallSession, Participant, ParticipantRole
@@ -54,11 +55,11 @@ from letmehandle.domain.ports.speech import SessionFailed, TranscriptProduced
 from tests.contracts.fakes import EchoSpeechProvider, RecordingNotificationProvider
 from tests.support.config import TEST_TRANSCRIPT_KEYS, make_settings
 from tests.support.recording_metrics import RecordingMetrics
-from tests.support.scripted_model import ScriptedModel, assess
+from tests.support.scripted_model import ScriptedModel, assess, write_summary
 from tests.support.simulated_twilio import Answering, Deployment, eventually, simulated_deployment
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -196,6 +197,7 @@ async def orchestrating(
     steps: list[Step] | None = None,
     preferences: UserPreferences | None = None,
     notifications: RecordingNotificationProvider | None = None,
+    summary: Sequence[Step] | None = None,
     before_start: Callable[[async_sessionmaker[AsyncSession], Container], Awaitable[None]]
     | None = None,
 ) -> AsyncIterator[Orchestrated]:
@@ -238,6 +240,11 @@ async def orchestrating(
                     judging=lambda actions: call_judging_on(
                         model, actions=actions, timeout=timedelta(seconds=5)
                     ),
+                ),
+                summariser=(
+                    None
+                    if summary is None
+                    else call_summariser_on(ScriptedModel(summary), timeout=timedelta(seconds=5))
                 ),
             )
             await orchestrator.start()
@@ -286,6 +293,31 @@ async def test_the_assistant_takes_a_call_on_its_own(storage: tuple[str, str]) -
             lines = await SqlTranscriptRepository(session, cipher).for_call(USER, CallId(CALL))
         assert [line.text for line in lines] == ["I am calling about the boiler service."]
         assert await running.summary_outcome() is CallOutcome.CALLER_HUNG_UP
+        running.nothing_held()
+
+
+async def test_a_call_the_assistant_took_is_summarised_by_the_model_and_stored_sealed(
+    storage: tuple[str, str],
+) -> None:
+    headline = "A caller asked about the boiler service and hung up."
+    written = [write_summary(headline, outcome="caller_hung_up", intent="service_issue")]
+    async with orchestrating(storage, summary=written) as running:
+        await running.arrives()
+        await running.reaches(CallState.AGENT_HANDLING)
+        await running.caller_says("I am calling about the boiler service.")
+        await asyncio.sleep(0.1)
+        await running.provider.caller_hangs_up(CALL)
+        await running.ended()
+
+        cipher = running.container.transcript_cipher
+        assert cipher is not None
+        async with unit_of_work(running.factory) as session:
+            summary = await SqlSummaryRepository(session, cipher, running.container.clock).get(
+                USER, CallId(CALL)
+            )
+        assert summary is not None
+        assert summary.headline == headline
+        assert summary.outcome is CallOutcome.CALLER_HUNG_UP
         running.nothing_held()
 
 

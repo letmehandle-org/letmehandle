@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
+    from letmehandle.application.calls.summariser import CallSummariser
     from letmehandle.application.escalation.dispatch import EscalationDispatcher
     from letmehandle.application.orchestration.inputs import Request
     from letmehandle.application.orchestration.ports import (
@@ -57,7 +58,11 @@ REMEMBERED_ENDINGS: Final = 10_000
 
 
 class CallOrchestrator:
-    """Owns every live call on one transport, from arrival to teardown."""
+    """Owns every live call on one transport, from arrival to teardown.
+
+    `summariser` writes the summary of a call the assistant took; without one, every call is
+    summarised from its facts.
+    """
 
     def __init__(
         self,
@@ -69,6 +74,7 @@ class CallOrchestrator:
         clock: Clock,
         metrics: MetricsRecorder,
         assistant: AssistantServices | None,
+        summariser: CallSummariser | None,
         bounds: Bounds | None = None,
     ) -> None:
         capabilities = transport.capabilities
@@ -88,6 +94,7 @@ class CallOrchestrator:
             clock=clock,
             metrics=metrics,
             bounds=bounds or Bounds(),
+            summariser=summariser,
         )
         self._assistance = (
             None

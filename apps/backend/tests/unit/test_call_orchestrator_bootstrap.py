@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from letmehandle.application.calls.summariser import ModelCallSummariser
 from letmehandle.application.orchestration.ports import AssistantServices
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
 from letmehandle.domain.models.identifiers import CallId, EventId, UserId
@@ -81,6 +82,8 @@ async def test_a_streaming_deployment_takes_calls_with_the_assistant_it_is_given
     )
     async with app.router.lifespan_context(app):
         assert app.state.orchestrator is not None
+        # No model is configured, so every call is summarised from its facts.
+        assert app.state.orchestrator._context.summariser is None
         await asyncio.sleep(0)
     assert speech.sessions == []
 
@@ -110,3 +113,4 @@ async def test_a_streaming_deployment_builds_its_speech_service_and_agent_from_s
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         assert app.state.orchestrator is not None
+        assert isinstance(app.state.orchestrator._context.summariser, ModelCallSummariser)
