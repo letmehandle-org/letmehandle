@@ -37,8 +37,9 @@ user's fictional number:
 | B, urgent | "Hi, this is Sam, her neighbour. I need to speak to her right now, it's urgent." then "Water is pouring through her ceiling from the flat upstairs. Please put her on." and, a few seconds after the user joins, hangs up | answers |
 | C, Hindi caller, English user | A courier, in Hindi: the parcel arrives tomorrow at ten; then that is all, thank you; and hangs up | keeps ringing |
 | D, Hindi caller, Hindi user | A pharmacy, in Hindi: the medicines are ready until six; then that is all; and hangs up | keeps ringing |
+| E, urgent Hindi caller, Hindi user | A neighbour, in Hindi: it is very urgent, call her now; then "all right, I'll wait"; and hangs up | keeps ringing |
 
-C and D set the user's locale first (`en` and `hi`), and run with `SPEECH_LANGUAGES` from the env
+C, D and E set the user's locale first (`en` and `hi`), and run with `SPEECH_LANGUAGES` from the env
 file or, when it has none, `en,hi` (D-039). Their caller's lines are spoken by the agent's own voice
 for Hindi where the key may use it, and otherwise by a catalogue voice on the service's multilingual
 model. Their hang-up is delivered the way a real one was: the media stream stops at once, and the
@@ -59,6 +60,7 @@ cd apps/backend
 uv run python ../../scripts/live_rehearsal.py --env-file ../../.env
 uv run python ../../scripts/live_rehearsal.py --env-file ../../.env --only B --log-level info
 uv run python ../../scripts/live_rehearsal.py --env-file ../../.env --only D
+uv run python ../../scripts/live_rehearsal.py --env-file ../../.env --only E
 ```
 
 It needs a PostgreSQL server it may create and drop a database on (`--database-server`, by default
@@ -180,6 +182,40 @@ The summariser, given ended calls built in memory, for a user whose locale is `h
 Each took 1.4–3.2 s. Details quoted from Hindi lines passed the checks, which now read Devanagari
 words whole.
 
+## Results, 2026-09-14: an urgent caller while the user is being reached
+
+On a real call a Hindi-speaking caller said it was very urgent and asked for the user to be called.
+The product decided to escalate five seconds later and dialled a second after that, but the
+assistant had already answered that it could not call the user, and only said it was trying to
+reach them on its reply after that. Two things let it: its instructions said nothing about being
+asked for the user until it was told the user was being reached, and it was told only once the
+dial had been accepted. Both changed (finding 11); E rehearses that call.
+
+### E: an urgent Hindi caller, and a user who does not answer (one run)
+
+| | |
+| --- | --- |
+| States | agent_handling → escalation_requested → human_ringing → completed, in 39 s |
+| Judgement | 8.2 s; escalation requested 8.2 s after the caller's line settled, dialled 7 ms later |
+| Replies | 3.5 s after the urgent line, 1.3 s after the second |
+| Stored | ended, `unanswered_escalation`, intent personal, human joined no |
+| Escalation | `caller_asked_for_the_user`, delivered, ended |
+| The service's record | language asked for `hi`, no voice sent, greeting sent; 5 replies, 94 % Devanagari |
+
+The stored transcript, read for this run only, in English:
+
+| Settled | Who | What was said |
+| --- | --- | --- |
+| 0.0 s | Caller | Hello, I'm Sam, their neighbour. It's very urgent. Please phone them now. |
+| 6.2 s | Assistant | Hello Sam, I'll check whether they can take the call right now. Please wait. |
+| 8.2 s | | *escalation requested; the assistant told the user is being reached; the user dialled* |
+| 10.9 s | Caller | All right, I'll wait. |
+| 15.3 s | Assistant | Thank you. I'm checking now whether they can take the call. |
+
+The first reply was written before the judgement had finished, so it rests on the instructions
+alone: asked for the user, the assistant offered to check rather than refusing. The second rests on
+being told, and held the same line without promising the user would come.
+
 ## Findings
 
 1. **Fixed — an unanswered escalation was stored as handed to the user.** In the first run of A the
@@ -234,6 +270,17 @@ words whole.
     Hindi was spoken by a catalogue voice on the multilingual model. Nothing the adapter reads tells
     it the agent changed language. And the free allowance covers only a few rehearsed calls a
     month.
+
+11. **Fixed — the assistant said it could not call the user while their phone was being dialled.**
+    The assistant's instructions now forbid saying or suggesting it cannot reach the user, and tell
+    it, when asked for them, to say it will check whether they can take the call, without promising
+    (`fix(agent): the speaking assistant offers to check, never says it cannot`). The run tells it
+    the user is being reached before it asks for the dial rather than after, and that it failed if
+    the dial is refused (`fix(orchestration): tell the assistant the user is being reached before
+    dialling`). The update is sent as background the model reads before its next reply, not as words
+    of the caller's, which it is told to discount. A judgement takes six to nine seconds and a reply
+    two or three, so the reply to the line that asks is nearly always written before anything can
+    be told: the instructions are what that reply rests on, and E shows them holding.
 
 ## What still needs a real telephone network
 

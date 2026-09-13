@@ -19,6 +19,7 @@ from letmehandle.observability.logging import (
     get_logger,
     log_failure,
 )
+from letmehandle.observability.scrubbing import exception_outline
 from letmehandle.observability.tracing import UNTRACEABLE_CALL
 from tests.support.config import make_settings
 
@@ -44,6 +45,21 @@ def test_json_format_is_configured() -> None:
 def test_console_format_is_configured() -> None:
     configure_logging(make_settings(log_format=LogFormat.CONSOLE))
     assert structlog.is_configured()
+
+
+def test_the_console_renders_an_outlined_exception_without_failing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Failures are logged as an outline, a mapping, and the console renderer expects text there.
+    configure_logging(make_settings(log_format=LogFormat.CONSOLE, log_level="info"))
+    try:
+        outline = exception_outline(RuntimeError("boom"))
+        get_logger("letmehandle.test").error("unhandled_exception", exception=outline)
+        written = capsys.readouterr().err
+    finally:
+        configure_logging(make_settings())
+    assert "unhandled_exception" in written
+    assert "RuntimeError" in written
 
 
 def test_logger_is_bound_to_its_module() -> None:

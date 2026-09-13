@@ -461,6 +461,26 @@ class TestEscalation:
             await eventually(lambda: any("no_answer" in each for each in session.context_updates))
             assert line.asked("cancel", CALL) == 1
 
+    async def test_the_assistant_is_told_the_user_is_being_reached_before_they_are_dialled(
+        self,
+    ) -> None:
+        # The assistant answers the caller while the dial is still on its way; told only once the
+        # phone rang, it had already said the user could not be called.
+        line = streaming()
+        line.holding["dial"] = asyncio.Event()
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await with_the_assistant(running)
+            session = await running.session()
+            await running.caller_says("It is very urgent, call them now.")
+            await eventually(lambda: line.asked("dial", CALL) == 1)
+
+            assert [each for each in session.context_updates if '"being_reached"' in each]
+            line.holding["dial"].set()
+            await running.settled(CALL, CallState.HUMAN_RINGING)
+            assert sum('"being_reached"' in each for each in session.context_updates) == 1
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
     async def test_a_dial_the_transport_refuses_leaves_the_assistant_and_a_later_look_retries(
         self,
     ) -> None:
@@ -476,6 +496,12 @@ class TestEscalation:
                 CallState.ESCALATION_REQUESTED,
                 CallState.AGENT_HANDLING,
             ]
+            # Told it was checking, then told it did not get through, so it stops saying so.
+            session = await running.session()
+            told = [each for each in session.context_updates if '"user"' in each]
+            assert '"being_reached"' in told[0]
+            assert '"not_reached"' in told[-1]
+            assert '"failed"' in told[-1]
             # The failed ring left no mark, so the next look can ring.
             line.refusing.clear()
             await running.caller_says("Please, it is urgent.")
