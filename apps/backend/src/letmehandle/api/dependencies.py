@@ -77,7 +77,10 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """One session per request, committed at the end if nothing raised."""
+    """One session per request, committed at the end if nothing raised.
+
+    Reached only through `RequestSession`, which ends it before the response is sent.
+    """
     factory: async_sessionmaker[AsyncSession] | None = request.app.state.session_factory
     if factory is None:
         raise ApiError(
@@ -105,9 +108,16 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
             await session.commit()
 
 
+# The session as routes receive it. Ended when the route function returns, before its response is
+# sent, rather than after as a dependency's teardown otherwise is: a client answered before the
+# commit could read back nothing of what it was told was written, and a commit that failed after
+# the answer would be a success nobody learned was undone.
+type RequestSession = Annotated[AsyncSession, Depends(get_session, scope="function")]
+
+
 def get_authentication_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> AuthenticationService:
     """The sign-in use case, with this request's session."""
     container = container_of(request)
@@ -131,7 +141,7 @@ def get_authentication_service(
 
 def get_account_deletion(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> AccountDeletion:
     """Deleting an account, on this request's session, ending its calls through the orchestrator.
 
@@ -189,7 +199,7 @@ async def get_authenticated_user(
 
 async def get_current_user(
     authenticated: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
     request: Request,
 ) -> User:
     """The user this request is from.
@@ -211,7 +221,7 @@ async def get_current_user(
 
 def get_preferences_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> PreferencesService:
     """Preferences and onboarding, on this request's session."""
     clock = container_of(request).clock
@@ -223,7 +233,7 @@ def get_preferences_service(
 
 def get_call_history_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> CallHistoryService:
     """A user's calls, on this request's session, or a 503 when nothing here can open them.
 
@@ -248,7 +258,7 @@ def get_call_history_service(
 
 def get_call_reporting(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> CallReporting:
     """Accepting a handset's reports about its calls, on this request's session."""
     container = container_of(request)
@@ -270,7 +280,7 @@ def get_voice_provider(request: Request) -> VoiceProvider:
 
 def get_user_repository(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> UserRepository:
     """Storage for accounts, on this request's session."""
     return SqlUserRepository(session, container_of(request).clock)
@@ -278,7 +288,7 @@ def get_user_repository(
 
 def get_device_service(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> DeviceRegistrationService:
     """The device token lifecycle, on this request's session."""
     return DeviceRegistrationService(SqlDeviceRepository(session, container_of(request).clock))
@@ -286,7 +296,7 @@ def get_device_service(
 
 def get_escalation_contexts(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: RequestSession,
 ) -> EscalationContextRepository:
     """Stored escalation contexts, on this request's session, or a 503 as call history gives.
 
