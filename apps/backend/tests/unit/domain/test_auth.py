@@ -10,6 +10,7 @@ from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.auth import (
     CHALLENGE_LIFETIME,
     MAX_ATTEMPTS,
+    REFRESH_REUSE_LEEWAY,
     AuthenticatedUser,
     ChallengeState,
     OTPChallenge,
@@ -171,3 +172,41 @@ class TestAuthenticatedUser:
         # not something to accept.
         user = AuthenticatedUser(UserId("u1"), NOW, NOW + timedelta(minutes=15))
         assert not user.is_valid_at(NOW - timedelta(seconds=1))
+
+
+class TestSupersession:
+    def test_a_superseded_challenge_is_closed_even_before_it_expires(self) -> None:
+        closed = a_challenge().superseded(NOW)
+        assert closed.state_at(NOW) is ChallengeState.SUPERSEDED
+        assert not closed.is_open_at(NOW)
+
+    def test_a_finished_challenge_is_left_as_it_was(self) -> None:
+        used = a_challenge().verified(NOW)
+        assert used.superseded(NOW) is used
+        closed = a_challenge().superseded(NOW)
+        assert closed.superseded(NOW + timedelta(seconds=1)) is closed
+
+    def test_attempts_carry_the_supersession_with_them(self) -> None:
+        closed = a_challenge().superseded(NOW)
+        assert closed.with_failed_attempt().superseded_at == NOW
+
+    def test_the_right_code_is_not_a_failed_attempt(self) -> None:
+        guessed = a_challenge().with_failed_attempt().with_failed_attempt()
+        assert guessed.failed_attempts == 2
+        assert guessed.verified(NOW).failed_attempts == 2
+        assert guessed.verified(NOW).superseded_at is None
+
+
+class TestReuseLeeway:
+    def test_a_token_rotated_moments_ago_is_within_it(self) -> None:
+        rotated = a_token().rotated(NOW)
+        assert rotated.is_within_reuse_leeway_at(NOW + REFRESH_REUSE_LEEWAY)
+        assert not rotated.is_within_reuse_leeway_at(
+            NOW + REFRESH_REUSE_LEEWAY + timedelta(seconds=1)
+        )
+
+    def test_an_unrotated_revoked_or_expired_token_is_not(self) -> None:
+        assert not a_token().is_within_reuse_leeway_at(NOW)
+        assert not a_token().rotated(NOW).revoked(NOW).is_within_reuse_leeway_at(NOW)
+        expiring = a_token(expires_at=NOW + timedelta(seconds=30)).rotated(NOW)
+        assert not expiring.is_within_reuse_leeway_at(NOW + timedelta(seconds=31))

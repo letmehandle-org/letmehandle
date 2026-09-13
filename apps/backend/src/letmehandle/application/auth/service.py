@@ -10,6 +10,18 @@ Two properties are worth stating plainly because they are easy to lose in a refa
 
   Verifying a code consumes an attempt whether or not the code was right, and whether or not
   the challenge existed. Otherwise the attempt limit is advisory.
+
+Every code sent costs money and reaches a phone, so sending is defended in layers, each against a
+different attack, and each counted where that attack cannot reset it (D-036):
+
+  1. Which countries codes go to at all — premium-rate and unserved destinations never get one.
+  2. How many one source may ask for — one place asking for codes to many numbers.
+  3. Whether the number is locked after too many wrong codes — guessing, across new codes.
+  4. How soon, and how often, one number may be sent another — bombing somebody's phone.
+  5. How many the whole deployment, and each country, sends in an hour — the budget an attack
+     that spreads across numbers and sources to earn from the messages eventually meets.
+
+Only the latest code to a number works, so asking for more codes never opens more to guess at.
 """
 
 from __future__ import annotations
@@ -34,6 +46,7 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.ports.clock import Clock, IdGenerator
+    from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.otp import OTPProvider
     from letmehandle.domain.ports.rate_limit import RateLimiter
     from letmehandle.domain.ports.repositories import (
@@ -53,6 +66,14 @@ class AuthenticationError(DomainError):
     """
 
 
+class UnservedNumberError(DomainError):
+    """Codes are not sent to numbers in this country from this deployment.
+
+    Not a sign-in failure: the number was never tried, and saying so tells nobody anything about
+    an account, since it is true of every number with that calling code.
+    """
+
+
 class RateLimitedError(AuthenticationError):
     """Too many attempts. Carries when to try again, so a client does not simply retry."""
 
@@ -66,14 +87,52 @@ class AuthenticationPolicy:
     """The numbers that govern signing in.
 
     Configuration rather than constants in the code, so that a deployment under attack can be
-    tightened without a release.
+    tightened without a release. The defaults are what a small deployment can live with and an
+    attacker cannot profit from; each is explained where it is applied.
     """
 
-    refresh_token_lifetime: timedelta = timedelta(days=30)
+    # Sliding: every renewal starts it again, so somebody who opens the app within this long of the
+    # last time is never asked for their number again.
+    refresh_token_lifetime: timedelta = timedelta(days=90)
+
+    # How long one number waits before another code, by how many it has had today: the first
+    # resend is quick, because codes do go astray, and each after that waits longer.
+    resend_cooldowns: tuple[timedelta, ...] = (
+        timedelta(seconds=30),
+        timedelta(seconds=60),
+        timedelta(minutes=2),
+        timedelta(minutes=5),
+    )
     challenges_per_number: int = 5
     challenges_per_number_window: timedelta = timedelta(hours=1)
+    challenges_per_number_per_day: int = 10
+
+    # Wrong codes one number may have, across every code sent to it, before signing in to it
+    # waits. Five tries per code times ten codes a day is still one chance in twenty thousand.
+    failed_codes_per_number: int = 10
+    failed_codes_window: timedelta = timedelta(hours=24)
+
     challenges_per_source: int = 20
     challenges_per_source_window: timedelta = timedelta(hours=1)
+    verifications_per_source: int = 60
+    verifications_per_source_window: timedelta = timedelta(hours=1)
+
+    # Calling codes a code may be sent to, without the plus. `None` sends anywhere, which is what a
+    # development deployment wants and what a production one should not.
+    allowed_calling_codes: frozenset[str] | None = None
+    # The deployment's hourly budget, overall and for any one calling code. `None` is unbounded.
+    challenges_per_hour: int | None = 500
+    challenges_per_hour_per_calling_code: int | None = 100
+
+    @property
+    def retention(self) -> timedelta:
+        """How long a challenge must be kept to be counted by every limit that reads it."""
+        return max(
+            self.challenges_per_number_window,
+            timedelta(days=1),
+            self.failed_codes_window,
+            CHALLENGE_LIFETIME,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +145,8 @@ class ChallengeIssued:
 
     challenge_id: str
     expires_in_seconds: int
+    # When this number may be sent another code, so an app can count down rather than guess.
+    resend_after_seconds: int
 
 
 class AuthenticationService:
@@ -106,6 +167,7 @@ class AuthenticationService:
         ids: IdGenerator,
         rate_limiter: RateLimiter,
         policy: AuthenticationPolicy | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._users = users
         self._challenges = challenges
@@ -124,35 +186,47 @@ class AuthenticationService:
         self._ids = ids
         self._rate_limiter = rate_limiter
         self._policy = policy or AuthenticationPolicy()
+        self._metrics = metrics
 
     # ------------------------------------------------------------- requesting
 
     async def request_challenge(
         self, number: PhoneNumber, *, source: str | None = None
     ) -> ChallengeIssued:
-        """Send a code to the number.
+        """Send a code to the number, once every layer in the module's docstring allows it.
 
-        Two limits, deliberately measured differently. The per-number one is counted in the
-        repository, so it survives a restart and cannot be reset by an attacker waiting for a
-        deployment. The per-source one is counted by the limiter, because it is about bursts
-        from one place and an approximate answer within a window is enough.
+        The per-source limit is counted by the limiter, because it is about bursts from one place
+        and an approximate answer within a window is enough. Everything about a number or the
+        deployment is counted in the repository, so it survives a restart and cannot be reset by
+        an attacker waiting for a deployment.
         """
         now = self._clock.now()
+        policy = self._policy
+
+        allowed = policy.allowed_calling_codes
+        if allowed is not None and number.calling_code not in allowed:
+            self._refused("unserved_country")
+            raise UnservedNumberError("codes are not sent to numbers in this country")
 
         if source is not None:
             decision = await self._rate_limiter.check(
                 f"challenge:source:{source}",
-                limit=self._policy.challenges_per_source,
-                window=self._policy.challenges_per_source_window,
+                limit=policy.challenges_per_source,
+                window=policy.challenges_per_source_window,
             )
             if not decision.allowed:
+                self._refused("source")
                 raise RateLimitedError(decision.retry_after_seconds)
 
-        issued_recently = await self._challenges.count_issued_since(
-            number, now - self._policy.challenges_per_number_window
-        )
-        if issued_recently >= self._policy.challenges_per_number:
-            raise RateLimitedError(int(self._policy.challenges_per_number_window.total_seconds()))
+        await self._refuse_if_locked(number, now)
+
+        issued = await self._challenges.issued_since(number, now - timedelta(days=1))
+        wait = self._wait_for_another(issued, now)
+        if wait > 0:
+            self._refused("number")
+            raise RateLimitedError(wait)
+
+        await self._refuse_over_budget(number, now)
 
         code = self._challenge_code()
         challenge = OTPChallenge(
@@ -162,16 +236,87 @@ class AuthenticationService:
             issued_at=now,
             expires_at=now + CHALLENGE_LIFETIME,
         )
+        # Before the new one is stored: only the latest code works.
+        await self._challenges.supersede_open(number, now)
         await self._challenges.add(challenge)
 
         # Sent after the challenge is stored. The other order can deliver a code that nothing
         # will accept, which looks to the user exactly like the product being broken.
         await self._otp.send(number, code)
+        if self._metrics is not None:
+            self._metrics.increment("auth.challenge.sent")
 
         return ChallengeIssued(
             challenge_id=challenge.id,
             expires_in_seconds=int(CHALLENGE_LIFETIME.total_seconds()),
+            resend_after_seconds=self._wait_for_another([*issued, now], now),
         )
+
+    def _wait_for_another(self, issued: list[datetime], now: datetime) -> int:
+        """Seconds until this number may be sent another code, given when it was sent each today.
+
+        Zero when it may be sent one now. The longest of three answers: the cooldown after the
+        last code, the hourly limit and the daily limit, each saying when its oldest counted code
+        leaves its window.
+        """
+        policy = self._policy
+        if not issued:
+            return 0
+        waits: list[float] = []
+
+        cooldowns = policy.resend_cooldowns
+        cooldown = cooldowns[min(len(issued), len(cooldowns)) - 1]
+        waits.append((issued[-1] + cooldown - now).total_seconds())
+
+        hour = [at for at in issued if at >= now - policy.challenges_per_number_window]
+        if len(hour) >= policy.challenges_per_number:
+            oldest = hour[-policy.challenges_per_number]
+            waits.append((oldest + policy.challenges_per_number_window - now).total_seconds())
+
+        if len(issued) >= policy.challenges_per_number_per_day:
+            oldest = issued[-policy.challenges_per_number_per_day]
+            waits.append((oldest + timedelta(days=1) - now).total_seconds())
+
+        longest = max(waits)
+        return 0 if longest <= 0 else max(1, int(-(-longest // 1)))
+
+    async def _refuse_if_locked(self, number: PhoneNumber, now: datetime) -> None:
+        """Too many wrong codes for this number lately: no new code, and no code accepted."""
+        policy = self._policy
+        failed = await self._challenges.failed_attempts_since(
+            number, now - policy.failed_codes_window
+        )
+        if failed >= policy.failed_codes_per_number:
+            self._refused("locked")
+            # The whole window: an exact release time would say how the failures are spread.
+            raise RateLimitedError(int(policy.failed_codes_window.total_seconds()))
+
+    async def _refuse_over_budget(self, number: PhoneNumber, now: datetime) -> None:
+        """The deployment has sent as many codes this hour as it will, overall or to this country.
+
+        Deliberately a circuit breaker that also stops genuine sign-ins, because the alternative
+        is a bill. The metric it records is the alarm somebody should be woken by.
+        """
+        policy = self._policy
+        hour_ago = now - timedelta(hours=1)
+        if (
+            policy.challenges_per_hour is not None
+            and await self._challenges.count_all_issued_since(hour_ago)
+            >= policy.challenges_per_hour
+        ):
+            self._refused("budget")
+            raise RateLimitedError(int(timedelta(minutes=10).total_seconds()))
+        if (
+            policy.challenges_per_hour_per_calling_code is not None
+            and await self._challenges.count_all_issued_since(hour_ago, number.calling_code)
+            >= policy.challenges_per_hour_per_calling_code
+        ):
+            self._refused("country_budget")
+            raise RateLimitedError(int(timedelta(minutes=10).total_seconds()))
+
+    def _refused(self, reason: str) -> None:
+        if self._metrics is not None:
+            self._metrics.increment("auth.challenge.refused", {"outcome": reason})
 
     def _challenge_code(self) -> str:
         """The code for a new challenge: random, unless a testing provider fixes it.
@@ -195,13 +340,30 @@ class AuthenticationService:
 
     # -------------------------------------------------------------- verifying
 
-    async def verify(self, challenge_id: str, code: str) -> TokenPair:
-        """Exchange a correct code for a session, creating the account if there is not one."""
+    async def verify(self, challenge_id: str, code: str, *, source: str | None = None) -> TokenPair:
+        """Exchange a correct code for a session, creating the account if there is not one.
+
+        Limited per source, so one place cannot guess at many numbers' codes at once, and per
+        number across every code it has been sent, so asking for a new code does not reset the
+        guesses. A locked number refuses even the right code: accepting it would make the lock a
+        suggestion to guess more slowly.
+        """
         now = self._clock.now()
+        if source is not None:
+            decision = await self._rate_limiter.check(
+                f"verify:source:{source}",
+                limit=self._policy.verifications_per_source,
+                window=self._policy.verifications_per_source_window,
+            )
+            if not decision.allowed:
+                raise RateLimitedError(decision.retry_after_seconds)
+
         challenge = await self._challenges.get(challenge_id)
 
         if challenge is None or not challenge.is_open_at(now):
             raise AuthenticationError("that code is not valid")
+
+        await self._refuse_if_locked(challenge.phone_number, now)
 
         if not self._code_hasher.verify(code, challenge.code_hash):
             # The attempt is consumed on failure, or the limit is advisory.
@@ -233,6 +395,10 @@ class AuthenticationService:
             raise AuthenticationError("that session is not valid")
 
         if stored.was_already_used:
+            if stored.is_within_reuse_leeway_at(now):
+                # The phone asked, the answer never reached its keychain, and it asked again. A new
+                # pair, and nothing revoked: see REFRESH_REUSE_LEEWAY.
+                return await self._issue_pair(stored.user_id, family_id=stored.family_id, now=now)
             await self._refresh_tokens.revoke_family(stored.family_id, now)
             raise AuthenticationError("that session is not valid")
 
@@ -293,8 +459,8 @@ async def forget_spent_challenges(
 
     Each holds the number a code was sent to, for anybody who typed one in, account or not. One
     that has expired can never be verified, but it is still counted against its number until the
-    per-number window has passed it, so that is when it goes: sooner would hand a number its limit
-    back as each code expired.
+    longest window that reads it has passed it — the daily limits and the lock on wrong codes — so
+    that is when it goes: sooner would hand a number its limits back as each code expired.
     """
-    window = (policy or AuthenticationPolicy()).challenges_per_number_window
+    window = (policy or AuthenticationPolicy()).retention
     return await challenges.delete_expired(clock.now() - window)

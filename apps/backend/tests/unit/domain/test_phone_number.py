@@ -98,3 +98,23 @@ def test_the_default_string_form_is_masked() -> None:
 def test_only_ascii_digits_and_nothing_after_them_make_the_stored_form(value: str) -> None:
     with pytest.raises(InvariantError):
         PhoneNumber(value)
+
+
+# Numbers outside the fictional ranges are built from their calling code at run time, so no whole
+# real-looking number sits in the source (D-021). Only the code is being read.
+@pytest.mark.parametrize(
+    ("code", "rest"),
+    [
+        ("1", "2025550143"),
+        ("7", "9123456789"),
+        ("44", "7700900123"),
+        ("91", "9" * 10),
+        ("20", "1" * 10),
+        ("971", "5" * 9),
+        ("966", "5" * 9),
+        ("880", "1" * 10),
+        ("353", "8" * 9),
+    ],
+)
+def test_the_calling_code_is_read_from_the_numbering_zones(code: str, rest: str) -> None:
+    assert PhoneNumber("+" + code + rest).calling_code == code

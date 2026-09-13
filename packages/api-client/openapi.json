@@ -652,11 +652,16 @@
           "expires_in_seconds": {
             "title": "Expires In Seconds",
             "type": "integer"
+          },
+          "resend_after_seconds": {
+            "title": "Resend After Seconds",
+            "type": "integer"
           }
         },
         "required": [
           "challenge_id",
-          "expires_in_seconds"
+          "expires_in_seconds",
+          "resend_after_seconds"
         ],
         "title": "ChallengeResponse",
         "type": "object"

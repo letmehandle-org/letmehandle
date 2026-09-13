@@ -10,6 +10,7 @@ It is also the one place allowed to name a provider. A test asserts that no modu
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Final
 
@@ -38,7 +39,7 @@ from letmehandle.adapters.database.repositories import (
 )
 from letmehandle.api.errors import ApiError
 from letmehandle.application.auth.deletion import AccountDeletion
-from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
+from letmehandle.application.auth.service import AuthenticationService
 from letmehandle.application.calls.history import CallHistoryService
 from letmehandle.application.calls.reports import CallReporting
 from letmehandle.application.escalation.devices import DeviceRegistrationService
@@ -135,9 +136,10 @@ def get_authentication_service(
         clock=container.clock,
         ids=container.ids,
         rate_limiter=container.rate_limiter,
-        policy=AuthenticationPolicy(
-            refresh_token_lifetime=container.refresh_token_lifetime,
+        policy=replace(
+            container.auth_limits, refresh_token_lifetime=container.refresh_token_lifetime
         ),
+        metrics=container.metrics,
     )
 
 

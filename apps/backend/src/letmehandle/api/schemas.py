@@ -44,6 +44,8 @@ class ChallengeRequest(Request):
 class ChallengeResponse(Response):
     challenge_id: str
     expires_in_seconds: int
+    # When another code may be asked for, so the app counts down instead of trying and being told.
+    resend_after_seconds: int
 
 
 class VerifyRequest(Request):

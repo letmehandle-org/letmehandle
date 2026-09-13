@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -94,9 +95,15 @@ async def running(
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
+    container = build_container(
+        settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+    )
     app.state.container = replace(
-        build_container(settings, voices=app.state.voices, reported_calls=app.state.reported_calls),
+        container,
         forwarding=forwarding,
+        # Signing the same number in twice is ordinary in these suites, and a real clock cannot be
+        # moved past the resend cooldown. The cooldown has its own tests, which restore it.
+        auth_limits=replace(container.auth_limits, resend_cooldowns=(timedelta(0),)),
     )
 
     try:
