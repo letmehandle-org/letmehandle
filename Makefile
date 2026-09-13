@@ -84,7 +84,7 @@ licences: ## Regenerate the third-party licence report
 	@cd $(BACKEND) && uv run python ../../scripts/licence_report.py
 
 .PHONY: verify
-verify: audit lint typecheck test coverage api-types-check config-reference-check docs-check ## Everything. What pre-push and CI run.
+verify: audit comments lint typecheck test coverage api-types-check config-reference-check docs-check ## Everything. What pre-push and CI run.
 	@echo -e "\033[32mverify passed\033[0m"
 
 .PHONY: audit
@@ -96,6 +96,10 @@ audit: ## Check that nothing private reached a tracked file, or any commit
 	else \
 		echo "gitleaks: not installed, skipped locally (CI runs it)"; \
 	fi
+
+.PHONY: comments
+comments: ## Fail if a file gained a multi-line docstring or comment block (ratcheted)
+	@python3 scripts/comment_audit.py
 
 .PHONY: audit-deps
 audit-deps: ## Check every locked dependency for known vulnerabilities (needs the network)
@@ -115,7 +119,7 @@ format: ## Apply formatting
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/live_rehearsal.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py ../../scripts/generate_config_reference.py ../../scripts/licence_report.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/comment_audit.py ../../scripts/live_rehearsal.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py ../../scripts/generate_config_reference.py ../../scripts/licence_report.py && uv run lint-imports; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
 
