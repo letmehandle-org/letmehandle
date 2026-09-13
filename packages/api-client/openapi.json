@@ -16,6 +16,16 @@
         "title": "AuthorityPayload",
         "type": "object"
       },
+      "CallEnding": {
+        "description": "How a reported call ended.",
+        "enum": [
+          "screened_out",
+          "missed",
+          "completed"
+        ],
+        "title": "CallEnding",
+        "type": "string"
+      },
       "CallHandlingPayload": {
         "additionalProperties": false,
         "description": "What happens to a call before anybody has spoken to it.",
@@ -66,6 +76,125 @@
         ],
         "title": "CallImportance",
         "type": "integer"
+      },
+      "CallReportBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/CallReportPayload"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Reports",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reports"
+        ],
+        "title": "CallReportBatch",
+        "type": "object"
+      },
+      "CallReportPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "maxLength": 48,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9-]+$",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "caller_number": {
+            "anyOf": [
+              {
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Number"
+          },
+          "ending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallEnding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_id": {
+            "maxLength": 48,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9-]+$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReportedCallKind"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "screening": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreeningDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "call_id",
+          "kind",
+          "occurred_at"
+        ],
+        "title": "CallReportPayload",
+        "type": "object"
+      },
+      "CallReportReceipt": {
+        "description": "What became of each report in a batch. The handset forgets every one it is told about.\n\n`accepted` were stored now and `duplicates` had been already; `rejected` never will be,\nbecause something in them cannot have happened or cannot be read.",
+        "properties": {
+          "accepted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted",
+            "type": "array"
+          },
+          "duplicates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedReport"
+            },
+            "title": "Rejected",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accepted",
+          "duplicates",
+          "rejected"
+        ],
+        "title": "CallReportReceipt",
+        "type": "object"
       },
       "CallerCategory": {
         "description": "What kind of call this appears to be.\n\nDeliberately coarse. These are the distinctions the user's rules act on \u2014 the difference\nbetween a delivery and a courier is not one anybody would set a different rule for, and a\ncategory nobody can act on is a category that only makes classification harder.",
@@ -594,6 +723,57 @@
         ],
         "title": "RefreshRequest",
         "type": "object"
+      },
+      "RejectedReport": {
+        "description": "A report that was not stored, and will not be however often it is sent.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "event_id",
+          "reason"
+        ],
+        "title": "RejectedReport",
+        "type": "object"
+      },
+      "ReportedCallKind": {
+        "description": "What a handset can observe about its own call. Nothing joins or leaves one visibly.",
+        "enum": [
+          "incoming",
+          "answered",
+          "ended"
+        ],
+        "title": "ReportedCallKind",
+        "type": "string"
+      },
+      "ScreeningDecision": {
+        "description": "What was done with a call before the handset rang.\n\nOnly produced where `can_screen_before_ringing` is declared. `SILENCE` is distinct from\n`REJECT` because they mean different things to the caller: one rings out, the other is\nrefused, and a user choosing between them is choosing what the caller learns.",
+        "enum": [
+          "allow",
+          "reject",
+          "silence"
+        ],
+        "title": "ScreeningDecision",
+        "type": "string"
       },
       "SignOutRequest": {
         "additionalProperties": false,
@@ -1155,6 +1335,52 @@
         "summary": "Exchange a code",
         "tags": [
           "authentication"
+        ]
+      }
+    },
+    "/v1/calls/reports": {
+      "post": {
+        "operationId": "report_calls_v1_calls_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallReportBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallReportReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Report what happened to this handset's calls",
+        "tags": [
+          "calls"
         ]
       }
     },

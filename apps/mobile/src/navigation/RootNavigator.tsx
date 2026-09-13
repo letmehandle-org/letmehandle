@@ -7,6 +7,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useSession } from '../auth/SessionProvider';
+import { CallScreeningProvider } from '../calls/CallScreeningProvider';
+import { CallScreeningScreen } from '../calls/CallScreeningScreen';
+import { callScreening, type CallScreening } from '../calls/callScreening';
 import {
   PreferencesProvider,
   usePreferences,
@@ -66,6 +69,7 @@ const SETTINGS_ROUTES: Record<SettingsPage, keyof AppStackParamList> = {
   say: APP_ROUTES.say,
   personalise: APP_ROUTES.personalise,
   account: APP_ROUTES.account,
+  callScreening: APP_ROUTES.callScreening,
 };
 
 /**
@@ -81,8 +85,21 @@ const SETTINGS_ROUTES: Record<SettingsPage, keyof AppStackParamList> = {
  * unavailable states are not navigators and a container whose child is not one has no screen to
  * show.
  */
-export function RootNavigator(): React.JSX.Element {
+export function RootNavigator({
+  screening = callScreening,
+}: {
+  /** This handset's call screening, or null where it has none. A parameter so tests can vary it. */
+  readonly screening?: CallScreening | null;
+}): React.JSX.Element {
   const { status } = useSession();
+
+  useEffect(() => {
+    // Whoever signs in next must not be screened by the rules of whoever left, nor have the
+    // previous account's calls reported as theirs.
+    if (status === 'signed-out' && screening !== null) {
+      screening.forgetAccount().catch(() => undefined);
+    }
+  }, [status, screening]);
 
   if (status === 'restoring') {
     // Shown rather than flashing the sign-in screen at somebody who is already signed in.
@@ -103,9 +120,11 @@ export function RootNavigator(): React.JSX.Element {
 
   return (
     <PreferencesProvider>
-      <NavigationContainer theme={navigationTheme}>
-        <SignedIn />
-      </NavigationContainer>
+      <CallScreeningProvider screening={screening}>
+        <NavigationContainer theme={navigationTheme}>
+          <SignedIn screening={screening} />
+        </NavigationContainer>
+      </CallScreeningProvider>
     </PreferencesProvider>
   );
 }
@@ -162,7 +181,11 @@ function SignedOut(): React.JSX.Element {
  * alone: it is shown once, when setup ends in front of the user, and never to somebody who opens
  * an account that was set up elsewhere.
  */
-function SignedIn(): React.JSX.Element {
+function SignedIn({
+  screening,
+}: {
+  readonly screening: CallScreening | null;
+}): React.JSX.Element {
   const { onboarding } = usePreferences();
   const step = onboarding.next_step;
 
@@ -240,6 +263,16 @@ function SignedIn(): React.JSX.Element {
       <AppStack.Screen name={APP_ROUTES.account}>
         {({ navigation }) => <AccountScreen onBack={navigation.goBack} />}
       </AppStack.Screen>
+      {screening !== null && (
+        <AppStack.Screen name={APP_ROUTES.callScreening}>
+          {({ navigation }) => (
+            <CallScreeningScreen
+              screening={screening}
+              onBack={navigation.goBack}
+            />
+          )}
+        </AppStack.Screen>
+      )}
     </AppStack.Navigator>
   );
 }

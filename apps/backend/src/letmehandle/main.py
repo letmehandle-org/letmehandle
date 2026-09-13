@@ -11,18 +11,25 @@ from letmehandle import __version__
 from letmehandle.adapters.database.engine import create_engine
 from letmehandle.adapters.database.session import create_session_factory
 from letmehandle.api.auth import router as auth_router
+from letmehandle.api.call_reports import router as call_reports_router
 from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.health import router as health_router
 from letmehandle.api.middleware import CorrelationMiddleware
 from letmehandle.api.preferences import router as preferences_router
 from letmehandle.api.voices import build_voice_router
-from letmehandle.bootstrap import build_container, build_voice_provider
+from letmehandle.bootstrap import (
+    build_call_transport,
+    build_container,
+    build_reported_calls,
+    build_voice_provider,
+)
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from letmehandle.bootstrap import CallTransportBinding
     from letmehandle.domain.ports.voice import VoiceProvider
 
 logger = get_logger(__name__)
@@ -47,7 +54,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # Built once, at startup, so that a misconfiguration is a process that does not start
         # rather than a request that fails in front of somebody.
-        app.state.container = build_container(settings, voices=app.state.voices)
+        app.state.container = build_container(
+            settings, voices=app.state.voices, reported_calls=app.state.reported_calls
+        )
 
         logger.info(
             "startup",
@@ -58,6 +67,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         yield
     finally:
+        telephony: CallTransportBinding | None = app.state.telephony
+        if telephony is not None:
+            await telephony.close()
         if engine is not None:
             await engine.dispose()
             app.state.engine = None
@@ -66,7 +78,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("shutdown")
 
 
-def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    voices: VoiceProvider | None = None,
+    telephony: CallTransportBinding | None = None,
+) -> FastAPI:
     """Build the application.
 
     Settings are a parameter so that a test can build an app with a configuration of its own
@@ -76,6 +93,9 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     The voice provider is a parameter for the same reason and one more: which routes exist
     depends on what it can do, and there is no configuration that selects a second provider
     yet — so a test of that behaviour has no other way in.
+
+    The call transport is chosen here for the same reason as the voices: its provider's routes
+    exist only when it does. A test passes one wired to a simulated provider.
     """
     resolved = settings or get_settings()
     configure_logging(resolved)
@@ -84,6 +104,14 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     # can do, and routing is settled before the application ever runs. The container is handed
     # this same instance, so nothing can answer the question twice and differently.
     chosen_voices = voices or build_voice_provider(resolved)
+    # One for the life of the application, for the same reason: the container's reporting route
+    # and a handset transport chosen below must be the same instance.
+    reported_calls = build_reported_calls()
+    chosen_telephony = (
+        telephony
+        if telephony is not None
+        else build_call_transport(resolved, reported_calls=reported_calls)
+    )
 
     app = FastAPI(
         title="LetMeHandle",
@@ -100,13 +128,18 @@ def create_app(settings: Settings | None = None, *, voices: VoiceProvider | None
     app.state.session_factory = None
     app.state.container = None
     app.state.voices = chosen_voices
+    app.state.reported_calls = reported_calls
+    app.state.telephony = chosen_telephony
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(preferences_router)
+    app.include_router(call_reports_router)
     app.include_router(build_voice_router(chosen_voices))
+    if chosen_telephony is not None:
+        app.include_router(chosen_telephony.router)
     return app
 
 
@@ -119,7 +152,9 @@ def main() -> None:
     try:
         # The catalogue as well as the settings: every request for voices needs it, and a service
         # that starts without it fails in front of somebody instead of here.
-        get_settings().require_voice_catalogue()
+        settings = get_settings()
+        settings.require_voice_catalogue()
+        settings.require_telephony_configuration()
     except ConfigurationError as error:
         raise SystemExit(str(error)) from error
 

@@ -12,11 +12,13 @@ from letmehandle.config.settings import (
     OTPProviderName,
     Settings,
     SpeechProviderName,
+    TelephonyProviderName,
     parse_llm_headers,
     parse_voice_catalogue,
 )
 
 if TYPE_CHECKING:
+    from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.ports.voice import Voice
 
 # A database that is syntactically valid and certainly not listening. Port 1 is reserved and
@@ -63,6 +65,12 @@ def make_settings(
     speech_agent_id: str | None = None,
     speech_transcription_model: str | None = None,
     speech_api_key: str | None = None,
+    telephony_provider: TelephonyProviderName | None = None,
+    telephony_account_id: str | None = None,
+    telephony_auth_token: str | None = None,
+    telephony_numbers: tuple[PhoneNumber, ...] | None = None,
+    telephony_app_id: str | None = None,
+    telephony_webhook_base_url: str | None = None,
     llm_base_url: str | None = None,
     llm_api_key: str | None = None,
     llm_model: str | None = None,
@@ -91,6 +99,18 @@ def make_settings(
         speech_api_key=SecretStr(speech_api_key) if speech_api_key is not None else None,
         speech_voices=speech_voices,
         speech_default_voice=speech_default_voice,
+        telephony_provider=telephony_provider,
+        telephony_account_id=telephony_account_id,
+        telephony_auth_token=(
+            SecretStr(telephony_auth_token) if telephony_auth_token is not None else None
+        ),
+        telephony_numbers=telephony_numbers,
+        telephony_app_id=telephony_app_id,
+        telephony_webhook_base_url=(
+            AnyHttpUrl(telephony_webhook_base_url)
+            if telephony_webhook_base_url is not None
+            else None
+        ),
         llm_base_url=AnyHttpUrl(llm_base_url) if llm_base_url is not None else None,
         llm_api_key=SecretStr(llm_api_key) if llm_api_key is not None else None,
         llm_model=llm_model,

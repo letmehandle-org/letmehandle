@@ -29,6 +29,7 @@ export type AppStackParamList = {
   Personalise: undefined;
   Topics: undefined;
   Account: undefined;
+  CallScreening: undefined;
 };
 
 export const AUTH_ROUTES = {
@@ -51,4 +52,5 @@ export const APP_ROUTES = {
   personalise: 'Personalise',
   topics: 'Topics',
   account: 'Account',
+  callScreening: 'CallScreening',
 } as const satisfies Record<string, keyof AppStackParamList>;

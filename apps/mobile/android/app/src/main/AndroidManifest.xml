@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The call state broadcast: ringing, off hook, idle. No number and no audio. Asked for with
+         an explanation, and optional: without it only the screening decision is reported. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
       android:name=".MainApplication"
@@ -23,5 +26,25 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- Bound by the platform, before an incoming call rings, while this app holds the
+           call-screening role. Enabled from API 29, where that role exists. -->
+      <service
+        android:name=".calls.screening.RulesScreeningService"
+        android:permission="android.permission.BIND_SCREENING_SERVICE"
+        android:enabled="@bool/call_screening_supported"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.telecom.CallScreeningService" />
+        </intent-filter>
+      </service>
+
+      <receiver
+        android:name=".calls.events.PhoneStateReceiver"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.PHONE_STATE" />
+        </intent-filter>
+      </receiver>
     </application>
 </manifest>

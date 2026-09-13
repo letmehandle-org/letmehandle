@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text } from 'react-native';
 
+import { useCallScreening } from '../calls/CallScreeningProvider';
 import { Card } from '../components/Card';
 import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
@@ -17,7 +18,8 @@ export type SettingsPage =
   | 'authority'
   | 'say'
   | 'personalise'
-  | 'account';
+  | 'account'
+  | 'callScreening';
 
 interface Props {
   readonly onOpen: (page: SettingsPage) => void;
@@ -35,6 +37,8 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
   const { preferences } = usePreferences();
   const facts = preferences.personality.disclosable_facts ?? [];
   const granted = preferences.authority.capabilities?.length ?? 0;
+  // A row only where the handset has a screening service to grant.
+  const { screening } = useCallScreening();
 
   return (
     <Screen
@@ -80,9 +84,20 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
           onPress={() => {
             onOpen('hours');
           }}
-          last
+          last={screening === null}
           testID="settings-open-hours"
         />
+        {screening !== null && (
+          <Row
+            icon="shield"
+            title={t('screening.settingsRow')}
+            onPress={() => {
+              onOpen('callScreening');
+            }}
+            last
+            testID="settings-open-call-screening"
+          />
+        )}
       </Card>
 
       <Text style={styles.label}>{t('settings.assistant')}</Text>

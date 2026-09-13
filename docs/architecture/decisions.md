@@ -368,3 +368,51 @@ once per call. A caller who persuades the model that their call is urgent can ha
 once, even in quiet hours, and nothing yet stops the same caller doing it again on the next call. The policy bounds what one call can cost the user;
 limits across calls — per caller, per number, per night — belong to a later hardening phase, not to
 this one.
+
+## D-027 — A streaming call is a conference from the moment it is answered
+
+**Accepted.** On the streaming transport every inbound call is placed in a conference as soon as
+it is answered. The assistant joins that conference as a participant of its own — a separate leg
+whose only job is to carry the bidirectional media stream to the speech session — and the user,
+when the policy calls for them, is dialled into the same conference.
+
+The alternative that looks simpler — streaming on the caller's own leg, then moving the caller
+into a conference when the user is needed — fails the requirement this product exists for. A leg
+carries one bidirectional stream, and moving the caller ends it, so the assistant is gone at the
+moment the user arrives. Starting as a conference means the caller's leg is never touched after
+it is answered: nobody redials, nobody is transferred, and the assistant can stay, fall silent
+while still listening, speak only to the user, or leave, each by changing one participant. On the
+port, answering such a call under program control therefore means bringing the assistant into the
+conference the caller is already in.
+
+The cost is a mixer in the audio path and an extra leg on every call. The mixer's buffer is set to
+its smallest, and the latency it adds is measured in this phase rather than assumed.
+
+What the provider's documentation does not settle — exactly what a participant's inbound audio
+contains, whether a held participant hears anything, the frame size — is verified on the first
+real call and recorded in the verification report, not guessed at in code.
+
+## D-028 — A handset's screening decision is made on the handset
+
+**Accepted.** Android gives a call screening service five seconds from `onScreenCall` to respond,
+and then rings regardless. No decision that needs the backend can be relied on inside that, so
+the handset decides: the app keeps a snapshot of the user's deterministic call rules, written
+whenever the preferences change, and the screening service evaluates it locally. A caller is
+never refused on rules the handset does not have: no snapshot, one older than seven days or dated
+more than five minutes ahead of the handset's clock, one in a format the build does not read, a failed evaluation or an exhausted time budget all let the call
+ring.
+
+The backend represents the handset as `AndroidNativeCallTransport`, whose events the handset
+reports afterwards over an authenticated route, stored per user and idempotent by the handset's
+event id. That changes what screening means on the port. `SupportsScreening` states which
+decisions a transport can apply and how long the platform allows, and the decision taken is
+carried on the call's incoming event; there is no screening command, because one sent from the
+backend would arrive after the phone had rung. Answering is gated by
+`can_answer_under_program_control` for the same kind of reason: a handset's call is answered by
+the person holding it, and a port that offered `answer` on every transport would let one claim a
+call was taken while it was still ringing.
+
+What the platform does not give a screening service is not claimed: callers in the user's
+contacts and callers withholding their number are never shown to it and always ring, and the
+handset does not classify callers, so only important contacts and the `unknown` category apply
+there.

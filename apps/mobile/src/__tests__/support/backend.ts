@@ -10,6 +10,8 @@
  * because it miscounted says nothing about the behaviour it was written for.
  */
 import type {
+  CallReport,
+  CallReportBatch,
   Onboarding,
   OnboardingStep,
   Preferences,
@@ -131,6 +133,10 @@ export interface RunningBackend {
    * it, and the server refuses it with a 422 when somebody picks it.
    */
   withdrawVoice(voiceId: string): void;
+  /** Every call report stored, once each, in the order they arrived. */
+  readonly reports: CallReport[];
+  /** Fail the next report request as a server fault, as a backend that is down does. */
+  failNextReport(): void;
 }
 
 /**
@@ -152,6 +158,8 @@ export function runningBackend(options?: {
   let stored = options?.preferences ?? DEFAULT_PREFERENCES;
   let refusal: Reply | null = null;
   const patches: PreferencesUpdate[] = [];
+  const reports: CallReport[] = [];
+  let reportFailure = false;
 
   const capabilities = options?.voice?.capabilities ?? VOICE_CAPABILITIES;
   let offered = [...(options?.voice?.voices ?? VOICES)];
@@ -244,6 +252,24 @@ export function runningBackend(options?: {
       persona = chosen;
       return answer(200, selection());
     }
+    if (path === '/v1/calls/reports' && method === 'POST') {
+      if (reportFailure) {
+        reportFailure = false;
+        return answer(500, { error: 'internal_error', message: 'down' });
+      }
+      const accepted: string[] = [];
+      const duplicates: string[] = [];
+      for (const report of (body as CallReportBatch).reports) {
+        // Idempotent by event id, as the backend is.
+        if (reports.some(existing => existing.event_id === report.event_id)) {
+          duplicates.push(report.event_id);
+        } else {
+          reports.push(report);
+          accepted.push(report.event_id);
+        }
+      }
+      return answer(200, { accepted, duplicates, rejected: [] });
+    }
     if (path === '/v1/onboarding' && method === 'GET') {
       return answer(200, progress());
     }
@@ -273,6 +299,10 @@ export function runningBackend(options?: {
     chosenVoice: () => persona,
     withdrawVoice: voiceId => {
       offered = offered.filter(voice => voice.id !== voiceId);
+    },
+    reports,
+    failNextReport: () => {
+      reportFailure = true;
     },
   };
 }

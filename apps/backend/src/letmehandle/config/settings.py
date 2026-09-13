@@ -21,6 +21,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from letmehandle.domain.errors import InvariantError
+from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.voice import Voice
 
 if TYPE_CHECKING:
@@ -51,6 +53,32 @@ class SpeechProviderName(StrEnum):
 
     REALTIME = "realtime"
     ELEVENLABS = "elevenlabs"
+
+
+class TelephonyProviderName(StrEnum):
+    """Which call transport carries this deployment's calls, if any.
+
+    Two kinds, not two suppliers of one kind: a programmable telephony account that streams a
+    call's audio, and the user's own handset screening calls before they ring.
+    """
+
+    TWILIO = "twilio"
+    ANDROID_NATIVE = "android_native"
+
+
+@dataclass(frozen=True, slots=True)
+class StreamingTelephony:
+    """Everything a streaming call transport needs, present and checked.
+
+    `webhook_base_url` has no trailing slash, so a path can be appended to it without producing
+    a URL that differs by one character from the one the provider signed.
+    """
+
+    account_id: str
+    auth_token: str
+    numbers: tuple[PhoneNumber, ...]
+    app_id: str
+    webhook_base_url: str
 
 
 class ConfigurationError(RuntimeError):
@@ -99,6 +127,30 @@ def _catalogue_from_text(value: object) -> object:
     # Text is what the environment supplies; a tuple of voices is what code constructing
     # settings directly passes, and that needs no parsing.
     return parse_voice_catalogue(value) if isinstance(value, str) else value
+
+
+def parse_number_list(text: str) -> tuple[PhoneNumber, ...]:
+    """The numbers a comma-separated variable lists, each in E.164 form.
+
+    The message names the position of a number it cannot read, never the number: an error
+    about configuration is printed where anyone running the process can see it.
+    """
+    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
+    numbers: list[PhoneNumber] = []
+    for position, entry in enumerate(entries, 1):
+        try:
+            numbers.append(PhoneNumber.parse(entry))
+        except InvariantError:
+            raise ValueError(
+                f"TELEPHONY_NUMBERS entry {position} is not an international number in E.164 form"
+            ) from None
+    if not numbers:
+        raise ValueError("TELEPHONY_NUMBERS lists no numbers")
+    return tuple(numbers)
+
+
+def _numbers_from_text(value: object) -> object:
+    return parse_number_list(value) if isinstance(value, str) else value
 
 
 # How LLM_HEADERS is written, quoted in every error about it.
@@ -222,6 +274,39 @@ class Settings(BaseSettings):
     ] = None
     speech_default_voice: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
 
+    # Telephony. All optional at startup, like the speech service. The provider chooses the call
+    # transport; the rest is the streaming transport's account, which a deployment without one
+    # needs none of, and one with it is refused by what builds the transport, naming every
+    # variable that is missing. The token is a secret and is never
+    # rendered; the numbers are the ones calls are placed from, never anybody's own.
+    telephony_provider: Annotated[
+        TelephonyProviderName | None, BeforeValidator(_blank_is_absent)
+    ] = None
+    telephony_account_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    telephony_auth_token: Annotated[SecretStr | None, BeforeValidator(_blank_is_absent)] = None
+    telephony_numbers: Annotated[
+        tuple[PhoneNumber, ...] | None,
+        NoDecode,
+        # Validators run last-listed first: a blank is set aside before anything parses it.
+        BeforeValidator(_numbers_from_text),
+        BeforeValidator(_blank_is_absent),
+    ] = None
+    telephony_app_id: Annotated[str | None, BeforeValidator(_blank_is_absent)] = None
+    # The URL the provider reaches this service on, and the one its signatures are computed
+    # over. Configured rather than read from a request, because behind a proxy or a tunnel the
+    # Host a request arrives with is not the URL the provider signed.
+    telephony_webhook_base_url: Annotated[AnyHttpUrl | None, BeforeValidator(_blank_is_absent)] = (
+        None
+    )
+
+    @field_validator("telephony_webhook_base_url")
+    @classmethod
+    def _a_base_url_is_only_a_base(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        """Refuse a query or a fragment: paths are appended to this, and neither survives that."""
+        if value is not None and (value.query or value.fragment):
+            raise ValueError("TELEPHONY_WEBHOOK_BASE_URL must not carry a query or a fragment")
+        return value
+
     # The model the agent judges calls with: any OpenAI-compatible endpoint (D-007). Optional at
     # startup, like the speech service and for the same reason: nothing in a request asks the agent
     # for a judgement yet. The timeout bounds a whole judgement — every model turn and every tool —
@@ -332,6 +417,52 @@ class Settings(BaseSettings):
                 f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
             )
         return str(endpoint), value
+
+    def require_telephony_configuration(self) -> None:
+        """Refuse a chosen call transport that is missing what it needs, before anything starts.
+
+        Only the streaming transport needs an account. A handset transport is configured on the
+        handset, and no transport at all needs nothing.
+        """
+        if self.telephony_provider is TelephonyProviderName.TWILIO:
+            self.require_streaming_telephony()
+
+    def require_streaming_telephony(self) -> StreamingTelephony:
+        """What a streaming call transport needs, or a failure naming every variable missing."""
+        account_id = self.telephony_account_id
+        token = self.telephony_auth_token
+        numbers = self.telephony_numbers
+        app_id = self.telephony_app_id
+        base_url = self.telephony_webhook_base_url
+        if (
+            account_id is None
+            or token is None
+            or numbers is None
+            or app_id is None
+            or base_url is None
+        ):
+            missing = [
+                name
+                for name, value in (
+                    ("TELEPHONY_ACCOUNT_ID", account_id),
+                    ("TELEPHONY_AUTH_TOKEN", token),
+                    ("TELEPHONY_NUMBERS", numbers),
+                    ("TELEPHONY_APP_ID", app_id),
+                    ("TELEPHONY_WEBHOOK_BASE_URL", base_url),
+                )
+                if value is None
+            ]
+            raise ConfigurationError(
+                f"{', '.join(missing)} must be set to carry streaming calls. "
+                "Set them in .env; see .env.example."
+            )
+        return StreamingTelephony(
+            account_id=account_id,
+            auth_token=token.get_secret_value(),
+            numbers=numbers,
+            app_id=app_id,
+            webhook_base_url=str(base_url).rstrip("/"),
+        )
 
     def require_llm(self) -> LLMEndpoint:
         """The agent's model endpoint, or a failure naming whichever variables are missing.

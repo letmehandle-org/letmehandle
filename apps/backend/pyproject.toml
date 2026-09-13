@@ -17,6 +17,9 @@ dependencies = [
     "alembic>=1.14",
     "pyjwt>=2.14.0",
     "websockets>=17.1,<18",
+    # The streaming call transport speaks the telephony REST API with it. Chosen over the
+    # vendor SDK, which brings a synchronous client and two more HTTP stacks for five requests.
+    "httpx>=0.28,<1",
     "strands-agents[openai]>=1.55.1,<2",
 ]
 
@@ -89,6 +92,8 @@ ignore = [
 "src/letmehandle/api/*.py" = ["TC001", "TC002", "TC003"]
 # The declarative mapper evaluates these too.
 "src/letmehandle/adapters/database/models.py" = ["TC003"]
+# The provider's routes live in their adapter, and FastAPI evaluates their annotations too.
+"src/letmehandle/adapters/transport/twilio/routes.py" = ["TC001", "TC002", "TC003"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["letmehandle", "tests"]
