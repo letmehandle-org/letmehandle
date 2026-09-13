@@ -130,11 +130,12 @@ def installed_licence(name: str) -> str:
     expression = metadata.get("License-Expression")
     if expression:
         return str(expression)
-    classifiers = [
-        _ALIASES.get(each.rsplit("::", 1)[-1].strip().lower(), each.rsplit("::", 1)[-1].strip())
+    named = [
+        each.rsplit("::", 1)[-1].strip()
         for each in metadata.get_all("Classifier") or []
         if each.startswith("License ::") and "OSI Approved ::" in each
     ]
+    classifiers = [_ALIASES.get(name.lower(), name) for name in named]
     if classifiers:
         return " OR ".join(sorted(set(classifiers)))
     free_text = (metadata.get("License") or "").strip().splitlines()
