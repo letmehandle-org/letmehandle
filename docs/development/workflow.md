@@ -53,7 +53,8 @@ says how to produce one.
 Releases are cut from `main` by a maintainer, as a tag `vMAJOR.MINOR.PATCH`.
 
 1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD`
-   heading, and update the comparison links at the bottom.
+   heading, and update the comparison links at the bottom. For 0.1.0 the section is written; add
+   its date.
 2. Set the same version in `apps/backend/pyproject.toml`, `apps/backend/src/letmehandle/__init__.py`
    and `apps/mobile/package.json`. The release workflow refuses a tag the backend's version does not
    match.
@@ -62,8 +63,10 @@ Releases are cut from `main` by a maintainer, as a tag `vMAJOR.MINOR.PATCH`.
 
 Publishing the release runs `.github/workflows/release.yml`, which takes the notes from that version's
 section of the changelog, builds the backend image and publishes it to the GitHub Container Registry
-as `ghcr.io/<owner>/<repository>/backend:x.y.z`, and runs code scanning. Pushing a `v*` tag without a
-release does the same, and creates the release from the changelog.
+as `ghcr.io/<owner>/<repository>/backend:x.y.z` and `:x.y`, and runs code scanning. Pushing a `v*`
+tag without a release does the same, and creates the release from the changelog. It refuses a tag
+whose version the backend does not declare, and a version with no notes in the changelog. Nothing is
+tagged `latest`: before 1.0, moving to a new minor version should be a choice.
 
 ## Versioning
 

@@ -87,6 +87,11 @@ Also run by `make verify`:
 | Types and boundaries | `make typecheck` | mypy strict, TypeScript or an import-linter contract fails |
 | Generated API types | `make api-types-check` | the mobile client's types no longer match the backend |
 | Configuration reference | `make config-reference-check` | the reference, `.env.example` or the compose file no longer match the settings |
+| Documentation links | `make docs-check` | a relative link in a Markdown file points at a missing file or heading |
+
+Not in `make verify`, because a dependency update changes it without anything being wrong:
+`make licences` rewrites [`licences.md`](licences.md) and exits non-zero when a shipped dependency's
+licence is not known to be compatible with MIT. Run it when dependencies change.
 
 Two documents are checked by tests, because a drawing that drifts is worse than none: the capability
 matrix in `docs/architecture/call-transport.md` and the state diagram in
