@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { ERROR_CODES } from '@letmehandle/api-client';
+
 import { describeFailure } from '../api/messages';
 import {
   COUNTRIES,
@@ -18,7 +20,7 @@ import {
   type DeviceHints,
 } from '../auth/countries';
 import { useSession, type CodeSent } from '../auth/SessionProvider';
-import { waitWords } from '../auth/wait';
+import { rateLimitedWords } from '../auth/wait';
 import { ApiError } from '../api/errors';
 import NativeDeviceCountry from '../calls/native/NativeDeviceCountry';
 import { Button } from '../components/Button';
@@ -104,19 +106,17 @@ export function PhoneNumberScreen({
         onCodeSent(sent, number);
       })
       .catch((error: unknown) => {
-        if (error instanceof ApiError && error.code === 'unserved_country') {
+        if (
+          error instanceof ApiError &&
+          error.code === ERROR_CODES.unservedCountry
+        ) {
           setProblem(t('phone.unserved'));
           return;
         }
         setProblem(
           describeFailure(error, t, {
             refused: t('phone.invalid'),
-            rateLimited:
-              error instanceof ApiError && error.retryAfterSeconds !== undefined
-                ? t('phone.rateLimitedFor', {
-                    wait: waitWords(error.retryAfterSeconds, t),
-                  })
-                : t('phone.rateLimited'),
+            rateLimited: rateLimitedWords(error, t),
           }),
         );
       })

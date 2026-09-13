@@ -9,7 +9,7 @@ import { CodeInput } from '../components/CodeInput';
 import { HeadingBlock } from '../components/HeadingBlock';
 import { Notice } from '../components/Notice';
 import { Screen } from '../components/Screen';
-import { clockWords, waitWords } from '../auth/wait';
+import { clockWords, rateLimitedWords, waitWords } from '../auth/wait';
 import { environment, type AppEnvironment } from '../config/environment';
 
 interface Props {
@@ -93,12 +93,7 @@ export function VerifyCodeScreen({
         setProblem(
           describeFailure(error, t, {
             refused: t('code.invalid'),
-            rateLimited:
-              error instanceof ApiError && error.retryAfterSeconds !== undefined
-                ? t('phone.rateLimitedFor', {
-                    wait: waitWords(error.retryAfterSeconds, t),
-                  })
-                : t('phone.rateLimited'),
+            rateLimited: rateLimitedWords(error, t),
           }),
         );
       })
