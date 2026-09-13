@@ -1,0 +1,157 @@
+name: Release
+
+# A release is a version tag on main, published by a maintainer. Either way of publishing one runs
+# this: publishing a GitHub release for the tag, or pushing the tag on its own, in which case the
+# release is created here. Nothing in this workflow creates a tag.
+#
+# What it does, for tag vX.Y.Z:
+#   1. refuses a tag that is not X.Y.Z, or that the backend's own version does not match;
+#   2. takes the release notes from the `## [X.Y.Z]` section of CHANGELOG.md, and refuses an empty one;
+#   3. builds the backend image and publishes it to this repository's container registry;
+#   4. writes the notes onto the release, creating it when only the tag was pushed;
+#   5. runs code scanning on the tagged commit.
+#
+# No secret but the token GitHub issues to every run.
+on:
+  release:
+    types: [published]
+  push:
+    tags: ["v*"]
+
+# One release of one tag at a time. A release published for a tag that was just pushed starts a
+# second run for the same tag, which waits rather than racing the first to the registry.
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Version and notes
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      minor: ${{ steps.version.outputs.minor }}
+      image: ${{ steps.version.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The tag is a version the backend agrees with
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ! [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::$TAG is not a version tag of the form vX.Y.Z"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          declared=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' apps/backend/src/letmehandle/__init__.py)
+          project=$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/backend/pyproject.toml)
+          if [[ "$declared" != "$version" || "$project" != "$version" ]]; then
+            echo "::error::tag $TAG, but the backend declares $declared and its project $project"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
+          # The registry accepts lower-case names only, and a repository's owner may not be.
+          echo "image=ghcr.io/${REPOSITORY,,}/backend" >> "$GITHUB_OUTPUT"
+
+      - name: The changelog has notes for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v heading="## [$VERSION]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no notes under ## [$VERSION]"
+            exit 1
+          fi
+          cat notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: notes.md
+
+  image:
+    name: Backend image
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/backend.Dockerfile
+          push: true
+          # The exact version, and the minor line it belongs to. No `latest`: before 1.0 a minor
+          # version may change anything public, and nobody should move to one without choosing to.
+          tags: |
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.minor }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  notes:
+    name: Release notes
+    needs: [prepare, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-notes
+
+      - name: Write the notes onto the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+        run: |
+          printf '\n---\n\nBackend image: `%s:%s`\n' "$IMAGE" "$VERSION" >> notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            # Only the tag was pushed. The release is created from it, never a new tag.
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
+          fi
+
+  # A release published by a maintainer starts code scanning itself (codeql.yml). One created by
+  # this workflow does not, because events caused by the run's own token start no workflows, so
+  # the tag-only path asks for it here.
+  code-scanning:
+    name: Code scanning
+    needs: notes
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
