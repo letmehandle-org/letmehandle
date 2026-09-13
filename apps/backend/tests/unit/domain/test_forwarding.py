@@ -1,4 +1,4 @@
-"""A user is told the forwarding number of their own region (D-040)."""
+"""A user is told the forwarding number of their own region (D-041)."""
 
 from __future__ import annotations
 

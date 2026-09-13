@@ -192,7 +192,7 @@ and checked against `apps/mobile/src/calls/wire-examples.json`.
 The other variables are the streaming transport's account. When `TELEPHONY_PROVIDER=twilio`, the
 process refuses to start naming every one missing; the on-device transport needs none of them.
 
-For a deployment serving several countries, lines by region replace all of the above (D-040):
+For a deployment serving several countries, lines by region replace all of the above (D-041):
 
 | Variable | Meaning |
 | --- | --- |
@@ -251,7 +251,7 @@ with a test.
   given and a `CallOwnership` that reads the forwarded-from line; a `LineProviderName` member; a
   case in `_line_binding` in bootstrap. If its account is not an account id, an application id and a
   token, `TelephonyLine` gains the fields it needs and `parse_telephony_lines` the keys, per provider.
-  A circuit per line should come with it (D-040).
+  A circuit per line should come with it (D-041).
 - *For sign-in codes*: an `OTPProvider` in `adapters/otp/`, passing `OTPProviderContract`, raising
   `UnreachableNumberError` for a number it will not deliver to and `ProviderError` otherwise; an
   `OTPProviderName` member; its own settings; a case in `_otp_provider_named` in bootstrap. Nothing

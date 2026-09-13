@@ -39,7 +39,7 @@ every paid provider unset.
 | `AUTH_ACCESS_TOKEN_TTL_SECONDS` | no | `900` | ≥ 60, ≤ 3600 |  | How long an access token lives. Short, because it cannot be revoked. |
 | `AUTH_REFRESH_TOKEN_TTL_SECONDS` | no | `7776000` | ≥ 3600 |  | How long a refresh token lives: ninety days, sliding, so a phone that opens the app within that long of the last time is never asked for its number again. Refresh tokens rotate on every use. |
 | `OTP_PROVIDER` | no | `mock` | `mock` or `twilio_sms` |  | Who delivers sign-in codes. `mock` delivers nowhere, accepts the development code, and refuses to start in production. |
-| `OTP_PROVIDER_BY_CALLING_CODE` | no | — | `mock` or `twilio_sms` |  | Who delivers sign-in codes to numbers with particular calling codes, as `code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is sent its code by `OTP_PROVIDER` (D-040). |
+| `OTP_PROVIDER_BY_CALLING_CODE` | no | — | `mock` or `twilio_sms` |  | Who delivers sign-in codes to numbers with particular calling codes, as `code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is sent its code by `OTP_PROVIDER` (D-041). |
 | `OTP_ALLOWED_CALLING_CODES` | no | — |  |  | Country calling codes sign-in codes may be sent to, comma-separated without the plus, such as 91,1,44. Blank sends anywhere; a production deployment should list only the countries it serves (D-036). |
 | `OTP_CHALLENGES_PER_HOUR` | no | `500` | ≥ 1 |  | The most sign-in codes the deployment sends in an hour. Past it, codes stop for everybody until the hour rolls on (D-036). |
 | `OTP_CHALLENGES_PER_HOUR_PER_CALLING_CODE` | no | `100` | ≥ 1 |  | The most sign-in codes sent in an hour to numbers with any one calling code. |
@@ -78,7 +78,7 @@ every paid provider unset.
 | `TELEPHONY_NUMBERS` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The numbers calls are placed from, comma-separated, in E.164 form. |
 | `TELEPHONY_APP_ID` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The provider-side application the assistant joins each call through. |
 | `TELEPHONY_WEBHOOK_BASE_URL` | when `TELEPHONY_PROVIDER=twilio` | — |  |  | The public base URL the provider calls back on, exactly as configured there. Signatures are checked against it. |
-| `TELEPHONY_LINES` | no | — |  |  | Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its account: `name:provider=twilio;regions=US\|IN;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`, comma-separated. `regions=*` serves every region no other line does. A line's callbacks are under `/lines/<name>` (D-040). |
+| `TELEPHONY_LINES` | no | — |  |  | Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its account: `name:provider=twilio;regions=US\|IN;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`, comma-separated. `regions=*` serves every region no other line does. A line's callbacks are under `/lines/<name>` (D-041). |
 | `TELEPHONY_LINE_AUTH_TOKENS` | when `TELEPHONY_LINES` is set | — |  | yes | Each line's auth token, as `name:token`, comma-separated. |
 | `TELEPHONY_UNFORWARDED_CALLS_OWNER` | no | — |  |  | Development only: the signed-in number whose calls dialled straight at the account's number are. Refused in production. |
 | `CALL_MAX_DURATION_SECONDS` | no | `14400` | ≥ 60, ≤ 86400 |  | How long a call may last before it is ended as failed: generous, because a long call is a real call, and bounded, because an ending never reported is otherwise held for as long as the process runs. |

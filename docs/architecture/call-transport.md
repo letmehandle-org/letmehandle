@@ -141,7 +141,7 @@ to start without them: calls are recorded as they happen, sealed.
 ## Lines by region
 
 One deployment can serve users in several countries, each region's calls on a line of its own
-(D-040). A user's **region** is read from the country calling code of the number they signed in with
+(D-041). A user's **region** is read from the country calling code of the number they signed in with
 (`domain/models/region.py`: `1` is `US`, `91` is `IN`). A **line** is one provider account, its
 numbers, and the regions it serves; `regions=*` serves every region no other line does.
 

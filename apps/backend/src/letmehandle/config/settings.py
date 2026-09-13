@@ -509,7 +509,7 @@ class Settings(BaseSettings):
         Field(
             description="Who delivers sign-in codes to numbers with particular calling codes, as "
             "`code:provider`, comma-separated, such as `91:twilio_sms`. Every other number is "
-            "sent its code by `OTP_PROVIDER` (D-040).",
+            "sent its code by `OTP_PROVIDER` (D-041).",
         ),
     ] = ()
     otp_allowed_calling_codes: Annotated[
@@ -751,7 +751,7 @@ class Settings(BaseSettings):
             description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
             "account: `name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
             "webhook=https://host`, comma-separated. `regions=*` serves every region no other "
-            "line does. A line's callbacks are under `/lines/<name>` (D-040).",
+            "line does. A line's callbacks are under `/lines/<name>` (D-041).",
         ),
     ] = None
     telephony_line_auth_tokens: Annotated[

@@ -41,7 +41,7 @@ prevents is silent and total — everybody could sign in as anybody.
 ## A provider per country
 
 `OTP_PROVIDER_BY_CALLING_CODE=91:twilio_sms` sends codes for numbers with that calling code through
-that provider, and every other number's through `OTP_PROVIDER` (D-040). Bootstrap builds each named
+that provider, and every other number's through `OTP_PROVIDER` (D-041). Bootstrap builds each named
 provider once and puts `OTPProviderByCallingCode` (`adapters/otp/by_calling_code.py`) in front of
 them; it is safe for production only if every provider is, and fixes a testing code only when every
 provider fixes the same one. A calling code not in `OTP_ALLOWED_CALLING_CODES` is refused at startup.

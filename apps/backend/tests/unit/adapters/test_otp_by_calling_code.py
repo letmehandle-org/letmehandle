@@ -1,4 +1,4 @@
-"""Each sign-in code goes through the provider for its number's country, or the default (D-040)."""
+"""Each sign-in code goes through the provider for its number's country, or the default (D-041)."""
 
 from __future__ import annotations
 

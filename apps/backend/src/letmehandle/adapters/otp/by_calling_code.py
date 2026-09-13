@@ -3,7 +3,7 @@
 A deployment serving several countries rarely has one text-message provider that delivers well, or
 lawfully, to all of them: some countries require messages from a registered sender through a
 provider licensed there. So each calling code may have a provider of its own, and every other
-number is sent its code by the default one (D-040).
+number is sent its code by the default one (D-041).
 
 The application's sign-in rules are unchanged by it: which countries codes may go to, and how many
 are sent, are decided before any provider is asked. This only chooses who carries the message.
