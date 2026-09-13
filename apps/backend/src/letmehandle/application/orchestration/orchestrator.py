@@ -214,10 +214,7 @@ class CallOrchestrator:
             logger.info("call.event_ignored", kind=event.kind.value)
             self._context.metrics.increment(DUPLICATE_IGNORED, {"stage": "late"})
             return
-        assistance = self._assistance_now()
-        degraded = (
-            (Dependency.SPEECH,) if assistance is None and self._assistance is not None else ()
-        )
+        assistance, degraded = self._assistance_now()
         run = CallRun(
             event,
             plan_for(transport, event, assistance),
@@ -230,18 +227,13 @@ class CallOrchestrator:
         self._tasks[call_id] = task
         task.add_done_callback(lambda done: self._run_done(call_id, done))
 
-    def _assistance_now(self) -> Assistance | None:
-        """What an assistant would speak with, unless speech is failing every call just now.
-
-        A plan without it offers no assistant, and routing puts through to the user a call it would
-        have handed to one: better their phone rings than the caller meets an assistant that cannot
-        speak, or is hung up on while one fails to open.
-        """
+    def _assistance_now(self) -> tuple[Assistance | None, tuple[Dependency, ...]]:
+        """What an assistant speaks with, or nothing while the speech circuit refuses, and why."""
         if self._assistance is not None and self._context.circuits[Dependency.SPEECH].is_refusing:
             logger.warning("call.degraded", stage="speech")
             self._context.metrics.increment(DEGRADED, {"stage": "speech"})
-            return None
-        return self._assistance
+            return None, (Dependency.SPEECH,)
+        return self._assistance, ()
 
     def _admits(self, user_id: UserId) -> bool:
         """Whether this account has fewer live calls than `LIVE_CALLS_PER_ACCOUNT`."""
@@ -268,7 +260,7 @@ class CallOrchestrator:
             raise CallIsOverError
         reply: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         run.post(make(reply))
-        await asyncio.gather(reply)
+        await reply
 
 
 def _since(standing: CallStanding) -> datetime:
