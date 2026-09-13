@@ -1,11 +1,4 @@
-/**
- * Today, for Home: loaded when Home opens, again whenever the app comes to the front, and every
- * thirty seconds while it is showing.
- *
- * The last snapshot is kept for as long as the app runs, so switching tabs does not flash an empty
- * ring and a lost connection shows what was there, said to be old, rather than nothing. It is kept
- * against the account it was loaded for, so the next person to sign in never sees it.
- */
+/** Today's calls for Home, refreshed on focus and on an interval, remembered per account. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -16,7 +9,7 @@ import type { CallScreening, RoleStatus } from '../calls/callScreening';
 import { startOfToday } from './today';
 
 export const REFRESH_EVERY_MS = 30_000;
-/** Today's pages read at most. Three hundred calls in a day is past any person's phone. */
+/** The most pages of today's calls read. */
 const MAX_PAGES = 3;
 
 export interface HomeSnapshot {
@@ -35,7 +28,7 @@ let remembered: {
   readonly snapshot: HomeSnapshot;
 } | null = null;
 
-/** Forget every snapshot. For tests, which each start as a fresh app. */
+/** Forgets every remembered snapshot. */
 export function forgetHome(): void {
   remembered = null;
 }
@@ -63,8 +56,7 @@ async function load(
   for (const call of latest.filter(entry => entry.status === 'in_progress')) {
     const detail = await api.call(call.id);
     if (detail.timings.escalated_at !== null && !detail.human_joined) {
-      // Why it needs the user is worth showing, but a Home that fails because it could not be
-      // read would hide the one thing that matters: that a call is waiting.
+      // An escalation whose context cannot be read still shows as waiting.
       const context = await api.escalation(call.id).catch(() => null);
       escalation = { callId: call.id, detail: context };
       break;

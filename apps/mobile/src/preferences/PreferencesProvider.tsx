@@ -1,14 +1,4 @@
-/**
- * How this user wants calls handled, for the whole signed-in application.
- *
- * Loaded once and held here, because onboarding and settings are the same preferences seen from
- * two angles: a screen that fetched its own copy would show a value another screen had already
- * changed.
- *
- * The provider renders nothing else until the load has settled. That is what lets every screen
- * below it take the preferences as given rather than checking for null on each read — and it
- * means the one place that has to think about "not loaded yet" is this file.
- */
+/** The signed-in user's preferences and onboarding, loaded once and held for every screen below. */
 import React, {
   createContext,
   useCallback,
@@ -42,13 +32,7 @@ interface Loaded {
 }
 
 export interface PreferencesValue extends Loaded {
-  /**
-   * Save a change, showing it immediately.
-   *
-   * Rejects when the server refuses, having already put the previous value back. It rejects
-   * rather than swallowing because a silent revert is the worst of the three outcomes: the user
-   * sees their change disappear and is told nothing about why.
-   */
+  /** Shows the change at once and rejects, with it removed, when the server refuses. */
   save(changes: PreferencesUpdate): Promise<void>;
   /** Record an onboarding step as answered, or deliberately passed over. */
   recordStep(step: OnboardingStep, skipped: boolean): Promise<void>;
@@ -59,8 +43,6 @@ const PreferencesContext = createContext<PreferencesValue | null>(null);
 export function usePreferences(): PreferencesValue {
   const value = useContext(PreferencesContext);
   if (value === null) {
-    // Reached only by a screen rendered outside the provider, which would otherwise fail later
-    // and somewhere unrelated. This says where the mistake is.
     throw new Error('usePreferences must be used inside a PreferencesProvider');
   }
   return value;
@@ -111,13 +93,7 @@ export function PreferencesProvider({
   );
 }
 
-/**
- * The part that can only exist once there is something to hold.
- *
- * Split out so that `save` has a previous value to roll back to without asking whether there is
- * one. A provider that held `Preferences | null` would need that question answered on every
- * call, and the answer would be "this cannot happen" written six times.
- */
+/** The provider once preferences are loaded, so nothing below checks for null. */
 function LoadedPreferences({
   api,
   initial,
@@ -130,7 +106,7 @@ function LoadedPreferences({
   const [preferences, setPreferences] = useState(initial.preferences);
   const [onboarding, setOnboarding] = useState(initial.onboarding);
 
-  // What the server last answered, and the changes still on their way, in the order they were made.
+  // The server's last answer, and the changes still saving in the order they were made.
   const confirmed = useRef(initial.preferences);
   const inFlight = useRef(new Map<number, PreferencesUpdate>());
   const lastSave = useRef(0);
@@ -159,9 +135,7 @@ function LoadedPreferences({
 
   const recordStep = useCallback(
     async (step: OnboardingStep, skipped: boolean): Promise<void> => {
-      // Not optimistic, unlike a preference. Moving to the next question before the server has
-      // agreed means showing a question and then taking it back, and the backend refuses to
-      // skip a step that has no safe default.
+      // Not optimistic: the next step shows only once the server has recorded this one.
       setOnboarding(await api.recordOnboardingStep(step, skipped));
     },
     [api],

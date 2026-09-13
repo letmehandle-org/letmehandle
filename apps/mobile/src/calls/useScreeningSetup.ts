@@ -1,14 +1,4 @@
-/**
- * Where this handset stands on call screening, and asking for what it needs.
- *
- * Two separate grants, and the difference matters to what the user is told. The call-screening
- * role is what lets the app decide a call before it rings; without it nothing is screened and
- * every call rings as it would anyway. The phone-state permission only lets the app see that a
- * call was answered or ended; without it screening still works and less is reported.
- *
- * Declining either is an answer, not an error. It is remembered for the screen so that it can
- * say what is now true, and the user can ask again whenever they like.
- */
+/** The call-screening role and the phone-state permission: where each stands, and asking for them. */
 import { useCallback, useEffect, useState } from 'react';
 import { PermissionsAndroid } from 'react-native';
 
@@ -56,8 +46,7 @@ export function useScreeningSetup(
         }
       })
       .catch(() => {
-        // The native side answered with something this app does not know, or not at all. The
-        // screen says it could not tell rather than guessing either way.
+        // An unknown or missing answer shows as could-not-tell.
         if (!cancelled) {
           setRole({ status: 'failed' });
           setCallActivity('not-granted');

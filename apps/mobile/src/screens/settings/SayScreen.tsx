@@ -18,12 +18,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * What the assistant may volunteer about the user without being asked.
- *
- * Empty by default, because the safe answer to "where is he?" is not a location. Anything not on
- * this list it will not say.
- */
+/** What the assistant may volunteer about the user; nothing else is said. */
 export function SayScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

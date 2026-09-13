@@ -1,10 +1,4 @@
-/**
- * How a call is drawn, decided once.
- *
- * Every screen that shows a call — the list, the summary, the escalation — reads its icon, its
- * colour and its words from here, so a refused call cannot be grey on one screen and red on
- * another. Pure, so the choices are tested without rendering anything.
- */
+/** How a call is drawn: its icon, colour, grouping and times, decided in one place. */
 import type {
   Caller,
   CallOutcome,
@@ -29,13 +23,7 @@ export const CATEGORY_ICONS: Record<CallerCategory, IconName> = {
   unknown: 'help',
 };
 
-/**
- * The colour a call is drawn in.
- *
- * Violet for what the assistant settled, apricot for anything that involved the user or still
- * does, neutral for what was refused or went nowhere. Red is never used: nothing here is being
- * destroyed.
- */
+/** The colour a call is drawn in: violet settled, apricot involved the user, neutral otherwise. */
 export function toneOf(
   call: Pick<CallSummary, 'outcome' | 'status' | 'human_joined'>,
 ): Tone {
@@ -154,12 +142,7 @@ export function timeOfDay(instant: string): string {
   ).padStart(2, '0')}`;
 }
 
-/**
- * "19 September", in the phone's own calendar.
- *
- * The shipped language is British English (D-017), and a bare `en` would otherwise be read by
- * the formatter as American and put the month first.
- */
+/** "19 September" in the phone's calendar; a bare `en` is read as British English (D-017). */
 export function dayAndMonth(instant: string | Date, locale: string): string {
   return new Date(instant).toLocaleDateString(
     locale === 'en' ? 'en-GB' : locale,

@@ -1,11 +1,4 @@
-/**
- * Saving a change the moment it is made, and saying so when it is refused.
- *
- * The design has no save buttons: a switch is moved and that is the change. The provider already
- * shows the change before the server confirms it and puts it back if refused; what is left for a
- * screen is to tell the user, because a control that springs back with no word reads as the app
- * losing their work.
- */
+/** Saves a change as it is made and says why when it is refused. */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

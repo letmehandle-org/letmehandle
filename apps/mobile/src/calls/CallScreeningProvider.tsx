@@ -1,21 +1,4 @@
-/**
- * Keeping the handset's screening in step with the signed-in user.
- *
- * Two jobs, both running for as long as somebody is signed in, and a switch:
- *
- *   The handset records calls only once this has told it somebody is signed in. Sign-out stops
- *   it, so a call that arrives with nobody signed in is never reported to the next account.
- *
- *   The rules snapshot is rewritten whenever the preferences change, and when the app starts.
- *   The screening service reads only that copy, so a rule changed on this screen reaches the
- *   next call without anything else happening.
- *
- *   What the handset observed about its calls is reported: at start, whenever the app returns to
- *   the front, and whenever the native side says something is waiting.
- *
- * Renders its children whether or not the handset can screen. Where it cannot, there is nothing
- * to keep in step and the context says so.
- */
+/** Keeps the handset's recording, rules snapshot and call reports in step with the signed-in user. */
 import React, {
   createContext,
   useContext,
@@ -59,8 +42,7 @@ export function CallScreeningProvider({
   const [rulesNotSaved, setRulesNotSaved] = useState(false);
 
   useEffect(() => {
-    // A failure leaves the handset not recording, which loses calls rather than misattributing
-    // them; the next start of the app asks again.
+    // A failure leaves the handset not recording; the next start asks again.
     screening?.startRecordingCalls().catch(() => undefined);
   }, [screening]);
 
@@ -78,8 +60,7 @@ export function CallScreeningProvider({
           }
         },
         () => {
-          // Said on the screening screen rather than thrown: the handset has let go of its rules
-          // and lets every call ring, a degraded state the user should know about, not a crash.
+          // The screening screen shows that the handset let every call ring.
           if (!cancelled) {
             setRulesNotSaved(true);
           }
@@ -96,8 +77,7 @@ export function CallScreeningProvider({
     }
     const reporter = new CallReporter(screening, api);
     const drain = (): void => {
-      // A failed drain leaves every event on the handset for the next one; there is nothing
-      // more useful to do with the failure than to try again at the next trigger.
+      // A failed drain leaves every event for the next trigger.
       reporter.drain().catch(() => undefined);
     };
     drain();

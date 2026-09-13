@@ -14,12 +14,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * The whole of what the account is: a name, and the number that is its identity.
- *
- * Signing out of this phone leaves the others signed in, and the screen says so rather than
- * making it a surprise.
- */
+/** The account's name and number, and signing out of this phone. */
 export function AccountScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { profile, api, refreshProfile, signOut } = useSession();

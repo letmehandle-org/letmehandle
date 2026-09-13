@@ -10,16 +10,7 @@ import type { CallScreening } from './callScreening';
 import { useCallScreening } from './CallScreeningProvider';
 import { useScreeningSetup, type RoleState } from './useScreeningSetup';
 
-/**
- * Call screening, explained before it is asked for.
- *
- * The role is a real grant — the phone will consult this app before it rings — so the screen says
- * what that means and, as plainly, what it does not: no listening, no answering, no assistant on
- * this path. Refusing is a complete answer: the screen says what is then true, which is that
- * every call rings as it would have anyway, and leaves the button where it was.
- *
- * Reached only where the handset has a screening service, so it takes one as given.
- */
+/** Explains call screening before asking for the role, and says what is true after a refusal. */
 export function CallScreeningScreen({
   screening,
   onBack,

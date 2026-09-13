@@ -77,37 +77,23 @@ const SETTINGS_ROUTES: Record<SettingsPage, keyof AppStackParamList> = {
   callScreening: APP_ROUTES.callScreening,
 };
 
-/**
- * Which application somebody sees.
- *
- * The stacks are mutually exclusive, so a signed-out person has no route to the application, a
- * signed-in one has no route back to the sign-in screens, and somebody who has not finished
- * setting up has no route past it. Signing out does not navigate: the session changes and the
- * tree changes with it, which means there is no state left over from the previous account to
- * leak into the next.
- *
- * Preferences are loaded above the container rather than inside it, because the loading and
- * unavailable states are not navigators and a container whose child is not one has no screen to
- * show.
- */
+/** The signed-out, setting-up or signed-in stacks, chosen by the session and never navigated between. */
 export function RootNavigator({
   screening = callScreening,
 }: {
-  /** This handset's call screening, or null where it has none. A parameter so tests can vary it. */
+  /** This handset's call screening, or null where it has none. */
   readonly screening?: CallScreening | null;
 }): React.JSX.Element {
   const { status } = useSession();
 
   useEffect(() => {
-    // Whoever signs in next must not be screened by the rules of whoever left, nor have the
-    // previous account's calls reported as theirs.
+    // Forgets the previous account's rules and calls on the handset.
     if (status === 'signed-out' && screening !== null) {
       screening.forgetAccount().catch(() => undefined);
     }
   }, [status, screening]);
 
   if (status === 'restoring') {
-    // Shown rather than flashing the sign-in screen at somebody who is already signed in.
     return (
       <View style={styles.restoring} testID="restoring">
         <ActivityIndicator color={theme.colour.accent} />
@@ -180,14 +166,7 @@ function SignedOut(): React.JSX.Element {
   );
 }
 
-/**
- * Setting up, just finished, or using the thing.
- *
- * The server decides between the first and last, through `next_step`. Holding that on the server
- * is what lets somebody who reinstalls carry on where they were. "Just finished" is this device's
- * alone: it is shown once, when setup ends in front of the user, and never to somebody who opens
- * an account that was set up elsewhere.
- */
+/** Setup while the server has a next step, then the done screen once, then the app. */
 function SignedIn({
   screening,
 }: {
@@ -198,7 +177,7 @@ function SignedIn({
 
   const previous = useRef(step);
   const [justFinished, setJustFinished] = useState(false);
-  // Bumped when a call is deleted, so the list under the summary does not still show it.
+  // Bumped when a call is deleted, so the list reloads without it.
   const [historyVersion, setHistoryVersion] = useState(0);
 
   useEffect(() => {

@@ -1,9 +1,4 @@
-/**
- * Translation, wired from the first screen so that no literal string ever reaches a component.
- *
- * One shipped locale today. The point of doing this now is that adding a second is translation
- * work rather than a change to every screen (D-017).
- */
+/** Translation for every string in the app (D-017). */
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
@@ -22,7 +17,7 @@ export async function initialiseI18n(
     defaultNS: DEFAULT_NAMESPACE,
     interpolation: { escapeValue: false },
     returnNull: false,
-    // A missing key must be a test failure, not a screen showing "home.title" to a user.
+    // A missing key throws instead of rendering the key.
     saveMissing: false,
     parseMissingKeyHandler: (key: string) => {
       throw new Error(`missing translation for "${key}"`);

@@ -1,11 +1,4 @@
-/**
- * What Home says, decided from what the app knows and nothing else.
- *
- * Pure, so each state the design draws is reached only by the facts that make it true: "on duty"
- * only once calls are arriving, "not on duty" only where this phone has been seen not to screen and
- * nothing else brings calls to the assistant, and "needs you" only for a call that is still going
- * and has been escalated.
- */
+/** What Home says, decided purely from what the app knows. */
 import type { CallSummary } from '@letmehandle/api-client';
 
 import type { RoleStatus } from '../calls/callScreening';
@@ -69,8 +62,7 @@ export function homeState(facts: Facts): HomeState {
   if (facts.escalatedCallId !== null) {
     return 'needs-you';
   }
-  // Where calls arrive forwarded, handset screening is only a first filter: the assistant still
-  // answers, so saying the phone can only stop calls would be untrue.
+  // Forwarded calls reach the assistant whatever the handset does.
   if (facts.screeningRole !== null && !facts.callsForwarded) {
     return facts.screeningRole === 'held' ? 'screening' : 'not-on-duty';
   }

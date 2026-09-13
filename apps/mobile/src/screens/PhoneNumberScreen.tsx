@@ -45,14 +45,7 @@ function deviceHints(): DeviceHints {
   };
 }
 
-/**
- * Where somebody gives the number their assistant will answer for.
- *
- * The country is chosen for them from where the phone is, shown as its flag and calling code, so
- * all they type is their own number. Continue stays off until the digits are a whole number for
- * that country, which catches a digit too many or too few before a code goes nowhere. The number
- * is sent in E.164; the backend still normalises it, in one place.
- */
+/** Entering the number: the country comes from the phone and Continue waits for a whole number. */
 export function PhoneNumberScreen({
   onCodeSent,
   onBack,

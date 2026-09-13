@@ -1,10 +1,4 @@
-/**
- * The only place this application reads its environment.
- *
- * Everything else imports `environment`. Scattering `Config.SOMETHING` through the codebase
- * makes it impossible to answer what the app is configured by, and means a missing value is
- * discovered by a blank screen rather than at startup.
- */
+/** The only place the app reads its build-time environment. */
 import Config from 'react-native-config';
 
 export type AppEnvironment = 'development' | 'staging' | 'production';
@@ -57,13 +51,7 @@ function parseUrl(variable: string, value: string | undefined): string {
   return url.replace(/\/+$/, '');
 }
 
-/**
- * Build the environment from raw values.
- *
- * Exported separately from the singleton so a test can supply values without touching the
- * native module, and so the validation itself is testable rather than only observable through
- * a failing app.
- */
+/** Builds and validates the environment from raw values. */
 export function readEnvironment(
   raw: Record<string, string | undefined>,
 ): Environment {

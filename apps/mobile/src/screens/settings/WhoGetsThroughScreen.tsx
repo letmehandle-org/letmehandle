@@ -13,13 +13,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * Who gets through, as the rule itself.
- *
- * Nothing to toggle. The one exception is somebody whose calls were set up another way before
- * the two lanes existed: they are told, and offered the lanes, rather than shown a picture that
- * does not describe their calls.
- */
+/** Who gets through, drawn as the rule, offering the lanes to preferences that differ. */
 export function WhoGetsThroughScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

@@ -37,12 +37,7 @@ interface Props {
   readonly onDeleted: () => void;
 }
 
-/**
- * One call's summary: who, what they wanted, what was settled, and what was said.
- *
- * What the call was is read from the server's summary and nothing is inferred here. A call with
- * no summary yet says so, and a refused call is honest that there is almost nothing to show.
- */
+/** One call's summary from the server: who, what they wanted, what was settled and what was said. */
 export function CallDetailScreen({
   callId,
   onBack,
@@ -292,7 +287,7 @@ function Summary({
   );
 }
 
-/** When a person joined, the timings are the story: one strip, offsets from the start. */
+/** When a person joined: the call's moments on one strip, as offsets from the start. */
 function Timeline({ call }: { readonly call: CallDetail }): React.JSX.Element {
   const { t } = useTranslation();
   const start = call.timings.received_at;

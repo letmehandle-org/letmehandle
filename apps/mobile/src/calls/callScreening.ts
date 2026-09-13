@@ -1,13 +1,4 @@
-/**
- * Call screening on this handset, typed.
- *
- * The generated native interface speaks in strings; this is where they become the unions the
- * rest of the app reads, and where an unexpected one is an error rather than a silent default.
- * The strings are written in `CallScreeningModule.kt`, whose constants carry the same values.
- *
- * `null` where the platform has no screening service. That is a capability, not a platform
- * check: a screen asks whether screening exists, never which operating system it is on.
- */
+/** The handset's call screening as typed unions, or null where the platform has none. */
 import type { EventSubscription } from 'react-native';
 
 import NativeCallScreening, { type Spec } from './native/NativeCallScreening';

@@ -1,9 +1,4 @@
-/**
- * The words a call is described in, from the translations.
- *
- * Beside `presentation.ts` rather than inside it, because these need a translator and those do
- * not, and keeping them apart keeps the pure choices testable without one.
- */
+/** The words a call is described in, from the translations. */
 import type { TFunction } from 'i18next';
 
 import type { Caller, CallSummary } from '@letmehandle/api-client';

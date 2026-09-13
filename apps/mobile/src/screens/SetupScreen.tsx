@@ -160,12 +160,7 @@ export function SetupScreen({ step }: Props): React.JSX.Element {
   );
 }
 
-/**
- * Where the phone sends the calls it does not take.
- *
- * The two conditions are drawn as the two switches a phone's call settings actually have, and the
- * number is large and selectable, because it is copied into another app by hand.
- */
+/** Where to forward unanswered and busy calls, with the number selectable to copy. */
 function Forwarding({
   number,
 }: {

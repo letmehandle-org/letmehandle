@@ -11,12 +11,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * When the assistant answers: around the clock, or one window of the day (D-030).
- *
- * Every change is saved as it is made, like every other settings page, and a refused one is put
- * back by the provider and explained here.
- */
+/** When the assistant answers, saved as it changes (D-030). */
 export function HoursScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

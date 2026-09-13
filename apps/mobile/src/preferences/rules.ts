@@ -1,22 +1,11 @@
-/**
- * The design's rules, expressed in the preferences the API has today.
- *
- * The design describes calls with two lanes and one graph rather than with a posture per
- * category, a threshold and five switches. These functions are the translation between the
- * two, kept in one place and tested, so no screen invents its own reading of either.
- */
+/** The design's lanes and switches, translated to and from the API's preferences. */
 import type {
   CallHandling,
   Notifications,
   Preferences,
 } from '@letmehandle/api-client';
 
-/**
- * Contacts ring the user, everyone else meets the assistant, known spam is turned away.
- *
- * Withheld numbers are unknown numbers, so they go to the assistant too. The escalation threshold
- * has no control in the design and is carried over as it was.
- */
+/** Contacts ring the user, everyone else meets the assistant and spam is refused; the threshold is kept. */
 export function twoLanes(current: CallHandling): CallHandling {
   return {
     default_posture: 'handle_with_agent',
@@ -42,12 +31,7 @@ export function followsTwoLanes(current: CallHandling): boolean {
   );
 }
 
-/**
- * "Tell me about every call": handled and turned away, together.
- *
- * On only when both are, because a switch that reads on while half of what it names is off is
- * one people stop trusting.
- */
+/** "Tell me about every call": on only when handled and blocked calls both notify. */
 export function hearsEveryCall(notifications: Notifications): boolean {
   return notifications.on_handled_call && notifications.on_blocked_call;
 }
@@ -59,12 +43,7 @@ export function withEveryCall(
   return { ...notifications, on_handled_call: on, on_blocked_call: on };
 }
 
-/**
- * The whole personality section with one part changed.
- *
- * The API replaces a section it is given, so a change to the topics has to carry the tone,
- * length and facts as they stand, or saving one would clear the others.
- */
+/** The whole personality section with one part changed, since the API replaces a section. */
 export function personalityWith(
   preferences: Preferences,
   change: Partial<Preferences['personality']>,

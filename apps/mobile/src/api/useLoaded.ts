@@ -1,10 +1,4 @@
-/**
- * One thing fetched for a screen: loading, failed with a reason, or there.
- *
- * Every history screen reads one resource and offers another try when it fails, and each
- * writing its own three-state effect is how one of them forgets to ignore a late answer after
- * the screen has gone.
- */
+/** One resource loaded for a screen: loading, failed or ready, ignoring answers after unmount. */
 import { useCallback, useEffect, useState } from 'react';
 
 export type Loaded<T> =

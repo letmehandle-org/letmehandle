@@ -17,13 +17,7 @@ interface Props {
   readonly historyVersion?: number;
 }
 
-/**
- * The three places in the app.
- *
- * Tabs held in state rather than as a navigator: three screens with no history of their own do
- * not need one, and settings' own pages open over the tabs on the app stack, where back goes
- * where people expect.
- */
+/** The three tabs, held in state; settings pages open over them on the app stack. */
 export function MainTabs({
   onOpenSetting,
   onOpenCall,

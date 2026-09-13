@@ -1,11 +1,4 @@
-/**
- * The voice, loaded and changed.
- *
- * Kept out of the screen so that the screen is a rendering of three states rather than a
- * component that also knows how to fetch. Not held in a provider either, unlike the
- * preferences: nothing outside this screen reads the voice today, and a second application-wide
- * load on every cold start would be paid by everybody to save a fetch for the few who open it.
- */
+/** The voice catalogue and selection, loaded for the screens that show them. */
 import { useCallback, useMemo, useState } from 'react';
 
 import type { VoiceCatalogue, VoiceSelection } from '../api/voice';
@@ -25,12 +18,7 @@ export interface VoiceSettings {
   readonly state: VoiceState;
   /** Try the load again after it failed. */
   reload(): void;
-  /**
-   * Choose a voice, or clear the choice with null.
-   *
-   * Rejects when the server refuses, having changed nothing. The caller is left to say so:
-   * a refusal that is swallowed here becomes a control that springs back for no stated reason.
-   */
+  /** Chooses a voice, or clears the choice with null; rejects when the server refuses. */
   choose(voiceId: string | null): Promise<void>;
 }
 
@@ -44,7 +32,7 @@ export function useVoiceSettings(): VoiceSettings {
     return { catalogue, selection };
   }, [api]);
   const { loaded, retry } = useLoaded(load);
-  // The server's answer to the latest choice, which is the voice a call would actually use.
+  // The server's answer to the latest choice, the voice a call would actually use.
   const [chosen, setChosen] = useState<VoiceSelection | null>(null);
 
   const state = useMemo<VoiceState>(() => {

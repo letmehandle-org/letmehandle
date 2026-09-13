@@ -1,21 +1,4 @@
-/**
- * The one place this app talks to the backend.
- *
- * Screens call methods here. They never see a token, never set a header, and never decide what
- * to do about a 401 — because a rule that lives in every screen is a rule one screen gets
- * wrong.
- *
- * Two behaviours are worth reading before changing anything:
- *
- *   A request that comes back unauthorised is retried once, after renewing the session. The
- *   retry is at most once: a second failure means the session is genuinely gone, and retrying
- *   further would turn one expired token into an infinite loop.
- *
- *   Concurrent requests share a single renewal. A cold start fires several requests at once,
- *   and without this each would renew separately — and because renewing rotates the refresh
- *   token, all but one of those renewals would be treated by the backend as a stolen token and
- *   would sign the user out.
- */
+/** The one client for the backend: adds the token, renews once on a 401 and shares one renewal. */
 import type {
   CallReportBatch,
   CallReportReceipt,
@@ -55,10 +38,7 @@ export const REQUEST_TIMEOUT_MS = 15_000;
 export interface SessionHandle {
   /** The access token to send, or nothing when signed out. */
   accessToken(): string | null;
-  /**
-   * Renew the session. Returns the new access token, null when the server refused (the session is
-   * over), or throws when the server could not be reached — which ends nothing.
-   */
+  /** The new access token, null when the server refused, or a throw when it could not be reached. */
   renew(): Promise<string | null>;
   /** Called when renewal fails and the session is over. */
   onSignedOut(): void;
@@ -256,7 +236,7 @@ export class ApiClient {
       return this.unwrap<T>(first);
     }
 
-    // A token renewed while this request was out is used as it is; renewing again rotates for nothing.
+    // A token renewed while this request was out is reused rather than renewed again.
     const current = this.session.accessToken();
     const renewed =
       current !== null && current !== sent ? current : await this.renewOnce();
@@ -265,14 +245,12 @@ export class ApiClient {
       return this.unwrap<T>(first);
     }
 
-    // Once, and only once. A second failure means the session is genuinely gone.
+    // One retry only; a second 401 is returned as it is.
     return this.unwrap<T>(await this.attempt(options, renewed));
   }
 
   private async renewOnce(): Promise<string | null> {
-    // Everything that arrives while a renewal is in flight waits for that one rather than
-    // starting its own. Renewing rotates the refresh token, so two renewals would look to the
-    // backend exactly like a stolen token being replayed — and would sign the user out.
+    // Requests arriving mid-renewal wait for it, since a second rotation reads as a replayed token.
     this.renewal ??= this.session.renew().finally(() => {
       this.renewal = null;
     });
@@ -291,8 +269,7 @@ export class ApiClient {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    // A network that swallows requests rather than refusing them — weak signal, a captive Wi-Fi
-    // portal — would otherwise leave the app waiting for ever, on a spinner, at launch.
+    // Aborts a request the network swallows instead of refusing.
     const abort = new AbortController();
     const timer = setTimeout(() => {
       abort.abort();

@@ -28,12 +28,7 @@ interface Props {
   readonly refreshKey?: number;
 }
 
-/**
- * Every call, newest first, under the day it happened.
- *
- * Filters are the API's own — an outcome, or whether the user joined — so what a filter shows
- * is exactly what the server counts as that, and nothing is filtered on this side of the wire.
- */
+/** Every call, newest first, under its day, filtered by the API's own filters. */
 export function ActivityScreen({
   onOpenCall,
   refreshKey = 0,

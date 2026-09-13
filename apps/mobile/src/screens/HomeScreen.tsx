@@ -39,13 +39,7 @@ const PILL: Record<
   'first-day': { key: 'home.waiting', tone: 'quiet' },
 };
 
-/**
- * One object, one number, a few rows: whether the assistant is taking calls, how today went, and
- * the latest calls.
- *
- * Every state is one the facts put it in (see `home/today.ts`). A call that is still going and has
- * been escalated takes the whole screen, in the one colour that only ever means the user is wanted.
- */
+/** Whether the assistant is taking calls, how today went, and the latest calls. */
 export function HomeScreen({
   onOpenCall = () => undefined,
   onOpenEscalation = () => undefined,
@@ -87,7 +81,7 @@ export function HomeScreen({
   );
 }
 
-/** The ring first, because its shape never changes; only the numbers are unknown. */
+/** The ring before any numbers are known. */
 function Loading({
   failed,
   onRetry,

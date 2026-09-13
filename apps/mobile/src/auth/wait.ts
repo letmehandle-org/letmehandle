@@ -1,8 +1,4 @@
-/**
- * How long to wait, in the fewest words: "24 seconds", "3 minutes", "2 hours".
- *
- * Rounded up, so somebody told three minutes is never refused again at two and a half.
- */
+/** Waits in words, rounded up: "24 seconds", "3 minutes", "2 hours". */
 import type { TFunction } from 'i18next';
 
 import { ApiError } from '../api/errors';

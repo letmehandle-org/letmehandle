@@ -1,17 +1,4 @@
-/**
- * Design tokens.
- *
- * Every colour, space, radius, shadow and type value in the application comes from here, and
- * these are the values in `design/tokens.css` — the design is the source, this is its
- * translation. A literal in a component is a value that cannot be changed in one place.
- *
- * The design is drawn on a 268-point frame standing in for a ~390-point phone, so its sizes are
- * scaled by roughly 1.4 here: a 12-pixel row title in the design is the 17-point body text iOS
- * itself uses.
- *
- * Light ground, a pastel hero, one violet. Violet always means the assistant, apricot only ever
- * means it needs the user, and red is kept apart for destroying things.
- */
+/** Design tokens from `design/tokens.css`, scaled from the design's frame to a phone. */
 import type { TextStyle, ViewStyle } from 'react-native';
 
 const colour = {
@@ -80,12 +67,7 @@ const radius = {
   pill: 999,
 } as const;
 
-/**
- * Poppins, in the three weights the design uses and no others.
- *
- * The weight is in the family name rather than in `fontWeight`: a bundled font is a file per
- * weight, and asking Android for weight 600 of "Poppins" falls back to the system font.
- */
+/** Poppins in the three weights used, each named as its own family for Android. */
 const font = {
   light: 'Poppins-Light',
   regular: 'Poppins-Regular',

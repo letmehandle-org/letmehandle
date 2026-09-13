@@ -24,12 +24,7 @@ interface Props {
   readonly onOpenPrivacy: () => void;
 }
 
-/**
- * What was said, in the order it was said, and when it goes.
- *
- * Purged and never recorded are different answers and each gets its own: deletion is the user's
- * retention working, not something missing, and a call nobody spoke on never had words to keep.
- */
+/** What was said, in order, with purged and never-recorded shown as their own answers. */
 export function TranscriptScreen({
   callId,
   onBack,

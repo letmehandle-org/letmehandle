@@ -13,12 +13,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * What the assistant may do on somebody's behalf.
- *
- * Every capability is its own switch and every one starts off: these are things said to
- * strangers on the telephone, and anything left off makes the assistant fetch the user instead.
- */
+/** What the assistant may do for the user, one switch per capability. */
 export function AuthorityScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

@@ -1,18 +1,7 @@
-/**
- * Turning a partial change into the whole of what the user should see.
- *
- * Two jobs, both of which exist because a screen saves one section and the user looks at all of
- * them.
- */
+/** Applies a partial change to preferences. */
 import type { Preferences, PreferencesUpdate } from '@letmehandle/api-client';
 
-/**
- * What the preferences will look like once this change lands.
- *
- * Used to show the change before the server has confirmed it. An absent or null section means
- * the change said nothing about it, which is the same thing the backend does with it: leave it
- * exactly as it was.
- */
+/** The preferences once this change lands; an absent or null section is left as it was. */
 export function applyChanges(
   current: Preferences,
   changes: PreferencesUpdate,
