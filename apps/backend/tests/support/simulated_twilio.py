@@ -234,6 +234,9 @@ class SimulatedTwilio:
 
     async def send_caller_audio(self, call_sid: str, audio: bytes, *, frames: int = 1) -> None:
         """The call's audio reaching the assistant's leg, in the provider's own framing."""
+        # The application counts a socket once its start arrives, which can be before this side
+        # has finished recording the connection it opened, so wait for that too.
+        await eventually(lambda: self._has_streaming_assistant(call_sid))
         leg = self.assistant_of(call_sid)
         assert leg.socket is not None
         for chunk in range(1, frames + 1):
@@ -327,6 +330,12 @@ class SimulatedTwilio:
             path_and_query,
             data=_fields(params),
             headers={SIGNATURE_HEADER: compute_signature(url, params, token)},
+        )
+
+    def _has_streaming_assistant(self, call_sid: str) -> bool:
+        return any(
+            leg.label.startswith("assistant") and leg.socket is not None
+            for leg in self.conference_of(call_sid).legs
         )
 
     def assistant_of(self, call_sid: str) -> SimulatedLeg:
