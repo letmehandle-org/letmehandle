@@ -486,7 +486,7 @@ def build_call_orchestrator(
         assistant = AssistantServices(
             speech=build_speech_provider(settings, metrics=metrics),
             voices=container.voices,
-            judging=partial(build_call_judging, settings),
+            judging=lambda actions: build_call_judging(settings, actions=actions),
         )
     return CallOrchestrator(
         transport=telephony.transport,

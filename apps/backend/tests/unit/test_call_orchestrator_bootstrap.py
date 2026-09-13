@@ -83,3 +83,30 @@ async def test_a_streaming_deployment_takes_calls_with_the_assistant_it_is_given
         assert app.state.orchestrator is not None
         await asyncio.sleep(0)
     assert speech.sessions == []
+
+
+async def test_a_streaming_deployment_builds_its_speech_service_and_agent_from_settings() -> None:
+    settings = with_storage(telephony_settings()).model_copy(
+        update={
+            field: getattr(
+                make_settings(
+                    speech_endpoint_url="wss://speech.example.com/v1/realtime",
+                    speech_model="example-speech-model",
+                    llm_base_url="https://model.example.com/v1",
+                    llm_api_key="an-example-key",
+                    llm_model="an-example-model",
+                ),
+                field,
+            )
+            for field in (
+                "speech_endpoint_url",
+                "speech_model",
+                "llm_base_url",
+                "llm_api_key",
+                "llm_model",
+            )
+        }
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        assert app.state.orchestrator is not None
