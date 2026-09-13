@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 from typing import TYPE_CHECKING
 
 import pytest
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.notification import NotificationProvider
 
-DATABASE = f"letmehandle_e2e_{os.getpid()}"
+DATABASE = f"letmehandle_e2e_{os.getpid()}_{secrets.token_hex(4)}"
 
 # How long the transport waits for news of a dialled leg before calling it unreachable. Two seconds
 # in production; a scenario whose every leg is heard of waits that long for nothing at teardown.
@@ -54,8 +55,8 @@ def e2e_database(database_url: str) -> Iterator[str]:
             f"Start one with `make up`, or point TEST_DATABASE_URL somewhere else."
         )
     own = server.set(database=DATABASE).render_as_string(hide_password=False)
-    asyncio.run(_schema(own))
     try:
+        asyncio.run(_schema(own))
         yield own
     finally:
         asyncio.run(_drop(server.render_as_string(hide_password=False)))
@@ -139,7 +140,6 @@ async def _create(server_url: str) -> None:
     engine = create_async_engine(server_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.connect() as connection:
-            await connection.execute(text(f'DROP DATABASE IF EXISTS "{DATABASE}" WITH (FORCE)'))
             await connection.execute(text(f'CREATE DATABASE "{DATABASE}"'))
     finally:
         await engine.dispose()
