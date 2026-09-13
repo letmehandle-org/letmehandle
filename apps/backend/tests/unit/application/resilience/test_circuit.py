@@ -57,7 +57,7 @@ def breaker(moment: Moment, metrics: RecordingMetrics | None = None) -> CircuitB
 
 
 def state_of(circuit: CircuitBreaker) -> CircuitState:
-    # Read through a call, so the type checker does not take one reading of a moving clock for all.
+    # Read through a call, so the type checker sees each reading of the clock.
     return circuit.state
 
 
@@ -117,7 +117,7 @@ async def test_after_the_cool_off_one_trial_is_let_through_and_its_success_close
     assert not circuit.is_refusing
     trial = asyncio.create_task(circuit.call(slow_trial))
     await trial_started.wait()
-    # A second request while the trial runs is refused: one trial, not a stampede.
+    # A second request while the trial runs is refused.
     assert circuit.is_refusing
     with pytest.raises(CircuitOpenError):
         await circuit.call(succeeding)

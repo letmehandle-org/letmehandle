@@ -1,8 +1,4 @@
-"""The state diagram in the call flow documentation is the transition table.
-
-Parsed from the documentation's mermaid block and compared with `ALLOWED`, so that adding a state or
-a transition without drawing it, or drawing one the code does not allow, fails the build.
-"""
+"""The state diagram in the call flow documentation is the transition table."""
 
 from __future__ import annotations
 
@@ -29,8 +25,7 @@ def drawn_transitions() -> set[tuple[CallState, CallState]]:
 
 
 def test_the_diagram_draws_every_allowed_move_and_no_other() -> None:
-    # The document says failed is reachable from every state that is not an ending, and leaves those
-    # arrows out; they are added back here, exactly as the table adds them.
+    # The document leaves out the arrows to failed from every non-ending state; they are added back.
     implied = {(state, CallState.FAILED) for state in CallState if state not in TERMINAL}
     allowed = {(source, target) for source, targets in ALLOWED.items() for target in targets}
     assert drawn_transitions() | implied == allowed

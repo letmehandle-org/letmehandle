@@ -1,9 +1,4 @@
-"""Calls that have ended, each walked through the real state machine, for summarising.
-
-A call is built the way orchestration leaves one at teardown: the assistant took it, what was said
-is on it in order, and it ended one of the ways a summary distinguishes. The facts come back beside
-it, as orchestration hands them to the summariser.
-"""
+"""Ended calls walked through the real state machine, with their facts, for summarising."""
 
 from __future__ import annotations
 

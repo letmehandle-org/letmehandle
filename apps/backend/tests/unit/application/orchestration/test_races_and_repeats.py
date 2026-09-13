@@ -1,9 +1,4 @@
-"""Things happening to one call at once, and things happening to it twice.
-
-Each named race runs its two sides as separate tasks released together, and repeats, because an
-interleaving that is only sometimes wrong is still wrong. What every one of them must end in is a
-legal walk of the state machine and one teardown.
-"""
+"""Things happening to one call at once, or twice, each ending in a legal walk and one teardown."""
 
 from __future__ import annotations
 
@@ -68,10 +63,7 @@ def actions_of(running: Running) -> CallActions:
 
 
 async def together(*sides: object) -> None:
-    """Start every side as its own task, let them all begin, and wait for all of them.
-
-    Raises what any side raised: a side refused is a race lost, not a race survived.
-    """
+    """Start every side as its own task together, wait for all, and raise what any side raised."""
     start = asyncio.Event()
 
     async def side(work: object) -> None:
@@ -111,7 +103,7 @@ class TestNamedRaces:
             states = running.stores.states(CALL)
             assert a_legal_walk(states)
             assert call.state is CallState.COMPLETED
-            # Ending the call is what stops the phone ringing: one release, and nobody left on it.
+            # Ending the call stops the phone ringing: one release, and nobody left on it.
             assert line.asked("terminate", CALL) == 1
             assert running.agent.forgotten == [CallId(CALL)]
             summary = running.stores.summaries.stored[CallId(CALL)]
@@ -176,7 +168,7 @@ class TestNamedRaces:
 
             states = running.stores.states(CALL)
             assert a_legal_walk(states)
-            # The dial under way finishes, and then the ending is acted on: nothing interleaves.
+            # The dial under way finishes before the ending is acted on.
             assert states[-3:] == [
                 CallState.ESCALATION_REQUESTED,
                 CallState.HUMAN_RINGING,

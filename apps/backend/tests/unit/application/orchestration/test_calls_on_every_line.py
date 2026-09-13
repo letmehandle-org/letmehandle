@@ -1,8 +1,4 @@
-"""What happens to a call, on each kind of line: the same orchestrator, different plans.
-
-Every test here runs over both capability sets. A handset's line never reaches the assistant or an
-escalation — not because something refuses, but because its plan has neither.
-"""
+"""What happens to a call on each kind of line: one orchestrator, a plan per capability set."""
 
 from __future__ import annotations
 

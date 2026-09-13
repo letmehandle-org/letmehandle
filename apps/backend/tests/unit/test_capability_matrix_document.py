@@ -1,9 +1,4 @@
-"""The capability matrix in the architecture documentation is what the transports declare.
-
-A matrix that drifts from the code is worse than none: somebody choosing a transport, or writing a
-third, reads it as the truth. So the table is parsed and compared with the declarations of the
-transports bootstrap actually builds, column by column and row by row.
-"""
+"""The capability matrix in the architecture documentation is what the built transports declare."""
 
 from __future__ import annotations
 

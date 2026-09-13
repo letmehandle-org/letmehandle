@@ -1,10 +1,4 @@
-"""Random calls: whatever happens, in whatever order, a call walks the state machine and ends.
-
-Seeded, so a failure names the seed that reproduces it. Every step is something a provider, the
-agent or the speech service can really do to a live call; the property is that no mixture of them
-reaches a state the machine does not allow, leaves a call without its teardown, or leaves anything
-running (which `orchestrating` counts on the way out).
-"""
+"""Seeded random calls: any order of real events walks the state machine to one teardown."""
 
 from __future__ import annotations
 
@@ -72,8 +66,7 @@ async def asks(running: Running, chance: random.Random) -> None:
         if chance.random() < 0.7
         else agent._actions.end_call(CallId(CALL), ending, ROUTINE)
     )
-    # A refusal is an answer, not a failure of the property: the call may be over, or the dial may
-    # have been refused.
+    # A refusal is an answer: the call may be over, or the dial refused.
     task = asyncio.get_running_loop().create_task(request)
     task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
 

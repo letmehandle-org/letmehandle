@@ -1,14 +1,4 @@
-"""Everything an orchestrator runs against, in memory, and a way to run one.
-
-The lines are transports a test drives: it says what the provider reports, and reads back what the
-orchestrator asked of it. They keep the port's promises — terminate is safe twice, an undeclared
-capability has no method to call — and can be told to refuse or to hang on any request, which is how
-a partial provider failure and a bounded wait are both put in front of a run.
-
-The agent is scripted rather than modelled, but its escalations and endings go through the real
-escalation service and the real conclusion, so the rules deciding whether a phone rings and whether
-a hang-up is allowed are the product's own in every test.
-"""
+"""Everything an orchestrator runs against, in memory, and a way to run one."""
 
 from __future__ import annotations
 
@@ -110,8 +100,7 @@ OWNERS_NUMBER: Final = PhoneNumber("+12025550143")
 ANOTHER_OWNER: Final = UserId("user-2")
 DEVICE: Final = DeviceToken(DevicePlatform.IOS, "phone-token")
 
-# Short enough that a test waiting on one is quick, long enough that nothing else in a test runs
-# into it by accident.
+# Short enough to wait on, long enough that a test does not run into one by accident.
 QUICK: Final = Bounds(
     ring=timedelta(seconds=0.3),
     judgement=timedelta(seconds=0.3),
@@ -389,12 +378,7 @@ class CallSpeaker(AudioSink):
 
 
 class Line(CallTransport):
-    """A transport a test drives. What it may be asked depends on the subclass's capabilities.
-
-    `refusing` names requests that raise as a provider refusing them; `failing` names requests that
-    raise as a provider that cannot be reached, which trying again may get past; `holding` names
-    requests that wait until their event is set, which is how a request that never returns is made.
-    """
+    """A transport a test drives, told which requests to refuse, fail or hold."""
 
     def __init__(self) -> None:
         self._events: asyncio.Queue[CallEvent | None] = asyncio.Queue()
@@ -575,12 +559,7 @@ class HandsetLine(Line):
 
 @dataclass
 class Look:
-    """What the scripted agent does on one look at a call, in the order a real judgement does it.
-
-    It records what it records, then concludes through the real conclusion: the escalation the
-    policy makes of `proposal`, then `ending` if the rules still allow it. `waits_for` holds the
-    look at its start; `fails` raises instead of concluding.
-    """
+    """What the scripted agent records and concludes on one look at a call."""
 
     proposal: EscalationProposal = ROUTINE
     ending: CallEnding | None = None
@@ -789,7 +768,7 @@ class Running:
 async def eventually(condition: Callable[[], bool]) -> None:
     """Wait until `condition` holds, for at most a few seconds."""
     async with asyncio.timeout(5):
-        # What is waited on is plain state in a fake or a store, which offers nothing to await.
+        # What is waited on is plain state, which offers nothing to await.
         while not condition():  # noqa: ASYNC110
             await asyncio.sleep(0.005)
 
@@ -810,14 +789,7 @@ async def orchestrating(
     circuit_policy: CircuitPolicy | None = None,
     other_lines: Sequence[Line] = (),
 ) -> AsyncIterator[Running]:
-    """An orchestrator on `line`, started, and stopped afterwards with nothing of it left running.
-
-    `other_lines` are further lines the same orchestrator takes calls from, every call on each the
-    one owner's as on `line`.
-
-    Counts the tasks alive before and after: a run, a conversation, a judgement or a timer outliving
-    the orchestrator fails the test that left it.
-    """
+    """An orchestrator on `line` and `other_lines`, stopped afterwards with nothing left running."""
     before = running_tasks()
     storage = stores or MemoryCallStores()
     if stores is None:

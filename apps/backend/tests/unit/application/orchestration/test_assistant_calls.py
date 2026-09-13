@@ -1,8 +1,4 @@
-"""Calls the assistant takes: the conversation, the judgement, escalation and de-escalation.
-
-A streaming line only: on a handset's line none of this exists, which the tests over every line
-assert from the other side.
-"""
+"""Calls the assistant takes: conversation, judgement, escalation and de-escalation."""
 
 from __future__ import annotations
 
@@ -438,8 +434,7 @@ class TestTheAssistantHandlesACall:
     async def test_a_record_claiming_an_ending_the_call_did_not_have_is_not_the_summary(
         self,
     ) -> None:
-        # Written while the user's phone was ringing, anticipating a handover that never came: the
-        # caller hung up first, and history must say the user was wanted and missed it.
+        # A record written as the phone rang, for a handover the caller hung up before.
         record = OutcomeRecord(CallOutcome.HANDED_TO_USER, "Handed the neighbour over to you.")
         line = streaming()
         looks = [Look(proposal=WANTS_THE_USER, record=record)]
@@ -483,8 +478,7 @@ class TestEscalation:
     async def test_a_user_answering_before_the_assistants_join_is_heard_is_recorded_after_it(
         self,
     ) -> None:
-        # Callbacks can arrive in any order. The assistant was talking to the caller before the
-        # user was rung, so the record says it was on the call first whatever order they came in.
+        # The assistant is recorded before the user, whatever order the callbacks came in.
         line = streaming()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
             line.arrives(CALL, STRANGER)
@@ -587,8 +581,7 @@ class TestEscalation:
     async def test_the_assistant_is_told_the_user_is_being_reached_before_they_are_dialled(
         self,
     ) -> None:
-        # The assistant answers the caller while the dial is still on its way; told only once the
-        # phone rang, it had already said the user could not be called.
+        # The assistant is told before the dial completes.
         line = streaming()
         line.holding["dial"] = asyncio.Event()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
@@ -699,7 +692,7 @@ class TestEscalation:
             await eventually(lambda: '"being_reached"' in "".join(session.context_updates))
             await running.caller_says("Are they coming?")
             await eventually(lambda: running.judgements == 2)
-            # Still ringing, and the caller still has somebody to talk to.
+            # Still ringing, with the assistant still on the call.
             assert running.stores.call(CALL).state is CallState.HUMAN_RINGING
             assert not session.is_closed
             line.user_answers(CALL)
@@ -871,8 +864,7 @@ class TestDegradedProviders:
         line = streaming()
         async with orchestrating(line) as running:
             await with_the_assistant(running)
-            # A caller hanging up ends the conference, and the assistant's leg can be heard of
-            # leaving before the caller's.
+            # The assistant's leg is reported leaving before the caller's.
             line.leaves(CALL, Leg.ASSISTANT)
             session = await running.session()
             await eventually(lambda: session.is_closed)

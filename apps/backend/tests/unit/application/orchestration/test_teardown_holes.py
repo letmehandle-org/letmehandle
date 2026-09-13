@@ -1,7 +1,4 @@
-"""Endings that leave something behind: a teardown cut short, and records written after it.
-
-Each test here reproduced a defect before its fix, and keeps it fixed.
-"""
+"""Endings that must leave nothing behind: a teardown cut short, and records written after it."""
 
 from __future__ import annotations
 
@@ -56,7 +53,7 @@ async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> Non
         session = await running.session()
 
         async def close() -> None:
-            # What the real sessions do when their reader task died of a defect.
+            # A session whose reader task died of a defect.
             raise ProviderError("speech", "the reader failed", retryable=False)
 
         session.close = close  # type: ignore[method-assign]  # a session that fails as it closes
@@ -81,8 +78,7 @@ async def test_a_speech_session_that_fails_to_close_as_the_assistant_goes_still_
             raise ProviderError("speech", "the reader failed", retryable=False)
 
         session.close = close  # type: ignore[method-assign]  # a session that fails as it closes
-        # The assistant's leg drops mid-call with nobody else coming: the caller must not be left
-        # on a line nothing holds.
+        # The assistant's leg drops mid-call with nobody else coming.
         line.leaves(CALL, Leg.ASSISTANT)
         await eventually(lambda: CallId(CALL) not in running.orchestrator._runs)
 
@@ -100,7 +96,7 @@ async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marke
 
         @asynccontextmanager
         async def slow_first_opening() -> AsyncIterator[EscalationStores]:
-            # The claim is the dispatch's first unit of work: a database under load answers late.
+            # The dispatch's first unit of work answers late.
             nonlocal openings
             openings += 1
             if openings == 1:
@@ -129,15 +125,14 @@ async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_reco
     await storage.with_owner()
     async with orchestrating(StreamingLine(), stores=storage) as running:
         line = await with_the_assistant(running)
-        # One write refused, as a connection reset between two units of work does.
+        # One write refused, as a connection reset does.
         storage.calls.refusing_writes = True
         line.hangs_up(CALL)
         await eventually(lambda: CallId(CALL) not in running.orchestrator._runs)
         storage.calls.refusing_writes = False
 
     async with orchestrating(StreamingLine(), stores=storage):
-        # Whatever the call ends up stored as, its summary must say the same: never a failed call
-        # whose summary says the caller hung up.
+        # The stored call and its summary agree on how it ended.
         call = storage.call(CALL)
         summary = storage.summaries.stored[CallId(CALL)]
         assert (call.state is CallState.FAILED) == (summary.outcome is CallOutcome.FAILED)

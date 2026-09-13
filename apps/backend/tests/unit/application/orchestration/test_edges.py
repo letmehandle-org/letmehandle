@@ -192,7 +192,7 @@ class TestLateAndStaleNews:
         self,
     ) -> None:
         line = StreamingLine()
-        # Giving up on the ring could not reach the provider, so the user's phone rang on.
+        # The ring's cancel failed at the provider, so the phone rang on.
         line.refusing.add("cancel")
         async with orchestrating(line) as running:
             await on_the_assistant(running)
@@ -269,8 +269,7 @@ class TestRememberingEndings:
     async def test_only_so_many_endings_are_remembered(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Bounded, because a process runs for weeks. A call forgotten that way and announced again
-        # is taken as the new call it would have to be.
+        # A forgotten ended call announced again is taken as a new call.
         monkeypatch.setattr(orchestrator_module, "REMEMBERED_ENDINGS", 1)
         line = StreamingLine()
         async with orchestrating(line) as running:

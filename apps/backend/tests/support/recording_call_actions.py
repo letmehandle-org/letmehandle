@@ -1,10 +1,4 @@
-"""Call actions that keep what they are asked to do, so a test can read it back.
-
-No kinder than orchestration will be. It refuses to escalate on a decision that does not require
-it, because the port says it is only ever called with one, and it refuses anything at all once the
-call has been hung up, because a call that has ended has nobody left on it to act for. A fake that
-accepted both would let a tool that does either pass every test here.
-"""
+"""Call actions that keep what they are asked to do, refusing what orchestration refuses."""
 
 from __future__ import annotations
 
@@ -52,13 +46,7 @@ type Action = Escalated | Recorded | MessageTaken | Ended
 
 @dataclass
 class RecordingCallActions(CallActions):
-    """Every action, in order.
-
-    `escalation_failures` are raised, one per escalation and in order, instead of reaching anyone;
-    `message_failures` the same for messages.
-    `escalation_gate`, when set, holds every escalation until it is opened — which is how a test
-    puts two escalations in flight at the same moment without sleeping.
-    """
+    """Every action in order, with failures to raise and a gate to hold escalations."""
 
     actions: list[Action] = field(default_factory=list)
     escalation_failures: list[Exception] = field(default_factory=list)

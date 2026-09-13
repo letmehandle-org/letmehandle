@@ -1,10 +1,4 @@
-"""Calls, and stand-in tools, for exercising the agent without orchestration.
-
-The stand-ins are for tests whose point is the wrapper that presents a tool to a framework; every
-other test uses the registry's real tools. They are small but not hollow. A guarded tool checks the
-user's grant before it acts, writes its refusal down and does nothing more, which is the one
-behaviour every real tool must share.
-"""
+"""Calls, and small stand-in tools, for exercising the agent without orchestration."""
 
 from __future__ import annotations
 
@@ -33,7 +27,7 @@ if TYPE_CHECKING:
     from letmehandle.application.agent.tool import ToolOutcome, ToolsForAJudgement
     from letmehandle.domain.models.authority import Capability
 
-# Midday on a weekday. The user sets no hours, so the assistant is answering (D-030).
+# Midday on a weekday, with no hours set, so the assistant is answering (D-030).
 MIDDAY: Final = datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
 
 # Reserved for fiction, never routable.
@@ -48,11 +42,7 @@ def a_call(
     from_important_contact: bool = False,
     locale: str = "en",
 ) -> CallSoFar:
-    """A call in which the caller has said each of `said`, in turn.
-
-    Built the way orchestration builds one, from a single `UserPreferences`. The user always has
-    one important contact; `from_important_contact` decides whether that is who is calling.
-    """
+    """A call on which the caller said each of `said`, for a user with one important contact."""
     preferences = UserPreferences(
         rules=CallRules(escalate_at_or_above=escalate_at_or_above),
         authority=authority or AgentAuthority.none(),

@@ -64,7 +64,7 @@ def test_a_screening_transport_records_the_decision_and_offers_no_assistant(
     assert plan.assistant is None
     assert plan.escalation is None
     assert plan.put_through == LetItRing()
-    # A handset that reported no decision let the call ring.
+    # A handset that reported no decision let the call ring (D-028).
     assert plan.screened is (decision or ScreeningDecision.ALLOW)
 
 

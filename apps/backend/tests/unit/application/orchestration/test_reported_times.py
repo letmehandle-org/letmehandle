@@ -1,9 +1,4 @@
-"""A call reported after the fact is recorded at the moments it happened, not when word of it came.
-
-A handset tells the backend about its calls whenever it next can: seconds later on a good day, hours
-later after a day offline. History that put each call at the moment its report arrived would show a
-four-second call as starting when it was over and lasting nothing.
-"""
+"""A call reported after the fact is recorded at the moments it happened."""
 
 from __future__ import annotations
 
@@ -69,7 +64,7 @@ async def test_a_call_refused_while_the_handset_was_offline_is_placed_hours_back
 
 
 async def test_a_moment_too_far_ahead_of_this_clock_is_recorded_as_now() -> None:
-    # The handset's clock is wrong. Now is the nearest moment that can be true.
+    # A handset clock too far ahead is recorded as now.
     line = HandsetLine()
     async with orchestrating(line, preferences=PASSING) as running:
         rings(
@@ -93,8 +88,7 @@ async def test_a_moment_a_little_ahead_is_an_ordinary_difference_between_clocks(
 
 
 async def test_nothing_is_recorded_before_the_call_has_reached_it() -> None:
-    # Out of order, or from a clock set back mid-call: an answer or an end earlier than what the
-    # call already went through is recorded at that point, so its history never runs backwards.
+    # An answer or end earlier than the call's last move is recorded at that move.
     line = HandsetLine()
     rang = NOW - timedelta(minutes=1)
     async with orchestrating(line, preferences=PASSING) as running:
