@@ -65,7 +65,14 @@ function handleFor(options: {
 describe('unauthenticated requests', () => {
   it('sends no authorisation header', async () => {
     const fake = new FakeFetch([
-      { status: 202, body: { challenge_id: 'c', expires_in_seconds: 300 } },
+      {
+        status: 202,
+        body: {
+          challenge_id: 'c',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
+      },
     ]);
     globalThis.fetch = fake.fn;
 

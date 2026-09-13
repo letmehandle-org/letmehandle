@@ -131,6 +131,7 @@ describe('the number screen', () => {
         return jsonResponse(202, {
           challenge_id: 'c',
           expires_in_seconds: 300,
+          resend_after_seconds: 30,
         });
       }
       return jsonResponse(200, {});

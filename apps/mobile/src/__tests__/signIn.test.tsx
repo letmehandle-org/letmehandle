@@ -76,7 +76,11 @@ describe('signing in', () => {
     replyWith([
       {
         status: 202,
-        body: { challenge_id: 'challenge-1', expires_in_seconds: 300 },
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
       },
       { status: 200, body: TOKENS },
       { status: 200, body: PROFILE },
@@ -179,7 +183,11 @@ describe('signing in', () => {
     replyWith([
       {
         status: 202,
-        body: { challenge_id: 'challenge-1', expires_in_seconds: 300 },
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
       },
       { status: 401, body: { error: 'invalid_credentials', message: 'no' } },
     ]);
@@ -222,7 +230,11 @@ describe('signing in', () => {
     replyWith([
       {
         status: 202,
-        body: { challenge_id: 'challenge-1', expires_in_seconds: 300 },
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
       },
       { status: 500, body: { error: 'internal_error', message: 'no' } },
     ]);
@@ -246,7 +258,11 @@ describe('signing in', () => {
     replyWith([
       {
         status: 202,
-        body: { challenge_id: 'challenge-1', expires_in_seconds: 300 },
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
       },
     ]);
 
@@ -273,7 +289,11 @@ describe('signing in', () => {
     replyWith([
       {
         status: 202,
-        body: { challenge_id: 'challenge-1', expires_in_seconds: 300 },
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
       },
     ]);
 

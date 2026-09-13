@@ -218,7 +218,7 @@ export function SessionProvider({
       const issued = await client.requestChallenge(phoneNumber);
       return {
         challengeId: issued.challenge_id,
-        resendAfterSeconds: issued.resend_after_seconds ?? 0,
+        resendAfterSeconds: issued.resend_after_seconds,
       };
     },
     [client],
