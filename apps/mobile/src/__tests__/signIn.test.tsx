@@ -105,6 +105,34 @@ describe('signing in', () => {
     });
   });
 
+  it('enters the application when the profile cannot be read straight after the code', async () => {
+    replyWith([
+      {
+        status: 202,
+        body: {
+          challenge_id: 'challenge-1',
+          expires_in_seconds: 300,
+          resend_after_seconds: 30,
+        },
+      },
+      { status: 200, body: TOKENS },
+      { status: 503, body: { error: 'database_unavailable', message: 'down' } },
+    ]);
+
+    const view = await startAtPhoneEntry();
+    await fireEvent.changeText(view.getByTestId('phone-input'), NUMBER);
+    await fireEvent.press(view.getByTestId('phone-continue'));
+    await waitFor(() => {
+      expect(view.getByTestId('code-screen')).toBeOnTheScreen();
+    });
+    await fireEvent.changeText(view.getByTestId('code-input'), '000000');
+    await fireEvent.press(view.getByTestId('code-continue'));
+
+    await waitFor(() => {
+      expect(view.getByTestId('home-screen')).toBeOnTheScreen();
+    });
+  });
+
   it('says so when the server refuses a number that looked whole', async () => {
     replyWith([
       { status: 422, body: { error: 'invalid_request', message: 'no' } },

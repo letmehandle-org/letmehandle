@@ -230,7 +230,14 @@ export function SessionProvider({
       const started = sessionFromTokens(tokens);
       session.current = started;
       await saveSession(started);
-      setProfile(await client.me());
+      // A profile that cannot be read yet is fetched again later; the code is already spent.
+      const current = await client.me().catch((error: unknown) => {
+        if (endsSession(error)) {
+          throw error;
+        }
+        return null;
+      });
+      setProfile(current);
       setStatus('signed-in');
     },
     [client],
