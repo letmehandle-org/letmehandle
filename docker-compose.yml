@@ -92,6 +92,8 @@ services:
       TELEPHONY_APP_ID: ${TELEPHONY_APP_ID:-}
       TELEPHONY_WEBHOOK_BASE_URL: ${TELEPHONY_WEBHOOK_BASE_URL:-}
       CALL_MAX_DURATION_SECONDS: ${CALL_MAX_DURATION_SECONDS:-14400}
+      TRACING_OTLP_ENDPOINT: ${TRACING_OTLP_ENDPOINT:-}
+      DIAGNOSTICS_TOKEN: ${DIAGNOSTICS_TOKEN:-}
     ports:
       # Configurable, because 8000 is a popular port and a clash with something else on a
       # contributor's machine should not need a file to be edited.

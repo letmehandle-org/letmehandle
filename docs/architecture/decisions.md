@@ -766,3 +766,47 @@ sent and an outage is nobody's attempt. A request the provider accepted but neve
 timeout, or a connection lost after sending — may have been delivered, so the challenge is kept and
 counts against the cooldown and every budget. The client is told `provider_unavailable` with the
 wait before another code, so a slow provider cannot be used to send codes nobody counts.
+
+## D-038 — Observability records structure, and a failing provider costs the feature that needs it
+
+**Accepted.** What the backend says about itself — log lines, metrics, spans, readiness and
+diagnostics — carries states, timings, stages, failure kinds and identifiers of calls and requests,
+and never a number, a token or anything anybody said. Each is held to that mechanically rather than
+by review:
+
+- **Logs** pass one set of processors, structlog's and the standard library's alike. The last of
+  them removes any field named like a number, a token or words, however deeply nested, clears text
+  of anything shaped like a number or a signed token, and logs an exception as its type, causes and
+  frames. A test reads every log call in the product for such a field by name.
+- **Metrics** are declared beside the code that records them, with the values each label may take.
+  A recorder refuses anything undeclared, and a test over the registry proves every label bounded.
+- **Spans** begin through a tracer port. The default sends nowhere; OpenTelemetry, over OTLP, is an
+  adapter chosen when `TRACING_OTLP_ENDPOINT` is set. Attribute keys are a fixed list, values are
+  tokens, and a call id that could be a number is carried as `untraceable`.
+- **A call's timeline** — each state it entered, each stage that failed, each dependency it went
+  without — is stored with the call, in the same unit of work, and deleted with it.
+  **Diagnostics** read it by call id alone, behind a token of their own (`DIAGNOSTICS_TOKEN`), and
+  do not exist without one.
+
+**One failure taxonomy.** Every error the product defines states its `FailureKind`, and
+`classify` decides from the kind whether it is retryable, shown to the user, needs attention (an
+error-level line) or is a defect. A test fails an error added without a kind.
+
+**Retries only where repeating is safe.** A retryable failure is tried again, with jittered
+backoff, only through `retry_idempotent`: ending a call at the transport and storing the whole
+call at teardown. Dialling the user is never retried; a second dial is a second ring.
+
+**A circuit per dependency.** Telephony, speech, the model and each push platform. A dependency
+failing repeatedly is not asked for a cool-off, and the product takes the degraded path at once:
+
+| Dependency | While its circuit is open |
+| --- | --- |
+| Speech | A call the assistant would take is put through to the user instead (routing's own fallback), marked degraded. |
+| Model | Judgements are not asked; the assistant keeps talking. Summaries are written from the call's facts. |
+| Telephony | Requests are refused without waiting; a call that cannot be answered fails, and ending one is still tried. |
+| Push, per platform | That platform's devices are recorded unavailable; the ring still happens (D-016). |
+
+An open circuit does not make a process unready. Every process shares the same providers, so taking
+one out of rotation moves its calls to another that fails them the same way. Readiness reports each
+circuit by role, never by vendor, and whether rate limits are shared across processes.
+

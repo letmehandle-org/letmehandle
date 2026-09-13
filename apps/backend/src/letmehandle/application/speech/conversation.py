@@ -23,12 +23,14 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.domain.errors import DomainError
+from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.ports.speech import (
     AudioProduced,
     SessionFailed,
     SpeechStarted,
     TranscriptProduced,
 )
+from letmehandle.observability import catalogue
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -38,11 +40,10 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.speech import SpeechEvent, SpeechSession
 
-CONVERSATION_ENDED: Final = "speech.conversation.ended"
 # How long the sink took to drop what it had buffered once the caller spoke. Its own name, not
 # the session's interruption-to-silence: that one runs from cancelling the model to the model
 # going quiet, and one name for two measurements averages them into a number that is neither.
-SINK_DISCARD: Final = "speech.sink_discard_seconds"
+SINK_DISCARD: Final = catalogue.measure("speech.sink_discard_seconds")
 
 
 class ConversationFailedError(DomainError):
@@ -58,6 +59,7 @@ class ConversationFailedError(DomainError):
         super().__init__(f"the conversation could not continue: {reason}")
         self.reason = reason
         self.retryable = retryable
+        self.failure_kind = FailureKind.UNAVAILABLE if retryable else FailureKind.REFUSED
 
 
 class ConversationEnd(StrEnum):
@@ -65,6 +67,15 @@ class ConversationEnd(StrEnum):
 
     SPEAKER_GONE = "speaker_gone"
     SESSION_ENDED = "session_ended"
+
+
+# How every conversation ended: one of the two ways above, a failure the session reported, a
+# cancellation, or an error of anything else.
+CONVERSATION_ENDED: Final = catalogue.count(
+    "speech.conversation.ended",
+    outcome={*ConversationEnd, "failed", "cancelled", "error"},
+    retryable={"true", "false"},
+)
 
 
 @dataclass(frozen=True, slots=True)

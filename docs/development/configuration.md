@@ -100,6 +100,13 @@ every paid provider unset.
 | `FCM_PROJECT_ID` | when any `FCM_` variable is set | — |  |  | The Firebase project id. |
 | `FCM_SERVICE_ACCOUNT_JSON` | when any `FCM_` variable is set | — |  | yes | The service account's JSON key, on one line, allowed to send messages. |
 
+## Observability
+
+| Variable | Required | Default | Accepts | Secret | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `TRACING_OTLP_ENDPOINT` | no | — |  |  | An OTLP/HTTP collector spans are exported to. Blank exports none. |
+| `DIAGNOSTICS_TOKEN` | no | — |  | yes | The bearer token the diagnostics routes require, at least 32 characters. Blank leaves those routes unmounted. |
+
 ## The development stack
 
 Read by `make` and `docker-compose.yml`, not by the backend.

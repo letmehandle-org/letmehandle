@@ -34,6 +34,7 @@ from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.ports.notification import DevicePlatform
 from tests.contracts.fakes import FixedClock
 from tests.integration.conftest import ANOTHER_NUMBER, bearer, sign_in
+from tests.support.observability import recorded_observability
 from tests.support.push_services import (
     EXAMPLE_KEY_ID,
     EXAMPLE_PROJECT,
@@ -110,7 +111,7 @@ def dispatcher_for(
     return build_escalation_dispatcher(
         replace(container, notifications=providers),
         api.app.state.session_factory,
-        metrics=metrics,
+        observability=recorded_observability(metrics),
     )
 
 

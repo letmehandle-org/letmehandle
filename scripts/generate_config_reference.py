@@ -74,6 +74,7 @@ GROUPS: Final = (
     ("Call transport", ("TELEPHONY_", "CALL_")),
     ("Language model", ("LLM_",)),
     ("Push notifications", ("APNS_", "FCM_")),
+    ("Observability", ("TRACING_", "DIAGNOSTICS_")),
 )
 
 

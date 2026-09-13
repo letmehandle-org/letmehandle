@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Final
 import jwt
 
 from letmehandle.domain.errors import DomainError, InvariantError
+from letmehandle.domain.failures import FailureKind
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.ports.security import TokenSigner
@@ -24,6 +25,8 @@ _AUDIENCE: Final = "letmehandle-api"
 
 class InvalidTokenError(DomainError):
     """The token was not issued here, has been tampered with, or has expired."""
+
+    failure_kind = FailureKind.NOT_PERMITTED
 
 
 class JWTTokenSigner(TokenSigner):

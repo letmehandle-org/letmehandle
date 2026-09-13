@@ -1,66 +1,69 @@
-"""Metrics, written as structured log lines until there is somewhere better to send them.
+"""Metrics, written as structured log lines, and checked against what was declared.
 
-The observability work replaces this with a real exporter. Until then a log line is the one
-channel every environment already collects, and a baseline recorded there is a baseline that
-exists, which is more than one waiting for a metrics backend does.
+A log line is the one channel every environment already collects, and a baseline recorded there is
+a baseline that exists. `InProcessMetrics` beside it keeps the same measurements as percentiles for
+diagnostics; either can be joined by an exporter without touching a call site.
 
-The port says labels are dimensions and never content. Here that is enforced rather than
-hoped for, because the call site that puts a caller's words into a label will not look like
-it: it will look like `reason=failure.reason`. So a label key must be one of a short, named
-list, and a label value must look like a dimension — a lower-case token of bounded length. A
-sentence, a phone number or an identifier fails both tests, and fails them loudly, in the test
+The port says labels are dimensions and never content. Here that is enforced rather than hoped
+for, because the call site that puts a caller's words into a label will not look like it: it will
+look like `reason=failure.reason`. So every metric is declared with the values its labels may take
+(see `catalogue.py`), and a recording that strays from its declaration fails loudly, in the test
 that first exercises the call site, rather than quietly in a dashboard kept for a year.
 """
 
 from __future__ import annotations
 
 import math
-import re
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from letmehandle.domain.ports.metrics import MetricsRecorder
+from letmehandle.observability.catalogue import (
+    LABEL_VALUE,
+    MAX_LABEL_VALUE_LENGTH,
+    Instrument,
+    MetricLabelError,
+    NamedInCode,
+    spec_for,
+)
 from letmehandle.observability.logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-# Every dimension a metric may be broken down by. Adding one is a deliberate edit to this
-# line, which is the review moment at which somebody asks whether its values are bounded.
-LABEL_KEYS: Final = frozenset({"kind", "outcome", "platform", "provider", "retryable", "stage"})
 
-MAX_LABEL_VALUE_LENGTH: Final = 32
-
-# A letter first, so that neither a number nor anything shaped like one is a dimension.
-_LABEL_VALUE: Final = re.compile(rf"[a-z][a-z0-9_]{{0,{MAX_LABEL_VALUE_LENGTH - 1}}}")
-_METRIC_NAME: Final = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
-
-
-class MetricLabelError(ValueError):
-    """A metric was given a name or a label that could carry content.
-
-    Raised rather than stripped. A label quietly dropped is a breakdown that silently stops
-    existing, and the call site that caused it is never told.
-    """
-
-
-def checked_labels(name: str, labels: Mapping[str, str] | None) -> dict[str, str]:
-    """The labels, once they are known to be dimensions, or `MetricLabelError`."""
-    if not _METRIC_NAME.fullmatch(name):
-        raise MetricLabelError(f"{name!r} is not a metric name: dotted lower-case words only")
+def checked_labels(
+    name: str, instrument: Instrument, labels: Mapping[str, str] | None
+) -> dict[str, str]:
+    """The labels, once known to be what `name` was declared with, or `MetricLabelError`."""
+    spec = spec_for(name, instrument)
     checked = dict(labels or {})
     for key, value in checked.items():
-        if key not in LABEL_KEYS:
-            raise MetricLabelError(
-                f"{key!r} is not a known dimension; the dimensions are {sorted(LABEL_KEYS)}"
-            )
-        if not _LABEL_VALUE.fullmatch(value):
+        allowed = spec.labels.get(key)
+        if allowed is None:
+            raise MetricLabelError(f"{name} has no {key!r} label; it has {sorted(spec.labels)}")
+        known = (
+            LABEL_VALUE.fullmatch(value) is not None
+            if isinstance(allowed, NamedInCode)
+            else value in allowed
+        )
+        if not known:
             # The value is deliberately left out of the message. If it is content, repeating
             # it in an exception is the disclosure this check exists to stop.
             raise MetricLabelError(
-                f"the value of {key!r} is not a dimension: a lower-case token of at most "
+                f"the value of {key!r} on {name} is not one it was declared with: a listed value, "
+                f"or for a name written in code a lower-case token of at most "
                 f"{MAX_LABEL_VALUE_LENGTH} characters, starting with a letter"
             )
     return checked
+
+
+def checked_value(name: str, value: float) -> float:
+    """`value`, once it is known to be a measurement, or `MetricLabelError`."""
+    if not math.isfinite(value):
+        # A latency of infinity is a bug at the call site, and a JSON renderer writes it as a
+        # token no log pipeline parses, so the line would be lost along with the evidence.
+        raise MetricLabelError(f"{name} was observed as {value}, which is not a measurement")
+    return value
 
 
 class LoggingMetricsRecorder(MetricsRecorder):
@@ -70,12 +73,11 @@ class LoggingMetricsRecorder(MetricsRecorder):
         self._logger = get_logger("letmehandle.metrics")
 
     def observe(self, name: str, value: float, labels: Mapping[str, str] | None = None) -> None:
-        checked = checked_labels(name, labels)
-        if not math.isfinite(value):
-            # A latency of infinity is a bug at the call site, and a JSON renderer writes it as a
-            # token no log pipeline parses, so the line would be lost along with the evidence.
-            raise MetricLabelError(f"{name} was observed as {value}, which is not a measurement")
-        self._logger.info("metric.observed", metric=name, value=value, labels=checked)
+        checked = checked_labels(name, Instrument.MEASURE, labels)
+        self._logger.info(
+            "metric.observed", metric=name, value=checked_value(name, value), labels=checked
+        )
 
     def increment(self, name: str, labels: Mapping[str, str] | None = None) -> None:
-        self._logger.info("metric.counted", metric=name, labels=checked_labels(name, labels))
+        checked = checked_labels(name, Instrument.COUNT, labels)
+        self._logger.info("metric.counted", metric=name, labels=checked)

@@ -1,0 +1,6 @@
+# Findings gitleaks may report without failing the build, one fingerprint each: a commit, a
+# file, a rule and a line, so an exemption can never cover anything but the finding it names.
+#
+# A made-up, unsigned token-shaped test value in the log scrubber's tests, committed before the
+# test assembled it at runtime. The commit is published, so it stays in the history.
+ff6c0d026bc3ad11cda42b799524db338da6bc15:apps/backend/tests/unit/observability/test_scrubbing.py:jwt:23

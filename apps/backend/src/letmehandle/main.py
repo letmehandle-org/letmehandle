@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from letmehandle.adapters.database.session import create_session_factory
 from letmehandle.api.auth import router as auth_router
 from letmehandle.api.call_reports import router as call_reports_router
 from letmehandle.api.calls import router as calls_router
+from letmehandle.api.diagnostics import router as diagnostics_router
 from letmehandle.api.errors import register_error_handlers
 from letmehandle.api.escalations import router as escalations_router
 from letmehandle.api.health import router as health_router
@@ -24,19 +26,19 @@ from letmehandle.bootstrap import (
     build_call_transport,
     build_container,
     build_escalation_dispatcher,
+    build_observability,
     build_reported_calls,
     build_voice_provider,
     close_providers,
 )
 from letmehandle.config.settings import ConfigurationError, Settings, get_settings
 from letmehandle.observability.logging import configure_logging, get_logger
-from letmehandle.observability.metrics import LoggingMetricsRecorder
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from letmehandle.application.orchestration.ports import AssistantServices
-    from letmehandle.bootstrap import CallTransportBinding
+    from letmehandle.bootstrap import CallTransportBinding, Observability
     from letmehandle.domain.ports.voice import VoiceProvider
 
 logger = get_logger(__name__)
@@ -52,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     connections.
     """
     settings: Settings = app.state.settings
+    observability: Observability = app.state.observability
     # Here as well as in `main`: an application built by a factory other than `main` must not
     # take calls it has nothing to orchestrate them with either.
     settings.require_telephony_configuration()
@@ -72,7 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # What call orchestration asks to notify a user, and nothing else does. It needs
             # storage and the transcript keys, so a process that carries no calls builds none.
             app.state.escalations = build_escalation_dispatcher(
-                app.state.container, app.state.session_factory, metrics=LoggingMetricsRecorder()
+                app.state.container, app.state.session_factory, observability=observability
             )
             # One owner of every call on the transport, started before the application takes
             # requests and stopped before the transport is closed beneath it. Starting ends
@@ -83,7 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 session_factory=app.state.session_factory,
                 telephony=telephony,
                 dispatcher=app.state.escalations,
-                metrics=LoggingMetricsRecorder(),
+                observability=observability,
                 assistant=app.state.assistant,
             )
             await orchestrator.start()
@@ -115,6 +118,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.engine = None
             app.state.session_factory = None
         app.state.container = None
+        # Last, so the spans of everything stopped above are among those flushed. On a thread: the
+        # exporter waits on the network, and the loop still has connections to close.
+        await asyncio.to_thread(observability.close)
         logger.info("shutdown")
 
 
@@ -124,6 +130,7 @@ def create_app(
     voices: VoiceProvider | None = None,
     telephony: CallTransportBinding | None = None,
     assistant: AssistantServices | None = None,
+    observability: Observability | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -138,6 +145,9 @@ def create_app(
     The call transport is chosen here for the same reason as the voices: its provider's routes
     exist only when it does. A test passes one wired to a simulated provider, and the speech
     service and agent its calls are taken with, which production builds from settings.
+
+    Observability is a parameter for the transport's sake: its routes record and trace through it,
+    so a test that builds the transport builds it first and hands the same one on here.
     """
     resolved = settings or get_settings()
     configure_logging(resolved)
@@ -149,10 +159,13 @@ def create_app(
     # One for the life of the application, for the same reason: the container's reporting route
     # and a handset transport chosen below must be the same instance.
     reported_calls = build_reported_calls()
+    chosen_observability = observability or build_observability(resolved)
     chosen_telephony = (
         telephony
         if telephony is not None
-        else build_call_transport(resolved, reported_calls=reported_calls)
+        else build_call_transport(
+            resolved, reported_calls=reported_calls, observability=chosen_observability
+        )
     )
 
     app = FastAPI(
@@ -175,6 +188,7 @@ def create_app(
     app.state.voices = chosen_voices
     app.state.reported_calls = reported_calls
     app.state.telephony = chosen_telephony
+    app.state.observability = chosen_observability
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
@@ -184,6 +198,7 @@ def create_app(
     app.include_router(calls_router)
     app.include_router(escalations_router)
     app.include_router(call_reports_router)
+    app.include_router(diagnostics_router)
     app.include_router(build_voice_router(chosen_voices))
     if chosen_telephony is not None:
         app.include_router(chosen_telephony.router)

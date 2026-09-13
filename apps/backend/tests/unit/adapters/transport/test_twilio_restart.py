@@ -14,12 +14,14 @@ from letmehandle.adapters.transport.twilio.signature import SignatureVerifier
 from letmehandle.adapters.transport.twilio.transport import TwilioCallTransport, TwilioConfig
 from letmehandle.application.escalation.dispatch import EscalationDispatcher
 from letmehandle.application.orchestration.recovery import Recovery
+from letmehandle.application.resilience.circuit import Circuits
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import CallHandling, CallSession, Participant, ParticipantRole
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
+from letmehandle.observability.tracing import NoTracer
 from tests.contracts.fakes import FixedClock
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.orchestration import OWNER, QUICK, MemoryCallStores
@@ -70,7 +72,11 @@ async def test_a_restart_ends_the_call_left_running_at_the_provider() -> None:
             transport=transport,
             stores=stores.scope,
             dispatcher=EscalationDispatcher(
-                providers=[], stores=InMemoryStores().scope, metrics=metrics
+                providers=[],
+                stores=InMemoryStores().scope,
+                metrics=metrics,
+                tracer=NoTracer(),
+                circuits=Circuits(metrics=metrics),
             ),
             clock=FixedClock(),
             metrics=metrics,

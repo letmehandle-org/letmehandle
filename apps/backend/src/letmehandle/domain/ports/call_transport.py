@@ -13,7 +13,7 @@ transport it has. Core logic asks what is available, never who is providing it.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -172,6 +172,10 @@ class CallEvent:
     `screening` is what a transport that screens decided before the handset rang, carried on the
     event announcing the call. It is a report rather than something to act on: the decision has
     already been applied where the call is, because nothing else could have made it in time.
+
+    `correlation_id` is the identifier of the request that delivered the event, when a request did,
+    so a call's own log lines can be read beside the request that started it. It is a label for
+    reading logs and nothing else, so it plays no part in whether two events are the same event.
     """
 
     kind: CallEventKind
@@ -182,6 +186,7 @@ class CallEvent:
     participant: ParticipantRole | None = None
     outcome: ParticipantOutcome | None = None
     screening: ScreeningDecision | None = None
+    correlation_id: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         # A decision taken before ringing belongs to the moment the call arrived. On any later

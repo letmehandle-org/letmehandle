@@ -261,6 +261,10 @@ class CountingRateLimiter(RateLimiter):
         self._seen: dict[str, list[datetime]] = defaultdict(list)
         self._now = clock_now or datetime.now(tz=UTC)
 
+    @property
+    def is_shared(self) -> bool:
+        return False
+
     def set_now(self, instant: datetime) -> None:
         self._now = instant
 
@@ -276,6 +280,10 @@ class CountingRateLimiter(RateLimiter):
 
 class NeverLimits(RateLimiter):
     """Allows everything, for tests about something other than limits."""
+
+    @property
+    def is_shared(self) -> bool:
+        return True
 
     async def check(self, key: str, *, limit: int, window: timedelta) -> RateLimitDecision:
         return RateLimitDecision(allowed=True)

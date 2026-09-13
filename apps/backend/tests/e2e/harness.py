@@ -32,6 +32,7 @@ from letmehandle.application.orchestration.orchestrator import CallOrchestrator
 from letmehandle.application.orchestration.ports import AssistantServices
 from letmehandle.bootstrap import (
     build_call_transport,
+    build_observability,
     build_reported_calls,
     build_voice_provider,
     call_judging_on,
@@ -47,6 +48,7 @@ from letmehandle.main import create_app
 from tests.contracts.fakes import EchoSpeechProvider, EchoSpeechSession
 from tests.e2e.app_client import AppClient, call_handling
 from tests.support.config import TEST_TRANSCRIPT_KEYS, make_settings
+from tests.support.recording_tracer import RecordingTracer
 from tests.support.scripted_model import ScriptedModel
 from tests.support.simulated_realtime_service import SIMULATED_API_KEY, SIMULATED_MODEL
 from tests.support.simulated_twilio import (
@@ -84,6 +86,9 @@ USERS_LINE: Final = "+12025550143"
 CALLER: Final = "+12025550123"
 DRIVER: Final = "+12025550124"
 IMPORTANT_CALLER: Final = "+12025550145"
+
+# What the scenarios' deployments guard diagnostics with. Made up here, and good for nothing else.
+DIAGNOSTICS_TOKEN: Final = "diagnostics-bearer-for-e2e-scenarios-only"
 
 # How long one judgement may take the scripted model. It answers at once, so this only bounds a
 # scenario that has gone wrong.
@@ -353,9 +358,11 @@ def streaming_settings(database: str, *, speech_endpoint: str | None = None) -> 
     """A deployment on the simulated telephony account, storing in `database`.
 
     With `speech_endpoint`, it speaks to that realtime service and asks for the caller's words.
+    Its diagnostics are on, behind `DIAGNOSTICS_TOKEN`, as a deployment investigating a call has.
     """
     return make_settings(
         database_url=database,
+        diagnostics_token=DIAGNOSTICS_TOKEN,
         log_level="info",
         transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
         telephony_provider=TelephonyProviderName.TWILIO,
@@ -388,8 +395,13 @@ async def streaming_system(
     """
     chosen = settings or streaming_settings(database)
     simulated = provider or SimulatedTwilio()
+    # The deployment's own observability, with its spans kept for the scenario to read.
+    observability = replace(build_observability(chosen), tracer=RecordingTracer())
     binding = build_call_transport(
-        chosen, reported_calls=build_reported_calls(), http_transport=simulated.rest
+        chosen,
+        reported_calls=build_reported_calls(),
+        observability=observability,
+        http_transport=simulated.rest,
     )
     assert binding is not None
     inner = binding.transport
@@ -408,6 +420,7 @@ async def streaming_system(
         voices=voices,
         telephony=binding,
         assistant=AssistantServices(speech=talking, voices=voices, judging=judging),
+        observability=observability,
     )
     async with serving(app) as url:
         if provider is None:

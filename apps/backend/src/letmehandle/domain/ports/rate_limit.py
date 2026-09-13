@@ -30,6 +30,15 @@ class RateLimitDecision:
 class RateLimiter(ABC):
     """Counts attempts against a key."""
 
+    @property
+    @abstractmethod
+    def is_shared(self) -> bool:
+        """Whether every process counts against the same store.
+
+        Readiness reports it, because a limit that is per process multiplies by the number of
+        processes, and nothing else would tell whoever scaled out that it had.
+        """
+
     @abstractmethod
     async def check(self, key: str, *, limit: int, window: timedelta) -> RateLimitDecision:
         """Record an attempt and say whether it is within the limit.

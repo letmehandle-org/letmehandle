@@ -94,6 +94,8 @@ def make_settings(
     apns_environment: APNsEnvironmentName | None = None,
     fcm_project_id: str | None = None,
     fcm_service_account_json: str | None = None,
+    tracing_otlp_endpoint: str | None = None,
+    diagnostics_token: str | None = None,
 ) -> Settings:
     """Settings with every field stated explicitly.
 
@@ -152,4 +154,8 @@ def make_settings(
         fcm_service_account_json=(
             SecretStr(fcm_service_account_json) if fcm_service_account_json is not None else None
         ),
+        tracing_otlp_endpoint=(
+            AnyHttpUrl(tracing_otlp_endpoint) if tracing_otlp_endpoint is not None else None
+        ),
+        diagnostics_token=SecretStr(diagnostics_token) if diagnostics_token is not None else None,
     )

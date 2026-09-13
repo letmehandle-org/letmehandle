@@ -281,7 +281,12 @@ Not defects; each would strengthen an area that is currently sound.
    opt-in, so F10 cannot happen by omission.
 4. **Log audit in the build.** A test that fails on a log call passing a phone number, token,
    transcript or caller field by name.
+   *Done in phase 13:* `tests/unit/observability/test_log_audit.py` reads every log call, and every
+   line passes a scrubber (D-038).
 5. **Dependency audit in `make verify`**, with the two accepted advisories allow-listed by id.
+   *Done in phase 13, as `make audit-deps` and its own CI job rather than in `make verify`*: the
+   advisory databases are online and verify runs before every push. The three advisories, by
+   identifier, are in `scripts/dependency_audit.py`.
 6. **Media websocket frame size.** Cap the text frame size below the server's default, since an
    authenticated stream's frames are otherwise bounded only by it.
 7. **Push token takeover.** Registering a token moves it from any other account. Tokens are not

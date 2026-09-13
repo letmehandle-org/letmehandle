@@ -12,6 +12,7 @@ from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import (
+    AfterValidator,
     AnyHttpUrl,
     AnyWebsocketUrl,
     BeforeValidator,
@@ -343,6 +344,18 @@ class LLMEndpoint:
     api_key: str = field(repr=False)
     headers: Mapping[str, str] = field(repr=False)
     timeout_seconds: float
+
+
+# The shortest diagnostics token accepted: as long as the shortest signing key, for the same reason.
+MIN_DIAGNOSTICS_TOKEN_LENGTH: Final = 32
+
+
+def _long_enough_to_guard(value: SecretStr | None) -> SecretStr | None:
+    if value is not None and len(value.get_secret_value()) < MIN_DIAGNOSTICS_TOKEN_LENGTH:
+        raise ValueError(
+            f"DIAGNOSTICS_TOKEN must be at least {MIN_DIAGNOSTICS_TOKEN_LENGTH} characters"
+        )
+    return value
 
 
 # When a group of variables is required, named once so the generated reference says it one way.
@@ -754,6 +767,27 @@ class Settings(BaseSettings):
         Field(
             description="The service account's JSON key, on one line, allowed to send messages.",
             json_schema_extra={"required_when": _FCM},
+        ),
+    ] = None
+
+    # Observability. Spans are exported over OTLP's HTTP protocol to this URL, a collector's traces
+    # endpoint, and to nowhere without one: a deployment with no tracing backend runs with none and
+    # loses nothing else. The URL is the collector's, never a credential; one that needs a key is
+    # reached through a collector beside the service rather than configured here.
+    tracing_otlp_endpoint: Annotated[
+        AnyHttpUrl | None,
+        BeforeValidator(_blank_is_absent),
+        Field(description="An OTLP/HTTP collector spans are exported to. Blank exports none."),
+    ] = None
+    # The bearer token the diagnostics routes require. Without one they do not exist: they list live
+    # calls and every provider's latency, which no signed-in user of the app is owed.
+    diagnostics_token: Annotated[
+        SecretStr | None,
+        BeforeValidator(_blank_is_absent),
+        AfterValidator(_long_enough_to_guard),
+        Field(
+            description="The bearer token the diagnostics routes require, at least 32 characters. "
+            "Blank leaves those routes unmounted.",
         ),
     ] = None
 

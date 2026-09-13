@@ -6,6 +6,7 @@ import pytest
 
 from letmehandle import purge as command
 from letmehandle.application.retention.purge import PurgeResult
+from letmehandle.domain.errors import StorageUnavailableError
 from tests.support.config import UNREACHABLE_DATABASE, make_settings
 
 
@@ -64,5 +65,5 @@ def test_a_failed_run_exits_non_zero_without_its_message(monkeypatch: pytest.Mon
 async def test_an_engine_it_made_is_released_even_when_the_run_fails() -> None:
     # Unreachable, so the first statement fails; the engine made for the run is disposed of in
     # the same breath rather than leaking a pool on every scheduled failure.
-    with pytest.raises(OSError):
+    with pytest.raises(StorageUnavailableError):
         await command.purge_transcripts(make_settings(database_url=UNREACHABLE_DATABASE))
