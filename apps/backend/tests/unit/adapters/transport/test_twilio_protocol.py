@@ -19,16 +19,12 @@ from letmehandle.adapters.transport.twilio.callbacks import (
     read_leg_progress,
 )
 from letmehandle.adapters.transport.twilio.media import (
-    Connected,
-    DigitPressed,
-    MarkReached,
     MediaProtocolError,
     MediaReceived,
     StreamStarted,
     StreamStopped,
     UnknownMessage,
     clear_message,
-    mark_message,
     media_message,
     parse_message,
 )
@@ -112,17 +108,22 @@ def text(message: object) -> str:
 
 
 class TestMediaMessages:
-    def test_connected(self) -> None:
-        assert parse_message(text({"event": "connected", "protocol": "Call"})) == Connected()
+    def test_connected_is_an_event_this_transport_does_not_act_on(self) -> None:
+        connected = text({"event": "connected", "protocol": "Call"})
+        assert parse_message(connected) == UnknownMessage("connected")
 
     def test_start_carries_the_call_the_leg_and_the_parameters(self) -> None:
         started = parse_message(text(START))
         assert started == StreamStarted(
             stream_sid="MZsim-1",
             call_sid="CAsim-assistant",
-            tracks=("inbound",),
             parameters={"call": "CAsim-1", "leg": "assistant-1"},
         )
+
+    def test_a_start_may_write_its_format_numbers_as_strings(self) -> None:
+        start = json.loads(text(START))
+        start["start"]["mediaFormat"].update(sampleRate="8000", channels="1")
+        assert isinstance(parse_message(text(start)), StreamStarted)
 
     def test_start_takes_the_stream_identifier_from_the_top_level_when_the_section_has_none(
         self,
@@ -133,7 +134,7 @@ class TestMediaMessages:
         assert isinstance(started, StreamStarted)
         assert started.stream_sid == "MZsim-1"
 
-    def test_numbers_written_as_strings_are_read_as_numbers(self) -> None:
+    def test_media_carries_its_track_and_decoded_audio(self) -> None:
         message = parse_message(
             text(
                 {
@@ -148,27 +149,15 @@ class TestMediaMessages:
                 }
             )
         )
-        assert message == MediaReceived(
-            track="inbound", chunk=2, timestamp_ms=40, payload=b"\x00\xff"
-        )
+        assert message == MediaReceived(track="inbound", payload=b"\x00\xff")
 
-    def test_numbers_written_as_numbers_are_read_too(self) -> None:
-        message = parse_message(
-            text(
-                {
-                    "event": "media",
-                    "media": {"track": "inbound", "chunk": 2, "timestamp": 40, "payload": ""},
-                }
-            )
+    def test_stop_and_events_this_transport_does_not_act_on(self) -> None:
+        assert parse_message(text({"event": "mark", "mark": {"name": "m1"}})) == UnknownMessage(
+            "mark"
         )
-        assert isinstance(message, MediaReceived)
-        assert message.chunk == 2
-
-    def test_mark_dtmf_stop_and_an_event_nobody_has_seen_before(self) -> None:
-        assert parse_message(text({"event": "mark", "mark": {"name": "m1"}})) == MarkReached("m1")
-        assert parse_message(
-            text({"event": "dtmf", "dtmf": {"track": "inbound_track", "digit": "5"}})
-        ) == DigitPressed("5")
+        assert parse_message(text({"event": "dtmf", "dtmf": {"digit": "5"}})) == UnknownMessage(
+            "dtmf"
+        )
         assert parse_message(text({"event": "stop", "stop": {}})) == StreamStopped()
         assert parse_message(text({"event": "brand-new"})) == UnknownMessage("brand-new")
 
@@ -178,22 +167,12 @@ class TestMediaMessages:
             ("not json", "not JSON"),
             ("[1]", "not a JSON object"),
             ('{"sequenceNumber": "1"}', "names no event"),
-            ('{"event": "mark"}', "no mark section"),
-            ('{"event": "mark", "mark": {"name": 3}}', "name is missing"),
+            ('{"event": "media"}', "no media section"),
+            ('{"event": "media", "media": {"payload": ""}}', "track is missing"),
             (
                 '{"event": "media", "media": {"track": "inbound", "chunk": "1", '
                 '"timestamp": "1", "payload": "@@@"}}',
                 "not base64",
-            ),
-            (
-                '{"event": "media", "media": {"track": "inbound", "chunk": "x", '
-                '"timestamp": "1", "payload": ""}}',
-                "chunk is not a number",
-            ),
-            (
-                '{"event": "media", "media": {"track": "inbound", "chunk": true, '
-                '"timestamp": "1", "payload": ""}}',
-                "chunk is not a number",
             ),
         ],
     )
@@ -213,7 +192,8 @@ class TestMediaMessages:
                 "not mono μ-law",
             ),
             (lambda start: start["mediaFormat"].update(sampleRate=16000), "not mono μ-law"),
-            (lambda start: start.update(tracks="inbound"), "tracks"),
+            (lambda start: start["mediaFormat"].update(channels="two"), "channels"),
+            (lambda start: start["mediaFormat"].update(channels=True), "channels"),
             (lambda start: start.update(customParameters={"call": 1}), "parameters"),
             (lambda start: start.update(customParameters=["call"]), "parameters"),
         ],
@@ -240,11 +220,6 @@ class TestMediaMessages:
             "media": {"payload": base64.b64encode(b"\x7f\x80").decode()},
         }
         assert json.loads(clear_message("MZsim-1")) == {"event": "clear", "streamSid": "MZsim-1"}
-        assert json.loads(mark_message("MZsim-1", "end")) == {
-            "event": "mark",
-            "streamSid": "MZsim-1",
-            "mark": {"name": "end"},
-        }
 
 
 # ------------------------------------------------------------------------- callbacks

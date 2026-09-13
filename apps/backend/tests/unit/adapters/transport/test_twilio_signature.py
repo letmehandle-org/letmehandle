@@ -9,14 +9,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 
 import pytest
 
 from letmehandle.adapters.transport.twilio.signature import (
     SignatureRejectedError,
     SignatureVerifier,
-    body_hash,
     compute_signature,
 )
 
@@ -195,35 +193,6 @@ def test_a_fragment_is_never_part_of_what_was_signed() -> None:
     verifier().verify_form(
         path=PATH + "#section", raw_query="", body=form(PARAMS), signature=signature
     )
-
-
-def test_a_json_body_is_proved_by_its_hash_and_the_signed_url_carrying_it() -> None:
-    body = json.dumps({"event": "anything", "number": "+12025550123"}).encode()
-    query = f"bodySHA256={body_hash(body)}"
-    signature = compute_signature(f"{BASE}{PATH}?{query}", [], TOKEN)
-    verifier().verify_json(path=PATH, raw_query=query, body=body, signature=signature)
-
-
-def test_a_json_body_that_does_not_match_its_signed_hash_is_rejected() -> None:
-    body = b'{"event":"anything"}'
-    query = f"bodySHA256={body_hash(body)}"
-    signature = compute_signature(f"{BASE}{PATH}?{query}", [], TOKEN)
-    with pytest.raises(SignatureRejectedError, match="does not match the hash"):
-        verifier().verify_json(
-            path=PATH, raw_query=query, body=b'{"event":"tampered"}', signature=signature
-        )
-
-
-def test_a_json_body_with_no_hash_is_rejected() -> None:
-    with pytest.raises(SignatureRejectedError, match="hash"):
-        verifier().verify_json(path=PATH, raw_query="", body=b"{}", signature="x")
-
-
-def test_a_json_body_whose_hash_is_right_but_url_is_unsigned_is_rejected() -> None:
-    body = b"{}"
-    query = f"bodySHA256={body_hash(body)}"
-    with pytest.raises(SignatureRejectedError, match="does not match"):
-        verifier().verify_json(path=PATH, raw_query=query, body=body, signature="forged")
 
 
 @pytest.mark.parametrize(

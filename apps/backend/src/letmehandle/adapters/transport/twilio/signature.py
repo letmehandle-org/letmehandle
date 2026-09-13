@@ -3,8 +3,7 @@
 The provider signs every request it makes: the URL it called, from the scheme to the end of the
 query string, followed by every form parameter sorted by name with each name and value written
 out with no delimiters, signed with HMAC-SHA1 under the account's auth token and base64-encoded
-into a header. A JSON body is not itemised; its SHA-256 goes into the URL as `bodySHA256` and
-is signed as part of it.
+into a header.
 
 Implemented here rather than taken from the vendor SDK, which would bring a second and third
 HTTP stack to compute one HMAC. What the documentation warns about is written down as code, and
@@ -38,7 +37,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
 SIGNATURE_HEADER: Final = "X-Twilio-Signature"
-BODY_HASH_PARAMETER: Final = "bodySHA256"
 
 _DEFAULT_HTTPS_PORT: Final = 443
 
@@ -60,11 +58,6 @@ def compute_signature(url: str, params: Iterable[tuple[str, str]], auth_token: s
     payload = url + "".join(name + value for name, value in sorted(set(params)))
     digest = hmac.new(auth_token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha1)
     return base64.b64encode(digest.digest()).decode("ascii")
-
-
-def body_hash(body: bytes) -> str:
-    """What the provider puts in `bodySHA256` for a JSON body."""
-    return hashlib.sha256(body).hexdigest()
 
 
 class SignatureVerifier:
@@ -90,17 +83,6 @@ class SignatureVerifier:
         params = parse_qsl(text, keep_blank_values=True)
         self._verify(self.url_for(path, raw_query), params, signature)
         return params
-
-    def verify_json(self, *, path: str, raw_query: str, body: bytes, signature: str | None) -> None:
-        """Prove a JSON request: its body hash matches, and the URL carrying the hash is signed."""
-        claimed = [
-            value
-            for name, value in parse_qsl(raw_query, keep_blank_values=True)
-            if name == BODY_HASH_PARAMETER
-        ]
-        if len(claimed) != 1 or not hmac.compare_digest(claimed[0], body_hash(body)):
-            raise SignatureRejectedError("the body does not match the hash that was signed")
-        self._verify(self.url_for(path, raw_query), (), signature)
 
     def verify_handshake(self, *, path: str, raw_query: str, signature: str | None) -> None:
         """Prove a websocket handshake, which carries no body and may be signed with a slash."""
