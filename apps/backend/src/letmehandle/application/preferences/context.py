@@ -87,6 +87,46 @@ DEFAULT_LOCALE: Final = "en"
 
 PHRASEBOOKS: Final[Mapping[str, Phrasebook]] = {DEFAULT_LOCALE: _ENGLISH}
 
+# The sentence a tool refusal records, per locale, for the user reading their call history.
+REFUSALS: Final[Mapping[str, Mapping[Capability, str]]] = {
+    DEFAULT_LOCALE: {
+        Capability.ANSWER_QUESTIONS_ABOUT_AVAILABILITY: (
+            "the assistant is not authorised to say whether the user is free"
+        ),
+        Capability.SHARE_DELIVERY_INSTRUCTIONS: (
+            "the assistant is not authorised to tell a courier where to leave a parcel"
+        ),
+        Capability.CONFIRM_APPOINTMENTS: (
+            "the assistant is not authorised to confirm an appointment"
+        ),
+        Capability.RESCHEDULE_APPOINTMENTS: (
+            "the assistant is not authorised to move an appointment to another time"
+        ),
+        Capability.DECLINE_ON_THE_USERS_BEHALF: (
+            "the assistant is not authorised to decline something on the user's behalf"
+        ),
+        Capability.TAKE_A_MESSAGE: "the assistant is not authorised to take a message",
+        Capability.SHARE_CONTACT_DETAILS: (
+            "the assistant is not authorised to pass on the user's contact details"
+        ),
+    },
+    "hi": {
+        Capability.ANSWER_QUESTIONS_ABOUT_AVAILABILITY: (
+            "असिस्टेंट को यह बताने की अनुमति नहीं है कि आप खाली हैं या नहीं"
+        ),
+        Capability.SHARE_DELIVERY_INSTRUCTIONS: (
+            "असिस्टेंट को कूरियर को पार्सल छोड़ने की जगह बताने की अनुमति नहीं है"
+        ),
+        Capability.CONFIRM_APPOINTMENTS: "असिस्टेंट को अपॉइंटमेंट पक्का करने की अनुमति नहीं है",
+        Capability.RESCHEDULE_APPOINTMENTS: "असिस्टेंट को अपॉइंटमेंट का समय बदलने की अनुमति नहीं है",
+        Capability.DECLINE_ON_THE_USERS_BEHALF: (
+            "असिस्टेंट को आपकी ओर से किसी बात के लिए मना करने की अनुमति नहीं है"
+        ),
+        Capability.TAKE_A_MESSAGE: "असिस्टेंट को संदेश लेने की अनुमति नहीं है",
+        Capability.SHARE_CONTACT_DETAILS: "असिस्टेंट को आपकी संपर्क जानकारी देने की अनुमति नहीं है",
+    },
+}
+
 
 def _every_phrasebook_is_complete() -> None:
     """Fail at import if a phrasebook is missing a phrase.
@@ -112,6 +152,12 @@ def _every_phrasebook_is_complete() -> None:
                     f"{', '.join(sorted(str(member) for member in missing))}; "
                     f"the assistant would have nothing to say about it"
                 )
+    for locale, refusals in REFUSALS.items():
+        unphrased = set(Capability) - set(refusals)
+        if unphrased:
+            raise InvariantError(
+                f"the {locale} refusals have no sentence for {', '.join(sorted(unphrased))}"
+            )
 
 
 _every_phrasebook_is_complete()
@@ -213,6 +259,11 @@ def closest_phrasebook[Book](locale: str, books: Mapping[str, Book]) -> Book:
 def phrasebook_for(locale: str) -> Phrasebook:
     """The closest phrasing available, narrowing from the full locale to its language."""
     return closest_phrasebook(locale, PHRASEBOOKS)
+
+
+def refusal_for(locale: str, capability: Capability) -> str:
+    """The sentence recording that `capability` was not granted, in the closest locale written."""
+    return closest_phrasebook(locale, REFUSALS)[capability]
 
 
 def build_preference_context(preferences: UserPreferences, *, now: datetime) -> PreferenceContext:

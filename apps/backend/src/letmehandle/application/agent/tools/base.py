@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from letmehandle.application.agent.ports import ToolRefusal
 from letmehandle.application.agent.tool import AgentTool
 from letmehandle.application.agent.tools.arguments import MalformedArgumentsError, expect_only
-from letmehandle.application.preferences.context import phrasebook_for
+from letmehandle.application.preferences.context import refusal_for
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -35,8 +35,7 @@ class CheckedTool[Parsed](AgentTool):
         # The grant comes from the call's authority alone, which no caller can reach.
         if required is not None and not call.authority.allows(required):
             # Worded in the user's language, because the user reads it in their call history.
-            action = phrasebook_for(call.preferences.locale).capability[required]
-            return self.refuse(f"the assistant is not authorised to {action}")
+            return self.refuse(refusal_for(call.preferences.locale, required))
         return await self._act(call, parsed)
 
     def refuse(self, reason: str) -> ToolRefusal:

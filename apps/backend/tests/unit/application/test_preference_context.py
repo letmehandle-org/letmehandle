@@ -11,6 +11,7 @@ import pytest
 from letmehandle.application.preferences.context import (
     DEFAULT_LOCALE,
     PHRASEBOOKS,
+    REFUSALS,
     CapabilityStatement,
     ContactStatement,
     Phrasebook,
@@ -19,6 +20,7 @@ from letmehandle.application.preferences.context import (
     build_preference_context,
     normalise_locale,
     phrasebook_for,
+    refusal_for,
 )
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.authority import AgentAuthority, Capability
@@ -110,6 +112,32 @@ class TestChoosingAPhrasebook:
             assert set(phrasebook.tone) == set(Formality)
             assert set(phrasebook.length) == set(Verbosity)
             assert set(phrasebook.capability) == set(Capability)
+
+
+class TestRefusals:
+    def test_every_locale_has_a_refusal_for_every_capability(self) -> None:
+        for refusals in REFUSALS.values():
+            assert set(refusals) == set(Capability)
+
+    def test_a_hindi_user_is_refused_wholly_in_hindi(self) -> None:
+        sentence = refusal_for("hi-IN", Capability.TAKE_A_MESSAGE)
+        assert sentence == REFUSALS["hi"][Capability.TAKE_A_MESSAGE]
+        assert not any("a" <= letter.lower() <= "z" for letter in sentence)
+
+    def test_an_unwritten_language_is_refused_in_english(self) -> None:
+        assert refusal_for("fr", Capability.TAKE_A_MESSAGE) == (
+            "the assistant is not authorised to take a message"
+        )
+
+    def test_refusals_missing_a_capability_are_refused(self) -> None:
+        with (
+            patch.dict(
+                "letmehandle.application.preferences.context.REFUSALS",
+                {"xx": {Capability.TAKE_A_MESSAGE: "no"}},
+            ),
+            pytest.raises(InvariantError, match="refusals have no sentence"),
+        ):
+            _every_phrasebook_is_complete()
 
 
 class TestTheInstant:
