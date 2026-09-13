@@ -25,7 +25,7 @@ import httpx
 from letmehandle.domain.errors import ProviderError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 PROVIDER: Final = "twilio"
 
@@ -96,11 +96,8 @@ class HttpTelephonyApi:
         auth_token: str,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._client = httpx.AsyncClient(
-            base_url=f"{API_ORIGIN}/{API_VERSION}/Accounts/{quote(account_id, safe='')}",
-            auth=(account_id, auth_token),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            transport=transport,
+        self._client = account_client(
+            account_id=account_id, auth_token=auth_token, transport=transport
         )
 
     async def create_participant(self, conference_name: str, request: ParticipantRequest) -> str:
@@ -165,7 +162,7 @@ class HttpTelephonyApi:
             None,
             params={"FriendlyName": conference_name, "Status": "in-progress"},
         )
-        _raise_for(response)
+        raise_for(response)
         ended = 0
         for conference_sid in _conference_sids(_json(response)):
             if await self.end_conference(conference_sid):
@@ -177,7 +174,7 @@ class HttpTelephonyApi:
 
     async def _post(self, path: str, form: Sequence[tuple[str, str]]) -> object:
         response = await self._send("POST", path, form)
-        _raise_for(response)
+        raise_for(response)
         return _json(response)
 
     async def _request(
@@ -191,7 +188,7 @@ class HttpTelephonyApi:
         response = await self._send(method, path, form)
         if missing_is_done and response.status_code == _NOT_FOUND:
             return False
-        _raise_for(response)
+        raise_for(response)
         return True
 
     async def _send(
@@ -202,16 +199,42 @@ class HttpTelephonyApi:
         *,
         params: dict[str, str] | None = None,
     ) -> httpx.Response:
-        try:
-            return await self._client.request(method, path, data=_form(form), params=params)
-        except httpx.TimeoutException:
-            raise ProviderError(
-                PROVIDER, "the API did not answer in time", retryable=True
-            ) from None
-        except httpx.TransportError as error:
-            raise ProviderError(
-                PROVIDER, f"the API could not be reached: {type(error).__name__}", retryable=True
-            ) from None
+        return await send(self._client, method, path, _form(form), params=params)
+
+
+def account_client(
+    *, account_id: str, auth_token: str, transport: httpx.AsyncBaseTransport | None
+) -> httpx.AsyncClient:
+    """A client for one account's resources, authenticated as that account.
+
+    Outside the class, with `send` and `raise_for`, so that anything else speaking to this API as an
+    account shares where the API is, how long a request may take and what a refusal becomes.
+    """
+    return httpx.AsyncClient(
+        base_url=f"{API_ORIGIN}/{API_VERSION}/Accounts/{quote(account_id, safe='')}",
+        auth=(account_id, auth_token),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        transport=transport,
+    )
+
+
+async def send(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    form: Mapping[str, list[str]] | None,
+    *,
+    params: dict[str, str] | None = None,
+) -> httpx.Response:
+    """One request, with a network failure or a timeout as a `ProviderError` worth retrying."""
+    try:
+        return await client.request(method, path, data=form, params=params)
+    except httpx.TimeoutException:
+        raise ProviderError(PROVIDER, "the API did not answer in time", retryable=True) from None
+    except httpx.TransportError as error:
+        raise ProviderError(
+            PROVIDER, f"the API could not be reached: {type(error).__name__}", retryable=True
+        ) from None
 
 
 def _form(form: Sequence[tuple[str, str]] | None) -> dict[str, list[str]] | None:
@@ -224,11 +247,12 @@ def _form(form: Sequence[tuple[str, str]] | None) -> dict[str, list[str]] | None
     return fields
 
 
-def _raise_for(response: httpx.Response) -> None:
+def raise_for(response: httpx.Response) -> None:
+    """Raise a `ProviderError` for a refusal, saying whether another attempt could help."""
     status = response.status_code
     if status < 300:
         return
-    code = _error_code(response)
+    code = error_code(response)
     raise ProviderError(
         PROVIDER,
         f"the API refused the request with HTTP {status}"
@@ -255,7 +279,8 @@ def _conference_sids(body: object) -> list[str]:
     ]
 
 
-def _error_code(response: httpx.Response) -> int | None:
+def error_code(response: httpx.Response) -> int | None:
+    """The provider's numeric error code, when the response carries one."""
     try:
         body = response.json()
     except ValueError:
