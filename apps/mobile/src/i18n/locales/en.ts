@@ -69,6 +69,17 @@ export const en = {
       ZA: 'South Africa',
     },
     rateLimited: 'Too many attempts. Try again in a little while.',
+    rateLimitedFor: 'Too many codes for this number. Try again in {{wait}}.',
+    unserved: "LetMeHandle isn't available for numbers in this country yet.",
+  },
+  /** How long to wait, rounded up. */
+  wait: {
+    seconds_one: '{{count}} second',
+    seconds_other: '{{count}} seconds',
+    minutes_one: '{{count}} minute',
+    minutes_other: '{{count}} minutes',
+    hours_one: '{{count}} hour',
+    hours_other: '{{count}} hours',
   },
   code: {
     title: 'Enter the code',
@@ -76,6 +87,9 @@ export const en = {
     label: 'Code',
     invalid: 'That code is not valid.',
     resend: 'Send another code',
+    resendIn: 'Send another code in {{clock}}',
+    resent: 'A new code is on its way. Only the newest code works.',
+    locked: 'Too many wrong codes. Try again in {{wait}}.',
     // FOR TESTING ONLY — remove before launch, with showsTestingCode.
     testingHint: 'Testing build: the code is 123456.',
   },

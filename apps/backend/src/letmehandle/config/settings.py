@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import (
@@ -234,6 +235,41 @@ def _numbers_from_text(value: object) -> object:
     return parse_number_list(value) if isinstance(value, str) else value
 
 
+def parse_calling_codes(text: str) -> frozenset[str] | None:
+    """Country calling codes, comma-separated and without the plus: "91,1,44". Blank is any."""
+    entries = [entry.strip().lstrip("+") for entry in text.split(",") if entry.strip()]
+    if not entries:
+        return None
+    for position, entry in enumerate(entries, 1):
+        if not entry.isdigit() or not 1 <= len(entry) <= 3 or entry.startswith("0"):
+            raise ValueError(
+                f"OTP_ALLOWED_CALLING_CODES entry {position} is not a country calling code, "
+                "such as 91 or 1"
+            )
+    return frozenset(entries)
+
+
+def _calling_codes_from_text(value: object) -> object:
+    return parse_calling_codes(value) if isinstance(value, str) else value
+
+
+def parse_proxy_networks(text: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """The networks whose forwarding headers are believed, comma-separated CIDRs. Blank is none."""
+    networks: list[IPv4Network | IPv6Network] = []
+    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+        try:
+            networks.append(ip_network(entry, strict=False))
+        except ValueError:
+            raise ValueError(
+                f"TRUSTED_PROXY_CIDRS entry {position} is not a network, such as 10.0.0.0/8"
+            ) from None
+    return tuple(networks)
+
+
+def _proxy_networks_from_text(value: object) -> object:
+    return parse_proxy_networks(value) if isinstance(value, str) else value
+
+
 # How LLM_HEADERS is written, quoted in every error about it.
 LLM_HEADERS_FORMAT: Final = "Header-Name=value;Other-Header=value"
 
@@ -356,15 +392,47 @@ class Settings(BaseSettings):
         description="How long an access token lives. Short, because it cannot be revoked.",
     )
     auth_refresh_token_ttl_seconds: int = Field(
-        default=2_592_000,
+        default=7_776_000,
         ge=3600,
-        description="How long a refresh token lives. Refresh tokens rotate on every use.",
+        description="How long a refresh token lives: ninety days, sliding, so a phone that opens "
+        "the app within that long of the last time is never asked for its number again. Refresh "
+        "tokens rotate on every use.",
     )
     otp_provider: OTPProviderName = Field(
         default=OTPProviderName.MOCK,
         description="Who delivers sign-in codes. `mock` delivers nowhere, accepts the development "
         "code, and refuses to start in production.",
     )
+    otp_allowed_calling_codes: Annotated[
+        frozenset[str] | None,
+        NoDecode,
+        BeforeValidator(_calling_codes_from_text),
+        Field(
+            description="Country calling codes sign-in codes may be sent to, comma-separated "
+            "without the plus, such as 91,1,44. Blank sends anywhere; a production deployment "
+            "should list only the countries it serves (D-036).",
+        ),
+    ] = None
+    otp_challenges_per_hour: int | None = Field(
+        default=500,
+        ge=1,
+        description="The most sign-in codes the deployment sends in an hour. Past it, codes stop "
+        "for everybody until the hour rolls on (D-036).",
+    )
+    otp_challenges_per_hour_per_calling_code: int | None = Field(
+        default=100,
+        ge=1,
+        description="The most sign-in codes sent in an hour to numbers with any one calling code.",
+    )
+    trusted_proxy_cidrs: Annotated[
+        tuple[IPv4Network | IPv6Network, ...],
+        NoDecode,
+        BeforeValidator(_proxy_networks_from_text),
+        Field(
+            description="The proxies in front of the backend, as comma-separated CIDRs. Only "
+            "their X-Forwarded-For is believed when counting what one client asks for.",
+        ),
+    ] = ()
 
     # Realtime speech. The protocol defaults to the one every existing deployment speaks. The rest
     # is optional at startup: nothing opens a speech session in a request yet, and a process that

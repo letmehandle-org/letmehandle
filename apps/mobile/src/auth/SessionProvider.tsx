@@ -14,9 +14,11 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import type { Profile } from '@letmehandle/api-client';
 
+import { ApiError } from '../api/errors';
 import { ApiClient, type SessionHandle } from '../api/client';
 import {
   clearSession,
@@ -29,11 +31,28 @@ import {
 
 export type SessionStatus = 'restoring' | 'signed-out' | 'signed-in';
 
+/** A code on its way: which challenge to answer, and when another may be asked for. */
+export interface CodeSent {
+  readonly challengeId: string;
+  readonly resendAfterSeconds: number;
+}
+
+/**
+ * Whether a failure means the session is over rather than out of reach.
+ *
+ * Only a 401 from the server. Everything else — no network, a timeout, a 5xx, a rate limit — is
+ * something that will pass, and ending a session over it is how somebody who opened the app on a
+ * train gets asked for their number again.
+ */
+export function endsSession(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
 export interface SessionContextValue {
   readonly status: SessionStatus;
   readonly profile: Profile | null;
   readonly api: ApiClient;
-  requestCode(phoneNumber: string): Promise<string>;
+  requestCode(phoneNumber: string): Promise<CodeSent>;
   signIn(challengeId: string, code: string): Promise<void>;
   signOut(): Promise<void>;
   refreshProfile(): Promise<void>;
@@ -90,10 +109,15 @@ export function SessionProvider({
           session.current = renewed;
           await saveSession(renewed);
           return renewed.accessToken;
-        } catch {
-          // Renewal failing means the session is over — expired, revoked, or detected as
-          // replayed. All of them mean the same thing to somebody holding a phone.
-          return null;
+        } catch (error) {
+          // Only the server saying no ends a session: expired, revoked, or detected as replayed.
+          // A phone with no signal, a server that is restarting, a request that timed out — none
+          // of those is a reason to ask somebody for their number again, so they are raised to
+          // the request that needed the renewal and the session is kept for the next one.
+          if (endsSession(error)) {
+            return null;
+          }
+          throw error;
         }
       },
       onSignedOut: () => {
@@ -133,23 +157,29 @@ export function SessionProvider({
       session.current = stored;
 
       // Renewed before the first request rather than after one fails, so the application does
-      // not open on an error it could have avoided.
-      if (needsRenewal(stored) && (await handle.renew()) === null) {
-        if (!cancelled) {
-          await forget();
-        }
-        return;
-      }
-
+      // not open on an error it could have avoided. Opening with no signal still opens signed
+      // in: the stored session is the user's until the server says otherwise.
       try {
+        if (needsRenewal(stored) && (await handle.renew()) === null) {
+          if (!cancelled) {
+            await forget();
+          }
+          return;
+        }
         const current = await client.me();
         if (!cancelled) {
           setProfile(current);
           setStatus('signed-in');
         }
-      } catch {
-        if (!cancelled) {
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (endsSession(error)) {
           await forget();
+        } else {
+          // Signed in without a profile yet; it is fetched again when the app is next in front.
+          setStatus('signed-in');
         }
       }
     };
@@ -160,10 +190,32 @@ export function SessionProvider({
     };
   }, [client, forget, handle]);
 
+  // A profile the app could not fetch while it had no signal, fetched again once it is in front.
+  useEffect(() => {
+    if (status !== 'signed-in' || profile !== null) {
+      return undefined;
+    }
+    const retry = (state: AppStateStatus): void => {
+      if (state === 'active') {
+        client
+          .me()
+          .then(setProfile)
+          .catch(() => undefined);
+      }
+    };
+    const subscription = AppState.addEventListener('change', retry);
+    return () => {
+      subscription.remove();
+    };
+  }, [status, profile, client]);
+
   const requestCode = useCallback(
-    async (phoneNumber: string): Promise<string> => {
+    async (phoneNumber: string): Promise<CodeSent> => {
       const issued = await client.requestChallenge(phoneNumber);
-      return issued.challenge_id;
+      return {
+        challengeId: issued.challenge_id,
+        resendAfterSeconds: issued.resend_after_seconds ?? 0,
+      };
     },
     [client],
   );

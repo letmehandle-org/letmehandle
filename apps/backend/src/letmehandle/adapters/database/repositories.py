@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import CursorResult, delete, func, select, update
+from sqlalchemy import CursorResult, case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from letmehandle.domain.models.auth import OTPChallenge, RefreshToken
@@ -139,6 +139,7 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
                 expires_at=challenge.expires_at,
                 attempts=challenge.attempts,
                 verified_at=challenge.verified_at,
+                superseded_at=challenge.superseded_at,
             )
         )
         await self._session.flush()
@@ -158,25 +159,68 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
             expires_at=row.expires_at,
             attempts=row.attempts,
             verified_at=row.verified_at,
+            superseded_at=row.superseded_at,
         )
 
     async def update(self, challenge: OTPChallenge) -> None:
         await self._session.execute(
             update(OTPChallengeRow)
             .where(OTPChallengeRow.id == challenge.id)
-            .values(attempts=challenge.attempts, verified_at=challenge.verified_at)
+            .values(
+                attempts=challenge.attempts,
+                verified_at=challenge.verified_at,
+                superseded_at=challenge.superseded_at,
+            )
         )
         await self._session.flush()
 
-    async def count_issued_since(self, number: PhoneNumber, since: datetime) -> int:
+    async def issued_since(self, number: PhoneNumber, since: datetime) -> list[datetime]:
         result = await self._session.execute(
-            select(func.count())
-            .select_from(OTPChallengeRow)
+            select(OTPChallengeRow.issued_at)
             .where(
                 OTPChallengeRow.phone_number == number.value,
                 OTPChallengeRow.issued_at >= since,
             )
+            .order_by(OTPChallengeRow.issued_at)
         )
+        return list(result.scalars())
+
+    async def failed_attempts_since(self, number: PhoneNumber, since: datetime) -> int:
+        # A verified challenge's last attempt was the right code, so it is not a failure.
+        failed = OTPChallengeRow.attempts - case(
+            (OTPChallengeRow.verified_at.is_not(None), 1), else_=0
+        )
+        result = await self._session.execute(
+            select(func.coalesce(func.sum(failed), 0)).where(
+                OTPChallengeRow.phone_number == number.value,
+                OTPChallengeRow.issued_at >= since,
+            )
+        )
+        return int(result.scalar_one())
+
+    async def supersede_open(self, number: PhoneNumber, instant: datetime) -> int:
+        result = await self._session.execute(
+            update(OTPChallengeRow)
+            .where(
+                OTPChallengeRow.phone_number == number.value,
+                OTPChallengeRow.verified_at.is_(None),
+                OTPChallengeRow.superseded_at.is_(None),
+                OTPChallengeRow.expires_at > instant,
+            )
+            .values(superseded_at=instant)
+        )
+        return _affected(result)
+
+    async def count_all_issued_since(self, since: datetime, calling_code: str | None = None) -> int:
+        query = (
+            select(func.count())
+            .select_from(OTPChallengeRow)
+            .where(OTPChallengeRow.issued_at >= since)
+        )
+        if calling_code is not None:
+            # A prefix on E.164 is exactly the calling code: codes are prefix-free by design.
+            query = query.where(OTPChallengeRow.phone_number.startswith(f"+{calling_code}"))
+        result = await self._session.execute(query)
         return int(result.scalar_one())
 
     async def delete_expired(self, before: datetime) -> int:

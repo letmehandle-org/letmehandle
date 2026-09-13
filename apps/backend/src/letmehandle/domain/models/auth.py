@@ -34,6 +34,15 @@ CODE_LENGTH = 6
 MAX_ATTEMPTS = 5
 CHALLENGE_LIFETIME = timedelta(minutes=5)
 
+# How long after rotating a refresh token the one it replaced is still honoured.
+#
+# The server rotates a token and answers; the phone then writes the new one to its keychain. An app
+# killed between the two — by the system, a crash, a flat battery — comes back holding the old one,
+# and without this it would present it, trip reuse detection and lose the session: a user asked for
+# their number again for no fault of their own. Two minutes covers that and a retry. A thief would
+# need a copy within the same two minutes; outside them reuse still revokes the whole family.
+REFRESH_REUSE_LEEWAY = timedelta(minutes=2)
+
 
 class ChallengeState(StrEnum):
     """Where a challenge is in its short life."""
@@ -42,6 +51,9 @@ class ChallengeState(StrEnum):
     VERIFIED = "verified"
     EXHAUSTED = "exhausted"
     EXPIRED = "expired"
+    # A newer code was sent to the same number. Only the latest code works, so asking for codes
+    # cannot open several at once to guess against in parallel.
+    SUPERSEDED = "superseded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +72,7 @@ class OTPChallenge:
     expires_at: datetime
     attempts: int = 0
     verified_at: datetime | None = None
+    superseded_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.code_hash.strip():
@@ -78,6 +91,8 @@ class OTPChallenge:
         """
         if self.verified_at is not None:
             return ChallengeState.VERIFIED
+        if self.superseded_at is not None:
+            return ChallengeState.SUPERSEDED
         if self.attempts >= MAX_ATTEMPTS:
             return ChallengeState.EXHAUSTED
         if instant >= self.expires_at:
@@ -96,6 +111,7 @@ class OTPChallenge:
             expires_at=self.expires_at,
             attempts=self.attempts + 1,
             verified_at=self.verified_at,
+            superseded_at=self.superseded_at,
         )
 
     def verified(self, instant: datetime) -> OTPChallenge:
@@ -109,7 +125,28 @@ class OTPChallenge:
             expires_at=self.expires_at,
             attempts=self.attempts + 1,
             verified_at=instant,
+            superseded_at=self.superseded_at,
         )
+
+    def superseded(self, instant: datetime) -> OTPChallenge:
+        """Closed because a newer code was sent. A challenge already finished is left as it was."""
+        if self.superseded_at is not None or self.verified_at is not None:
+            return self
+        return OTPChallenge(
+            id=self.id,
+            phone_number=self.phone_number,
+            code_hash=self.code_hash,
+            issued_at=self.issued_at,
+            expires_at=self.expires_at,
+            attempts=self.attempts,
+            verified_at=self.verified_at,
+            superseded_at=instant,
+        )
+
+    @property
+    def failed_attempts(self) -> int:
+        """Wrong codes entered against this challenge; the right one, if it came, is not one."""
+        return self.attempts - (1 if self.verified_at is not None else 0)
 
     @property
     def attempts_remaining(self) -> int:
@@ -151,6 +188,19 @@ class RefreshToken:
         Presenting one of these is the signal that a copy exists somewhere it should not.
         """
         return self.rotated_at is not None
+
+    def is_within_reuse_leeway_at(self, instant: datetime) -> bool:
+        """Whether this token was rotated so recently that presenting it again is not theft.
+
+        Only a token that was rotated, never revoked and has not expired. See
+        `REFRESH_REUSE_LEEWAY` for why the window exists and why it is short.
+        """
+        return (
+            self.rotated_at is not None
+            and self.revoked_at is None
+            and instant < self.expires_at
+            and instant - self.rotated_at <= REFRESH_REUSE_LEEWAY
+        )
 
     def rotated(self, instant: datetime) -> RefreshToken:
         return RefreshToken(

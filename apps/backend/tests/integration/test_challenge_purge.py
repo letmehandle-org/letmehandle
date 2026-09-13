@@ -33,7 +33,7 @@ pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 NUMBER = PhoneNumber.parse("+12025550161")
-COUNTING_WINDOW = AuthenticationPolicy().challenges_per_number_window
+COUNTING_WINDOW = AuthenticationPolicy().retention
 
 
 @pytest.fixture
@@ -83,8 +83,8 @@ async def test_a_challenge_outside_the_counting_window_is_deleted(engine: AsyncE
 async def test_an_expired_challenge_still_counted_against_its_number_is_kept(
     engine: AsyncEngine,
 ) -> None:
-    # The per-number limit counts the challenges issued within its window. Deleting one as soon as
-    # it expires would hand a number its limit back five minutes after it was spent.
+    # The per-number limits count the challenges issued within their windows, the longest a day.
+    # Deleting one as soon as it expires would hand a number its limits back minutes after.
     await issued(engine, "expired-but-counted", NOW - COUNTING_WINDOW + timedelta(minutes=1))
 
     deleted = await purge_expired_challenges(make_settings(), engine=engine, clock=FixedClock(NOW))

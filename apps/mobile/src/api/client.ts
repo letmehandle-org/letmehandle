@@ -45,10 +45,16 @@ export interface CallQuery {
   readonly cursor?: string | null;
 }
 
+/** How long a request may take before it is treated as the network not answering. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 export interface SessionHandle {
   /** The access token to send, or nothing when signed out. */
   accessToken(): string | null;
-  /** Renew the session. Returns the new access token, or null when renewal is impossible. */
+  /**
+   * Renew the session. Returns the new access token, null when the server refused (the session is
+   * over), or throws when the server could not be reached — which ends nothing.
+   */
   renew(): Promise<string | null>;
   /** Called when renewal fails and the session is over. */
   onSignedOut(): void;
@@ -67,12 +73,16 @@ export class ApiClient {
   /** The renewal in flight, shared by everything that needs one. */
   private renewal: Promise<string | null> | null = null;
 
+  private readonly timeoutMs: number;
+
   constructor(
     session: SessionHandle,
     baseUrl: string = environment.apiBaseUrl,
+    timeoutMs: number = REQUEST_TIMEOUT_MS,
   ) {
     this.baseUrl = baseUrl;
     this.session = session;
+    this.timeoutMs = timeoutMs;
   }
 
   // ------------------------------------------------------------- signing in
@@ -353,15 +363,24 @@ export class ApiClient {
       headers.Authorization = `Bearer ${token}`;
     }
 
+    // A network that swallows requests rather than refusing them — weak signal, a captive Wi-Fi
+    // portal — would otherwise leave the app waiting for ever, on a spinner, at launch.
+    const abort = new AbortController();
+    const timer = setTimeout(() => {
+      abort.abort();
+    }, this.timeoutMs);
     try {
       return await fetch(`${this.baseUrl}${options.path}`, {
         method: options.method,
         headers,
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: abort.signal,
       });
     } catch (cause) {
       throw new NetworkError(cause);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -373,11 +392,16 @@ export class ApiClient {
     const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new ApiError(response.status, {
-        error: readString(payload, 'error') ?? 'internal_error',
-        message: readString(payload, 'message') ?? 'Something went wrong.',
-        correlation_id: readString(payload, 'correlation_id'),
-      });
+      const retryAfter = Number(response.headers?.get('Retry-After'));
+      throw new ApiError(
+        response.status,
+        {
+          error: readString(payload, 'error') ?? 'internal_error',
+          message: readString(payload, 'message') ?? 'Something went wrong.',
+          correlation_id: readString(payload, 'correlation_id'),
+        },
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      );
     }
 
     return payload as T;

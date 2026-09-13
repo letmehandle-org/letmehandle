@@ -8,19 +8,44 @@ that would send a text message.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import text
 
 from letmehandle.adapters.database.repositories import SqlRefreshTokenRepository
+from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.api.dependencies import SIGNED_IN_REQUESTS_PER_WINDOW
+from letmehandle.application.auth.service import AuthenticationPolicy
+from letmehandle.domain.models.auth import REFRESH_REUSE_LEEWAY
 from tests.integration.conftest import ANOTHER_NUMBER, NUMBER, bearer, code_for, sign_in
 
 if TYPE_CHECKING:
     from tests.integration.conftest import Api
 
 pytestmark = pytest.mark.integration
+
+
+async def after_the_reuse_leeway(api: Api) -> None:
+    """Move every rotation back past the leeway, as if the replay came minutes later.
+
+    The application's clock is the real one, so time is moved in the rows instead.
+    """
+    async with unit_of_work(api.app.state.session_factory) as session:
+        await session.execute(
+            text("UPDATE refresh_tokens SET rotated_at = rotated_at - make_interval(secs => :s)"),
+            {"s": (REFRESH_REUSE_LEEWAY + timedelta(seconds=1)).total_seconds()},
+        )
+
+
+def limits(api: Api, **changes: object) -> None:
+    """Sign-in limits for this test only."""
+    container = api.app.state.container
+    api.app.state.container = replace(
+        container, auth_limits=replace(container.auth_limits, **changes)
+    )
 
 
 class TestSigningIn:
@@ -162,6 +187,7 @@ class TestSessions:
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
         )
         assert renewed.status_code == 200
+        await after_the_reuse_leeway(api)
 
         replayed = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
@@ -185,6 +211,7 @@ class TestSessions:
         renewed = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
         )
+        await after_the_reuse_leeway(api)
         await api.client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
 
         # A fresh request, so nothing is carried over from the one that detected the reuse.
@@ -219,6 +246,114 @@ class TestSessions:
             "/v1/auth/refresh", json={"refresh_token": second["refresh_token"]}
         )
         assert still_valid.status_code == 200
+
+
+class TestStayingSignedIn:
+    async def test_a_renewal_whose_answer_never_arrived_can_be_asked_again(self, api: Api) -> None:
+        # The app is killed after the server rotated the token and before the keychain kept the
+        # new one. It comes back with the old token, and must not lose the session for it.
+        tokens = await sign_in(api)
+        lost = await api.client.post(
+            "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+        )
+        assert lost.status_code == 200
+
+        again = await api.client.post(
+            "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+        )
+
+        assert again.status_code == 200
+        me = await api.client.get("/v1/me", headers=bearer(again.json()))
+        assert me.status_code == 200
+        # And the pair that was lost still works too: nothing was revoked.
+        assert (
+            await api.client.post(
+                "/v1/auth/refresh", json={"refresh_token": lost.json()["refresh_token"]}
+            )
+        ).status_code == 200
+
+    async def test_a_session_lasts_ninety_days_and_renewing_starts_them_again(self) -> None:
+        assert AuthenticationPolicy().refresh_token_lifetime == timedelta(days=90)
+
+
+class TestAbuse:
+    async def test_a_new_code_comes_with_when_another_may_be_asked_for(self, api: Api) -> None:
+        limits(api, resend_cooldowns=AuthenticationPolicy().resend_cooldowns)
+        first = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+        assert first.json()["resend_after_seconds"] == 30
+
+        too_soon = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+
+        assert too_soon.status_code == 429
+        assert 0 < int(too_soon.headers["Retry-After"]) <= 30
+
+    async def test_only_the_latest_code_works(self, api: Api) -> None:
+        old_id, old_code = await code_for(api)
+        new_id, new_code = await code_for(api)
+
+        stale = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": old_id, "code": old_code}
+        )
+        assert stale.status_code == 401
+        fresh = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": new_id, "code": new_code}
+        )
+        assert fresh.status_code == 200
+
+    async def test_too_many_wrong_codes_lock_the_number_even_against_the_right_one(
+        self, api: Api
+    ) -> None:
+        limits(api, failed_codes_per_number=3)
+        challenge_id, code = await code_for(api)
+        wrong = "000000" if code != "000000" else "111111"
+        for _ in range(3):
+            await api.client.post(
+                "/v1/auth/verify", json={"challenge_id": challenge_id, "code": wrong}
+            )
+
+        right = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": challenge_id, "code": code}
+        )
+        assert right.status_code == 429
+        assert int(right.headers["Retry-After"]) > 0
+        another = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+        assert another.status_code == 429
+        # Somebody else's number is untouched.
+        assert (await sign_in(api, ANOTHER_NUMBER))["access_token"]
+
+    async def test_a_country_this_deployment_does_not_serve_gets_no_code(self, api: Api) -> None:
+        limits(api, allowed_calling_codes=frozenset({"44"}))
+
+        refused = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+
+        assert refused.status_code == 422
+        assert refused.json()["error"] == "unserved_country"
+        assert api.otp.sent == []
+
+    async def test_the_deployment_stops_sending_when_its_hourly_budget_is_spent(
+        self, api: Api
+    ) -> None:
+        limits(api, challenges_per_hour=2)
+        await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
+        await api.client.post("/v1/auth/challenge", json={"phone_number": ANOTHER_NUMBER})
+
+        spent = await api.client.post("/v1/auth/challenge", json={"phone_number": "+12025550145"})
+
+        assert spent.status_code == 429
+        assert len(api.otp.sent) == 2
+
+    async def test_verifying_from_one_place_is_limited(self, api: Api) -> None:
+        limits(api, verifications_per_source=2)
+        challenge_id, _ = await code_for(api)
+        for _ in range(2):
+            await api.client.post(
+                "/v1/auth/verify", json={"challenge_id": challenge_id, "code": "123456"}
+            )
+
+        refused = await api.client.post(
+            "/v1/auth/verify", json={"challenge_id": challenge_id, "code": "123456"}
+        )
+        assert refused.status_code == 429
 
 
 class TestProtectedRoutes:

@@ -152,8 +152,63 @@ class TestChallenges:
             )
         )
 
-        assert await challenges.count_issued_since(NUMBER, NOW - timedelta(hours=1)) == 2
-        assert await challenges.count_issued_since(ANOTHER, NOW - timedelta(hours=1)) == 1
+        assert await challenges.issued_since(NUMBER, NOW - timedelta(hours=1)) == [NOW, NOW]
+        assert await challenges.issued_since(ANOTHER, NOW - timedelta(hours=1)) == [NOW]
+        assert len(await challenges.issued_since(NUMBER, NOW - timedelta(days=2))) == 3
+
+    async def test_wrong_codes_are_counted_across_challenges_and_the_right_one_is_not(
+        self, session: AsyncSession
+    ) -> None:
+        challenges = SqlOTPChallengeRepository(session)
+        await challenges.add(a_challenge("guessed", attempts=3))
+        await challenges.add(a_challenge("then-right", attempts=2, verified_at=NOW))
+        await challenges.add(a_challenge("someone-else", phone_number=ANOTHER, attempts=4))
+
+        assert await challenges.failed_attempts_since(NUMBER, NOW - timedelta(hours=1)) == 4
+        assert await challenges.failed_attempts_since(ANOTHER, NOW - timedelta(hours=1)) == 4
+        assert await challenges.failed_attempts_since(NUMBER, NOW + timedelta(seconds=1)) == 0
+
+    async def test_open_challenges_are_superseded_and_finished_ones_are_left(
+        self, session: AsyncSession
+    ) -> None:
+        challenges = SqlOTPChallengeRepository(session)
+        await challenges.add(a_challenge("open"))
+        await challenges.add(a_challenge("used", verified_at=NOW))
+        await challenges.add(
+            a_challenge("expired", issued_at=NOW - timedelta(hours=1), expires_at=NOW)
+        )
+        await challenges.add(a_challenge("theirs", phone_number=ANOTHER))
+
+        closed = await challenges.supersede_open(NUMBER, NOW)
+
+        assert closed == 1
+        superseded = await challenges.get("open")
+        assert superseded is not None
+        assert superseded.superseded_at == NOW
+        assert not superseded.is_open_at(NOW)
+        theirs = await challenges.get("theirs")
+        assert theirs is not None
+        assert theirs.is_open_at(NOW)
+
+    async def test_the_deployment_counts_every_send_and_each_calling_code(
+        self, session: AsyncSession
+    ) -> None:
+        challenges = SqlOTPChallengeRepository(session)
+        await challenges.add(a_challenge("us"))
+        await challenges.add(a_challenge("uk", phone_number=PhoneNumber.parse("+447700900123")))
+        await challenges.add(
+            a_challenge(
+                "yesterday",
+                issued_at=NOW - timedelta(days=1),
+                expires_at=NOW - timedelta(days=1) + timedelta(minutes=5),
+            )
+        )
+
+        an_hour_ago = NOW - timedelta(hours=1)
+        assert await challenges.count_all_issued_since(an_hour_ago) == 2
+        assert await challenges.count_all_issued_since(an_hour_ago, "44") == 1
+        assert await challenges.count_all_issued_since(an_hour_ago, "1") == 1
+        assert await challenges.count_all_issued_since(an_hour_ago, "91") == 0
 
     async def test_expired_challenges_are_removed(self, session: AsyncSession) -> None:
         # A challenge past its expiry can never succeed, and keeping it is keeping a hash of a
