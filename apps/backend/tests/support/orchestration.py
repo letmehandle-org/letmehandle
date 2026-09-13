@@ -151,10 +151,15 @@ class MemoryCalls(CallRepository):
     states: dict[CallId, list[CallState]] = field(default_factory=lambda: defaultdict(list))
     # Reads answer and writes are refused, as a database gone read-only does.
     refusing_writes: bool = False
+    # How many writes from now are refused before they answer again, as a connection reset does.
+    refusing_next: int = 0
 
     async def save(self, call: CallSession) -> None:
         if self.refusing_writes:
             raise ConnectionError("the database is read-only")
+        if self.refusing_next:
+            self.refusing_next -= 1
+            raise ConnectionError("the connection was reset")
         existing = self.stored.get(call.id)
         if existing is not None and existing.user_id != call.user_id:
             raise RecordNotFoundError("call", call.id.value)

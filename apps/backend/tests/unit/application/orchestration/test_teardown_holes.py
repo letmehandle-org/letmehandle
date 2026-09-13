@@ -1,6 +1,6 @@
 """Endings that leave something behind: a teardown cut short, and records written after it.
 
-Each test here reproduces a defect and is expected to fail until it is fixed.
+Each test here reproduced a defect before its fix, and keeps it fixed.
 """
 
 from __future__ import annotations
@@ -8,8 +8,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
-
-import pytest
 
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import ParticipantRole
@@ -19,6 +17,7 @@ from letmehandle.domain.models.escalation_context import EscalationStatus
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.summary import CallOutcome
+from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from tests.support.orchestration import (
     OWNER,
     WANTS_THE_USER,
@@ -50,10 +49,6 @@ async def with_the_assistant(running: Running) -> StreamingLine:
     return line
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a speech session whose close raises aborts _finish: no terminate, no summary",
-)
 async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> None:
     line = StreamingLine()
     async with orchestrating(line) as running:
@@ -71,13 +66,31 @@ async def test_a_speech_session_that_fails_to_close_still_ends_the_call() -> Non
         assert line.asked("terminate", CALL) == 1
         assert CallId(CALL) in running.stores.summaries.stored
         assert running.stores.call(CALL).state is CallState.COMPLETED
+        assert running.metrics.counted("call.speech_close_failed", kind="error") == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="call_ended can run before the background dispatch claims the context, "
-    "which is then stored open for a call that is over",
-)
+async def test_a_speech_session_that_fails_to_close_as_the_assistant_goes_still_ends_the_call() -> (
+    None
+):
+    line = StreamingLine()
+    async with orchestrating(line) as running:
+        await with_the_assistant(running)
+        session = await running.session()
+
+        async def close() -> None:
+            raise ProviderError("speech", "the reader failed", retryable=False)
+
+        session.close = close  # type: ignore[method-assign]  # a session that fails as it closes
+        # The assistant's leg drops mid-call with nobody else coming: the caller must not be left
+        # on a line nothing holds.
+        line.leaves(CALL, Leg.ASSISTANT)
+        await eventually(lambda: CallId(CALL) not in running.orchestrator._runs)
+
+        assert line.asked("terminate", CALL) == 1
+        assert CallId(CALL) in running.stores.summaries.stored
+        assert running.stores.call(CALL).state is CallState.FAILED
+
+
 async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marked_ended() -> None:
     line = StreamingLine()
     async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
@@ -109,11 +122,6 @@ async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marke
         assert context.status is EscalationStatus.ENDED
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a summary is added after the final save of the call failed, so the call stays "
-    "unfinished beside its summary and the next start fails it under that summary",
-)
 async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_recovery_to_fail() -> (
     None
 ):
@@ -133,3 +141,18 @@ async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_reco
         call = storage.call(CALL)
         summary = storage.summaries.stored[CallId(CALL)]
         assert (call.state is CallState.FAILED) == (summary.outcome is CallOutcome.FAILED)
+
+
+async def test_a_final_save_refused_once_is_tried_again_and_the_call_summarised() -> None:
+    storage = MemoryCallStores()
+    await storage.with_owner()
+    async with orchestrating(StreamingLine(), stores=storage) as running:
+        line = await with_the_assistant(running)
+        # The ending is the next write of the call: refused once, then answered.
+        storage.calls.refusing_next = 1
+        line.hangs_up(CALL)
+        call = await running.ended(CALL)
+
+        assert call.state is CallState.COMPLETED
+        assert storage.summaries.stored[CallId(CALL)].outcome is CallOutcome.CALLER_HUNG_UP
+        assert running.metrics.counted("call.storage_failed", stage="final") == 1

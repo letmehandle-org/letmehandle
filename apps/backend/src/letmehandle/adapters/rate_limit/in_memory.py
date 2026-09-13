@@ -3,9 +3,8 @@
 Enough for a single-process deployment and for tests. A deployment running several processes
 needs a shared one, which is an adapter rather than a change anywhere above this.
 
-The limitation is stated rather than hidden: `is_shared` is false, and the readiness endpoint
-reports it, so an operator scaling out can see that their limits have quietly become per
-process.
+The limitation is stated rather than hidden: `is_shared` is false, so whoever scales out can
+see that their limits would quietly become per process.
 """
 
 from __future__ import annotations

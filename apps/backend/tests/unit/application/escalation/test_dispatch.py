@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from letmehandle.application.escalation import dispatch as dispatch_module
 from letmehandle.application.escalation.dispatch import (
     AttemptResult,
     DispatchResult,
@@ -379,6 +380,31 @@ class TestBackgroundAndEnding:
         assert await service.call_ended(ALICE, CallId("call-1"), RAISED + timedelta(minutes=1))
         stored = await stores.contexts.get(ALICE, CallId("call-1"))
         assert stored is not None and stored.status is EscalationStatus.ENDED
+
+    async def test_a_context_claimed_after_its_call_ended_is_stored_ended(self) -> None:
+        stores = InMemoryStores()
+        service = dispatcher(stores)
+        ended_at = RAISED + timedelta(minutes=1)
+        assert not await service.call_ended(ALICE, CallId("call-1"), ended_at)
+        await service.dispatch(ALICE, a_context())
+        stored = await stores.contexts.get(ALICE, CallId("call-1"))
+        assert stored is not None and stored.status is EscalationStatus.ENDED
+        assert stored.ended_at == ended_at
+
+    async def test_only_so_many_ended_calls_are_remembered(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(dispatch_module, "REMEMBERED_ENDINGS", 1)
+        stores = InMemoryStores()
+        service = dispatcher(stores)
+        await service.call_ended(ALICE, CallId("call-1"), RAISED)
+        await service.call_ended(ALICE, CallId("call-2"), RAISED)
+        await service.dispatch(ALICE, a_context("call-1"))
+        await service.dispatch(ALICE, a_context("call-2"))
+        first = await stores.contexts.get(ALICE, CallId("call-1"))
+        second = await stores.contexts.get(ALICE, CallId("call-2"))
+        assert first is not None and first.status is not EscalationStatus.ENDED
+        assert second is not None and second.status is EscalationStatus.ENDED
 
     async def test_ending_a_call_that_never_escalated_is_false(self) -> None:
         assert not await dispatcher(InMemoryStores()).call_ended(ALICE, CallId("other"), RAISED)
