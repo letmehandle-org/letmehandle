@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from letmehandle.domain.models.onboarding import Onboarding
 from letmehandle.domain.models.preferences import (
     PREFERENCES_VERSION,
     CallRules,
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.caller import CallerCategory
     from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.models.intent import CallImportance
-    from letmehandle.domain.models.onboarding import OnboardingProgress, OnboardingStep
+    from letmehandle.domain.models.onboarding import OnboardingFlow, OnboardingStep
     from letmehandle.domain.models.preferences import (
         DisclosableFact,
         Formality,
@@ -182,13 +183,22 @@ def _merge_voice(current: VoiceSelection, changes: PreferenceChanges) -> VoiceSe
 
 
 class PreferencesService:
-    """Preferences and onboarding progress, for one deployment."""
+    """Preferences and onboarding progress, for one deployment.
+
+    `onboarding_flow` is which steps this deployment asks. It is handed in, decided from what the
+    deployment can do, so nothing here learns how calls arrive.
+    """
 
     def __init__(
-        self, *, preferences: PreferencesRepository, onboarding: OnboardingRepository
+        self,
+        *,
+        preferences: PreferencesRepository,
+        onboarding: OnboardingRepository,
+        onboarding_flow: OnboardingFlow,
     ) -> None:
         self._preferences = preferences
         self._onboarding = onboarding
+        self._flow = onboarding_flow
 
     async def get(self, user_id: UserId, *, for_update: bool = False) -> UserPreferences:
         """What this user has chosen, or the defaults if they have chosen nothing.
@@ -279,14 +289,18 @@ class PreferencesService:
 
     # ------------------------------------------------------------- onboarding
 
-    async def progress(self, user_id: UserId) -> OnboardingProgress:
-        return await self._onboarding.get(user_id)
+    async def progress(self, user_id: UserId) -> Onboarding:
+        """Where this user is, among the steps this deployment asks."""
+        return Onboarding(flow=self._flow, progress=await self._onboarding.get(user_id))
 
     async def record_step(
         self, user_id: UserId, step: OnboardingStep, *, skipped: bool = False
-    ) -> OnboardingProgress:
-        """Record a step as answered or deliberately passed over."""
-        current = await self._onboarding.get(user_id)
+    ) -> Onboarding:
+        """Record a step as answered or deliberately passed over.
+
+        A step this deployment does not ask is refused before anything is stored.
+        """
+        current = await self.progress(user_id)
         updated = current.skipping(step) if skipped else current.completing(step)
-        await self._onboarding.save(user_id, updated)
+        await self._onboarding.save(user_id, updated.progress)
         return updated

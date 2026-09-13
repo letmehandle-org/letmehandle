@@ -46,6 +46,7 @@ from letmehandle.application.preferences.service import PreferencesService
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.models.forwarding import CallForwarding
+from letmehandle.domain.models.onboarding import OnboardingFlow
 from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.repositories import EscalationContextRepository, UserRepository
 from letmehandle.domain.ports.voice import VoiceProvider
@@ -214,11 +215,16 @@ def get_preferences_service(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PreferencesService:
-    """Preferences and onboarding, on this request's session."""
-    clock = container_of(request).clock
+    """Preferences and onboarding, on this request's session.
+
+    Setup asks where to forward calls only on a deployment that has a number to forward them to.
+    """
+    container = container_of(request)
+    clock = container.clock
     return PreferencesService(
         preferences=SqlPreferencesRepository(session, clock),
         onboarding=SqlOnboardingRepository(session, clock),
+        onboarding_flow=OnboardingFlow(calls_are_forwarded=container.forwarding is not None),
     )
 
 

@@ -333,7 +333,7 @@ class TestOnboardingRepository:
         )
 
         stored = await repository.get(USER)
-        assert stored.next_step is OnboardingStep.AUTHORITY
+        assert stored.completed == frozenset({OnboardingStep.CALL_HANDLING, OnboardingStep.HOURS})
 
     async def test_a_step_this_version_does_not_know_is_dropped(
         self, session: AsyncSession
@@ -359,7 +359,6 @@ class TestOnboardingRepository:
 
         assert progress.completed == frozenset({OnboardingStep.CALL_HANDLING})
         assert progress.skipped == frozenset()
-        assert progress.next_step is OnboardingStep.HOURS
 
     async def test_progress_is_per_user(self, session: AsyncSession) -> None:
         await a_user(session, USER, NUMBER)

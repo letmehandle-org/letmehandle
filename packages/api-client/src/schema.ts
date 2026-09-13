@@ -346,6 +346,10 @@ export interface paths {
          *
          *     Held here rather than on the device, so that reinstalling or signing in elsewhere resumes
          *     where somebody was instead of asking them everything again.
+         *
+         *     A step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this
+         *     deployment does not ask — `call_forwarding` where nothing needs forwarding — is a 422
+         *     `step_not_asked`, and nothing is recorded.
          */
         post: operations["record_onboarding_step_v1_onboarding_post"];
         delete?: never;
@@ -863,6 +867,10 @@ export interface components {
         /**
          * OnboardingResponse
          * @description Where somebody is in the flow, and what is left.
+         *
+         *     Every list holds only the steps this deployment asks, in the order they are asked.
+         *     `call_forwarding` is among them only where the profile's `call_forwarding` names a number,
+         *     and an answer recorded to it elsewhere is not listed.
          */
         OnboardingResponse: {
             /** Completed */
@@ -883,7 +891,7 @@ export interface components {
          *     two unrelated things is one people abandon.
          * @enum {string}
          */
-        OnboardingStep: "call_handling" | "hours" | "authority" | "notifications";
+        OnboardingStep: "call_handling" | "call_forwarding" | "hours" | "authority" | "notifications";
         /** OnboardingUpdate */
         OnboardingUpdate: {
             /**

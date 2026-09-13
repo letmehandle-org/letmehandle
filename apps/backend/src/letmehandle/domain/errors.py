@@ -24,6 +24,18 @@ class InvariantError(DomainError):
     """
 
 
+class StepNotAskedError(DomainError):
+    """A setup step was recorded on a deployment that does not ask it.
+
+    Not an `InvariantError`: the step is real and the request well formed, but answering a
+    question this deployment never asks would record something that changes nothing here.
+    """
+
+    def __init__(self, step: object) -> None:
+        super().__init__(f"{step} is not a step setup asks here")
+        self.step = step
+
+
 class IllegalTransitionError(DomainError):
     """A call was asked to move to a state it cannot reach from where it is."""
 

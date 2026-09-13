@@ -982,7 +982,7 @@
         "type": "object"
       },
       "OnboardingResponse": {
-        "description": "Where somebody is in the flow, and what is left.",
+        "description": "Where somebody is in the flow, and what is left.\n\nEvery list holds only the steps this deployment asks, in the order they are asked.\n`call_forwarding` is among them only where the profile's `call_forwarding` names a number,\nand an answer recorded to it elsewhere is not listed.",
         "properties": {
           "completed": {
             "items": {
@@ -1034,6 +1034,7 @@
         "description": "One thing to ask about.\n\nOne step per group of preferences, because a step is a screen and a screen that asks about\ntwo unrelated things is one people abandon.",
         "enum": [
           "call_handling",
+          "call_forwarding",
           "hours",
           "authority",
           "notifications"
@@ -2653,7 +2654,7 @@
         ]
       },
       "post": {
-        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.",
+        "description": "Record a step as answered, or deliberately passed over.\n\nHeld here rather than on the device, so that reinstalling or signing in elsewhere resumes\nwhere somebody was instead of asking them everything again.\n\nA step that cannot be skipped, sent as skipped, is a 422 `invalid_request`. A step this\ndeployment does not ask \u2014 `call_forwarding` where nothing needs forwarding \u2014 is a 422\n`step_not_asked`, and nothing is recorded.",
         "operationId": "record_onboarding_step_v1_onboarding_post",
         "requestBody": {
           "content": {
