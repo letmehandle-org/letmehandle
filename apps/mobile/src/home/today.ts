@@ -9,6 +9,7 @@
 import type { CallSummary } from '@letmehandle/api-client';
 
 import type { RoleStatus } from '../calls/callScreening';
+import { localMidnight, minutesAndSeconds } from '../time/clock';
 
 export interface Tally {
   readonly total: number;
@@ -22,11 +23,7 @@ export interface Tally {
 
 /** Local midnight today, as an instant the API can compare. */
 export function startOfToday(now: Date): string {
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).toISOString();
+  return localMidnight(now).toISOString();
 }
 
 export function tally(calls: readonly CallSummary[]): Tally {
@@ -98,9 +95,7 @@ export function ringParts(counts: Tally): {
 
 /** "1:28", minutes and seconds since the escalation was raised. */
 export function elapsed(since: string, now: Date): string {
-  const seconds = Math.max(
-    0,
+  return minutesAndSeconds(
     Math.floor((now.getTime() - new Date(since).getTime()) / 1000),
   );
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }

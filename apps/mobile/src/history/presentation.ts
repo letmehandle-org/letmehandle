@@ -14,6 +14,7 @@ import type {
 
 import type { Tone } from '../components/Disc';
 import type { IconName } from '../components/icon/Icon';
+import { localMidnight, minutesAndSeconds } from '../time/clock';
 
 /** What kind of caller, as a picture. */
 export const CATEGORY_ICONS: Record<CallerCategory, IconName> = {
@@ -105,13 +106,8 @@ export function dayOf(
   startedAt: string,
   now: Date,
 ): { kind: 'today' | 'yesterday' } | { kind: 'date'; date: Date } {
-  const started = new Date(startedAt);
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startedMidnight = new Date(
-    started.getFullYear(),
-    started.getMonth(),
-    started.getDate(),
-  );
+  const midnight = localMidnight(now);
+  const startedMidnight = localMidnight(new Date(startedAt));
   const days = Math.round(
     (midnight.getTime() - startedMidnight.getTime()) / 86_400_000,
   );
@@ -176,15 +172,10 @@ export function dayAndMonth(instant: string | Date, locale: string): string {
 
 /** Offsets from the start, as the "you joined" strip reads them: "+1:40". */
 export function offsetFrom(start: string, instant: string): string {
-  const seconds = Math.max(
-    0,
+  return `+${minutesAndSeconds(
     Math.round(
       (new Date(instant).getTime() - new Date(start).getTime()) / 1000,
     ),
-  );
-  return `+${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(
-    2,
-    '0',
   )}`;
 }
 

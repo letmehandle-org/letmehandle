@@ -5,6 +5,8 @@
  */
 import type { TFunction } from 'i18next';
 
+import { minutesAndSeconds } from '../time/clock';
+
 export function waitWords(seconds: number, t: TFunction): string {
   if (seconds < 60) {
     return t('wait.seconds', { count: Math.max(1, Math.ceil(seconds)) });
@@ -17,6 +19,5 @@ export function waitWords(seconds: number, t: TFunction): string {
 
 /** "0:24", for a countdown on a button. */
 export function clockWords(seconds: number): string {
-  const whole = Math.max(0, Math.ceil(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+  return minutesAndSeconds(Math.ceil(seconds));
 }
