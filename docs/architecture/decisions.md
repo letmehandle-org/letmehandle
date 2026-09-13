@@ -624,3 +624,49 @@ including those who had finished: finished meant finished for calls that no long
 **Recording it where it is not asked is a 422, `step_not_asked`,** and nothing is stored. Not a
 409: nothing about the user's state would make it succeed on another try. It is the same answer a
 removed or invented step gets — the request names something that does not exist here.
+
+## D-036 — Sign-in codes are the application's, sent as a text message
+
+**Accepted.** Production needs a provider that delivers a sign-in code to a real handset; until one
+existed the mock was the only provider and a production deployment could not start (D-010). The
+first is `twilio_sms`: the application generates the code, stores only its salted hash, and the
+adapter sends it in one text message from the telephony provider's Messaging API.
+
+**Not a hosted verification service.** Such a service generates, sends and checks the code itself,
+so the application would never hold one — a real advantage, and the reason it was considered
+first. It was rejected because it does not fit what sign-in already guarantees, and fitting it
+would move those guarantees into the vendor:
+
+- The port's contract is that the code is the product's: its length, alphabet and lifetime (D-010,
+  `OTPProvider.send`). A verification service decides those and checks the code, so the port would
+  become "start a check" and "ask whether this code passes", and the challenge row would hold no
+  hash to verify against.
+- The attempt limit holds because a guess is counted under a row lock in the same unit of work
+  that verifies it (review F1). Verification by a remote call cannot be inside that lock, and two
+  limits — ours and the service's — that count differently are one limit nobody can state.
+- One verification path serves every provider, so the path the mock exercises in every test and
+  on every contributor's machine is the path production runs. A second path taken only in
+  production is the one that breaks unseen.
+- A code is short-lived and hashed with scrypt, and it is held in memory only while it is sent.
+  What a hosted service would add over that is the provider's fraud screening, which a deployment
+  can have on its account either way.
+
+**Its own account variables.** `SMS_ACCOUNT_ID`, `SMS_AUTH_TOKEN` and `SMS_FROM_NUMBER`, rather than
+the `TELEPHONY_` ones: a deployment whose calls arrive on a handset has no telephony account and
+still needs codes delivered, and a credential used only to send texts can be revoked without
+touching the one that carries calls. The same account's values may be given to both. All three are
+required when the provider is chosen, and the process refuses to start naming whichever are
+missing; the token is a secret and is never rendered.
+
+**Failures say who can fix them.** A number the provider will not deliver to — not a number, not a
+mobile, opted out, unroutable — is `UnreachableNumberError`, answered `422 number_unreachable`,
+and counts against the number like any code requested. Any other provider failure is a
+`ProviderError`, answered `503 provider_unavailable`; the request is rolled back, so a code that
+was never sent does not use up the number's hourly allowance. Neither response says whether the
+number has an account. The adapter logs that a code was sent or refused and the provider's error
+code, never the number or the code.
+
+The wording of the message is a per-locale template (D-017); a number signing in has no account and
+so no locale, and gets the default. Whether the provider delivers to a real handset is verified
+with a real account; the adapter's requests and error mapping are tested against a simulated
+message API.
