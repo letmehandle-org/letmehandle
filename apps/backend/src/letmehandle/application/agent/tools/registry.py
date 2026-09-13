@@ -7,6 +7,7 @@ built for itself is one whose checks nobody reviewed in this package.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from letmehandle.application.agent.tools.caller import GetCallerContext
@@ -40,9 +41,5 @@ def tools_for_a_judgement(actions: CallActions, notes: JudgementNotes) -> tuple[
 
 
 def tools_for_judgements(actions: CallActions) -> ToolsForAJudgement:
-    """`tools_for_a_judgement`, ready for an agent to call once per judgement with fresh notes."""
-
-    def for_one(notes: JudgementNotes) -> tuple[AgentTool, ...]:
-        return tools_for_a_judgement(actions, notes)
-
-    return for_one
+    """`tools_for_a_judgement` bound to `actions`, for an agent to call with fresh notes."""
+    return partial(tools_for_a_judgement, actions)
