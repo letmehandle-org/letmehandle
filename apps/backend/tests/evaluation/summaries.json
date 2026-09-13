@@ -253,5 +253,167 @@
       "details": []
     },
     "absent": ["time", "reference_number", "address", "amount", "commitment_declined"]
+  },
+  {
+    "id": "extraction-hotel-confirms-a-booking",
+    "class": "extraction",
+    "said": [
+      ["caller", "Good morning, this is Lakeview Hotel reservations. Your booking for two nights from the fourteenth of March is confirmed."],
+      ["caller", "The confirmation number is LV 40925, and the total will be three hundred and ten dollars, payable at check-in."],
+      ["agent", "Thank you, I'll pass that on."]
+    ],
+    "intents": ["appointment", "enquiry"],
+    "reference": {
+      "headline": "Lakeview Hotel confirmed your two-night stay from the fourteenth of March, and your assistant noted the confirmation number and the cost.",
+      "details": [
+        {"kind": "name", "value": "Lakeview Hotel", "evidence": "this is Lakeview Hotel reservations"},
+        {"kind": "time", "value": "fourteenth of March", "evidence": "two nights from the fourteenth of March"},
+        {"kind": "reference_number", "value": "LV 40925", "evidence": "The confirmation number is LV 40925"},
+        {"kind": "amount", "value": "three hundred and ten dollars", "evidence": "the total will be three hundred and ten dollars"}
+      ]
+    },
+    "absent": ["address"],
+    "why": "Every detail is read out plainly, a figure in words and a reference in letters and digits; nobody gives an address."
+  },
+  {
+    "id": "extraction-cash-on-delivery-parcel",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hello sir, I am calling from QuickShip courier. Your parcel is out for delivery today between two and five pm."],
+      ["caller", "It is cash on delivery, so please keep one thousand two hundred rupees ready. Tracking ID is QS 77120."],
+      ["agent", "Thank you, I will let him know."]
+    ],
+    "intents": ["delivery_in_progress"],
+    "reference": {
+      "headline": "QuickShip is bringing your parcel today between two and five, cash on delivery, and your assistant will let you know.",
+      "details": [
+        {"kind": "name", "value": "QuickShip", "evidence": "I am calling from QuickShip courier"},
+        {"kind": "time", "value": "between two and five pm", "evidence": "today between two and five pm"},
+        {"kind": "amount", "value": "one thousand two hundred rupees", "evidence": "keep one thousand two hundred rupees ready"},
+        {"kind": "reference_number", "value": "QS 77120", "evidence": "Tracking ID is QS 77120"}
+      ]
+    },
+    "absent": ["address"],
+    "why": "A delivery window, a sum to have ready and a tracking reference, all said aloud; the courier never says where."
+  },
+  {
+    "id": "extraction-garage-will-not-cover-the-gearbox",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hi, it's Marco at Hillside Auto. We've had a look at the car and the gearbox needs replacing."],
+      ["caller", "I'm afraid we can't do it under the warranty. The quote is one thousand four hundred pounds if he wants to go ahead."],
+      ["agent", "Thanks, I'll make sure he gets that."]
+    ],
+    "intents": ["service_issue"],
+    "reference": {
+      "headline": "Hillside Auto says the gearbox needs replacing for one thousand four hundred pounds, outside the warranty, and your assistant will pass it on.",
+      "details": [
+        {"kind": "name", "value": "Hillside Auto", "evidence": "it's Marco at Hillside Auto"},
+        {"kind": "commitment_declined", "value": "can't do it under the warranty", "evidence": "we can't do it under the warranty"},
+        {"kind": "amount", "value": "one thousand four hundred pounds", "evidence": "The quote is one thousand four hundred pounds"}
+      ]
+    },
+    "absent": ["reference_number", "address"],
+    "why": "The garage says what it cannot do and what it will cost; no reference or address is given."
+  },
+  {
+    "id": "extraction-school-fee-due",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hello, this is the accounts office at Greenfield Academy. The term fee of eighteen thousand rupees is due by the tenth of next month."],
+      ["caller", "Please quote the student number GA 2231 when paying."],
+      ["agent", "Thank you, I'll pass that on."]
+    ],
+    "intents": ["service_issue", "enquiry"],
+    "reference": {
+      "headline": "Greenfield Academy says eighteen thousand rupees in fees are owed by the tenth of next month, and your assistant noted the student number.",
+      "details": [
+        {"kind": "name", "value": "Greenfield Academy", "evidence": "the accounts office at Greenfield Academy"},
+        {"kind": "amount", "value": "eighteen thousand rupees", "evidence": "The term fee of eighteen thousand rupees"},
+        {"kind": "time", "value": "tenth of next month", "evidence": "due by the tenth of next month"},
+        {"kind": "reference_number", "value": "GA 2231", "evidence": "quote the student number GA 2231"}
+      ]
+    },
+    "absent": ["address"],
+    "why": "A sum, a due date and a number to quote, each said once and plainly."
+  },
+  {
+    "id": "extraction-vet-changes-the-day-twice",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hi, it's Pawsitive Vets. We need to move Biscuit's booster from Tuesday to Thursday at half past four."],
+      ["caller", "Actually, sorry, Thursday's just gone, so it'll have to be Friday at half past four instead."],
+      ["agent", "Thank you, I'll let her know."]
+    ],
+    "intents": ["appointment"],
+    "reference": {
+      "headline": "Pawsitive Vets moved Biscuit's booster to Friday at half past four, and your assistant said you would get the message.",
+      "details": [
+        {"kind": "name", "value": "Pawsitive Vets", "evidence": "it's Pawsitive Vets"},
+        {"kind": "time", "value": "Friday at half past four", "evidence": "it'll have to be Friday at half past four instead"}
+      ]
+    },
+    "absent": ["amount", "reference_number", "address"],
+    "why": "The caller corrects themselves, so the time the user needs is the one they settled on, Friday; no cost, reference or address is mentioned."
+  },
+  {
+    "id": "extraction-roofer-will-come-back-free",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hey, this is Tony with Summit Roofing, following up on the leak from last week's storm."],
+      ["caller", "So, uh, we'll come back out Saturday morning to replace the flashing, no charge, since it was our install. Your claim number with us is SR 1187."],
+      ["agent", "Great, I'll let her know."]
+    ],
+    "intents": ["service_issue", "appointment"],
+    "reference": {
+      "headline": "Summit Roofing will return on Saturday morning to fix the leak from last week's storm at no charge, and your assistant will let you know.",
+      "details": [
+        {"kind": "name", "value": "Summit Roofing", "evidence": "this is Tony with Summit Roofing"},
+        {"kind": "commitment_made", "value": "replace the flashing", "evidence": "we'll come back out Saturday morning to replace the flashing"},
+        {"kind": "reference_number", "value": "SR 1187", "evidence": "Your claim number with us is SR 1187"}
+      ]
+    },
+    "absent": ["address"],
+    "why": "A promise to come back and fix it, and a claim number, in a casual line with a filler word; no address is given."
+  },
+  {
+    "id": "extraction-dentist-keeps-the-missed-fee",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hello, it's Brightside Dental. We're sorry, but we can't waive the missed appointment fee."],
+      ["caller", "It's twenty five pounds, and it'll be added to the next visit on the ninth of May."],
+      ["agent", "Understood, I'll pass that on."]
+    ],
+    "intents": ["appointment", "service_issue"],
+    "reference": {
+      "headline": "Brightside Dental won't waive the missed appointment fee of twenty five pounds, due at your visit on the ninth of May, and your assistant will pass it on.",
+      "details": [
+        {"kind": "name", "value": "Brightside Dental", "evidence": "it's Brightside Dental"},
+        {"kind": "commitment_declined", "value": "can't waive", "evidence": "we can't waive the missed appointment fee"},
+        {"kind": "amount", "value": "twenty five pounds", "evidence": "It's twenty five pounds"},
+        {"kind": "time", "value": "ninth of May", "evidence": "the next visit on the ninth of May"}
+      ]
+    },
+    "absent": ["reference_number", "address"],
+    "why": "A refusal, the sum it concerns and the date it lands on; no reference or address."
+  },
+  {
+    "id": "extraction-library-book-waiting",
+    "class": "extraction",
+    "said": [
+      ["caller", "Hi, this is Elm Street Library. The book she reserved has come in."],
+      ["caller", "We'll hold it at the front desk for a week, and you'll find us at 22 Birchwood Close, next to the post office."],
+      ["agent", "Thank you, I'll let her know."]
+    ],
+    "intents": ["enquiry"],
+    "reference": {
+      "headline": "Elm Street Library has the book you reserved waiting at the front desk, and your assistant said it would let you know.",
+      "details": [
+        {"kind": "name", "value": "Elm Street Library", "evidence": "this is Elm Street Library"},
+        {"kind": "address", "value": "22 Birchwood Close", "evidence": "you'll find us at 22 Birchwood Close"}
+      ]
+    },
+    "absent": ["amount", "reference_number"],
+    "why": "Where to collect it is given as a street address; nothing costs anything and no reference is read out."
   }
 ]
