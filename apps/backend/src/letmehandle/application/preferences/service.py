@@ -12,7 +12,7 @@ given, and writes the whole thing back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING
 
 from letmehandle.domain.models.onboarding import Onboarding
@@ -119,23 +119,7 @@ class PreferenceChanges:
         A request that changes nothing is not an error — a client sending an untouched form is
         ordinary — but it should not cost a write.
         """
-        return all(
-            getattr(self, name) is None
-            for name in (
-                "locale",
-                "call_handling",
-                "hours",
-                "authority",
-                "notifications",
-                "persona_voice",
-                "formality",
-                "verbosity",
-                "topics",
-                "disclosable_facts",
-                "important_contacts",
-                "transcript_retention_days",
-            )
-        )
+        return all(getattr(self, each.name) is None for each in fields(self))
 
 
 def _merge_rules(current: CallRules, changes: PreferenceChanges) -> CallRules:
