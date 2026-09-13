@@ -1,23 +1,4 @@
-"""A realtime speech service that runs inside the test process, over a real socket.
-
-A simulation, and it says so. It speaks the subset of the OpenAI Realtime protocol this project
-uses, under the protocol's current event names, so that the real client code — the handshake,
-the frames, the failures — runs end to end with no account and no network beyond loopback.
-
-What it does not do is understand speech. It has no model and no voice activity detection, so it
-stands in for both with rules a test can reason about:
-
-- Audio that is not all zero bytes is speech. The first such chunk of a turn starts speech.
-- An all-zero chunk after speech ends the turn: speech stops, the turn is transcribed as the
-  fixed transcript it was given if the session asked for input transcription, and a response
-  begins.
-- The response speaks the caller's own audio back, one output delta per chunk it heard.
-
-A real server interrupts its own response when speech starts, if configured to. This one never
-does, because interruption is the client's to prove: it has to cancel the response and truncate
-the item itself, and a simulation that did it for the client would hide a client that did not.
-What each connection was sent is recorded, so that a test can see that it did.
-"""
+"""A realtime speech service in the test process over a real socket, echoing the caller's audio."""
 
 from __future__ import annotations
 
@@ -25,20 +6,17 @@ import asyncio
 import base64
 import binascii
 import json
-import math
-import struct
 from dataclasses import dataclass, field
 from itertools import count
-from typing import TYPE_CHECKING, Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import parse_qs, urlsplit
 
-from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-if TYPE_CHECKING:
-    from types import TracebackType
+from tests.support.simulated_service import SimulatedService, is_speech
 
-    from websockets.asyncio.server import Server
+if TYPE_CHECKING:
+    from websockets.asyncio.server import ServerConnection
     from websockets.http11 import Request, Response
 
 # The protocol's default input format is 16-bit PCM at 24 kHz: two bytes a sample, 24 000 a
@@ -90,21 +68,6 @@ class _Conversation:
     response_id: str | None = None
 
 
-# Below this root-mean-square level a chunk is silence. A real service's voice detection works on
-# energy rather than on exact zeros, and so must this one: a resampling client carries a sample or
-# two of the previous sound into the chunk after it, which leaves a silent chunk almost — never
-# exactly — zero, and a detector waiting for exact zeros never hears the turn end.
-SILENCE_RMS: Final = 500
-
-
-def _is_speech(audio: bytes) -> bool:
-    usable = len(audio) - len(audio) % 2
-    if not usable:
-        return False
-    samples = struct.unpack(f"<{usable // 2}h", audio[:usable])
-    return math.sqrt(sum(sample * sample for sample in samples) / len(samples)) >= SILENCE_RMS
-
-
 def _transcribing(session: dict[str, Any]) -> bool:
     """Whether a session was configured to transcribe what the caller says.
 
@@ -116,12 +79,10 @@ def _transcribing(session: dict[str, Any]) -> bool:
     return isinstance(audio_input, dict) and bool(audio_input.get("transcription"))
 
 
-class SimulatedRealtimeService:
-    """A realtime speech service on 127.0.0.1 and an ephemeral port, for one test.
+class SimulatedRealtimeService(SimulatedService["_Conversation"]):
+    """A realtime speech service that leaves interrupting a response to the client."""
 
-    Used as an async context manager. On exit the server is closed and every connection and
-    task it started has finished, which is what lets a test count what is left.
-    """
+    path = "/v1/realtime"
 
     def __init__(
         self,
@@ -130,61 +91,22 @@ class SimulatedRealtimeService:
         model: str = SIMULATED_MODEL,
         transcript: str = SIMULATED_TRANSCRIPT,
     ) -> None:
+        super().__init__()
         self._api_key = api_key
         self._model = model
         self._transcript = transcript
         self._ids = count(1)
-        self._server: Server | None = None
-        self._conversations: dict[ServerConnection, _Conversation] = {}
-        self._refusing = False
         # Set means responses flow; cleared, a response waits before its next output delta. A
         # test holds one mid-sentence this way, which is the only way to interrupt it
         # deterministically.
         self._flowing = asyncio.Event()
         self._flowing.set()
         self._hold_after: int | None = None
-        self._idle = asyncio.Event()
-        self._idle.set()
         self.handshakes: list[Handshake] = []
         # One for each connection that got past the handshake, in the order they did.
         self.received: list[Received] = []
 
-    async def __aenter__(self) -> Self:
-        self._server = await serve(self._converse, "127.0.0.1", 0, process_request=self._admit)
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        server = self._require_server()
-        server.close()
-        await server.wait_closed()
-
-    @property
-    def url(self) -> str:
-        port = self._require_server().sockets[0].getsockname()[1]
-        return f"ws://127.0.0.1:{port}/v1/realtime"
-
-    @property
-    def open_connections(self) -> int:
-        return len(self._conversations)
-
-    async def wait_until_idle(self) -> None:
-        """Return once every connection has finished on this side too.
-
-        A client's close completes before the server has run its own cleanup, so a test that
-        counts what is left has to wait for the far end rather than guess how long it takes.
-        """
-        await self._idle.wait()
-
     # -- What a test can make it do ------------------------------------------------------------
-
-    def refuse_authentication(self) -> None:
-        """Answer every later handshake with 401, whatever key it presents."""
-        self._refusing = True
 
     def hold_responses(self, *, after_deltas: int = 0) -> None:
         """Stop responses once each has sent `after_deltas` output deltas, until released.
@@ -197,11 +119,6 @@ class SimulatedRealtimeService:
     def release_responses(self) -> None:
         self._hold_after = None
         self._flowing.set()
-
-    def drop_connections(self) -> None:
-        """Cut every connection with no close frame, the way a network failure does."""
-        for connection in self._conversations:
-            connection.transport.abort()
 
     async def close_connections(self) -> None:
         """Close every connection normally, the way a service that is finished does."""
@@ -233,8 +150,7 @@ class SimulatedRealtimeService:
         conversation = _Conversation(
             connection=connection, received=received, session={"model": self._model}
         )
-        self._conversations[connection] = conversation
-        self._idle.clear()
+        self._began(connection, conversation)
         try:
             await self._emit(conversation, "session.created", session=conversation.session)
             async for frame in connection:
@@ -245,9 +161,7 @@ class SimulatedRealtimeService:
             pass
         finally:
             await self._stop_response(conversation)
-            del self._conversations[connection]
-            if not self._conversations:
-                self._idle.set()
+            self._ended(connection)
 
     async def _handle(self, conversation: _Conversation, frame: str | bytes) -> None:
         try:
@@ -281,7 +195,7 @@ class SimulatedRealtimeService:
             return
         start_ms = conversation.elapsed_ms
         conversation.elapsed_ms += len(audio) // BYTES_PER_MILLISECOND
-        if _is_speech(audio):
+        if is_speech(audio):
             if conversation.user_item is None:
                 conversation.user_item = self._id("item")
                 received = conversation.received
@@ -408,8 +322,3 @@ class SimulatedRealtimeService:
 
     def _id(self, prefix: str) -> str:
         return f"{prefix}_{next(self._ids)}"
-
-    def _require_server(self) -> Server:
-        if self._server is None:
-            raise RuntimeError("the simulated service is used as an async context manager")
-        return self._server
