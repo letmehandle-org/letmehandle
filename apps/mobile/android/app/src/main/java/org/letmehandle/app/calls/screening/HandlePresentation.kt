@@ -14,6 +14,11 @@ import org.letmehandle.app.calls.rules.ScreenedCaller
  * service at all, so this is the answer for a platform that departs from it, not the common path.
  * Any presentation this build does not know is treated the same way: a call is never refused on a
  * value nobody can explain.
+ *
+ * The presentation is filled in for a screening service, not left unset: Telecom builds the
+ * details it passes in `ParcelableCallUtils.toParcelableCallForScreening`, which copies the call's
+ * handle presentation and withholds the handle itself unless that is `PRESENTATION_ALLOWED`. The
+ * same holds from API 29 (android-10.0.0_r1) to the current AOSP source.
  */
 object HandlePresentation {
   fun callerOf(presentation: Int, handleNumber: String?): ScreenedCaller =
