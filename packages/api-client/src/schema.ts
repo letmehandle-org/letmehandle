@@ -308,7 +308,15 @@ export interface paths {
         get: operations["read_me_v1_me_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete the account
+         * @description Delete the signed-in user's account and everything held because of it, now.
+         *
+         *     Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
+         *     and the sign-in codes sent to the number. A call in progress is ended first. Every token the
+         *     account held stops working with it.
+         */
+        delete: operations["delete_me_v1_me_delete"];
         options?: never;
         head?: never;
         /**
@@ -1654,6 +1662,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
+            };
+        };
+    };
+    delete_me_v1_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

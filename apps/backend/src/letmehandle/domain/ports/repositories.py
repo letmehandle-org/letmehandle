@@ -53,6 +53,10 @@ class UserRepository(ABC):
     async def update(self, user: User) -> None:
         """Store changes to an existing one."""
 
+    @abstractmethod
+    async def delete(self, user_id: UserId) -> None:
+        """Remove the account and everything stored for it. Nothing there is not an error."""
+
 
 class OTPChallengeRepository(ABC):
     """Outstanding proofs of control over a number."""
@@ -88,6 +92,10 @@ class OTPChallengeRepository(ABC):
         A challenge past its expiry can never succeed, and keeping it is keeping a hash of a
         credential for no reason.
         """
+
+    @abstractmethod
+    async def delete_for_number(self, number: PhoneNumber) -> None:
+        """Remove every challenge sent to this number, which is who they say asked for one."""
 
 
 class RefreshTokenRepository(ABC):

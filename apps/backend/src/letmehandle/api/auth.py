@@ -7,7 +7,7 @@ from dataclasses import replace
 from fastapi import APIRouter, Request, Response, status
 
 from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
-from letmehandle.api.dependencies import AuthService, CurrentUser, Devices, Users
+from letmehandle.api.dependencies import AuthService, CurrentUser, Deletion, Devices, Users
 from letmehandle.api.errors import ApiError
 from letmehandle.api.schemas import (
     ChallengeRequest,
@@ -166,3 +166,15 @@ async def update_me(body: UpdateProfileRequest, user: CurrentUser, users: Users)
         await users.update(updated)
 
     return _profile(updated)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete the account")
+async def delete_me(user: CurrentUser, deletion: Deletion) -> Response:
+    """Delete the signed-in user's account and everything held because of it, now.
+
+    Calls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,
+    and the sign-in codes sent to the number. A call in progress is ended first. Every token the
+    account held stops working with it.
+    """
+    await deletion.delete(user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

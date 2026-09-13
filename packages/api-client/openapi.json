@@ -2512,6 +2512,24 @@
       }
     },
     "/v1/me": {
+      "delete": {
+        "description": "Delete the signed-in user's account and everything held because of it, now.\n\nCalls, transcripts, summaries, escalations, handset reports, preferences, devices, sessions,\nand the sign-in codes sent to the number. A call in progress is ended first. Every token the\naccount held stops working with it.",
+        "operationId": "delete_me_v1_me_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete the account",
+        "tags": [
+          "authentication"
+        ]
+      },
       "get": {
         "operationId": "read_me_v1_me_get",
         "responses": {

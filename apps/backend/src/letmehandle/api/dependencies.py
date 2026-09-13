@@ -37,6 +37,7 @@ from letmehandle.adapters.database.repositories import (
     SqlUserRepository,
 )
 from letmehandle.api.errors import ApiError
+from letmehandle.application.auth.deletion import AccountDeletion
 from letmehandle.application.auth.service import AuthenticationPolicy, AuthenticationService
 from letmehandle.application.calls.history import CallHistoryService
 from letmehandle.application.calls.reports import CallReporting
@@ -125,6 +126,22 @@ def get_authentication_service(
         policy=AuthenticationPolicy(
             refresh_token_lifetime=container.refresh_token_lifetime,
         ),
+    )
+
+
+def get_account_deletion(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AccountDeletion:
+    """Deleting an account, on this request's session, ending its calls through the orchestrator.
+
+    The orchestrator is the one owner of every live call, and there is none in a deployment that
+    carries no calls.
+    """
+    return AccountDeletion(
+        users=SqlUserRepository(session, container_of(request).clock),
+        challenges=SqlOTPChallengeRepository(session),
+        calls=request.app.state.orchestrator,
     )
 
 
@@ -288,6 +305,7 @@ def get_escalation_contexts(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthService = Annotated[AuthenticationService, Depends(get_authentication_service)]
+Deletion = Annotated[AccountDeletion, Depends(get_account_deletion)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Preferences = Annotated[PreferencesService, Depends(get_preferences_service)]
 Voices = Annotated[VoiceProvider, Depends(get_voice_provider)]

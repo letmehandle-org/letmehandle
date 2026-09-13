@@ -108,6 +108,11 @@ class SqlUserRepository(UserRepository):
             )
         )
 
+    async def delete(self, user_id: UserId) -> None:
+        # One statement: everything else stored for the account references the user row and goes
+        # with it, which the schema's cascades say once rather than a list here saying again.
+        await self._session.execute(delete(UserRow).where(UserRow.id == user_id.value))
+
     def _to_user(self, row: UserRow) -> User:
         # Only the preferences this phase stores. The rest of `UserPreferences` arrives in
         # phase 3 with its own tables; defaulting them here keeps the domain type whole
@@ -179,6 +184,11 @@ class SqlOTPChallengeRepository(OTPChallengeRepository):
             delete(OTPChallengeRow).where(OTPChallengeRow.expires_at < before)
         )
         return _affected(result)
+
+    async def delete_for_number(self, number: PhoneNumber) -> None:
+        await self._session.execute(
+            delete(OTPChallengeRow).where(OTPChallengeRow.phone_number == number.value)
+        )
 
 
 class SqlRefreshTokenRepository(RefreshTokenRepository):
