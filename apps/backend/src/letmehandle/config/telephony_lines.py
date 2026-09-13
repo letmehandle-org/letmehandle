@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import Final
 from urllib.parse import urlsplit
 
+from letmehandle.config.listing import entries, repeated
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.region import TelephonyRegion, region_named
@@ -96,12 +97,11 @@ def parse_telephony_lines(text: str) -> tuple[LineDescription, ...]:
     Every error names the line and the key, never a value: a number or an account id pasted into
     an issue is still a number or an account id.
     """
-    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
-    if not entries:
+    listed = entries(text)
+    if not listed:
         raise ValueError(f"TELEPHONY_LINES lists no lines; expected {TELEPHONY_LINES_FORMAT!r}")
-    lines = tuple(_line(position, entry) for position, entry in enumerate(entries, 1))
-    names = [line.name for line in lines]
-    if len(set(names)) != len(names):
+    lines = tuple(_line(position, entry) for position, entry in enumerate(listed, 1))
+    if repeated(line.name for line in lines):
         raise ValueError("TELEPHONY_LINES names the same line more than once")
     _refuse_shared_regions(lines)
     return lines
@@ -110,7 +110,7 @@ def parse_telephony_lines(text: str) -> tuple[LineDescription, ...]:
 def parse_line_tokens(text: str) -> dict[str, str]:
     """Each line's auth token, by the line's name. Errors name a position, never a token."""
     tokens: dict[str, str] = {}
-    for position, entry in enumerate((e.strip() for e in text.split(",") if e.strip()), 1):
+    for position, entry in enumerate(entries(text), 1):
         name, separator, token = (part.strip() for part in entry.partition(":"))
         if not separator or not _LINE_NAME.fullmatch(name) or not token:
             raise ValueError(
@@ -135,7 +135,7 @@ def _line(position: int, entry: str) -> LineDescription:
             f"letters, digits or -, and a colon; expected {TELEPHONY_LINES_FORMAT!r}"
         )
     pairs: dict[str, str] = {}
-    for item in (item.strip() for item in body.split(";") if item.strip()):
+    for item in entries(body, ";"):
         key, equals, value = (part.strip() for part in item.partition("="))
         if not equals or key not in _KEYS or not value:
             raise ValueError(
