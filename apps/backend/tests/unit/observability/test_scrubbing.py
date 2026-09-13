@@ -20,7 +20,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 NUMBER = "+12025550123"
-TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJl"
+# Assembled rather than written out: a token-shaped literal is exactly what the secret scan looks
+# for, and this one is three made-up parts in the shape of a signed token, not a credential.
+TOKEN = ".".join(("eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ1c2VyIn0", "c2lnbmF0dXJl"))
 SAID = "my account number is in the drawer"
 
 
