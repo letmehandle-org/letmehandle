@@ -49,7 +49,7 @@ from letmehandle.api.call_schemas import (
     TranscriptResponse,
 )
 from letmehandle.api.dependencies import CallHistory, CurrentUser
-from letmehandle.api.errors import UNPROCESSABLE, ApiError
+from letmehandle.api.errors import UNPROCESSABLE, ApiError, invalid_request
 from letmehandle.application.calls.history import CallRecord
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId
@@ -95,7 +95,7 @@ async def list_calls(
             human_joined=human_joined,
         )
     except InvariantError as error:
-        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
+        raise invalid_request(error) from error
     page = await history.page(
         user.id,
         limit=limit,

@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from letmehandle.adapters.database.session import unit_of_work
 from letmehandle.adapters.database.timeline import SqlCallTimelineRepository
 from letmehandle.api.dependencies import container_of
-from letmehandle.api.errors import ApiError
+from letmehandle.api.errors import ApiError, database_unavailable
 from letmehandle.application.orchestration.run import CallStanding
 from letmehandle.bootstrap import Observability
 from letmehandle.domain.errors import InvariantError
@@ -164,11 +164,7 @@ async def call_timeline(request: Request, call_id: str) -> CallTimeline:
     """One call's stored outline and timeline, and where it stands if this process holds it."""
     factory = request.app.state.session_factory
     if factory is None:
-        raise ApiError(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "database_unavailable",
-            "This service is not connected to its database.",
-        )
+        raise database_unavailable()
     try:
         identifier = CallId(call_id)
     except InvariantError:

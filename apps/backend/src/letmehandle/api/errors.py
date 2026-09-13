@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -40,8 +40,43 @@ class ApiError(Exception):
         self.headers = headers or {}
 
 
-# Starlette renamed this constant; the old name still resolves but warns.
-UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
+UNPROCESSABLE: Final = status.HTTP_422_UNPROCESSABLE_CONTENT
+
+PROVIDER_UNAVAILABLE_MESSAGE: Final = "A service this depends on is unavailable. Try again shortly."
+
+
+def invalid_request(error: Exception) -> ApiError:
+    """A request whose values the domain refuses."""
+    return ApiError(UNPROCESSABLE, "invalid_request", str(error))
+
+
+def rate_limited(retry_after_seconds: int, message: str) -> ApiError:
+    """Too many of something, and when to try again."""
+    return ApiError(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "rate_limited",
+        message,
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+
+
+def provider_unavailable(retry_after_seconds: int) -> ApiError:
+    """A provider could not answer, and when to try again."""
+    return ApiError(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "provider_unavailable",
+        PROVIDER_UNAVAILABLE_MESSAGE,
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+
+
+def database_unavailable() -> ApiError:
+    """No database is connected to this process."""
+    return ApiError(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "database_unavailable",
+        "This service is not connected to its database.",
+    )
 
 
 def resolve_correlation_id(request: Request | None) -> str | None:
@@ -131,11 +166,7 @@ async def handle_provider_error(request: Request, exception: Exception) -> JSONR
     )
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content=error_body(
-            "provider_unavailable",
-            "A service this depends on is unavailable. Try again shortly.",
-            request,
-        ),
+        content=error_body("provider_unavailable", PROVIDER_UNAVAILABLE_MESSAGE, request),
     )
 
 

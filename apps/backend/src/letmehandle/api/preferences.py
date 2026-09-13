@@ -14,7 +14,7 @@ from fastapi import APIRouter, status
 
 from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.dependencies import CurrentUser, Preferences
-from letmehandle.api.errors import UNPROCESSABLE, ApiError
+from letmehandle.api.errors import UNPROCESSABLE, ApiError, invalid_request
 from letmehandle.api.preference_schemas import (
     AuthorityPayload,
     CallHandlingPayload,
@@ -71,7 +71,7 @@ async def replace_preferences(
     try:
         return _to_response(await service.replace_all(user.id, changes))
     except InvariantError as error:
-        raise _refused(error) from error
+        raise invalid_request(error) from error
 
 
 @router.patch("/preferences", response_model=PreferencesResponse, summary="Change some of it")
@@ -88,7 +88,7 @@ async def update_preferences(
         # The invariants on the whole set — how many contacts, duplicate numbers, a blank
         # locale — run when the service composes it, which is outside `_to_changes`. Without
         # this they escape as a 500, and a duplicate phone number becomes a server fault.
-        raise _refused(error) from error
+        raise invalid_request(error) from error
 
 
 @router.get("/onboarding", response_model=OnboardingResponse, summary="Where setup is")
@@ -124,7 +124,7 @@ async def record_onboarding_step(
     except InvariantError as error:
         # The only way to reach this is skipping a step that has no safe default, which the
         # client should not have offered — so it is a request problem rather than a fault.
-        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
+        raise invalid_request(error) from error
     return _progress_response(progress)
 
 
@@ -202,7 +202,7 @@ def _to_changes(body: PreferencesUpdate) -> PreferenceChanges:
             ),
         )
     except InvariantError as error:
-        raise _refused(error) from error
+        raise invalid_request(error) from error
 
 
 def _window(payload: TimeWindowPayload | None) -> TimeWindow | None:
@@ -214,11 +214,6 @@ def _window(payload: TimeWindowPayload | None) -> TimeWindow | None:
 def _time(value: str) -> time:
     hour, _, minute = value.partition(":")
     return time(int(hour), int(minute))
-
-
-def _refused(error: InvariantError) -> ApiError:
-    """A value the domain will not accept is the request's problem, not the server's."""
-    return ApiError(UNPROCESSABLE, "invalid_request", str(error))
 
 
 def _to_response(preferences: UserPreferences) -> PreferencesResponse:

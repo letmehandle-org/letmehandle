@@ -37,7 +37,7 @@ from letmehandle.adapters.database.repositories import (
     SqlRefreshTokenRepository,
     SqlUserRepository,
 )
-from letmehandle.api.errors import ApiError
+from letmehandle.api.errors import ApiError, database_unavailable, rate_limited
 from letmehandle.application.auth.deletion import AccountDeletion
 from letmehandle.application.auth.service import AuthenticationService
 from letmehandle.application.calls.history import CallHistoryService
@@ -86,11 +86,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     factory: async_sessionmaker[AsyncSession] | None = request.app.state.session_factory
     if factory is None:
-        raise ApiError(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "database_unavailable",
-            "This service is not connected to its database.",
-        )
+        raise database_unavailable()
     async with factory() as session:
         try:
             yield session
@@ -159,6 +155,15 @@ def get_account_deletion(
     )
 
 
+def _not_authenticated() -> ApiError:
+    return ApiError(
+        status.HTTP_401_UNAUTHORIZED,
+        "not_authenticated",
+        "This request needs a valid access token.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def get_authenticated_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
@@ -169,20 +174,14 @@ async def get_authenticated_user(
     pattern is a rule somebody forgets to update when they add a route; a dependency is
     declared by the route itself and cannot be forgotten without the route not compiling.
     """
-    unauthorised = ApiError(
-        status.HTTP_401_UNAUTHORIZED,
-        "not_authenticated",
-        "This request needs a valid access token.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     if credentials is None or not credentials.credentials:
-        raise unauthorised
+        raise _not_authenticated()
 
     container = container_of(request)
     try:
         authenticated = container.signer.verify(credentials.credentials)
     except DomainError as error:
-        raise unauthorised from error
+        raise _not_authenticated() from error
 
     # After the token is proved, so the count belongs to an account rather than to whatever an
     # anonymous caller writes in a header, and before anything touches the database.
@@ -192,12 +191,7 @@ async def get_authenticated_user(
         window=SIGNED_IN_WINDOW,
     )
     if not decision.allowed:
-        raise ApiError(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "rate_limited",
-            "Too many requests. Try again shortly.",
-            headers={"Retry-After": str(decision.retry_after_seconds)},
-        )
+        raise rate_limited(decision.retry_after_seconds, "Too many requests. Try again shortly.")
     return authenticated
 
 
@@ -214,12 +208,7 @@ async def get_current_user(
     """
     user = await SqlUserRepository(session, container_of(request).clock).get(authenticated.user_id)
     if user is None:
-        raise ApiError(
-            status.HTTP_401_UNAUTHORIZED,
-            "not_authenticated",
-            "This request needs a valid access token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _not_authenticated()
     return user
 
 

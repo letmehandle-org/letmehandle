@@ -18,7 +18,13 @@ from letmehandle.api.dependencies import (
     Users,
     container_of,
 )
-from letmehandle.api.errors import UNPROCESSABLE, ApiError
+from letmehandle.api.errors import (
+    UNPROCESSABLE,
+    ApiError,
+    invalid_request,
+    provider_unavailable,
+    rate_limited,
+)
 from letmehandle.api.schemas import (
     CallForwardingResponse,
     ChallengeRequest,
@@ -61,12 +67,7 @@ def _source_of(request: Request) -> str | None:
 
 
 def _rate_limited(error: RateLimitedError) -> ApiError:
-    return ApiError(
-        status.HTTP_429_TOO_MANY_REQUESTS,
-        "rate_limited",
-        "Too many attempts. Try again shortly.",
-        headers={"Retry-After": str(error.retry_after_seconds)},
-    )
+    return rate_limited(error.retry_after_seconds, "Too many attempts. Try again shortly.")
 
 
 def _not_valid(message: str) -> ApiError:
@@ -129,12 +130,7 @@ async def request_challenge(
     except CodeMayHaveBeenSentError as error:
         # Committed rather than rolled back, so the code counts; the client is told when to ask
         # again instead of asking straight away.
-        raise ApiError(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "provider_unavailable",
-            "A service this depends on is unavailable. Try again shortly.",
-            headers={"Retry-After": str(error.retry_after_seconds)},
-        ) from error
+        raise provider_unavailable(error.retry_after_seconds) from error
     except UnreachableNumberError as error:
         # The one delivery failure the person signing in can fix. It says nothing about whether
         # the number has an account, only that no text reaches it. Every other provider failure
@@ -166,12 +162,7 @@ async def verify(body: VerifyRequest, request: Request, service: AuthService) ->
         # The provider holding the code could not say whether it was right. Nothing was counted,
         # so the same code may be offered again once the wait has passed.
         logger.warning("provider_failed", provider=error.provider, reason=error.reason)
-        raise ApiError(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "provider_unavailable",
-            "A service this depends on is unavailable. Try again shortly.",
-            headers={"Retry-After": str(error.retry_after_seconds)},
-        ) from error
+        raise provider_unavailable(error.retry_after_seconds) from error
 
     return _tokens(pair)
 
@@ -232,7 +223,7 @@ async def update_me(
     try:
         stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
     except InvariantError as error:
-        raise ApiError(UNPROCESSABLE, "invalid_request", str(error)) from error
+        raise invalid_request(error) from error
     updated = user
     if body.display_name is not None:
         updated = replace(updated, display_name=body.display_name)
