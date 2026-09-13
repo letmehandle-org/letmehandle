@@ -37,6 +37,8 @@ from letmehandle.bootstrap import (
     call_judging_on,
 )
 from letmehandle.config.settings import TelephonyProviderName
+from letmehandle.domain.models.call import ParticipantRole
+from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import CallTransport
@@ -69,7 +71,6 @@ if TYPE_CHECKING:
     from letmehandle.config.settings import Settings
     from letmehandle.domain.models.audio import AudioFormat, AudioFrame
     from letmehandle.domain.models.call import CallSession
-    from letmehandle.domain.models.call_state import CallState
     from letmehandle.domain.ports.audio_io import AudioSink, AudioSource
     from letmehandle.domain.ports.call_transport import CallEvent, TransportCapabilities
     from letmehandle.domain.ports.notification import EscalationNotification
@@ -197,6 +198,19 @@ class System:
     async def reaches(self, account: Account, call_id: str, state: CallState) -> CallSession:
         return await self.stored_when(account, call_id, lambda call: call.state is state)
 
+    async def joined_by_the_user(self, account: Account, call_id: str) -> CallSession:
+        """The call once the user has joined it and that is stored.
+
+        The move and the join are two writes, so a read between them sees one without the other.
+        """
+        return await self.stored_when(
+            account,
+            call_id,
+            lambda call: (
+                call.state is CallState.HUMAN_JOINED and call.has_participant(ParticipantRole.HUMAN)
+            ),
+        )
+
     async def escalation_when(
         self, account: Account, call_id: str, condition: Callable[[Json], bool]
     ) -> Json:
@@ -269,6 +283,21 @@ class StreamingSystem(System):
         speech = self.speech
         await eventually(lambda: bool(speech.sessions), seconds=PATIENCE_SECONDS)
         await self.session().emit(TranscriptProduced(text, speaker_is_caller=True, is_final=True))
+
+    async def assistant_is_streaming(self, call_id: str) -> SimulatedLeg:
+        """The assistant's leg, once its media stream is up at both ends."""
+
+        def streaming() -> bool:
+            return (
+                any(
+                    leg.to.startswith("app:") and leg.stream_sid is not None and leg.in_conference
+                    for leg in self.provider.conference_of(call_id).legs
+                )
+                and self.transport.open_media_sockets > 0
+            )
+
+        await eventually(streaming, seconds=PATIENCE_SECONDS)
+        return self.provider.assistant_of(call_id)
 
     def user_is_on_the_call(self, number: str = USERS_LINE) -> bool:
         return any(leg.to == number and leg.in_conference for leg in self.provider.legs.values())

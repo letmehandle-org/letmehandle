@@ -7,6 +7,7 @@ the mock one-time-password provider recorded, which is reading the text message.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -17,9 +18,14 @@ from letmehandle.domain.models.identifiers import UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from fastapi import FastAPI
 
 type Json = dict[str, Any]
+
+# How long a write's read-back may take to show it. A commit over loopback takes milliseconds.
+READ_BACK_SECONDS = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,39 +64,42 @@ class AppClient:
     """Requests to one running application, as the app on a user's phone makes them."""
 
     def __init__(self, app: FastAPI, base_url: str) -> None:
+        # Public for a scenario that has to make a request the way no helper here would.
         self._app = app
-        self._http = httpx.AsyncClient(base_url=base_url, timeout=10.0)
+        self.http = httpx.AsyncClient(base_url=base_url, timeout=10.0)
 
     async def aclose(self) -> None:
-        await self._http.aclose()
+        await self.http.aclose()
 
     async def sign_in(self, number: str) -> Account:
-        challenge = await self._http.post("/v1/auth/challenge", json={"phone_number": number})
+        challenge = await self.http.post("/v1/auth/challenge", json={"phone_number": number})
         assert challenge.status_code == 202, challenge.text
         otp = self._app.state.container.otp
         assert isinstance(otp, MockOTPProvider)
-        verified = await self._http.post(
+        verified = await self.http.post(
             "/v1/auth/verify",
             json={"challenge_id": challenge.json()["challenge_id"], "code": otp.sent[-1][1]},
         )
         assert verified.status_code == 200, verified.text
         headers = {"Authorization": f"Bearer {verified.json()['access_token']}"}
-        me = await self._http.get("/v1/me", headers=headers)
-        assert me.status_code == 200, me.text
-        profile = me.json()
+        profile = await self._committed(lambda: self.http.get("/v1/me", headers=headers))
         return Account(UserId(profile["id"]), PhoneNumber.parse(profile["phone_number"]), headers)
 
     async def configure(self, account: Account, preferences: Json) -> Json:
         """Change the sections given and leave the rest, as the settings screens do."""
-        response = await self._http.patch(
+        response = await self.http.patch(
             "/v1/preferences", json=preferences, headers=account.headers
         )
         assert response.status_code == 200, response.text
         body: Json = response.json()
-        return body
+        stored = await self._committed(
+            lambda: self.http.get("/v1/preferences", headers=account.headers),
+            until=lambda read: read == body,
+        )
+        return stored
 
     async def register_device(self, account: Account, platform: str, token: str) -> None:
-        response = await self._http.put(
+        response = await self.http.put(
             "/v1/devices", json={"platform": platform, "token": token}, headers=account.headers
         )
         assert response.status_code == 204, response.text
@@ -100,7 +109,7 @@ class AppClient:
         return await self._read(account, f"/v1/calls/{call_id}")
 
     async def calls(self, account: Account) -> list[Json]:
-        response = await self._http.get("/v1/calls", headers=account.headers)
+        response = await self.http.get("/v1/calls", headers=account.headers)
         assert response.status_code == 200, response.text
         listed: list[Json] = response.json()["calls"]
         return listed
@@ -111,15 +120,35 @@ class AppClient:
 
     async def report(self, account: Account, *reports: Json) -> Json:
         """A handset reporting what happened to its calls."""
-        response = await self._http.post(
+        response = await self.http.post(
             "/v1/calls/reports", json={"reports": list(reports)}, headers=account.headers
         )
         assert response.status_code == 200, response.text
         receipt: Json = response.json()
         return receipt
 
+    async def _committed(
+        self,
+        read: Callable[[], Awaitable[httpx.Response]],
+        *,
+        until: Callable[[Json], bool] = lambda _: True,
+    ) -> Json:
+        """Read back what a write just answered for, until the read shows it.
+
+        A write's response is sent before its transaction commits (see the scenario on
+        acknowledged writes), so a request made the moment one returns can find it missing.
+        Waiting here keeps that defect from being every scenario's flake; it has its own.
+        """
+        async with asyncio.timeout(READ_BACK_SECONDS):
+            while True:
+                response = await read()
+                if response.status_code == 200 and until(response.json()):
+                    body: Json = response.json()
+                    return body
+                await asyncio.sleep(0.01)
+
     async def _read(self, account: Account, path: str) -> Json | None:
-        response = await self._http.get(path, headers=account.headers)
+        response = await self.http.get(path, headers=account.headers)
         if response.status_code == 404:
             return None
         assert response.status_code == 200, response.text

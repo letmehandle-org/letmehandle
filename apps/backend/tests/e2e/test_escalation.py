@@ -56,10 +56,10 @@ async def test_b_a_delivery_driver_reaches_the_user_who_joins_the_live_call(
 
         await system.arrives(account, call_id, caller=DRIVER)
         await system.reaches(account, call_id, CallState.AGENT_HANDLING)
-        await eventually(lambda: system.transport.open_media_sockets == 1)
+        await system.assistant_is_streaming(call_id)
         assert system.on_the_call(call_id) == ["caller", "assistant"]
         await system.caller_says(DRIVER_SAYS)
-        joined = await system.reaches(account, call_id, CallState.HUMAN_JOINED)
+        joined = await system.joined_by_the_user(account, call_id)
 
         # Three parties on one call: the caller never moved, the assistant stayed, the user came.
         await eventually(lambda: system.on_the_call(call_id) == ["caller", "assistant", "user"])
@@ -259,7 +259,7 @@ async def test_a_failing_notification_does_not_stop_the_escalation(
         await system.arrives(account, call_id)
         await system.reaches(account, call_id, CallState.AGENT_HANDLING)
         await system.caller_says("Is she available? It is urgent.")
-        await system.reaches(account, call_id, CallState.HUMAN_JOINED)
+        await system.joined_by_the_user(account, call_id)
         # The app surfaces that it could not be told, and can still read what it would have said.
         failed = await system.escalation_when(
             account, call_id, lambda escalation: escalation["delivery"] == "failed"

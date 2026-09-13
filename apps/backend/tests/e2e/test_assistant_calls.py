@@ -62,7 +62,7 @@ async def a_routine_call(system: StreamingSystem, account: Account) -> Json:
     """The dental practice calls, is heard and answered, and the assistant ends the call."""
     await system.arrives(account, ROUTINE_CALL)
     await system.reaches(account, ROUTINE_CALL, CallState.AGENT_HANDLING)
-    await eventually(lambda: system.transport.open_media_sockets == 1)
+    await system.assistant_is_streaming(ROUTINE_CALL)
     # The caller is heard by the assistant and hears it back: nobody waits in silence.
     await system.provider.send_caller_audio(ROUTINE_CALL, b"\x11" * 160, frames=3)
     assistant = system.provider.assistant_of(ROUTINE_CALL)
@@ -237,7 +237,7 @@ async def test_d_a_request_beyond_the_assistants_authority_reaches_the_user(
         await system.arrives(account, call_id)
         await system.reaches(account, call_id, CallState.AGENT_HANDLING)
         await system.caller_says(asked)
-        await system.reaches(account, call_id, CallState.HUMAN_JOINED)
+        await system.joined_by_the_user(account, call_id)
         escalation = await system.escalation_when(
             account, call_id, lambda each: each["delivery"] == "delivered"
         )
