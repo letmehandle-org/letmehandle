@@ -241,7 +241,7 @@ def test_a_live_model_that_is_configured_is_returned_with_its_endpoint() -> None
         speech_endpoint_url="wss://speech.example.com/v1/live/sessions",
         speech_model="a-live-model",
     )
-    assert settings.require_speech_live_model() == (
+    assert settings.require_speech_model() == (
         "wss://speech.example.com/v1/live/sessions",
         "a-live-model",
     )
@@ -253,7 +253,7 @@ def test_a_live_session_without_a_model_names_what_is_missing() -> None:
         speech_endpoint_url="wss://speech.example.com/v1/live/sessions",
     )
     with pytest.raises(ConfigurationError, match="SPEECH_MODEL must be set"):
-        settings.require_speech_live_model()
+        settings.require_speech_model()
 
 
 @pytest.mark.usefixtures("required_environment")

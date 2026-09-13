@@ -427,7 +427,7 @@ def build_speech_provider(
     api_key = None if key is None else key.get_secret_value()
     match settings.speech_provider:
         case SpeechProviderName.REALTIME:
-            endpoint, model = settings.require_speech_service()
+            endpoint, model = settings.require_speech_model()
             return RealtimeSpeechProvider(
                 wrap(realtime_opener(endpoint, model=model, api_key=api_key)),
                 metrics,
@@ -450,7 +450,7 @@ def build_speech_provider(
                 output_format=ELEVENLABS_WIRE_FORMAT,
             )
         case SpeechProviderName.GPT_LIVE:
-            endpoint, model = settings.require_speech_live_model()
+            endpoint, model = settings.require_speech_model()
             return GptLiveSpeechProvider(
                 wrap(gpt_live_opener(endpoint, api_key=api_key)),
                 metrics,

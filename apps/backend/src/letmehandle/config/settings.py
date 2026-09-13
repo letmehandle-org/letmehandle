@@ -392,6 +392,22 @@ _APNS: Final = "any `APNS_` variable is set"
 _FCM: Final = "any `FCM_` variable is set"
 
 
+def _set_names(*variables: tuple[str, object]) -> list[str]:
+    """The names of the variables that are set, in the order given."""
+    return [name for name, value in variables if value is not None]
+
+
+def _unset_error(
+    *variables: tuple[str, object],
+    needed: str,
+    joiner: str = ", ",
+    remedy: str = "Set them in .env; see .env.example.",
+) -> ConfigurationError:
+    """A failure naming every variable left unset, and what they are needed for."""
+    unset = [name for name, value in variables if value is None]
+    return ConfigurationError(f"{joiner.join(unset)} must be set {needed}. {remedy}")
+
+
 def _blank_is_absent(value: object) -> object:
     # `.env.example` lists optional variables with nothing after the equals sign. Copying it must
     # leave them unset, not set to an empty string that then fails as a malformed URL.
@@ -1008,35 +1024,22 @@ class Settings(BaseSettings):
             )
         return self.speech_voices, self.speech_default_voice
 
-    def require_speech_service(self) -> tuple[str, str]:
-        """The speech endpoint and model, or a failure naming whichever is missing.
-
-        Optional at startup because nothing in the running service opens a speech session yet;
-        required by whatever does, so that it fails naming the variable rather than connecting to
-        nothing.
-        """
-        return self._require_speech(("SPEECH_MODEL", self.speech_model))
-
-    def require_speech_live_model(self) -> tuple[str, str]:
-        """The speech endpoint and GPT-Live model, or a failure naming whichever is missing."""
-        return self._require_speech(("SPEECH_MODEL", self.speech_model))
+    def require_speech_model(self) -> tuple[str, str]:
+        """The speech endpoint and the model it runs, or a failure naming whichever is missing."""
+        return self._require_speech("SPEECH_MODEL", self.speech_model)
 
     def require_speech_agent(self) -> tuple[str, str]:
         """The speech endpoint and ElevenLabs agent id, or a failure naming whichever is missing."""
-        return self._require_speech(("SPEECH_AGENT_ID", self.speech_agent_id))
+        return self._require_speech("SPEECH_AGENT_ID", self.speech_agent_id)
 
-    def _require_speech(self, target: tuple[str, str | None]) -> tuple[str, str]:
+    def _require_speech(self, name: str, value: str | None) -> tuple[str, str]:
         endpoint = self.speech_endpoint_url
-        name, value = target
         if endpoint is None or value is None:
-            missing = [
-                each
-                for each, present in (("SPEECH_ENDPOINT_URL", endpoint), (name, value))
-                if present is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set to hold a spoken conversation with "
-                f"SPEECH_PROVIDER={self.speech_provider}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SPEECH_ENDPOINT_URL", endpoint),
+                (name, value),
+                needed=f"to hold a spoken conversation with SPEECH_PROVIDER={self.speech_provider}",
+                joiner=" and ",
             )
         return str(endpoint), value
 
@@ -1053,18 +1056,11 @@ class Settings(BaseSettings):
         """What the text-message code provider needs, or a failure naming every variable missing."""
         account_id, token, sender = self.sms_account_id, self.sms_auth_token, self.sms_from_number
         if account_id is None or token is None or sender is None:
-            missing = [
-                name
-                for name, value in (
-                    ("SMS_ACCOUNT_ID", account_id),
-                    ("SMS_AUTH_TOKEN", token),
-                    ("SMS_FROM_NUMBER", sender),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"{OTPProviderName.TWILIO_SMS}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SMS_ACCOUNT_ID", account_id),
+                ("SMS_AUTH_TOKEN", token),
+                ("SMS_FROM_NUMBER", sender),
+                needed=f"to send sign-in codes with {OTPProviderName.TWILIO_SMS}",
             )
         return SmsAccount(account_id=account_id, auth_token=token.get_secret_value(), sender=sender)
 
@@ -1073,18 +1069,11 @@ class Settings(BaseSettings):
         account_id, token = self.sms_account_id, self.sms_auth_token
         service_id = self.sms_verify_service_id
         if account_id is None or token is None or service_id is None:
-            missing = [
-                name
-                for name, value in (
-                    ("SMS_ACCOUNT_ID", account_id),
-                    ("SMS_AUTH_TOKEN", token),
-                    ("SMS_VERIFY_SERVICE_ID", service_id),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to send sign-in codes with "
-                f"{OTPProviderName.TWILIO_VERIFY}. Set them in .env; see .env.example."
+            raise _unset_error(
+                ("SMS_ACCOUNT_ID", account_id),
+                ("SMS_AUTH_TOKEN", token),
+                ("SMS_VERIFY_SERVICE_ID", service_id),
+                needed=f"to send sign-in codes with {OTPProviderName.TWILIO_VERIFY}",
             )
         return VerifyAccount(
             account_id=account_id, auth_token=token.get_secret_value(), service_id=service_id
@@ -1106,18 +1095,11 @@ class Settings(BaseSettings):
         if self.telephony_provider is None and self.telephony_lines is None:
             return
         self.require_telephony_lines()
-        missing = [
-            name
-            for name, value in (
+        if self.database_url is None or self.transcript_encryption_keys is None:
+            raise _unset_error(
                 ("DATABASE_URL", self.database_url),
                 ("TRANSCRIPT_ENCRYPTION_KEYS", self.transcript_encryption_keys),
-            )
-            if value is None
-        ]
-        if missing:
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to carry calls. "
-                "Set them in .env; see .env.example."
+                needed="to carry calls",
             )
 
     def require_telephony_lines(self) -> tuple[TelephonyLine, ...]:
@@ -1135,18 +1117,14 @@ class Settings(BaseSettings):
         return ()
 
     def _lines_by_region(self, lines: tuple[LineDescription, ...]) -> tuple[TelephonyLine, ...]:
-        single = [
-            name
-            for name, value in (
-                ("TELEPHONY_PROVIDER", self.telephony_provider),
-                ("TELEPHONY_ACCOUNT_ID", self.telephony_account_id),
-                ("TELEPHONY_AUTH_TOKEN", self.telephony_auth_token),
-                ("TELEPHONY_NUMBERS", self.telephony_numbers),
-                ("TELEPHONY_APP_ID", self.telephony_app_id),
-                ("TELEPHONY_WEBHOOK_BASE_URL", self.telephony_webhook_base_url),
-            )
-            if value is not None
-        ]
+        single = _set_names(
+            ("TELEPHONY_PROVIDER", self.telephony_provider),
+            ("TELEPHONY_ACCOUNT_ID", self.telephony_account_id),
+            ("TELEPHONY_AUTH_TOKEN", self.telephony_auth_token),
+            ("TELEPHONY_NUMBERS", self.telephony_numbers),
+            ("TELEPHONY_APP_ID", self.telephony_app_id),
+            ("TELEPHONY_WEBHOOK_BASE_URL", self.telephony_webhook_base_url),
+        )
         if single:
             raise ConfigurationError(
                 f"{', '.join(single)} configure a single line and cannot be set with "
@@ -1183,20 +1161,13 @@ class Settings(BaseSettings):
             or app_id is None
             or base_url is None
         ):
-            missing = [
-                name
-                for name, value in (
-                    ("TELEPHONY_ACCOUNT_ID", account_id),
-                    ("TELEPHONY_AUTH_TOKEN", token),
-                    ("TELEPHONY_NUMBERS", numbers),
-                    ("TELEPHONY_APP_ID", app_id),
-                    ("TELEPHONY_WEBHOOK_BASE_URL", base_url),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to carry streaming calls. "
-                "Set them in .env; see .env.example."
+            raise _unset_error(
+                ("TELEPHONY_ACCOUNT_ID", account_id),
+                ("TELEPHONY_AUTH_TOKEN", token),
+                ("TELEPHONY_NUMBERS", numbers),
+                ("TELEPHONY_APP_ID", app_id),
+                ("TELEPHONY_WEBHOOK_BASE_URL", base_url),
+                needed="to carry streaming calls",
             )
         return TelephonyLine(
             name=None,
@@ -1218,18 +1189,12 @@ class Settings(BaseSettings):
         """
         base_url, api_key, model = self.llm_base_url, self.llm_api_key, self.llm_model
         if base_url is None or api_key is None or model is None:
-            missing = [
-                name
-                for name, present in (
-                    ("LLM_BASE_URL", base_url),
-                    ("LLM_API_KEY", api_key),
-                    ("LLM_MODEL", model),
-                )
-                if present is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set for the agent to judge a call. "
-                "Set them in .env; see .env.example."
+            raise _unset_error(
+                ("LLM_BASE_URL", base_url),
+                ("LLM_API_KEY", api_key),
+                ("LLM_MODEL", model),
+                needed="for the agent to judge a call",
+                joiner=" and ",
             )
         return LLMEndpoint(
             base_url=str(base_url),
@@ -1242,22 +1207,26 @@ class Settings(BaseSettings):
     @property
     def llm_configured(self) -> bool:
         """Whether any model variable is set, which commits the deployment to all of them."""
-        return any(
-            value is not None for value in (self.llm_base_url, self.llm_api_key, self.llm_model)
+        return bool(
+            _set_names(
+                ("LLM_BASE_URL", self.llm_base_url),
+                ("LLM_API_KEY", self.llm_api_key),
+                ("LLM_MODEL", self.llm_model),
+            )
         )
 
     @property
     def apns_configured(self) -> bool:
         """Whether any APNs variable is set, which commits the deployment to all of them."""
-        return any(
-            value is not None
-            for value in (
-                self.apns_key_id,
-                self.apns_team_id,
-                self.apns_private_key,
-                self.apns_topic,
-                self.apns_environment,
-            )
+        return any(value is not None for _, value in self._apns_variables())
+
+    def _apns_variables(self) -> tuple[tuple[str, object], ...]:
+        return (
+            ("APNS_KEY_ID", self.apns_key_id),
+            ("APNS_TEAM_ID", self.apns_team_id),
+            ("APNS_PRIVATE_KEY", self.apns_private_key),
+            ("APNS_TOPIC", self.apns_topic),
+            ("APNS_ENVIRONMENT", self.apns_environment),
         )
 
     @property
@@ -1268,25 +1237,17 @@ class Settings(BaseSettings):
     def require_apns(self) -> APNsCredentials:
         """Direct delivery to iOS, or a failure naming every variable still missing."""
         key = self.apns_private_key
-        named = (
-            ("APNS_KEY_ID", self.apns_key_id),
-            ("APNS_TEAM_ID", self.apns_team_id),
-            ("APNS_PRIVATE_KEY", key),
-            ("APNS_TOPIC", self.apns_topic),
-            ("APNS_ENVIRONMENT", self.apns_environment),
-        )
-        missing = [name for name, value in named if value is None]
         if (
-            missing
-            or self.apns_key_id is None
+            self.apns_key_id is None
             or self.apns_team_id is None
             or key is None
             or self.apns_topic is None
             or self.apns_environment is None
         ):
-            raise ConfigurationError(
-                f"{', '.join(missing)} must be set to deliver notifications to iOS devices. "
-                "Set every APNS_ variable or none; see .env.example."
+            raise _unset_error(
+                *self._apns_variables(),
+                needed="to deliver notifications to iOS devices",
+                remedy="Set every APNS_ variable or none; see .env.example.",
             )
         return APNsCredentials(
             key_id=self.apns_key_id,
@@ -1300,17 +1261,12 @@ class Settings(BaseSettings):
         """Direct delivery to Android, or a failure naming whichever variable is missing."""
         account = self.fcm_service_account_json
         if self.fcm_project_id is None or account is None:
-            missing = [
-                name
-                for name, value in (
-                    ("FCM_PROJECT_ID", self.fcm_project_id),
-                    ("FCM_SERVICE_ACCOUNT_JSON", account),
-                )
-                if value is None
-            ]
-            raise ConfigurationError(
-                f"{' and '.join(missing)} must be set to deliver notifications to Android "
-                "devices. Set both or neither; see .env.example."
+            raise _unset_error(
+                ("FCM_PROJECT_ID", self.fcm_project_id),
+                ("FCM_SERVICE_ACCOUNT_JSON", account),
+                needed="to deliver notifications to Android devices",
+                joiner=" and ",
+                remedy="Set both or neither; see .env.example.",
             )
         return FCMCredentials(
             project_id=self.fcm_project_id, service_account_json=account.get_secret_value()
