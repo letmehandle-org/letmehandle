@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 
-from letmehandle.application.preferences.context import normalise_locale
+from letmehandle.application.preferences.context import DEFAULT_LOCALE, closest_phrasebook
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.ports.notification import EscalationNotification
@@ -78,7 +78,6 @@ _HINDI: Final = EscalationPhrasebook(
     nothing_known_yet="अभी और कुछ पता नहीं है।",
 )
 
-DEFAULT_LOCALE: Final = "en"
 PHRASEBOOKS: Final[Mapping[str, EscalationPhrasebook]] = {DEFAULT_LOCALE: _ENGLISH, "hi": _HINDI}
 
 
@@ -97,12 +96,7 @@ _every_reason_has_words()
 
 def phrasebook_for(locale: str) -> EscalationPhrasebook:
     """The closest phrasing available, narrowing from the full locale to its language."""
-    normalised = normalise_locale(locale)
-    for key in (normalised, normalised.split("-", 1)[0]):
-        book = PHRASEBOOKS.get(key)
-        if book is not None:
-            return book
-    return PHRASEBOOKS[DEFAULT_LOCALE]
+    return closest_phrasebook(locale, PHRASEBOOKS)
 
 
 @dataclass(frozen=True, slots=True)

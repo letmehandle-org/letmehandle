@@ -33,7 +33,8 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
+from letmehandle.application.escalation.notification import notification_for
+from letmehandle.application.preferences.context import DEFAULT_LOCALE
 from letmehandle.application.resilience.circuit import CircuitOpenError
 from letmehandle.application.resilience.timing import Stopwatch
 from letmehandle.domain.failures import FailureKind, classify
