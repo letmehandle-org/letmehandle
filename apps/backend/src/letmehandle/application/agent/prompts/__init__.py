@@ -32,7 +32,7 @@ from letmehandle.application.preferences.context import DEFAULT_LOCALE, normalis
 from letmehandle.domain.errors import InvariantError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from importlib.resources.abc import Traversable
 
     from letmehandle.application.preferences.context import PreferenceContext
@@ -50,6 +50,7 @@ _PLACEHOLDERS: Final = {
     "system.md": frozenset({"assessment_tool", "preferences"}),
     "transcript.md": frozenset({"transcript"}),
     "assessment.md": frozenset({"assessment_tool"}),
+    "conversation.md": frozenset({"preferences", "situation"}),
 }
 
 
@@ -62,6 +63,7 @@ class Prompts:
     system: Template
     transcript: Template
     assessment: Template
+    conversation: Template
 
     def system_prompt(
         self, preferences: PreferenceContext, authority: AgentAuthority, *, assessment_tool: str
@@ -80,6 +82,23 @@ class Prompts:
     def assessment_request(self, *, assessment_tool: str) -> str:
         """What the model is told when it stops without recording an assessment."""
         return self.assessment.substitute(assessment_tool=assessment_tool)
+
+    def conversation_context(
+        self,
+        preferences: PreferenceContext,
+        authority: AgentAuthority,
+        *,
+        situation: Mapping[str, str],
+    ) -> str:
+        """What the assistant speaking on a call is told: the user, and where reaching them stands.
+
+        The same rendering of the user as the judging agent reads, so the voice on the line and the
+        judgement behind it are never told different things about who they act for.
+        """
+        return self.conversation.substitute(
+            preferences=preferences_as_data(preferences, authority),
+            situation=as_data(dict(situation)),
+        )
 
 
 @lru_cache(maxsize=16)
@@ -109,6 +128,7 @@ def read_prompts(templates: Traversable, locale: str, version: str) -> Prompts:
                 system=_template(directory, "system.md"),
                 transcript=_template(directory, "transcript.md"),
                 assessment=_template(directory, "assessment.md"),
+                conversation=_template(directory, "conversation.md"),
             )
     raise InvariantError(f"version {version!r} of the agent prompts has no {DEFAULT_LOCALE} text")
 
