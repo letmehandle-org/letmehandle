@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallActions
 from letmehandle.application.orchestration.inputs import (
+    Abandoned,
     EndingRequested,
     EscalationRequested,
     MessageTaken,
     OutcomeRecorded,
     Reported,
-    Stopping,
 )
 from letmehandle.application.orchestration.plan import plan_for
 from letmehandle.application.orchestration.ports import Assistance, Bounds
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
         OpenCallStores,
     )
     from letmehandle.domain.models.escalation import EscalationDecision
-    from letmehandle.domain.models.identifiers import CallId
+    from letmehandle.domain.models.identifiers import CallId, UserId
     from letmehandle.domain.ports.call_transport import CallEvent, CallTransport
     from letmehandle.domain.ports.clock import Clock
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -129,18 +129,31 @@ class CallOrchestrator:
         self._consumer = asyncio.get_running_loop().create_task(self._consume())
 
     async def stop(self) -> None:
-        """Stop taking calls, tear every live one down, and wait for every run to finish.
-
-        Each run is given the shutdown bound to reach its teardown; one still running after that is
-        cancelled, and its call is left for the next start to end.
-        """
+        """Stop taking calls, tear every live one down, and wait for every run to finish."""
         consumer, self._consumer = self._consumer, None
         if consumer is not None:
             consumer.cancel()
             await asyncio.gather(consumer, return_exceptions=True)
-        for run in self._runs.values():
-            run.post(Stopping())
-        tasks = list(self._tasks.values())
+        await self._end(list(self._runs))
+
+    async def end_calls_of(self, user_id: UserId) -> None:
+        """Tear down every live call of this user's, and wait until each run has gone.
+
+        For an account being deleted: once this returns, no run is left to write anything more
+        about the user's calls. A call whose owner is still being looked up is nobody's yet; what
+        it writes after the account is gone finds no account to write it against.
+        """
+        await self._end([call_id for call_id, run in self._runs.items() if run.owner == user_id])
+
+    async def _end(self, call_ids: list[CallId]) -> None:
+        """End these calls now and wait for their runs, within the shutdown bound.
+
+        Each run is given the bound to reach its teardown; one still running after that is
+        cancelled, and its call is left for the next start to end.
+        """
+        tasks = [self._tasks[call_id] for call_id in call_ids]
+        for call_id in call_ids:
+            self._runs[call_id].post(Abandoned())
         if not tasks:
             return
         _, pending = await asyncio.wait(

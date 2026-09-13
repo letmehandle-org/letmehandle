@@ -102,6 +102,7 @@ if TYPE_CHECKING:
 
 OWNER: Final = UserId("user-1")
 OWNERS_NUMBER: Final = PhoneNumber("+12025550143")
+ANOTHER_OWNER: Final = UserId("user-2")
 DEVICE: Final = DeviceToken(DevicePlatform.IOS, "phone-token")
 
 # Short enough that a test waiting on one is quick, long enough that nothing else in a test runs
@@ -268,10 +269,13 @@ class MemoryCallStores:
 
 
 class EveryCallIsTheOwners(CallOwnership):
-    """Every call is the one user's, except those whose identifier says they are nobody's."""
+    """Every call is the one user's, except those whose identifier names nobody or another user."""
 
     async def owner_of(self, incoming: CallEvent) -> UserId | None:
-        return None if incoming.call_id.value.startswith("nobody") else OWNER
+        call = incoming.call_id.value
+        if call.startswith("nobody"):
+            return None
+        return ANOTHER_OWNER if call.startswith("another") else OWNER
 
 
 # ------------------------------------------------------------------------------------ lines

@@ -69,8 +69,8 @@ class SilenceRanOut:
 
 
 @dataclass(frozen=True, slots=True)
-class Stopping:
-    """The process is stopping, and every call with it."""
+class Abandoned:
+    """The call ends now, whatever it was doing: the process stops, or its account is deleted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +105,6 @@ type Input = (
     | Judged
     | RingRanOut
     | SilenceRanOut
-    | Stopping
+    | Abandoned
     | Request
 )

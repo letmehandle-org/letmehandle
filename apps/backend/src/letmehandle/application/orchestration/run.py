@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Final
 from letmehandle.application.agent.ports import CallEnding, CallSoFar
 from letmehandle.application.calls.fallback import fallback_summary
 from letmehandle.application.orchestration.inputs import (
+    Abandoned,
     ConversationStopped,
     EndingRequested,
     EscalationRequested,
@@ -41,7 +42,6 @@ from letmehandle.application.orchestration.inputs import (
     Reported,
     RingRanOut,
     SilenceRanOut,
-    Stopping,
 )
 from letmehandle.application.orchestration.ledger import CallLedger
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
@@ -164,10 +164,16 @@ class CallRun:
         self._silence = _Timer(self.post)
         self._findings = Findings()
         self._finished = False
+        self._owner: UserId | None = None
 
     @property
     def call_id(self) -> CallId:
         return self._incoming.call_id
+
+    @property
+    def owner(self) -> UserId | None:
+        """Whose call this is, once that has been found."""
+        return self._owner
 
     @property
     def is_over(self) -> bool:
@@ -201,6 +207,7 @@ class CallRun:
             await self._provider("terminate", self._context.transport.terminate(self.call_id))
             self._finished = True
             return None
+        self._owner = owner.user_id
         context = self._context
         live = _Live(
             owner=owner,
@@ -294,7 +301,7 @@ class CallRun:
                 await self._on_ring_ran_out(live, dial)
             case SilenceRanOut(generation=generation) if self._silence.is_current(generation):
                 await self._assistant_lost(live)
-            case Stopping():
+            case Abandoned():
                 await self._finish(live, CallState.FAILED)
             case EscalationRequested() | EndingRequested() | OutcomeRecorded() | MessageTaken():
                 await self._on_request(live, item)

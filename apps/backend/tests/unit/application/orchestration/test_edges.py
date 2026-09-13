@@ -27,11 +27,14 @@ from letmehandle.domain.models.escalation import (
 from letmehandle.domain.models.identifiers import CallId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import CallRules, HandlingPosture, UserPreferences
+from letmehandle.domain.models.user import User
 from letmehandle.domain.ports.call_transport import ParticipantOutcome, TransportCapabilities
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
 from tests.contracts.fakes import FixedClock
 from tests.support.escalation_stores import InMemoryStores
 from tests.support.orchestration import (
+    ANOTHER_OWNER,
+    OWNER,
     OWNERS_NUMBER,
     EveryCallIsTheOwners,
     MemoryCallStores,
@@ -265,6 +268,46 @@ class TestRememberingEndings:
             assert line.asked("answer", "second") == 1
             line.hangs_up("first")
             await eventually(lambda: running.orchestrator.live_calls == 0)
+
+
+class TestEndingOneUsersCalls:
+    """What deleting an account asks: that user's calls end, and nobody else's."""
+
+    async def test_their_calls_are_torn_down_before_it_returns_and_others_go_on(self) -> None:
+        line = StreamingLine()
+        async with orchestrating(line) as running:
+            await running.stores.users.add(
+                User(id=ANOTHER_OWNER, phone_number=PhoneNumber("+12025550144"))
+            )
+            line.arrives(CALL, STRANGER)
+            line.arrives("another-call", STRANGER)
+            await running.settled(CALL, CallState.AGENT_HANDLING)
+            await running.settled("another-call", CallState.AGENT_HANDLING)
+
+            await running.orchestrator.end_calls_of(OWNER)
+
+            assert running.orchestrator.live_calls == 1
+            assert running.stores.call(CALL).state is CallState.FAILED
+            assert line.asked("terminate", CALL) == 1
+            assert running.stores.call("another-call").state is CallState.AGENT_HANDLING
+            assert line.asked("terminate", "another-call") == 0
+
+    async def test_a_teardown_that_hangs_is_cancelled_at_the_bound(self) -> None:
+        line = StreamingLine()
+        line.holding["terminate"] = asyncio.Event()
+        bounds = Bounds(provider=timedelta(seconds=30), shutdown=timedelta(seconds=0.1))
+        async with orchestrating(line, bounds=bounds) as running:
+            await on_the_assistant(running)
+
+            async with asyncio.timeout(1):
+                await running.orchestrator.end_calls_of(OWNER)
+
+            assert running.orchestrator.live_calls == 0
+
+    async def test_a_user_with_no_calls_has_nothing_to_end(self) -> None:
+        async with orchestrating(StreamingLine()) as running:
+            await running.orchestrator.end_calls_of(OWNER)
+            assert running.orchestrator.live_calls == 0
 
 
 class TestStopping:
