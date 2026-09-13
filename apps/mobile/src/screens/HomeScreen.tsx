@@ -64,7 +64,7 @@ export function HomeScreen({
   const { snapshot, stale, refresh } = useHome(
     api,
     screening,
-    profile?.id ?? '',
+    profile?.id ?? null,
   );
 
   return (

@@ -1,12 +1,18 @@
 /**
  * Home: every state the design draws, each reached only by the facts that make it true.
  */
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import {
+  fireEvent,
+  render,
+  renderHook,
+  waitFor,
+} from '@testing-library/react-native';
 import React from 'react';
 
+import { ApiClient } from '../api/client';
 import { SessionProvider } from '../auth/SessionProvider';
 import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
-import { forgetHome } from '../home/useHome';
+import { forgetHome, useHome } from '../home/useHome';
 import {
   elapsed,
   homeState,
@@ -294,6 +300,29 @@ describe('what Home says', () => {
         en.home.waiting,
       );
     });
+  });
+});
+
+describe('the remembered snapshot', () => {
+  it('is never shown to a session whose account is not known yet', async () => {
+    runningBackend({ startAt: null, history: { calls: [aCall()] } });
+    const api = new ApiClient({
+      accessToken: () => 'a-token',
+      renew: async () => null,
+      onSignedOut: () => undefined,
+    });
+    const first = await renderHook(() => useHome(api, null, null));
+    await waitFor(() => {
+      expect(first.result.current.snapshot).not.toBeNull();
+    });
+    await first.unmount();
+    globalThis.fetch = (async () => {
+      throw new TypeError('Network request failed');
+    }) as unknown as typeof fetch;
+
+    const second = await renderHook(() => useHome(api, null, null));
+
+    expect(second.result.current.snapshot).toBeNull();
   });
 });
 

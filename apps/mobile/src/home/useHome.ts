@@ -96,10 +96,10 @@ export interface HomeData {
 export function useHome(
   api: ApiClient,
   screening: CallScreening | null,
-  owner: string,
+  owner: string | null,
 ): HomeData {
   const [snapshot, setSnapshot] = useState<HomeSnapshot | null>(
-    remembered?.owner === owner ? remembered.snapshot : null,
+    owner !== null && remembered?.owner === owner ? remembered.snapshot : null,
   );
   const [failure, setFailure] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -113,7 +113,9 @@ export function useHome(
     load(api, screening, new Date())
       .then(loaded => {
         if (current) {
-          remembered = { owner, snapshot: loaded };
+          if (owner !== null) {
+            remembered = { owner, snapshot: loaded };
+          }
           setSnapshot(loaded);
           setFailure(null);
         }
