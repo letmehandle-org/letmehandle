@@ -1,6 +1,6 @@
 """Endings that leave something behind: a teardown cut short, and records written after it.
 
-Each test here reproduces a defect and is expected to fail until it is fixed.
+Each test here reproduced a defect before its fix, and keeps it fixed.
 """
 
 from __future__ import annotations
@@ -8,8 +8,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
-
-import pytest
 
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import ParticipantRole
@@ -124,11 +122,6 @@ async def test_an_escalation_context_claimed_after_the_call_ended_is_still_marke
         assert context.status is EscalationStatus.ENDED
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a summary is added after the final save of the call failed, so the call stays "
-    "unfinished beside its summary and the next start fails it under that summary",
-)
 async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_recovery_to_fail() -> (
     None
 ):
@@ -148,3 +141,18 @@ async def test_a_final_save_that_fails_does_not_leave_a_summarised_call_for_reco
         call = storage.call(CALL)
         summary = storage.summaries.stored[CallId(CALL)]
         assert (call.state is CallState.FAILED) == (summary.outcome is CallOutcome.FAILED)
+
+
+async def test_a_final_save_refused_once_is_tried_again_and_the_call_summarised() -> None:
+    storage = MemoryCallStores()
+    await storage.with_owner()
+    async with orchestrating(StreamingLine(), stores=storage) as running:
+        line = await with_the_assistant(running)
+        # The ending is the next write of the call: refused once, then answered.
+        storage.calls.refusing_next = 1
+        line.hangs_up(CALL)
+        call = await running.ended(CALL)
+
+        assert call.state is CallState.COMPLETED
+        assert storage.summaries.stored[CallId(CALL)].outcome is CallOutcome.CALLER_HUNG_UP
+        assert running.metrics.counted("call.storage_failed", stage="final") == 1

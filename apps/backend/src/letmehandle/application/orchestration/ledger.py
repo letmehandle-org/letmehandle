@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 STORAGE_FAILED: Final = "call.storage_failed"
+
+# How many times teardown's final save is tried, each within the storage bound. More than once,
+# because the one write a call cannot do without meeting a connection reset is worth another try;
+# few, because a database that is down stays down for longer than a teardown should wait.
+FINAL_SAVE_ATTEMPTS: Final = 3
 TRANSITION: Final = "call.transition"
 
 
@@ -102,21 +107,31 @@ class CallLedger:
         await self._write("transcript", append)
 
     async def summarised(self, summary: CallSummary) -> None:
-        """Store the call as it ended, then its summary, which needs the stored call."""
-        await self._save("final")
+        """Store the call as it ended, then its summary, which needs the stored call.
+
+        A call that could not be stored as it ended gets no summary. It stays unfinished in
+        storage, and the next start ends and summarises it as the failure it then is; a summary
+        written beside it would say the call went one way while its record says another.
+        """
+        for _ in range(FINAL_SAVE_ATTEMPTS):
+            if await self._save("final"):
+                break
+        else:
+            return
 
         async def add(stores: CallStores) -> None:
             await stores.summaries.add(self._call.user_id, summary)
 
         await self._write("summary", add)
 
-    async def _save(self, stage: str) -> None:
+    async def _save(self, stage: str) -> bool:
         async def save(stores: CallStores) -> None:
             await stores.calls.save(self._call)
 
-        await self._write(stage, save)
+        return await self._write(stage, save)
 
-    async def _write(self, stage: str, work: Callable[[CallStores], Awaitable[None]]) -> None:
+    async def _write(self, stage: str, work: Callable[[CallStores], Awaitable[None]]) -> bool:
+        """Do `work` in one unit of work, within the storage bound, and say whether it was done."""
         try:
             async with asyncio.timeout(self._bounds.storage.total_seconds()):
                 async with self._stores() as stores:
@@ -129,6 +144,8 @@ class CallLedger:
                 "call.storage_failed", stage=stage, error=type(error).__name__
             )
             self._metrics.increment(STORAGE_FAILED, {"stage": stage, "kind": _kind(error)})
+            return False
+        return True
 
 
 def _kind(error: Exception) -> str:
