@@ -165,6 +165,10 @@ class _Leg:
     # so without this any signed socket could name any leg.
     media_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     media_token_spent: bool = False
+    # The call that asked for this leg's stream. Dialling an application makes a call of its own on
+    # the provider's side, so this is not the participant's identifier, and it is the one a stream
+    # presents when it starts.
+    stream_call_sid: str | None = None
 
 
 @dataclass(eq=False)
@@ -497,6 +501,7 @@ class TwilioCallTransport(CallTransport):
         ):
             return twiml.hang_up()
         leg.call_sid = leg.call_sid or call_sid
+        leg.stream_call_sid = call_sid
         return twiml.assistant_stream(
             stream_url=self._verifier.websocket_url(MEDIA_PATH),
             parameters={
@@ -613,11 +618,11 @@ class TwilioCallTransport(CallTransport):
                 or leg.finished
                 or stream.has_ended
                 or stream.is_connected
-                or (leg.call_sid is not None and leg.call_sid != message.call_sid)
+                or (leg.stream_call_sid is not None and leg.stream_call_sid != message.call_sid)
             ):
                 logger.warning("telephony.media.unexpected_stream")
                 return None
-            leg.call_sid = message.call_sid
+            leg.call_sid = leg.call_sid or message.call_sid
             stream.attach(socket, message.stream_sid)
             return stream
         return None
