@@ -18,6 +18,7 @@ from fastapi import APIRouter
 
 from letmehandle.adapters.agent.strands.agent import StrandsCallAgent
 from letmehandle.adapters.agent.strands.model import openai_compatible_model
+from letmehandle.adapters.agent.strands.summary import StrandsSummaryDrafter
 from letmehandle.adapters.clock import SystemClock, UUIDGenerator
 from letmehandle.adapters.database.repositories import (
     SqlDeviceRepository,
@@ -60,6 +61,7 @@ from letmehandle.adapters.voice.builtin import BuiltInVoiceProvider
 from letmehandle.application.agent.conclusion import JudgementConclusion
 from letmehandle.application.agent.escalation import EscalationService
 from letmehandle.application.agent.tools.registry import tools_for_judgements
+from letmehandle.application.calls.summariser import ModelCallSummariser
 from letmehandle.application.escalation.dispatch import EscalationDispatcher, EscalationStores
 from letmehandle.config.settings import (
     APNsEnvironmentName,
@@ -80,6 +82,7 @@ if TYPE_CHECKING:
 
     from letmehandle.adapters.speech.websocket.connection import ConnectionOpener
     from letmehandle.application.agent.ports import CallActions, CallAgent
+    from letmehandle.application.calls.summariser import CallSummariser
     from letmehandle.domain.ports.call_transport import CallTransport
     from letmehandle.domain.ports.clock import Clock, IdGenerator
     from letmehandle.domain.ports.metrics import MetricsRecorder
@@ -429,6 +432,23 @@ def call_agent_on(model: Model, *, actions: CallActions, timeout: timedelta) -> 
         conclusion=JudgementConclusion(actions, EscalationService(actions)),
         timeout=timeout,
     )
+
+
+def build_call_summariser(settings: Settings) -> CallSummariser:
+    """What writes a call's summary when it ends, on the same model the agent judges with.
+
+    Bounded by the same timeout as a judgement. Nobody is waiting on the line by then, but a
+    teardown that waits minutes for a summary is a call whose history appears minutes late.
+    """
+    endpoint = settings.require_llm()
+    return call_summariser_on(
+        openai_compatible_model(endpoint), timeout=timedelta(seconds=endpoint.timeout_seconds)
+    )
+
+
+def call_summariser_on(model: Model, *, timeout: timedelta) -> CallSummariser:
+    """The summariser on `model`. Tests reach the same wiring with a scripted model."""
+    return ModelCallSummariser(StrandsSummaryDrafter(model), timeout=timeout)
 
 
 def _unwrapped(opener: ConnectionOpener) -> ConnectionOpener:

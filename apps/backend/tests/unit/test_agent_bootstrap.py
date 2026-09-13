@@ -1,8 +1,9 @@
-"""What the composition root builds the agent from, checked on the wire.
+"""What the composition root builds the agent and the summariser from, checked on the wire.
 
 The endpoint is a listener on the loopback interface that keeps each request it receives and
-refuses it. A refusal is enough: the agent falls back, and what the model client actually sent —
-address, key, headers, model, and which words went where — is what the listener heard.
+refuses it. A refusal is enough: the agent and the summariser fall back, and what the model client
+actually sent — address, key, headers, model, and which words went where — is what the listener
+heard.
 """
 
 from __future__ import annotations
@@ -16,11 +17,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from letmehandle.bootstrap import build_call_agent, call_agent_on
+from letmehandle.application.calls.fallback import fallback_summary
+from letmehandle.bootstrap import build_call_agent, build_call_summariser, call_agent_on
 from letmehandle.config.settings import ConfigurationError
 from letmehandle.observability.logging import configure_logging
 from tests.support.agent_calls import a_call
 from tests.support.config import make_settings
+from tests.support.ended_calls import caller_said, ended
 from tests.support.recording_call_actions import RecordingCallActions
 from tests.support.scripted_model import CallTool, ScriptedModel, assess
 
@@ -155,3 +158,61 @@ async def test_at_debug_a_tool_name_the_model_invented_never_reaches_the_log(
 def test_an_agent_without_a_model_configured_names_what_to_set() -> None:
     with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
         build_call_agent(make_settings(), actions=RecordingCallActions())
+
+
+async def test_the_summariser_talks_to_the_configured_endpoint(endpoint: RefusingEndpoint) -> None:
+    settings = make_settings(
+        llm_base_url=f"http://127.0.0.1:{endpoint.port}/v1",
+        llm_api_key="an-example-key",
+        llm_model="an-example-model",
+        llm_headers="X-Title=letmehandle",
+    )
+    facts = ended(caller_said("Is she in today?"))
+
+    summary = await build_call_summariser(settings).summarise(
+        facts, facts.call.transcript, locale="en"
+    )
+
+    assert summary == fallback_summary(facts, locale="en")
+    [request] = endpoint.heard
+    assert request.request_line.startswith("POST /v1/chat/completions ")
+    assert request.headers["authorization"] == "Bearer an-example-key"
+    assert request.headers["x-title"] == "letmehandle"
+    assert request.body["model"] == "an-example-model"
+    messages = request.body["messages"]
+    assert isinstance(messages, list)
+    assert [message["role"] for message in messages] == ["system", "user"]
+    assert "Is she in today?" not in json.dumps(messages[0])
+    assert "Is she in today?" in json.dumps(messages[1])
+    tools = request.body["tools"]
+    assert isinstance(tools, list)
+    assert [tool["function"]["name"] for tool in tools] == ["CallSummaryAnswer"]
+
+
+@pytest.mark.usefixtures("logging_put_back")
+async def test_at_debug_a_summarised_call_never_reaches_the_log(
+    endpoint: RefusingEndpoint, capfd: pytest.CaptureFixture[str]
+) -> None:
+    said = "my card number is quintessential-walrus-4111"
+    settings = make_settings(
+        log_level="debug",
+        llm_base_url=f"http://127.0.0.1:{endpoint.port}/v1",
+        llm_api_key="an-example-key-that-must-never-be-logged",
+        llm_model="an-example-model",
+    )
+    configure_logging(settings)
+    facts = ended(caller_said(said))
+
+    await build_call_summariser(settings).summarise(facts, facts.call.transcript, locale="en")
+
+    logged = capfd.readouterr()
+    everything = logged.out + logged.err
+    assert endpoint.heard, "the summary never reached the endpoint"
+    assert "summary.model_failed" in everything, "nothing was logged, so nothing was proven"
+    assert "quintessential-walrus" not in everything
+    assert "an-example-key-that-must-never-be-logged" not in everything
+
+
+def test_a_summariser_without_a_model_configured_names_what_to_set() -> None:
+    with pytest.raises(ConfigurationError, match="LLM_BASE_URL"):
+        build_call_summariser(make_settings())
