@@ -30,7 +30,7 @@ from letmehandle.domain.models.summary import MAX_HEADLINE_CHARACTERS, CallOutco
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from letmehandle.application.calls.summariser import SummaryDraft, SummaryRequest
+    from letmehandle.application.calls.summary_draft import SummaryDraft, SummaryRequest
 
 # A summary is what a person would say about a call, and nobody says three sentences of it.
 MAX_SENTENCES: Final = 2

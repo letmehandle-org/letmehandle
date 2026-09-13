@@ -6,7 +6,7 @@ from strands.tools import convert_pydantic_to_tool_spec
 
 from letmehandle.adapters.agent.strands.summary import ANSWER_TOOL, CallSummaryAnswer
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
-from letmehandle.application.calls.summariser import DetailKind, DraftDetail, SummaryDraft
+from letmehandle.application.calls.summary_draft import DetailKind, DraftDetail, SummaryDraft
 from letmehandle.domain.models.intent import CallIntent
 from letmehandle.domain.models.summary import MAX_HEADLINE_CHARACTERS, CallOutcome
 

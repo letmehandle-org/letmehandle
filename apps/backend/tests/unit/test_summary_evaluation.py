@@ -18,8 +18,8 @@ from pydantic import ValidationError
 from letmehandle.adapters.agent.strands.summary import ANSWER_TOOL, CallSummaryAnswer
 from letmehandle.application.agent.tools.outcome import MAX_DETAILS
 from letmehandle.application.calls.fallback import fallback_summary
-from letmehandle.application.calls.summariser import DetailKind, SummaryRequest
 from letmehandle.application.calls.summary_checks import problems_with
+from letmehandle.application.calls.summary_draft import DetailKind, SummaryRequest
 from letmehandle.bootstrap import call_summariser_on
 from tests.evaluation.summary_suite import LOCALE, load_summary_scenarios, run_summaries
 from tests.support.ended_calls import Ending

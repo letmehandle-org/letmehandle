@@ -201,7 +201,7 @@ class CallOrchestrator:
             raise CallIsOverError
         reply: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         run.post(make(reply))
-        await reply
+        await asyncio.gather(reply)
 
 
 class _RunActions(CallActions):

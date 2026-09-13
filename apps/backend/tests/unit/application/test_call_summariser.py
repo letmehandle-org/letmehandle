@@ -18,13 +18,11 @@ from structlog.testing import capture_logs
 
 from letmehandle.application.calls.fallback import CallFacts, fallback_summary
 from letmehandle.application.calls.summariser import (
-    DetailKind,
-    DraftDetail,
     ModelCallSummariser,
-    SummaryDraft,
     SummaryDrafter,
     SummaryNotWrittenError,
 )
+from letmehandle.application.calls.summary_draft import DetailKind, DraftDetail, SummaryDraft
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.call import CallSession
 from letmehandle.domain.models.identifiers import CallId, UserId
@@ -35,7 +33,7 @@ from tests.support.ended_calls import START, STRANGER, Ending, caller_said, ende
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from letmehandle.application.calls.summariser import SummaryRequest
+    from letmehandle.application.calls.summary_draft import SummaryRequest
     from letmehandle.domain.models.summary import CallSummary
 
 SECRET = "the account number is quintessential-walrus-4111"

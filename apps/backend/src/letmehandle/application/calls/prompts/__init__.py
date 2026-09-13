@@ -26,7 +26,7 @@ from letmehandle.domain.errors import InvariantError
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
 
-    from letmehandle.application.calls.summariser import SummaryRequest
+    from letmehandle.application.calls.summary_draft import SummaryRequest
 
 SUMMARY_PROMPT_VERSION: Final = "v1"
 

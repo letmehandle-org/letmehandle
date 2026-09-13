@@ -200,7 +200,8 @@ class TestDeletingAnAccount:
         assert calls.ended == [(leaving.user_id, True)]
 
     async def test_it_needs_a_token(self, api: Api) -> None:
-        assert (await api.client.delete("/v1/me")).status_code == 401
+        response = await api.client.delete("/v1/me")
+        assert response.status_code == 401
 
 
 class RecordingCalls:

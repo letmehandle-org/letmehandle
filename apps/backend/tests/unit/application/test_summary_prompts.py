@@ -21,8 +21,8 @@ from letmehandle.application.calls.prompts import (
     load_summary_prompts,
     read_summary_prompts,
 )
-from letmehandle.application.calls.summariser import DetailKind, SummaryRequest
 from letmehandle.application.calls.summary_checks import vocabulary_for
+from letmehandle.application.calls.summary_draft import DetailKind, SummaryRequest
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.phone_number import PhoneNumber
