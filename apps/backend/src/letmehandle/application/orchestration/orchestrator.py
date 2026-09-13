@@ -26,12 +26,11 @@ from letmehandle.application.orchestration.inputs import (
     OutcomeRecorded,
     Reported,
 )
+from letmehandle.application.orchestration.metrics import DEGRADED, DUPLICATE_IGNORED
 from letmehandle.application.orchestration.plan import plan_for
 from letmehandle.application.orchestration.ports import Assistance, Bounds
 from letmehandle.application.orchestration.recovery import Recovery
 from letmehandle.application.orchestration.run import (
-    DEGRADED,
-    DUPLICATE_IGNORED,
     CallIsOverError,
     CallRun,
     CallStanding,

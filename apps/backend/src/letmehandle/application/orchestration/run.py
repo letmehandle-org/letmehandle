@@ -47,10 +47,26 @@ from letmehandle.application.orchestration.inputs import (
     SilenceRanOut,
 )
 from letmehandle.application.orchestration.ledger import CallLedger, reported_instant
+from letmehandle.application.orchestration.metrics import (
+    CALL_BOUNDED,
+    CALL_ENDED,
+    DEGRADED,
+    DUPLICATE_IGNORED,
+    ESCALATION_RESOLVED,
+    JUDGEMENT_FAILED,
+    JUDGEMENT_SECONDS,
+    PROVIDER_SECONDS,
+    ROUTED,
+    SPEECH_OPEN_SECONDS,
+    SUMMARY_FAILED,
+    SUMMARY_SECONDS,
+)
+from letmehandle.application.orchestration.metrics import PROVIDER_FAILED as PROVIDER_FAILED
 from letmehandle.application.orchestration.plan import DialTheUser, LetItRing
 from letmehandle.application.orchestration.routing import Route, route_on
 from letmehandle.application.orchestration.speaking import Situation, Speaking, UserReach
 from letmehandle.application.orchestration.summary import Findings, facts_of, with_findings
+from letmehandle.application.orchestration.timer import Timer
 from letmehandle.application.resilience.circuit import Dependency
 from letmehandle.application.resilience.retry import RetryPolicy, retry_idempotent
 from letmehandle.application.resilience.timing import Stopwatch, within
@@ -58,7 +74,7 @@ from letmehandle.application.speech.conversation import ConversationEnd
 from letmehandle.domain.errors import DomainError
 from letmehandle.domain.failures import FailureKind, classify
 from letmehandle.domain.models.call import CallHandling, CallSession, ParticipantRole, Speaker
-from letmehandle.domain.models.call_state import TERMINAL, CallState
+from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller, CallerCategory
 from letmehandle.domain.models.escalation_context import (
     MAX_CALL_ID_LENGTH,
@@ -70,13 +86,12 @@ from letmehandle.domain.models.timeline import MarkKind
 from letmehandle.domain.policy.routing import route
 from letmehandle.domain.ports.call_transport import CallEventKind, ParticipantOutcome
 from letmehandle.domain.ports.call_transport import ParticipantRole as Leg
-from letmehandle.observability import catalogue
 from letmehandle.observability.logging import bind_call, get_logger, log_failure
 from letmehandle.observability.tracing import CALL_ID
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     from letmehandle.application.agent.ports import AgentJudgement
     from letmehandle.application.calls.fallback import CallFacts
@@ -102,36 +117,6 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.tracing import Tracer
 
 logger = get_logger(__name__)
-
-# What a run asks of the transport, each its own stage of the call.
-_TELEPHONY_STAGES: Final = frozenset({"answer", "dial", "cancel", "terminate"})
-
-PROVIDER_FAILED: Final = catalogue.count(
-    "call.provider_failed", stage={"owner", "speech", *_TELEPHONY_STAGES}, kind=FailureKind
-)
-JUDGEMENT_FAILED: Final = catalogue.count("call.judgement_failed", kind=FailureKind)
-SUMMARY_FAILED: Final = catalogue.count("call.summary_failed", kind=FailureKind)
-CALL_ENDED: Final = catalogue.count("call.ended", outcome=TERMINAL)
-# A call ended by a bound on calls themselves rather than by anything that happened on it.
-CALL_BOUNDED: Final = catalogue.count("call.bounded", kind={"duration", "live_calls"})
-ROUTED: Final = catalogue.count("call.routed", outcome={*Route, "nobody"})
-# How an escalation that rang the user turned out: how their phone answered, or that it never rang,
-# or that the call ended while it did.
-ESCALATION_RESOLVED: Final = catalogue.count(
-    "call.escalation_resolved", outcome={*ParticipantOutcome, "dial_refused", "call_ended"}
-)
-# A transport event this run had already acted on, delivered again.
-DUPLICATE_IGNORED: Final = catalogue.count("call.duplicate_ignored", stage={"repeated", "late"})
-# A call handled without a dependency whose circuit was open: put through with no assistant, or
-# summarised from its facts with no model.
-DEGRADED: Final = catalogue.count("call.degraded", stage={"speech", "summary"})
-
-PROVIDER_SECONDS: Final = catalogue.measure("call.provider_seconds", stage=_TELEPHONY_STAGES)
-SPEECH_OPEN_SECONDS: Final = catalogue.measure(
-    "call.speech_open_seconds", outcome={"opened", "failed"}
-)
-JUDGEMENT_SECONDS: Final = catalogue.measure("call.judgement_seconds", outcome={"judged", "failed"})
-SUMMARY_SECONDS: Final = catalogue.measure("call.summary_seconds", outcome={"written", "fallback"})
 
 # Ending a call at the transport is safe to ask twice, so a timeout or an unreachable provider is
 # worth another try: a call left up at the provider is a caller left on a line nobody is on.
@@ -224,9 +209,9 @@ class CallRun:
         )
         self._judgement: asyncio.Task[None] | None = None
         self._judge_again = False
-        self._ring = _Timer(self.post)
-        self._silence = _Timer(self.post)
-        self._lifetime = _Timer(self.post)
+        self._ring = Timer(self.post)
+        self._silence = Timer(self.post)
+        self._lifetime = Timer(self.post)
         self._findings = Findings()
         # The assistant handed the call over to a user not yet on it: its part ends when they join.
         self._handed_over = False
@@ -864,41 +849,6 @@ class CallRun:
 
     def _ring_for(self, dial: DialTheUser) -> None:
         self._ring.arm(self._context.bounds.ring, lambda generation: RingRanOut(dial, generation))
-
-
-class _Timer:
-    """One wait a run arms, cancels and releases. What it posts says which arming ran out."""
-
-    def __init__(self, post: Callable[[Input], None]) -> None:
-        self._post = post
-        self._task: asyncio.Task[None] | None = None
-        self._generation = 0
-
-    def arm(self, after: timedelta, expired: Callable[[int], Input]) -> None:
-        self.cancel()
-        self._generation += 1
-        generation = self._generation
-
-        async def wait() -> None:
-            await asyncio.sleep(after.total_seconds())
-            self._post(expired(generation))
-
-        self._task = asyncio.get_running_loop().create_task(wait())
-
-    def cancel(self) -> None:
-        """Disarm. An expiry already posted is recognised as stale by its generation."""
-        self._generation += 1
-        if self._task is not None:
-            self._task.cancel()
-
-    def is_current(self, generation: int) -> bool:
-        return generation == self._generation
-
-    async def release(self) -> None:
-        self.cancel()
-        task, self._task = self._task, None
-        if task is not None:
-            await asyncio.gather(task, return_exceptions=True)
 
 
 @dataclass(frozen=True, slots=True)

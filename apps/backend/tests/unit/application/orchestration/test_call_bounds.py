@@ -14,8 +14,8 @@ from datetime import timedelta
 
 import pytest
 
+from letmehandle.application.orchestration.metrics import CALL_BOUNDED
 from letmehandle.application.orchestration.orchestrator import LIVE_CALLS_PER_ACCOUNT
-from letmehandle.application.orchestration.run import CALL_BOUNDED
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.phone_number import PhoneNumber
