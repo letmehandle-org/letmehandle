@@ -40,17 +40,14 @@ OUTCOME: Final = options_by_value(CallOutcome)
 MAX_DETAILS: Final = 12
 MAX_DETAIL_LABEL_CHARACTERS: Final = 80
 
-_DETAIL: Final[Schema] = object_schema(
-    {
-        "label": text_schema(
-            "What the detail is, such as 'reference number'.", limit=MAX_DETAIL_LABEL_CHARACTERS
-        ),
-        "value": text_schema("The detail itself.", limit=SHORT_TEXT_CHARACTERS),
-        "evidence": text_schema("The caller's words it came from.", limit=SHORT_TEXT_CHARACTERS),
-    },
-    "label",
-    "value",
-)
+_DETAIL_FIELDS: Final[Mapping[str, Schema]] = {
+    "label": text_schema(
+        "What the detail is, such as 'reference number'.", limit=MAX_DETAIL_LABEL_CHARACTERS
+    ),
+    "value": text_schema("The detail itself.", limit=SHORT_TEXT_CHARACTERS),
+    "evidence": text_schema("The caller's words it came from.", limit=SHORT_TEXT_CHARACTERS),
+}
+_DETAIL: Final = object_schema(_DETAIL_FIELDS, "label", "value")
 
 _SPEC: Final = ToolSpec(
     name="record_call_outcome",
@@ -73,7 +70,7 @@ _SPEC: Final = ToolSpec(
 
 
 def _detail(item: Mapping[str, object]) -> ExtractedDetail:
-    expect_only(item, ("label", "value", "evidence"))
+    expect_only(item, _DETAIL_FIELDS)
     return ExtractedDetail(
         label=required_text(item, "label", limit=MAX_DETAIL_LABEL_CHARACTERS),
         value=required_text(item, "value", limit=SHORT_TEXT_CHARACTERS),
