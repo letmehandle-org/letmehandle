@@ -21,7 +21,6 @@ from letmehandle.api.dependencies import (
 from letmehandle.api.errors import (
     UNPROCESSABLE,
     ApiError,
-    invalid_request,
     provider_unavailable,
     rate_limited,
 )
@@ -44,7 +43,7 @@ from letmehandle.application.auth.service import (
     UnservedNumberError,
 )
 from letmehandle.application.preferences.service import PreferenceChanges
-from letmehandle.domain.errors import InvariantError, UnreachableNumberError
+from letmehandle.domain.errors import UnreachableNumberError
 from letmehandle.domain.models.auth import TokenPair
 from letmehandle.domain.models.forwarding import CallForwarding
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -189,10 +188,7 @@ async def update_me(
     forwarding: Forwarding,
 ) -> ProfileResponse:
     """Change the fields sent and leave absent ones alone (D-023)."""
-    try:
-        stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
-    except InvariantError as error:
-        raise invalid_request(error) from error
+    stored = await preferences.apply(user.id, PreferenceChanges(locale=body.locale))
     updated = user
     if body.display_name is not None:
         updated = replace(updated, display_name=body.display_name)
