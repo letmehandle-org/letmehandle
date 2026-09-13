@@ -3,7 +3,9 @@
 What the automated suite cannot reach, done by hand before a release and recorded in the phase's
 verification report. The automated scenarios run against a simulated telephony provider, a simulated
 speech service, a scripted model and recording push providers (`make e2e`); this script is the same
-product against the real ones.
+product against the real ones. [`live-rehearsal.md`](live-rehearsal.md) runs whole calls on the
+real speech service and model with only the telephone network simulated, and is worth running
+first.
 
 Nothing in this document, or in the report it produces, carries a real phone number, host, account
 identifier, token or device token. Write them as `<user line>`, `<caller handset>`, `<base url>` and

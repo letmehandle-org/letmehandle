@@ -93,9 +93,10 @@ Integration tests:    passed   the real SDK loop on a scripted model; summaries 
                                history listing, filtering, pagination, transcript purged vs absent,
                                deletion
 Evaluation:           passed   tests/evaluation/summaries.json and scripts/summary_evaluation.py
-                               against a real OpenAI-compatible model, prompts v3, three full runs:
-                               no summary fell back; every class but ending at or above 90% on the
-                               mean, below; degenerate strategies proven to fail every class
+                               against a real OpenAI-compatible model, prompts v3, three full runs
+                               of the larger set, twelve calls a class: extraction 94%,
+                               absent_detail 89%, ending 92%, no_details 92%, every 95% interval
+                               containing 90%, below; degenerate strategies fail every class
 Coverage:             100.00%  backend
 Docs updated:         this plan
 Known issues:         mobile activity and call detail screens are not yet built
@@ -112,13 +113,54 @@ first draft, a corrected draft or the fallback (`call.summary_written`).
 ## Evaluation
 
 Run against a real OpenAI-compatible model from `apps/backend`:
-`uv run python ../../scripts/summary_evaluation.py`. The script ends by saying how many summaries
-were written from a first draft, a corrected draft and the fallback.
+`uv run python ../../scripts/summary_evaluation.py --runs 3`. With `--runs`, each class is reported
+over every call of every run with a 95% Wilson interval, and `--minimum` is held to that pooled
+rate. The script ends by saying how many summaries were written from a first draft, a corrected
+draft and the fallback.
+
+### The larger set
+
+With three or four calls a class, one miss moved a run by twenty-five points. Every class now has
+twelve calls, each new one with a `why`: a hotel booking, a cash-on-delivery parcel, fees, a caller
+who corrects the day mid-call; an order number, price, visit time, address, refund amount, name or
+delivery slot that is promised, withheld or not yet known; two more calls of each ending; and
+silence, a prank, a hold queue, misdials and a declined survey. The existing calls are unchanged,
+every reference summary passes the checks, and the degenerate strategies still fail every class.
+
+Three full runs of the v3 prompts on the larger set:
+
+| Class | Calls | Mean | 95% interval |
+| --- | --- | --- | --- |
+| extraction | 12 | 94% (34 of 36) | 82–98% |
+| absent_detail | 12 | 89% (32 of 36) | 75–96% |
+| ending | 12 | 92% (33 of 36) | 78–97% |
+| no_details | 12 | 92% (33 of 36) | 78–97% |
+
+Of 144 summaries, 127 were kept on the first draft, 13 after a correction and 4 fell back: every
+interval contains 90%, so no class is shown to be below the threshold, and none is shown to be above
+it either. The interval treats repeated runs of one call as independent, which they are not, so it
+is the narrowest defensible one.
+
+The misses, and what they point to, for a prompt change measured against this set:
+
+- **Four fallbacks, each a draft refused twice.** Fifteen of the seventeen refused drafts repeated a
+  line of the call, and a corrected draft that repeats it again falls back, losing every detail. The
+  correction could name the longest stretch it found repeated, so the model knows which words to
+  change rather than guessing.
+- **A commitment made by the assistant, kept on calls with no details.** Two no-details calls (a car
+  warranty recording and a pocket dial) kept a commitment_made. The instructions could say that the
+  assistant's own closing lines, such as saying goodbye or that it will pass something on, are not
+  commitments to keep.
+- **The caller's company left out of the details** when the headline already named it (a courier
+  twice). The instruction to give who called a detail of its own is there; placing it beside the
+  details list, as a detail every call with a named caller has, is the change to try.
+- **Intent.** A plumber at the door read as a delivery, and an insurer arranging a visit as an
+  enquiry; the order of "first that fits" is not being followed.
 
 ### v3: one correction of a refused draft
 
-v3 keeps v2's instructions word for word and adds the correction turn. Three full runs, each class
-as the mean of the three with the lowest and highest run, beside v2:
+v3 keeps v2's instructions word for word and adds the correction turn. Three full runs on the first
+set, each class as the mean of the three with the lowest and highest run, beside v2:
 
 | Class | Calls | v3 mean | Min | Max | v2 mean |
 | --- | --- | --- | --- | --- | --- |

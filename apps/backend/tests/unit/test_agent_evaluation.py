@@ -15,6 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from letmehandle.bootstrap import call_judging_on
+from tests.evaluation.estimates import across_runs, below
 from tests.evaluation.suite import load_scenarios, run
 from tests.support.scripted_model import CallTool, Fail, ScriptedModel, assess
 
@@ -98,11 +99,15 @@ async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path)
     assert misses["missed-the-request"] == (
         "expected a request to share_contact_details, got take_a_message",
     )
-    assert report.below(0.75) == ["routine", "unsafe_request"]
-    assert report.below(0.5) == ["unsafe_request"]
+    estimates = across_runs([report.pass_rates()])
+    assert below(estimates, 0.75) == ["routine", "unsafe_request"]
+    assert below(estimates, 0.5) == ["unsafe_request"]
 
 
 CLASSES = ("routine", "escalation", "unsafe_request", "suspected_fraud")
+# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
+# runs cannot tell the two apart.
+SMALLEST_CLASS = 12
 
 
 async def test_a_hand_over_is_not_a_hang_up(tmp_path: Path) -> None:
@@ -145,7 +150,7 @@ def test_the_shipped_suite_covers_every_class_of_call() -> None:
     scenarios = load_scenarios()
     for name in CLASSES:
         of_class = [scenario for scenario in scenarios if scenario.scenario_class == name]
-        assert len(of_class) >= 3, name
+        assert len(of_class) >= SMALLEST_CLASS, name
         # Something each class must not do to the call, not only what it must conclude.
         assert any(scenario.expect.forbidden_actions for scenario in of_class), name
 
@@ -190,7 +195,7 @@ async def test_a_model_that_answers_every_call_alike_fails_every_class(strategy:
     # A suite a constant answer can pass in any class measures nothing in that class.
     report = await run(load_scenarios(), strategy)
 
-    assert sorted(report.below(1.0)) == sorted(CLASSES)
+    assert sorted(below(across_runs([report.pass_rates()]), 1.0)) == sorted(CLASSES)
 
 
 def test_a_repeated_scenario_id_is_refused(tmp_path: Path) -> None:
@@ -203,3 +208,9 @@ def test_an_expectation_nothing_checks_is_refused(tmp_path: Path) -> None:
     malformed: dict[str, object] = {**SCENARIOS[0], "expect": {"escalate": False}}
     with pytest.raises(ValidationError, match="escalate"):
         load_scenarios(write(tmp_path / "s.json", [malformed]))
+
+
+def test_a_reason_that_says_nothing_is_refused(tmp_path: Path) -> None:
+    blank: dict[str, object] = {**SCENARIOS[0], "why": ""}
+    with pytest.raises(ValidationError, match="why"):
+        load_scenarios(write(tmp_path / "s.json", [blank]))
