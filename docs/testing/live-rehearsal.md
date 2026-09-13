@@ -35,6 +35,17 @@ user's fictional number:
 | --- | --- | --- |
 | A, routine | "Hello, I'm calling from the dental clinic to confirm your appointment tomorrow at 10." then "No, that's everything. Thank you, goodbye." and hangs up | keeps ringing |
 | B, urgent | "Hi, this is Sam, her neighbour. I need to speak to her right now, it's urgent." then "Water is pouring through her ceiling from the flat upstairs. Please put her on." and, a few seconds after the user joins, hangs up | answers |
+| C, Hindi caller, English user | A courier, in Hindi: the parcel arrives tomorrow at ten; then that is all, thank you; and hangs up | keeps ringing |
+| D, Hindi caller, Hindi user | A pharmacy, in Hindi: the medicines are ready until six; then that is all; and hangs up | keeps ringing |
+
+C and D set the user's locale first (`en` and `hi`), and run with `SPEECH_LANGUAGES` from the env
+file or, when it has none, `en,hi` (D-039). Their caller's lines are spoken by the agent's own voice
+for Hindi where the key may use it, and otherwise by a catalogue voice on the service's multilingual
+model. Their hang-up is delivered the way a real one was: the media stream stops at once, and the
+callbacks follow two seconds later, the assistant's leg before the caller's. For an agent on the
+`elevenlabs` protocol the report adds what the service recorded of the conversation: the language
+asked for, whether a voice and a greeting were sent, and the share of the replies' letters that are
+Devanagari — never the words.
 
 For each call it reports the states the run moved through, when the media stream came up, whether
 and when the assistant spoke, how soon it replied to each line, the transcript lines stored (a count,
@@ -47,6 +58,7 @@ the escalation and each push, the diagnostics timeline, and every measurement th
 cd apps/backend
 uv run python ../../scripts/live_rehearsal.py --env-file ../../.env
 uv run python ../../scripts/live_rehearsal.py --env-file ../../.env --only B --log-level info
+uv run python ../../scripts/live_rehearsal.py --env-file ../../.env --only D
 ```
 
 It needs a PostgreSQL server it may create and drop a database on (`--database-server`, by default
@@ -114,6 +126,60 @@ after the stream opened, and replies 0.9–2.5 s. No circuit opened, and nothing
 `call.judgement_failed`, `call.summary_failed`, `call.speech_unavailable` or
 `call.provider_failed`.
 
+## Results, 2026-09-13: Hindi
+
+On an agent prepared as `docs/providers/speech.md` describes — English, with a Hindi language
+preset and its language detection tool — and the same model. The key's monthly speech allowance ran
+out part-way, so this is one rehearsed call and a handful of conversations opened on the service
+directly with the overrides the adapter sends, rather than every scenario run twice.
+
+### C: a Hindi caller rings an English-speaking user (one run)
+
+| | |
+| --- | --- |
+| States | agent_handling → completed, in 42 s |
+| Hang-up | media stream stopped, callbacks two seconds later with the assistant's leg first |
+| Stored | ended, `caller_hung_up`, intent delivery_in_progress |
+| Headline | "A courier company called to say your parcel will arrive tomorrow morning, then hung up." — English, the user's locale |
+| The service's record | language asked for `en`, no voice sent, greeting sent; 2 replies, 0 % Devanagari |
+| Replies | none to the first line; 2.5 s after the second |
+
+The call was stored as the hang-up it was: the defect below did not recur. But the assistant never
+changed language. It greeted in English, the service wrote the caller's Hindi down in Latin script,
+and the model answered in English. This run predates the adapter telling the agent to change
+language; see finding 8.
+
+### The service on its own
+
+Conversations opened directly, each with an English opening, an English greeting and two Hindi
+lines from the caller:
+
+| Instructions and voice sent | What happened |
+| --- | --- |
+| The application's instructions, no voice | Replies in English; the language tool never called |
+| The same, told to change language "using your tool if you have one" | Replies in English; never called |
+| The same, told which languages and to call `language_detection` (what the adapter now sends) | Tool called after the first line; every later reply in Hindi, and the caller's next line written in Devanagari |
+| The service's own instructions, a client voice sent | Asked "Would you like to continue in Hindi?", switched once the caller said yes; replies in Hindi |
+
+A voice sent by the client held through that switch. Measured by the median pitch of the replies,
+a conversation opened with a clearly higher voice went on at that voice's pitch in Hindi rather
+than the Hindi preset voice's. Pitch at 8 kHz is a coarse measure, which is why the adapter's
+choice rests on it only for multilingual agents, where sending a voice buys nothing.
+
+### Summaries in Hindi, on the real model
+
+The summariser, given ended calls built in memory, for a user whose locale is `hi` unless said:
+
+| Call | Summaries | Kept as |
+| --- | --- | --- |
+| A courier in Hindi, caller hung up | 3 | 3 first drafts; every headline Devanagari, ending named with "फ़ोन रख दिया" |
+| A pharmacy in Hindi, handled by the assistant | 4 | 2 first drafts, 1 corrected draft, 1 fallback (refused twice as restating the call) |
+| A dental clinic in English | 1 | first draft, headline in Hindi, details quoted in English |
+| The courier in Hindi, for an English user | 1 | first draft, headline in English, details quoted in Hindi |
+
+Each took 1.4–3.2 s. Details quoted from Hindi lines passed the checks, which now read Devanagari
+words whole.
+
 ## Findings
 
 1. **Fixed — an unanswered escalation was stored as handed to the user.** In the first run of A the
@@ -146,6 +212,28 @@ after the stream opened, and replies 0.9–2.5 s. No circuit opened, and nothing
    paces it onto the line as it comes, so a reply of seven seconds is five or six media messages
    rather than 350 frames. Nothing misbehaved; it is one of the frame facts D-027 leaves to the first
    real call.
+
+7. **Fixed — a caller hanging up was stored as a failed call.** On the first call over a real
+   telephone network the media stream closed as the caller hung up and the provider reported the
+   assistant's leg leaving before the caller's own leave, about two seconds later; the assistant
+   leaving was taken as the assistant lost. It now waits `speaker_gone` for the ending
+   (`fix(calls): a hang-up heard of after the assistant's leg is a hang-up`, reproduced in
+   `tests/e2e/test_provider_faults.py`). Scenario C delivers its hang-up that way and was stored
+   `caller_hung_up`.
+8. **Fixed, not yet rehearsed — the assistant did not follow a Hindi caller.** The agent changes
+   language only when its model calls the language tool, and the application's instructions alone
+   never made it (see the service on its own, above). An agent listed for several languages is now
+   told to. Rehearsing C and D again, with it, is what the next allowance is for.
+9. **Open — Hindi summaries fall back more often for restating the call.** One of eight Hindi
+   summaries fell back, and another needed its correction, both for a nine-word run copied from a
+   line. Hindi spends more words than English on the same phrase (postpositions and auxiliaries are
+   words of their own), so the same run is a shorter quotation. A per-language length is a change
+   to measure with more calls than these, not to guess.
+10. **Limits of the service.** A key on the free plan cannot speak through the text-to-speech API in
+    a library voice (HTTP 402), though an agent's language preset may use one; so the caller's
+    Hindi was spoken by a catalogue voice on the multilingual model. Nothing the adapter reads tells
+    it the agent changed language. And the free allowance covers only a few rehearsed calls a
+    month.
 
 ## What still needs a real telephone network
 
