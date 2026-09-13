@@ -19,6 +19,7 @@ from letmehandle.application.calls.summary_checks import (
     names_the_ending,
     problems_with,
     vocabulary_for,
+    words,
 )
 from letmehandle.application.calls.summary_draft import (
     DetailKind,
@@ -252,13 +253,70 @@ class TestGrounding:
         assert problems_with(draft(FINE, promise), request_for(said)) == ()
 
 
+# A courier's call in Hindi, written for these tests. Devanagari puts vowel signs and the virama
+# after the consonant they belong to, as marks rather than letters.
+HINDI_COURIER = caller_said(
+    "नमस्ते, मैं स्विफ्ट पार्सल से बोल रहा हूँ। आपका पार्सल पड़ोसी के घर चौदह नंबर पर छोड़ दिया है।",
+    "ड्राइवर शुक्रवार को दो बजे के बाद फिर आएगा।",
+)
+
+
+class TestDevanagari:
+    def test_a_word_keeps_its_vowel_signs_and_virama(self) -> None:
+        assert words("ड्राइवर शुक्रवार को, फिर आएगा।") == ("ड्राइवर", "शुक्रवार", "को", "फिर", "आएगा")
+
+    def test_a_detail_quoting_a_hindi_line_is_kept(self) -> None:
+        when = detail(DetailKind.TIME, "शुक्रवार को दो बजे के बाद", "शुक्रवार को दो बजे के बाद फिर आएगा")
+        found = problems_with(draft(FINE, when), request_for(HINDI_COURIER))
+        assert DraftProblem.UNGROUNDED_DETAIL not in found
+
+    def test_a_hindi_value_with_a_changed_vowel_sign_is_refused(self) -> None:
+        # "आयेगा" for "आएगा": one sign apart, and a word nobody said.
+        changed = detail(DetailKind.COMMITMENT_MADE, "फिर आयेगा", "फिर आएगा")
+        found = problems_with(draft(FINE, changed), request_for(HINDI_COURIER))
+        assert DraftProblem.UNGROUNDED_DETAIL in found
+
+    def test_a_hindi_line_copied_out_is_restatement(self) -> None:
+        copied = "आपका पार्सल पड़ोसी के घर चौदह नंबर पर छोड़ दिया है, your assistant noted it."
+        found = problems_with(draft(copied), request_for(HINDI_COURIER))
+        assert DraftProblem.RESTATES_THE_CALL in found
+
+    def test_sentences_end_at_a_danda_and_at_a_stop_before_devanagari(self) -> None:
+        three = "स्विफ्ट पार्सल ने फ़ोन किया। पार्सल पड़ोसी के घर है? सहायक ने नोट किया।"
+        two = "स्विफ्ट पार्सल ने फ़ोन किया। your assistant ने नोट किया।"
+        assert DraftProblem.TOO_MANY_SENTENCES in problems_with(
+            draft(three), request_for(HINDI_COURIER)
+        )
+        assert DraftProblem.TOO_MANY_SENTENCES not in problems_with(
+            draft(two), request_for(HINDI_COURIER)
+        )
+
+
 class TestVocabulary:
+    @pytest.mark.parametrize("locale", ["en", "hi"])
     @pytest.mark.parametrize("ending", list(Ending))
-    def test_every_fallback_headline_names_its_own_ending(self, ending: Ending) -> None:
+    def test_every_fallback_headline_names_its_own_ending(
+        self, ending: Ending, locale: str
+    ) -> None:
         # The fallback and the checks describe endings in the same words, or a fallback would be a
         # summary the product itself refuses.
-        known = fallback_summary(ended(COURIER, ending), locale="en")
-        assert names_the_ending(known.headline, known.outcome, vocabulary_for("en"))
+        known = fallback_summary(ended(COURIER, ending), locale=locale)
+        assert names_the_ending(known.headline, known.outcome, vocabulary_for(locale))
+
+    def test_a_hindi_headline_names_its_ending_in_hindi(self) -> None:
+        facts = ended(HINDI_COURIER, Ending.CALLER_HUNG_UP)
+        request = SummaryRequest(
+            known=fallback_summary(facts, locale="hi"),
+            transcript=facts.call.transcript,
+            locale="hi",
+        )
+        headline = "स्विफ्ट पार्सल ने पार्सल के बारे में फ़ोन किया और फिर फ़ोन रख दिया।"
+        english = "स्विफ्ट पार्सल ने फ़ोन किया and hung up."
+        hung_up = CallOutcome.CALLER_HUNG_UP
+        assert problems_with(draft(headline, outcome=hung_up), request) == ()
+        assert problems_with(draft(english, outcome=hung_up), request) == (
+            DraftProblem.OUTCOME_NOT_NAMED,
+        )
 
     def test_every_outcome_can_be_named_in_every_locale(self) -> None:
         for vocabulary in SUMMARY_VOCABULARIES.values():

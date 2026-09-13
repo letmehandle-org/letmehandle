@@ -134,8 +134,26 @@ class TestTheCall:
             "caller_category": "unknown",
             "caller_name": None,
             "user_joined": False,
+            "write_for_locale": "en",
         }
         assert data_between(message, "transcript") == [{"speaker": "caller", "text": "Is she in?"}]
+
+    def test_a_hindi_users_summary_is_asked_for_in_hindi_whatever_was_spoken(self) -> None:
+        facts = ended(caller_said("Is she in?"), Ending.CALLER_HUNG_UP)
+        request = SummaryRequest(
+            known=fallback_summary(facts, locale="hi-IN"),
+            transcript=facts.call.transcript,
+            locale="hi-IN",
+        )
+        prompts = load_summary_prompts("hi-IN")
+        call = data_between(prompts.call_message(request), "call")
+        assert isinstance(call, dict)
+        assert call["write_for_locale"] == "hi-in"
+        assert call["name_the_ending_with_one_of"] == list(
+            vocabulary_for("hi").endings[CallOutcome.CALLER_HUNG_UP]
+        )
+        instructions = " ".join(prompts.instructions_prompt(answer_tool="T").split())
+        assert "in the language of write_for_locale" in instructions
 
     def test_the_user_joining_is_stated(self) -> None:
         message = load_summary_prompts("en").call_message(

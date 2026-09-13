@@ -131,6 +131,7 @@ async def test_a_conversation_runs_over_the_call_as_it_runs_over_a_microphone(
     session = await EchoSpeechProvider().connect(
         system_context="a call",
         voice_id="calm",
+        greeting="Hello.",
         locale="en",
         input_format=streaming.audio_format(),
     )

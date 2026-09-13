@@ -13,6 +13,7 @@ type TabKey = 'home' | 'activity' | 'settings';
 interface Props {
   readonly onOpenSetting: (page: SettingsPage) => void;
   readonly onOpenCall: (callId: string) => void;
+  readonly onOpenEscalation?: (callId: string) => void;
   readonly historyVersion?: number;
 }
 
@@ -26,6 +27,7 @@ interface Props {
 export function MainTabs({
   onOpenSetting,
   onOpenCall,
+  onOpenEscalation,
   historyVersion = 0,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
@@ -40,7 +42,15 @@ export function MainTabs({
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
-        {current === 'home' && <HomeScreen />}
+        {current === 'home' && (
+          <HomeScreen
+            onOpenCall={onOpenCall}
+            onOpenEscalation={onOpenEscalation}
+            onOpenScreening={() => {
+              onOpenSetting('callScreening');
+            }}
+          />
+        )}
         {current === 'activity' && (
           <ActivityScreen onOpenCall={onOpenCall} refreshKey={historyVersion} />
         )}

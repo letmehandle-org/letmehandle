@@ -392,10 +392,6 @@ def build_voice_provider(settings: Settings) -> VoiceProvider:
     return BuiltInVoiceProvider(voices, default_voice_id=default_voice)
 
 
-# English only in the first release (D-017). A setting arrives with the second language, not
-# before it.
-_SPEECH_LANGUAGES: Final = ("en",)
-
 # What the speech adapters can convert from: a microphone's wideband audio, and a phone line's.
 _SPEECH_INPUT_FORMATS: Final = (SPEECH_WIDEBAND, TELEPHONY_NARROWBAND)
 
@@ -424,7 +420,7 @@ def build_speech_provider(
             return RealtimeSpeechProvider(
                 wrap(realtime_opener(endpoint, model=model, api_key=api_key)),
                 metrics,
-                languages=_SPEECH_LANGUAGES,
+                languages=settings.speech_languages,
                 input_formats=_SPEECH_INPUT_FORMATS,
                 # The protocol's own wire format, so that nothing is converted twice on its way
                 # out. A sink converts to what it plays.
@@ -436,7 +432,7 @@ def build_speech_provider(
             return ElevenLabsSpeechProvider(
                 wrap(elevenlabs_opener(endpoint, agent_id=agent_id, api_key=api_key)),
                 metrics,
-                languages=_SPEECH_LANGUAGES,
+                languages=settings.speech_languages,
                 input_formats=_SPEECH_INPUT_FORMATS,
                 # What an agent speaks unless configured otherwise, so that an agent left at its
                 # default is not converted twice on the way out either.

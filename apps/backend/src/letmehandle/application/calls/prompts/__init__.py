@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from letmehandle.application.calls.summary_draft import DraftCorrection, SummaryRequest
 
-SUMMARY_PROMPT_VERSION: Final = "v3"
+SUMMARY_PROMPT_VERSION: Final = "v4"
 
 _PLACEHOLDERS: Final = {
     "instructions.md": frozenset({"answer_tool"}),
@@ -74,6 +74,8 @@ class SummaryPrompts:
             "caller_category": caller.category.value,
             "caller_name": caller.display_name if caller.is_known else None,
             "user_joined": known.human_joined,
+            # The user reads the summary, so it is written in their language, not the caller's.
+            "write_for_locale": normalise_locale(request.locale),
         }
         spoken = [
             {"speaker": entry.speaker.value, "text": entry.text} for entry in request.transcript

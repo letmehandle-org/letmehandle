@@ -168,6 +168,29 @@ def parse_voice_catalogue(text: str) -> tuple[Voice, ...]:
     return tuple(voices)
 
 
+# A language code as a speech service names one: `en`, `hi`, or a regional `pt-BR`.
+_LANGUAGE_CODE: Final = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})?")
+
+
+def parse_speech_languages(text: str) -> tuple[str, ...]:
+    """The languages SPEECH_LANGUAGES lists, in its order: `en,hi`."""
+    entries = [entry.strip() for entry in text.split(",") if entry.strip()]
+    if not entries:
+        raise ValueError("SPEECH_LANGUAGES lists no languages; expected codes such as 'en,hi'")
+    for position, entry in enumerate(entries, 1):
+        if not _LANGUAGE_CODE.fullmatch(entry):
+            raise ValueError(
+                f"SPEECH_LANGUAGES entry {position} is not a language code, such as en or hi"
+            )
+    if len(set(entries)) != len(entries):
+        raise ValueError("SPEECH_LANGUAGES lists the same language more than once")
+    return tuple(entries)
+
+
+def _languages_from_text(value: object) -> object:
+    return parse_speech_languages(value) if isinstance(value, str) else value
+
+
 # How TRANSCRIPT_ENCRYPTION_KEYS is written, quoted in every error about it.
 TRANSCRIPT_KEYS_FORMAT: Final = "newest-id:base64-key,older-id:base64-key"
 TRANSCRIPT_KEY_BYTES: Final = 32
@@ -517,6 +540,18 @@ class Settings(BaseSettings):
         default=SpeechProviderName.REALTIME,
         description="Which protocol the speech service speaks.",
     )
+    # What the service speaks, which is the service's configuration: an ElevenLabs agent's languages
+    # are its own and its presets, a realtime model's are the model's. A call opens in the user's
+    # language when it is listed here, and the service is asked for nothing it does not list.
+    speech_languages: Annotated[
+        tuple[str, ...],
+        NoDecode,
+        BeforeValidator(_languages_from_text),
+        Field(
+            description="The languages the speech service speaks, comma-separated, such as "
+            "`en,hi`. A call opens in the user's language when it is one of them (D-039).",
+        ),
+    ] = ("en",)
     speech_endpoint_url: Annotated[
         AnyWebsocketUrl | None,
         BeforeValidator(_blank_is_absent),
@@ -571,8 +606,9 @@ class Settings(BaseSettings):
         BeforeValidator(_blank_is_absent),
         BeforeValidator(_catalogue_from_text),
         Field(
-            description="The voices offered, as `id:Display name:locale|locale`, comma-separated. "
-            "They must be voices the speech service can speak.",
+            description="The voices offered, as `id:Display name:locale|locale`, comma-separated, "
+            "such as `voice-a:An English voice:en,voice-b:A Hindi voice:hi`. They must be voices "
+            "the speech service can speak; a call is spoken in a voice listed for its language.",
             json_schema_extra={"required_when": "the API starts"},
         ),
     ] = None

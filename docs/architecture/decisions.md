@@ -219,6 +219,8 @@ carries a preferred locale from the first migration that creates it.
 
 Adding a language must be translation work, never architectural work.
 
+Amended by D-039: calls are taken in English and Hindi, and follow the caller's language.
+
 ## D-018 — Bare React Native CLI
 
 **Accepted.** `ios/` and `android/` are committed and owned. Native module freedom is a
@@ -830,3 +832,49 @@ An open circuit does not make a process unready. Every process shares the same p
 one out of rotation moves its calls to another that fails them the same way. Readiness reports each
 circuit by role, never by vendor, and whether rate limits are shared across processes.
 
+## D-039 — A call opens in the user's language and follows the caller's
+
+**Accepted.** Amends D-017. Calls are taken in English (`en`) and Hindi (`hi`). The set is
+configuration — `SPEECH_LANGUAGES`, the languages the speech service speaks — and a language added
+to it is translation work: a greeting, a summary vocabulary, the phrasebooks, and the service's own
+setup for that language.
+
+**The user's locale decides how a call opens.** The assistant greets the caller in the user's
+language when the speech service speaks it, and in English when it does not. The greeting is one
+template per locale among the agent's prompts (`greetings/<locale>.md`), found by the same narrowing
+every phrasing uses, so a Hindi user's callers hear a short greeting in Hindi and English, and
+nothing about it is written in code.
+
+**The caller's language decides how it goes on.** Somebody ringing a Hindi-speaking user may well
+speak English, and the reverse. The speech service detects the language the caller speaks and
+switches the assistant's language and voice to it mid-call; the assistant's instructions tell it to
+answer in the language the caller speaks. On ElevenLabs the switch is the agent's language
+detection tool, and a model given the application's instructions did not call it unprompted — it
+answered a Hindi caller in English — so the adapter tells an agent listed for several languages to
+call it. The application does not follow the switch itself: the client is sent nothing it reads
+when the agent switches, and a conversation's overrides cannot be changed once it has begun.
+
+**Each language has a voice.** A catalogue voice lists the locales it speaks (`SPEECH_VOICES`,
+`id:Name:locale|locale`), and the voice a call opens with is resolved for the opening language: the
+user's cloned voice, then the voice they chose if it speaks that language, then the first voice in
+the catalogue that does, then the default. A voice chosen in English is not used to speak Hindi,
+because an English voice on an English model reading Hindi is the failure this decision exists for.
+
+**An ElevenLabs agent that speaks several languages is sent no voice.** The agent's voice for each
+language is its own configuration: its base voice for its own language, and a language preset, with
+a voice and a multilingual model, for every other. A voice sent by the client holds for the whole
+conversation, across a language switch: on the real service, a conversation opened in English with
+a client voice, and switched to Hindi by the caller, went on in the client's voice. So a
+conversation with an agent listed for more than one language is sent its opening language and
+nothing about its voice. An agent listed for one language is sent the resolved voice, as before.
+
+**Summaries and escalation context are written in the user's locale.** The user reads them; the
+caller's language does not matter to that. The model is told the language to write in, and what
+is checked in code is per locale: the phrases a headline names its ending with, the fallback
+headline, and the words of an escalation notification. The checks compare words as Devanagari
+writes them, vowel signs and all. Evidence for a detail is still quoted in the words that were said,
+in whatever language that was.
+
+**Accepted trade: a chosen voice is not honoured on a multilingual ElevenLabs agent.** The agent's
+voices are the agent's. Honouring a choice would mean one agent per voice, or giving up the switch
+mid-call, and a caller understood in their own language is worth more than a voice the user picked.

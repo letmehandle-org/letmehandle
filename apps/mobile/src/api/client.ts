@@ -43,6 +43,10 @@ export interface CallQuery {
   readonly outcome?: CallOutcome;
   readonly humanJoined?: boolean;
   readonly cursor?: string | null;
+  /** Only calls that started at or after this instant, in ISO 8601 with its zone. */
+  readonly from?: string;
+  /** How many a page holds, from 1 to 100. */
+  readonly limit?: number;
 }
 
 /** How long a request may take before it is treated as the network not answering. */
@@ -266,6 +270,12 @@ export class ApiClient {
     }
     if (query.humanJoined !== undefined) {
       params.set('human_joined', String(query.humanJoined));
+    }
+    if (query.from !== undefined) {
+      params.set('from', query.from);
+    }
+    if (query.limit !== undefined) {
+      params.set('limit', String(query.limit));
     }
     if (query.cursor != null) {
       params.set('cursor', query.cursor);

@@ -61,8 +61,25 @@ _ENGLISH: Final = EscalationPhrasebook(
     nothing_known_yet="Nothing more is known yet.",
 )
 
+_HINDI: Final = EscalationPhrasebook(
+    why={
+        EscalationReason.CALLER_ASKED_FOR_THE_USER: "कॉल करने वाले ने आपसे बात करनी चाही",
+        EscalationReason.ACTION_NOT_AUTHORISED: (
+            "कॉल करने वाला कुछ ऐसा चाहता है जिसकी अनुमति सिर्फ़ आप दे सकते हैं"
+        ),
+        EscalationReason.DECISION_NEEDS_THE_USER: "एक फ़ैसला है जो सिर्फ़ आप ले सकते हैं",
+        EscalationReason.IMPORTANT_ENOUGH_TO_INTERRUPT: "यह कॉल ज़रूरी लगती है",
+        EscalationReason.CANNOT_UNDERSTAND_THE_CALLER: "कॉल करने वाले की बात समझ नहीं आ रही",
+        EscalationReason.USER_RULE_REQUIRES_IT: "आपका एक नियम इस कॉल को आप तक भेजता है",
+    },
+    unknown_caller="अनजान कॉलर",
+    needed_prefix="आपसे चाहिए:",
+    established_prefix="अब तक:",
+    nothing_known_yet="अभी और कुछ पता नहीं है।",
+)
+
 DEFAULT_LOCALE: Final = "en"
-PHRASEBOOKS: Final[Mapping[str, EscalationPhrasebook]] = {DEFAULT_LOCALE: _ENGLISH}
+PHRASEBOOKS: Final[Mapping[str, EscalationPhrasebook]] = {DEFAULT_LOCALE: _ENGLISH, "hi": _HINDI}
 
 
 def _every_reason_has_words() -> None:

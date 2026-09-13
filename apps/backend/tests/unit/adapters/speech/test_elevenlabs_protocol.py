@@ -165,6 +165,13 @@ def test_a_conversation_is_opened_with_prompt_language_and_voice_overridden() ->
     }
 
 
+def test_a_voice_is_only_overridden_when_given() -> None:
+    opening = protocol.begin_conversation(
+        prompt="p", language="hi", voice_id=None, first_message=""
+    )
+    assert "tts" not in opening["conversation_config_override"]
+
+
 def test_a_first_message_is_only_overridden_when_given() -> None:
     # Every field sent is an override the agent must allow, so none is sent without a reason.
     opening = protocol.begin_conversation(prompt="p", language="en", voice_id="v", first_message="")

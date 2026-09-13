@@ -147,12 +147,13 @@ describe('the list', () => {
       startAt: null,
       history: { calls: [aCall()] },
     });
+    const view = await render(<App />);
+    // Home reads today's calls first; the failure is for the list.
+    await view.findByTestId('home-status');
     backend.failNext('/v1/calls', {
       status: 500,
       body: { error: 'internal_error', message: 'x' },
     });
-    const view = await render(<App />);
-    await view.findByTestId('home-screen');
     await fireEvent.press(view.getByTestId('tab-activity'));
 
     expect(await view.findByTestId('activity-problem')).toBeOnTheScreen();
@@ -467,12 +468,15 @@ describe('what was said', () => {
   it('keeps three screens of what callers said out of screenshots, until the last one closes', async () => {
     const { view } = await openTranscript({ 'call-1': transcript });
     await view.findByTestId('transcript-expiry');
-    expect(mockSecure.setSecure).toHaveBeenCalledTimes(1);
+    const calls = mockSecure.setSecure.mock.calls;
+    expect(calls.at(-1)).toEqual([true]);
+    const settled = calls.length;
 
     await fireEvent.press(view.getByTestId('transcript-screen-back'));
     await fireEvent.press(await view.findByTestId('call-detail-back'));
     await view.findByTestId('activity-screen');
-    expect(mockSecure.setSecure).toHaveBeenCalledTimes(1);
+    // Nothing unprotected on the way back: the list beneath was protected all along.
+    expect(mockSecure.setSecure.mock.calls.length).toBe(settled);
   });
 
   it('presents purged words as the retention working, with a way to change it', async () => {

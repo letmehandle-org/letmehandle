@@ -29,6 +29,8 @@ from tests.support.scripted_model import Fail, assess
 from tests.support.simulated_twilio import Answering, SimulatedTwilio, eventually
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.simulated_twilio import Delivery
 
 pytestmark = pytest.mark.integration
@@ -95,6 +97,50 @@ async def test_f_duplicated_and_reordered_callbacks_leave_one_correct_call(
         assert [each["id"] for each in await system.api.calls(account)] == [call_id]
         await system.released()
         assert emitted.mentions(*identifying(CALLER)) == []
+
+
+def the_assistants_leg_first(call_id: str) -> Callable[[list[Delivery]], list[Delivery]]:
+    """Every held callback about the assistant's leg, then the caller's and the conference's."""
+
+    def order(held: list[Delivery]) -> list[Delivery]:
+        assistant = [each for each in held if _leg_of(each) not in {None, call_id}]
+        caller = [each for each in held if each not in assistant]
+        # Both sides held, or the order would prove nothing.
+        assert assistant
+        assert caller
+        return assistant + caller
+
+    return order
+
+
+def _leg_of(delivery: Delivery) -> str | None:
+    return dict(delivery.params).get("CallSid")
+
+
+async def test_a_caller_hanging_up_is_a_hang_up_when_the_assistants_leg_is_heard_of_first(
+    database: str, pushes: Pushes, emitted: Emitted
+) -> None:
+    call_id = "CAsim-e2e-hang-up-heard-late"
+    async with streaming_system(database, steps=[]) as system:
+        account = await a_user(system)
+        provider = system.provider
+        await system.arrives(account, call_id)
+        await system.reaches(account, call_id, CallState.AGENT_HANDLING)
+        await system.assistant_is_streaming(call_id)
+
+        # The conference ends around the caller: the assistant's media stream stops at once, and
+        # the callbacks about its leg reach the application before the one about the caller.
+        provider.hold()
+        await provider.caller_hangs_up(call_id)
+        await provider.settle(system.transport)
+        await provider.release(the_assistants_leg_first(call_id))
+        detail = await system.ended(account, call_id)
+
+        assert detail["outcome"] == "caller_hung_up"
+        call = await system.stored(account, call_id)
+        assert call is not None
+        assert call.state is CallState.COMPLETED
+        await system.released()
 
 
 async def test_the_model_unavailable_at_a_judgement_leaves_the_caller_with_the_assistant(

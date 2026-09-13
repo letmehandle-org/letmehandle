@@ -18,6 +18,8 @@ Adapters: `adapters/speech/realtime/` and `adapters/speech/elevenlabs/`, chosen 
 | Barge-in | The service's speech signal; the adapter cancels the response and truncates it to what was heard | The service's interruption event; the adapter drops the agent's audio it was holding |
 | Context mid-call | Replaces the instructions | Adds background context; the instructions stay |
 | Reconnecting | A fresh session with the instructions, voice and recent turns restored | A new conversation whose prompt carries the instructions and recent turns |
+| Greeting | None: the caller speaks first | The locale's greeting, as the conversation's first message |
+| Language mid-call | The session's language throughout | The agent's language detection switches language, and voice, to the caller's; the client is not told |
 
 Both run behind the same guarantees: the reader never waits on the consumer, only audio is bounded,
 every exit path releases the connection and its tasks, and a failure that retrying cannot fix ends
@@ -31,6 +33,7 @@ the session with a typed failure rather than a loop.
 | `SPEECH_ENDPOINT_URL` | The service's websocket URL |
 | `SPEECH_MODEL` | The model, for `realtime` |
 | `SPEECH_AGENT_ID` | The agent, for `elevenlabs` |
+| `SPEECH_LANGUAGES` | The languages the service speaks, such as `en,hi`; English by default |
 | `SPEECH_API_KEY` | The key. Never logged, never printed, never in an exception |
 | `SPEECH_VOICES`, `SPEECH_DEFAULT_VOICE` | The voices the service speaks, as ids it recognises |
 
@@ -43,13 +46,33 @@ The adapter configures each conversation through overrides, so the agent has to 
 the agent's security settings:
 
 1. **Allow overrides** for the system prompt, the first message, the language and the TTS voice.
-   Without the first-message override every reconnect is refused, and the call ends.
+   Without the first-message override no conversation opens: every conversation is sent the
+   greeting for its language, and every reconnect an empty first message.
 2. **Keep the `user_transcript` and `interruption` client events enabled.** Without the first the
    assistant has no record of what the caller said; without the second it cannot be interrupted.
 3. **Set the input and output audio formats on the agent.** The adapter reads what was negotiated
    and converts either way; `ulaw_8000` suits a phone line.
 4. **Give the API key access to the Agents platform** for that agent.
 5. **List the agent's voices in `SPEECH_VOICES`** using the voice ids ElevenLabs uses.
+6. **For every language in `SPEECH_LANGUAGES` beyond the agent's own** (D-039): add the language to
+   the agent, give it a language preset with a voice that speaks it natively, and enable the
+   `language_detection` system tool. An English agent keeps an English-only TTS model; the
+   service gives a preset for another language a multilingual model itself.
+
+A conversation opens in the user's language when `SPEECH_LANGUAGES` lists it. With more than one
+language listed the adapter sends no voice: the service holds a client's voice for the whole
+conversation, across a switch of language, so the agent's own voice for each language is used and
+a voice chosen in the app is not. With one language the resolved voice is sent, as before.
+
+Such an agent is also told, after the instructions, to change language with the
+`language_detection` tool without asking the caller: against the real service, a model given the
+application's instructions answered a Hindi caller in English and never called the tool until told.
+
+What the service does not offer, found against it: nothing the adapter reads says the agent
+switched — the tool call shows only in the conversation's record afterwards — so the application
+cannot tell which language the assistant ended a call in. A key on the free plan cannot synthesise
+speech in a library voice through the text-to-speech API, although an agent's preset speaks in
+one.
 
 The key is sent from the backend, which holds it. It is never sent to a device.
 
