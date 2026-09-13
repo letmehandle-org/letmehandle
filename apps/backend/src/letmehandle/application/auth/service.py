@@ -109,6 +109,9 @@ class CodeMayHaveBeenSentError(DomainError):
         self.retry_after_seconds = retry_after_seconds
 
 
+# How long the deployment's budget refuses codes once it is spent.
+BUDGET_RETRY_AFTER_SECONDS: Final = int(timedelta(minutes=10).total_seconds())
+
 # How long to wait before offering the same code again when its provider could not check it. Short,
 # because the challenge expires in minutes; not zero, so a client does not hammer a failing one.
 CHECK_RETRY_AFTER_SECONDS: Final = 5
@@ -372,14 +375,14 @@ class AuthenticationService:
             >= policy.challenges_per_hour
         ):
             self._refused("budget")
-            raise RateLimitedError(int(timedelta(minutes=10).total_seconds()))
+            raise RateLimitedError(BUDGET_RETRY_AFTER_SECONDS)
         if (
             policy.challenges_per_hour_per_calling_code is not None
             and await self._challenges.count_all_issued_since(hour_ago, number.calling_code)
             >= policy.challenges_per_hour_per_calling_code
         ):
             self._refused("country_budget")
-            raise RateLimitedError(int(timedelta(minutes=10).total_seconds()))
+            raise RateLimitedError(BUDGET_RETRY_AFTER_SECONDS)
 
     def _refused(self, reason: str) -> None:
         if self._metrics is not None:
