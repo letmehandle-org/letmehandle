@@ -9,7 +9,6 @@ means the same thing.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from itertools import count
 from typing import TYPE_CHECKING
@@ -67,7 +66,7 @@ class FixedClock(Clock):
         return self._now
 
     def advance(self, seconds: float) -> None:
-        self._now = datetime.fromtimestamp(self._now.timestamp() + seconds, tz=UTC)
+        self._now += timedelta(seconds=seconds)
 
 
 class CountingIdGenerator(IdGenerator):
@@ -227,13 +226,6 @@ class StaticVoiceProvider(VoiceProvider):
         return VoiceSample(audio=b"a sample of " + voice_id.encode(), media_type="audio/mpeg")
 
 
-@dataclass
-class _Queued:
-    events: asyncio.Queue[SpeechEvent | None] = field(
-        default_factory=lambda: asyncio.Queue(maxsize=8)
-    )
-
-
 class EchoSpeechSession(SpeechSession):
     """Turns every frame it is given into one frame of output.
 
@@ -242,7 +234,7 @@ class EchoSpeechSession(SpeechSession):
     """
 
     def __init__(self) -> None:
-        self._queue = _Queued().events
+        self._queue: asyncio.Queue[SpeechEvent | None] = asyncio.Queue(maxsize=8)
         self._closed = False
         self.context_updates: list[str] = []
         self.interruptions = 0
