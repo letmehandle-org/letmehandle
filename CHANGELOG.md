@@ -19,6 +19,12 @@ taken from that section.
 
 ## [Unreleased]
 
+### Added
+
+- A telephony line may give `dial_from=+E164` in `TELEPHONY_LINES`, a number on the same account its
+  users are rung from instead of the line's own, for an Indian toll-free line that takes calls but
+  cannot place them to Indian phones (D-044).
+
 ## [2026.9.14]
 
 ### Added

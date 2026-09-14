@@ -69,7 +69,8 @@ caller ──► conference "call-<call id>" ◄── assistant leg ──► m
    then releases whatever is left. A call this process never held — one a stopped process left
    up, ended as the next one starts — is ended by what the provider still knows: the caller's leg,
    the conference by its name, and any leg dialled for the call that is still ringing or answered,
-   found by its numbers, from the number the call reached to the line it was forwarded from.
+   found by its numbers, from the number the user was rung from — the line's `dial_from`, or else the
+   number the call reached — to the line it was forwarded from.
 
 ### Whose call it is
 
@@ -196,7 +197,7 @@ For a deployment serving several countries, lines by region replace all of the a
 
 | Variable | Meaning |
 | --- | --- |
-| `TELEPHONY_LINES` | The lines, comma-separated, each `name:provider=twilio;regions=US;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`. `regions` is `US`, `IN`, several as `US\|IN`, or `*` for every region no other line serves. A region's users forward to its line's first number |
+| `TELEPHONY_LINES` | The lines, comma-separated, each `name:provider=twilio;regions=US;numbers=+E164\|+E164;account=id;app=id;webhook=https://host`, optionally followed by `;dial_from=+E164`. `regions` is `US`, `IN`, several as `US\|IN`, or `*` for every region no other line serves. A region's users forward to its line's first number, and are rung from `dial_from` when it is given (D-044) |
 | `TELEPHONY_LINE_AUTH_TOKENS` | Each line's auth token, `name:token`, comma-separated. Secrets, never logged |
 | `OTP_PROVIDER_BY_CALLING_CODE` | Who sends sign-in codes to a calling code, `91:twilio_verify`; everybody else gets `OTP_PROVIDER` |
 
@@ -227,12 +228,15 @@ with a test.
 1. **A number in the country.** Buy a voice number there on the provider account the line will use,
    and meet the country's own requirements for it (address and identity documents, local
    registration). Calls forwarded to a number abroad cost the user and delay the caller, which is the
-   reason for a line per country.
+   reason for a line per country. A number that can take calls but not place them in the country —
+   the provider's Indian numbers are toll-free, and cannot ring Indian phones — also needs a number
+   abroad on the same account to ring users from, given as the line's `dial_from` (D-044).
 2. **The line.** Create the provider-side application for it, and point the number and the
    application at `BASE/lines/in/...` as above.
 3. **Configuration.** Move the existing single account into `TELEPHONY_LINES` as its own line
    (`us:...;regions=US` or `regions=*`) — the two forms cannot be combined — add
-   `in:provider=twilio;regions=IN;numbers=+91...;account=...;app=...;webhook=https://...`, and both
+   `in:provider=twilio;regions=IN;numbers=+91...;account=...;app=...;webhook=https://...;dial_from=+1...`
+   (leave `dial_from` out when the Indian number can place calls), and both
    tokens to `TELEPHONY_LINE_AUTH_TOKENS`. A single line that moves under `/lines/<name>` needs its
    number and application repointed in the console at the same time.
 4. **Sign-in.** Add `91` to `OTP_ALLOWED_CALLING_CODES`. If the default text-message provider cannot
@@ -242,7 +246,8 @@ with a test.
    it in `SPEECH_VOICES`.
 6. **Check it.** Sign in with an Indian number: `GET /v1/me` names the Indian line's number and setup
    asks the forwarding step. Forward to it, call, and ask the assistant for the user: the user's
-   phone rings from the Indian number. A US user is still told, and rung from, the US number.
+   phone rings from the Indian number, or from `dial_from` when the line gives one. A US user is still
+   told, and rung from, the US number.
 
 **What an Indian provider adapter needs**, when the provider is not one this project has:
 
