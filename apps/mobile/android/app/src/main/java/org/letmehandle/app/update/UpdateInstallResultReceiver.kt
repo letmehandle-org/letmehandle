@@ -9,14 +9,7 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
 
-/**
- * Hears how an update install ended.
- *
- * The one status that needs action is pending user action: the platform will not install silently
- * (the first update of a browser-installed APK, Android before 12, or "install unknown apps" not yet
- * allowed), so its confirmation screen is shown. Not exported: only the installer session this app
- * committed can reach it, through the pending intent below.
- */
+/** Hears how an update install ended. */
 class UpdateInstallResultReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {

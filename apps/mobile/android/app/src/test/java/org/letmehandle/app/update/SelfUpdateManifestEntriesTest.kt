@@ -7,10 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Element
 
-/**
- * What the app as built declares for updating itself: the permission to install packages, and a
- * result receiver no other app can send to. Read from the merged manifest, like the audio guard.
- */
+/** What the app as built declares for updating itself. */
 class SelfUpdateManifestEntriesTest {
   private val manifest by lazy {
     val path = checkNotNull(System.getProperty("mergedManifest")) { "mergedManifest is set by the build" }
