@@ -1,10 +1,4 @@
-"""Signing in with a code the verification service made, over HTTP against a real database.
-
-One deployment, two countries: numbers with calling code 91 are sent and checked their code by the
-verification service, and every other number is texted a code the application made (D-041, D-042).
-Both providers talk to simulated APIs, and each code is read off the message the way a person reads
-it. What the service's failures become for somebody signing in is asserted here too.
-"""
+"""Sign-in over HTTP: +91 numbers by a verification service, others by text (D-041, D-042)."""
 
 from __future__ import annotations
 

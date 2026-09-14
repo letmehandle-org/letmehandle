@@ -1,10 +1,4 @@
-"""The real websocket connection, against a simulated service on a real socket.
-
-No database and no account: the service runs in this process on loopback. What these prove is
-the part the session above cannot see — that the handshake carries what it should, and that
-every way a websocket stops working arrives as one of two typed failures carrying the one fact
-reconnection needs.
-"""
+"""The websocket connection against a simulated service on loopback: handshake and failures."""
 
 from __future__ import annotations
 
@@ -268,12 +262,7 @@ async def test_a_malformed_frame_is_a_typed_failure_and_not_a_crash(
 
 @asynccontextmanager
 async def _not_a_websocket_server(reply: bytes | None) -> AsyncIterator[str]:
-    """A bare TCP server that answers a handshake wrongly, or never.
-
-    `None` holds the connection open and says nothing; anything else is written back and the
-    connection closed. The simulated service cannot misbehave at this level, because the library
-    it is built on will not let it.
-    """
+    """A bare TCP server that writes `reply` and closes, or holds silent when it is `None`."""
     held: list[asyncio.StreamWriter] = []
 
     async def answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -333,8 +322,7 @@ async def test_closing_leaves_nothing_running_on_either_side(
 
     for connection in connections:
         await connection.close()
-    # Bounded, because a connection that was never really closed would otherwise hang the suite
-    # rather than fail it.
+    # Bounded, so a connection that never closed fails the test instead of hanging it.
     async with asyncio.timeout(5):
         await service.wait_until_idle()
 
@@ -345,8 +333,7 @@ async def test_closing_leaves_nothing_running_on_either_side(
 async def test_debug_logging_never_prints_the_key_or_what_was_said(
     service: SimulatedRealtimeService,
 ) -> None:
-    # At debug the websocket library logs request headers and frame text: the key, and whatever
-    # a caller said. Debugging is exactly when a log gets pasted somewhere it should not go.
+    # At debug the websocket library logs headers and frame text, which carry the key and speech.
     captured = io.StringIO()
     configure_logging(make_settings(log_level="debug"))
     handler = logging.StreamHandler(captured)
@@ -365,8 +352,7 @@ async def test_debug_logging_never_prints_the_key_or_what_was_said(
 
 
 async def test_closing_is_prompt_when_the_service_has_stopped_reading() -> None:
-    # A service that stops reading fills the socket's buffers until a send cannot finish. Closing
-    # must still return promptly: it is what a cancelled call and a quitting harness wait on.
+    # Closing returns promptly even when the service has stopped reading and sends cannot finish.
     async def stops_reading(connection: ServerConnection) -> None:
         await connection.recv()
         await asyncio.sleep(60)

@@ -1,12 +1,4 @@
-"""The domain must not know who is providing anything.
-
-import-linter already proves the domain imports no vendor package. That is necessary and not
-sufficient: a vendor can be named in a string, a comment, an enum member or a docstring, and a
-branch written on one of those is exactly the coupling the import rule exists to prevent.
-
-This is the rule most likely to be broken by convenience — one small `if` for one small special
-case — and the one that costs the most to undo, because by then several of them exist.
-"""
+"""The domain names no provider in any string, comment, enum member or docstring."""
 
 from __future__ import annotations
 
@@ -17,8 +9,7 @@ import pytest
 
 DOMAIN = Path(__file__).resolve().parents[2] / "src" / "letmehandle" / "domain"
 
-# Concrete providers this project does or might integrate with. None of these belongs anywhere
-# under domain/: a provider is chosen in bootstrap and reached through a port.
+# Providers this project does or might integrate with; none belongs under domain/.
 PROVIDER_NAMES = (
     "twilio",
     "telnyx",
@@ -44,14 +35,9 @@ PROVIDER_NAMES = (
 # Words that would mean the domain is reasoning about a platform rather than a capability.
 PLATFORM_NAMES = ("android", "ios", "iphone", "callkit", "callscreeningservice")
 
-# One deliberate exception, stated with its reason rather than quietly excluded. A new
-# violation still fails; only these exact pairings are allowed, so widening the exemption is a
-# visible edit to this list.
+# The exact (file, name) pairings allowed, each with its reason.
 ALLOWED = {
-    # A device genuinely belongs to a platform, and a push has to be routed to the service
-    # that can reach it. That is not the domain branching on who is providing something; it
-    # is the domain describing what a device is. The notification port's own capability model
-    # decides what can be sent, not this.
+    # A device belongs to a platform, which describes the device rather than choosing a provider.
     ("ports/notification.py", "ios"),
     ("ports/notification.py", "android"),
     ("ports/notification.py", "apns"),
@@ -86,8 +72,7 @@ def test_no_domain_module_names_a_provider_or_a_platform(forbidden: str) -> None
 
 
 def test_the_check_would_catch_a_violation(tmp_path: Path) -> None:
-    # A test that has never been seen to fail is a test nobody has checked. This proves the
-    # search finds what it is looking for rather than passing because the pattern is wrong.
+    # The search finds a planted violation, so it cannot pass on a wrong pattern.
     planted = tmp_path / "planted.py"
     planted.write_text("if transport.name == 'twilio':\n    pass\n")
     assert re.search(r"\btwilio\b", planted.read_text(), re.IGNORECASE)

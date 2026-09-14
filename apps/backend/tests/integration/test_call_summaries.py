@@ -1,10 +1,4 @@
-"""Calls summarised end to end: the SDK loop, a scripted model, the real checks and fallback.
-
-Nothing between the model's words and the summary is replaced. The SDK presents the answer's schema
-as a tool, validates what comes back and tells the model why it was refused; the adapter turns the
-answer into a draft; the summariser checks it against the call, asks once more with what was wrong,
-and keeps a draft or falls back. Only what the model says is fixed.
-"""
+"""Calls summarised end to end: the SDK loop, a scripted model, the real checks and fallback."""
 
 from __future__ import annotations
 

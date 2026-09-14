@@ -1,8 +1,4 @@
-"""A request's writes are committed before it is answered.
-
-A client told a write succeeded reads it straight back, and a commit that fails must be a failed
-request rather than a success nobody hears was undone.
-"""
+"""A request's writes are committed before it is answered, and a failed commit fails the request."""
 
 from __future__ import annotations
 

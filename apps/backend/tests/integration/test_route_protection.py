@@ -1,9 +1,4 @@
-"""Every route the application has, checked for who may call it and how much it will read.
-
-Enumerated from the application rather than listed by hand. A list of routes to check is a list
-somebody forgets to extend; walking the application means a route added later is checked the
-moment it exists, and fails here unless it is signed-in or its exemption is written down.
-"""
+"""Every route the application has, checked for who may call it and how much body it reads."""
 
 from __future__ import annotations
 
@@ -54,17 +49,12 @@ def _application() -> FastAPI:
         default_voice_id=EXAMPLE_DEFAULT_VOICE,
         samples={EXAMPLE_DEFAULT_VOICE: VoiceSample(audio=b"sample", media_type="audio/mpeg")},
     )
-    # Handed the transport rather than configured with it: nothing here carries a call, so there
-    # is no storage for the orchestrator a configured transport would refuse to start without.
+    # Handed the transport, so the app starts without the storage a configured transport requires.
     return create_app(make_settings(), voices=voices, telephony=bindings)
 
 
 def _routes(app: FastAPI) -> Iterator[tuple[str, str, APIRoute, bool]]:
-    """Each method and full path the application answers, with its route and schema visibility.
-
-    Walked through the framework's own route contexts, which see into included routers and
-    carry the path with its prefix, the way the schema generator reads them.
-    """
+    """Each method and full path the application answers, with its route and schema visibility."""
     for context in iter_route_contexts(app.routes):
         route = context.original_route
         if isinstance(route, APIRoute):
@@ -85,9 +75,7 @@ def unprotected_routes(app: FastAPI) -> list[tuple[str, str]]:
     return [
         (method, path)
         for method, path, route, in_schema in _routes(app)
-        # Out of the schema are the telephony provider's callbacks alone. They carry no session:
-        # each is proved by the provider's signature in its handler before anything in it is
-        # read, which the transport's own suite covers route by route.
+        # Only the provider's callbacks are out of the schema, each verified by its signature.
         if in_schema and not _signed_in(route.dependant) and (method, path) not in EXEMPT
     ]
 
@@ -140,8 +128,7 @@ class TestBodyLimits:
     async def test_every_route_that_reads_a_body_refuses_an_oversized_one(
         self, everything: AsyncClient
     ) -> None:
-        # Refused before it is parsed and before anyone is authenticated: a body is read before
-        # either can happen, so a route without a cap holds whatever an anonymous client sends.
+        # A body is read before parsing and authentication, so every route accepting one caps it.
         accepting = [
             (method, path)
             for method, path, route, in_schema in _routes(_application())

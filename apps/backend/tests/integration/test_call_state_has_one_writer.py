@@ -1,11 +1,4 @@
-"""Only orchestration changes a call's state.
-
-The state machine is enforced by the call itself, but who may drive it is enforced here: the ledger
-is the one writer of a call, and the only code allowed to reach it is the orchestration package. An
-agent tool, an adapter or a route that moved a call would be a second owner of it, and a second
-owner is how two writers come to disagree about where a call is (D-029). Checked by reading the
-source, because the convenient import is exactly the one nobody notices in review.
-"""
+"""Only the orchestration package reaches the ledger that changes a call's state (D-029)."""
 
 from __future__ import annotations
 
@@ -40,12 +33,7 @@ def imported(tree: ast.Module) -> set[str]:
 
 
 def session_mutations(tree: ast.Module) -> list[int]:
-    """Lines moving a call, or putting a participant on or off one.
-
-    Participants are told apart from the bridging port's operations of the same names, which dial
-    and hang up legs and change no call, by what they are given: a call's participant is a
-    `ParticipantRole` of the call model.
-    """
+    """Lines moving a call or putting a call's `ParticipantRole` participant on or off it."""
     lines = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):

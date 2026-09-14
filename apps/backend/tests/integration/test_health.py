@@ -46,8 +46,7 @@ async def test_readiness_is_degraded_without_a_database(client: AsyncClient) -> 
 
 
 async def test_readiness_says_a_dependency_is_failing_without_being_taken_out_of_rotation() -> None:
-    # Every process shares the providers, so an open circuit here is open everywhere: readiness
-    # reports it and stays what the database makes it.
+    # Providers are shared by every process, so readiness reports an open circuit without failing.
     settings = make_settings()
     observability = build_observability(settings)
     app = create_app(settings, observability=observability)
@@ -125,20 +124,14 @@ async def test_documentation_is_available_outside_production(
 
 
 def test_documentation_is_not_served_in_production() -> None:
-    # Asserted on the application rather than by making a request: a production application
-    # with the default code provider does not start. See
-    # test_a_production_configuration_refuses_the_mock_provider.
+    # Asserted on the application, which refuses to start in production with the default provider.
     app = create_app(make_settings(app_env=Environment.PRODUCTION))
     assert app.docs_url is None
     assert app.openapi_url is None
 
 
 async def test_a_production_configuration_refuses_the_mock_provider() -> None:
-    """The application will not start in production with the mock provider.
-
-    A production deployment left on the default is refused loudly at startup rather than running
-    with a provider that would let anybody sign in as anybody.
-    """
+    """The application refuses to start in production with the mock code provider."""
     app = create_app(make_settings(app_env=Environment.PRODUCTION))
     with pytest.raises(InvariantError, match="cannot run in production"):
         async with app.router.lifespan_context(app):

@@ -1,11 +1,4 @@
-"""Whole calls, orchestrated: the simulated provider, PostgreSQL, echo speech and a scripted model.
-
-The orchestrator here is the one bootstrap builds, over the streaming transport on loopback, storing
-through real units of work with every caller, line and summary sealed. Only the speech service
-echoes and the model reads from a script; the SDK's agent loop, the tools, the escalation policy and
-the conclusion all run for real. Each flow ends by counting what is left: calls held by the
-transport, media sockets, runs.
-"""
+"""Orchestrated calls: the simulated provider, PostgreSQL, echo speech and a scripted model."""
 
 from __future__ import annotations
 
@@ -481,8 +474,7 @@ async def test_a_restart_ends_the_users_phone_still_ringing_for_a_call_left_runn
         await running.reaches(CallState.HUMAN_RINGING)
         await running.deployment.settle()
 
-        # The process that dialled her stops hearing anything, as a stopped process does, and the
-        # one started after it, which holds nothing about the call, ends it.
+        # The dialling process stops hearing anything, and a freshly started one ends the call.
         running.provider.hold()
         (successor,) = build_call_transports(
             telephony_settings(),

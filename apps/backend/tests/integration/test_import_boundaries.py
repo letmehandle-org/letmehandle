@@ -8,22 +8,13 @@ from pathlib import Path
 
 import pytest
 
-# The whole architecture rests on the domain layer importing nothing from outside itself
-# (D-003). A contract file that is never seen to fail is a contract nobody has checked: it can
-# be silently misconfigured — wrong package name, wrong option — and go on reporting success.
-# So this test breaks the rule on purpose and asserts that the build notices.
-
 BACKEND = Path(__file__).resolve().parents[2]
 DOMAIN = BACKEND / "src" / "letmehandle" / "domain"
 VIOLATION = DOMAIN / "_boundary_violation_fixture.py"
 
 
 def run_contracts() -> subprocess.CompletedProcess[str]:
-    """Run import-linter exactly as ``make verify`` does.
-
-    The console script, not ``python -m importlinter``: the module entry point exits zero
-    whatever it finds, which would make this test pass while proving nothing.
-    """
+    """Runs import-linter through its console script, which exits non-zero on a broken contract."""
     executable = shutil.which("lint-imports")
     assert executable is not None, "lint-imports is not installed; run uv sync --all-extras"
     # The executable comes from shutil.which, not from anything a caller supplies.
