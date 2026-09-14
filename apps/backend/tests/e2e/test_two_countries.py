@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -43,8 +44,11 @@ from tests.support.simulated_twilio import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from letmehandle.application.agent.ports import CallActions
     from letmehandle.application.orchestration.ports import CallJudging
+    from letmehandle.bootstrap import CallTransportBinding
     from tests.e2e.harness import Pushes
 
 pytestmark = pytest.mark.integration
@@ -69,9 +73,31 @@ def said(text: str) -> TranscriptProduced:
     return TranscriptProduced(text, speaker_is_caller=True, is_final=True)
 
 
-async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own_line(
-    database: str, pushes: Pushes
-) -> None:
+@dataclass(frozen=True, slots=True)
+class TwoLines:
+    """A running deployment with a US and an India line, each at a simulated account."""
+
+    us: SimulatedTwilio
+    india: SimulatedTwilio
+    bindings: tuple[CallTransportBinding, ...]
+    system: System
+    api: AppClient
+    speech: EchoSpeechProvider
+
+    async def released(self) -> None:
+        """Both accounts settled, and nothing any call started is left."""
+        for provider, binding in zip((self.us, self.india), self.bindings, strict=True):
+            transport = binding.transport
+            assert isinstance(transport, TwilioCallTransport)
+            await provider.settle(transport)
+            assert transport.active_calls == 0
+            assert transport.open_media_sockets == 0
+        await self.system.released()
+
+
+@asynccontextmanager
+async def two_lines(database: str, lines: str, model: ScriptedModel) -> AsyncIterator[TwoLines]:
+    """The app serving `lines`, with the US and India accounts calling it back."""
     us = SimulatedTwilio(
         account="account-us", token="token-us", number=US_LINE, path_prefix="/lines/us"
     )
@@ -82,7 +108,7 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
         database_url=database,
         log_level="info",
         transcript_encryption_keys=TEST_TRANSCRIPT_KEYS,
-        telephony_lines=LINES,
+        telephony_lines=lines,
         telephony_line_auth_tokens="us:token-us,in:token-in",
     )
     observability = replace(build_observability(settings), tracer=RecordingTracer())
@@ -93,7 +119,6 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
         http_transport=one_api_for(us, india),
     )
     voices = build_voice_provider(settings)
-    model = ScriptedModel([WANTS_THE_USER, WANTS_THE_USER])
     speech = EchoSpeechProvider()
 
     def judging(actions: CallActions) -> CallJudging:
@@ -111,67 +136,66 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
         india.attach(url)
         api = AppClient(app, url)
         try:
-            system = System(app, api)
-            american = await a_user(system, preferences=call_handling())
-            indian = await api.sign_in(IN_USERS_LINE)
-            await api.configure(indian, call_handling())
-
-            # Setup tells each of them the number in their own country.
-            for account, line in ((american, US_LINE), (indian, IN_LINE)):
-                profile = await api.http.get("/v1/me", headers=account.headers)
-                assert profile.json()["call_forwarding"] == {"number": line.value}
-
-            us.answering[USERS_LINE] = Answering.ANSWERS
-            india.answering[IN_USERS_LINE] = Answering.ANSWERS
-            # The Indian call arrives once the American one has its session; both stay live.
-            await us.place_call("CAsim-us-call", CALLER, forwarded_from=american.number)
-            await system.reaches(american, "CAsim-us-call", CallState.AGENT_HANDLING)
-            await eventually(lambda: len(speech.sessions) == 1, seconds=PATIENCE_SECONDS)
-            await india.place_call("CAsim-in-call", IN_CALLER, forwarded_from=indian.number)
-            await system.reaches(indian, "CAsim-in-call", CallState.AGENT_HANDLING)
-            assert system.orchestrator.live_calls == 2
-
-            # Each caller asks for the user in turn, so each judgement is the one scripted.
-            await eventually(lambda: len(speech.sessions) == 2, seconds=PATIENCE_SECONDS)
-            first, second = speech.sessions
-            await first.emit(
-                TranscriptProduced("Is she there?", speaker_is_caller=True, is_final=True)
-            )
-            await system.joined_by_the_user(american, "CAsim-us-call")
-            await second.emit(
-                TranscriptProduced("Is he there?", speaker_is_caller=True, is_final=True)
-            )
-            await system.joined_by_the_user(indian, "CAsim-in-call")
-            assert system.orchestrator.live_calls == 2
-
-            # Each user was rung from the number in their own country, by their own line alone.
-            assert [(leg.from_, leg.to) for leg in us.legs.values() if leg.to == USERS_LINE] == [
-                (US_LINE.value, USERS_LINE)
-            ]
-            assert [
-                (leg.from_, leg.to) for leg in india.legs.values() if leg.to == IN_USERS_LINE
-            ] == [(IN_LINE.value, IN_USERS_LINE)]
-            assert not any(leg.to == IN_USERS_LINE for leg in us.legs.values())
-            assert not any(leg.to == USERS_LINE for leg in india.legs.values())
-
-            await us.caller_hangs_up("CAsim-us-call")
-            await india.caller_hangs_up("CAsim-in-call")
-            us_detail = await system.ended(american, "CAsim-us-call")
-            in_detail = await system.ended(indian, "CAsim-in-call")
-
-            assert (us_detail["outcome"], in_detail["outcome"]) == (
-                "handed_to_user",
-                "handed_to_user",
-            )
-            assert model.unused_steps == 0
-            for provider, binding in zip((us, india), bindings, strict=True):
-                transport = binding.transport
-                assert isinstance(transport, TwilioCallTransport)
-                await provider.settle(transport)
-                assert transport.active_calls == 0
-                assert transport.open_media_sockets == 0
-            await system.released()
+            yield TwoLines(us, india, tuple(bindings), System(app, api), api, speech)
         finally:
             await api.aclose()
             await us.close()
             await india.close()
+
+
+async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own_line(
+    database: str, pushes: Pushes
+) -> None:
+    model = ScriptedModel([WANTS_THE_USER, WANTS_THE_USER])
+    async with two_lines(database, LINES, model) as deployment:
+        us, india, system, api = deployment.us, deployment.india, deployment.system, deployment.api
+        speech = deployment.speech
+        american = await a_user(system, preferences=call_handling())
+        indian = await api.sign_in(IN_USERS_LINE)
+        await api.configure(indian, call_handling())
+
+        # Setup tells each of them the number in their own country.
+        for account, line in ((american, US_LINE), (indian, IN_LINE)):
+            profile = await api.http.get("/v1/me", headers=account.headers)
+            assert profile.json()["call_forwarding"] == {"number": line.value}
+
+        us.answering[USERS_LINE] = Answering.ANSWERS
+        india.answering[IN_USERS_LINE] = Answering.ANSWERS
+        # The Indian call arrives once the American one has its session; both stay live.
+        await us.place_call("CAsim-us-call", CALLER, forwarded_from=american.number)
+        await system.reaches(american, "CAsim-us-call", CallState.AGENT_HANDLING)
+        await eventually(lambda: len(speech.sessions) == 1, seconds=PATIENCE_SECONDS)
+        await india.place_call("CAsim-in-call", IN_CALLER, forwarded_from=indian.number)
+        await system.reaches(indian, "CAsim-in-call", CallState.AGENT_HANDLING)
+        assert system.orchestrator.live_calls == 2
+
+        # Each caller asks for the user in turn, so each judgement is the one scripted.
+        await eventually(lambda: len(speech.sessions) == 2, seconds=PATIENCE_SECONDS)
+        first, second = speech.sessions
+        await first.emit(said("Is she there?"))
+        await system.joined_by_the_user(american, "CAsim-us-call")
+        await second.emit(said("Is he there?"))
+        await system.joined_by_the_user(indian, "CAsim-in-call")
+        assert system.orchestrator.live_calls == 2
+
+        # Each user was rung from the number in their own country, by their own line alone.
+        assert [(leg.from_, leg.to) for leg in us.legs.values() if leg.to == USERS_LINE] == [
+            (US_LINE.value, USERS_LINE)
+        ]
+        assert [(leg.from_, leg.to) for leg in india.legs.values() if leg.to == IN_USERS_LINE] == [
+            (IN_LINE.value, IN_USERS_LINE)
+        ]
+        assert not any(leg.to == IN_USERS_LINE for leg in us.legs.values())
+        assert not any(leg.to == USERS_LINE for leg in india.legs.values())
+
+        await us.caller_hangs_up("CAsim-us-call")
+        await india.caller_hangs_up("CAsim-in-call")
+        us_detail = await system.ended(american, "CAsim-us-call")
+        in_detail = await system.ended(indian, "CAsim-in-call")
+
+        assert (us_detail["outcome"], in_detail["outcome"]) == (
+            "handed_to_user",
+            "handed_to_user",
+        )
+        assert model.unused_steps == 0
+        await deployment.released()
