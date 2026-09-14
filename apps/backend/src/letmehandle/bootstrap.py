@@ -478,6 +478,7 @@ def _line_binding(
                     app_id=line.app_id,
                     numbers=line.numbers,
                     path_prefix=_path_prefix(line),
+                    dial_from=line.dial_from,
                 ),
                 api=HttpTelephonyApi(
                     account_id=line.account_id,

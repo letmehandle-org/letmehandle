@@ -159,7 +159,8 @@ numbers, and the regions it serves; `regions=*` serves every region no other lin
   forwarding step; none of their calls can reach the deployment.
 - **One orchestrator.** It reads every line's events. A call keeps the line it arrived on: its plan
   comes from that transport, its owner from that line's ownership, and the user is dialled from that
-  line — a number in their own country — and the call ended there.
+  line — a number in their own country, or the line's `dial_from` when its numbers cannot place
+  calls there (D-044) — and the call ended there.
 - **Routes.** A line's callbacks are under `/lines/<name>`, and every URL its transport gives the
   provider carries the prefix, so two lines of one provider receive only their own callbacks. The
   line `TELEPHONY_PROVIDER` configures stays at the root.

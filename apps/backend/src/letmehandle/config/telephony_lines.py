@@ -23,7 +23,7 @@ class LineProviderName(StrEnum):
 # How TELEPHONY_LINES is written, quoted in every error about it.
 TELEPHONY_LINES_FORMAT: Final = (
     "name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
-    "webhook=https://host,name:..."
+    "webhook=https://host[;dial_from=+E164],name:..."
 )
 # How TELEPHONY_LINE_AUTH_TOKENS is written.
 LINE_TOKENS_FORMAT: Final = "name:token,name:token"
@@ -33,6 +33,10 @@ EVERY_REGION: Final = "*"
 # A line's name is a path segment, so it needs no escaping anywhere.
 _LINE_NAME: Final = re.compile(r"[a-z][a-z0-9-]{0,15}")
 _KEYS: Final = frozenset({"provider", "regions", "numbers", "account", "app", "webhook"})
+# Keys a line may leave out.
+_OPTIONAL_KEYS: Final = frozenset({"dial_from"})
+# Providers whose lines can ring users from a number of the account other than the line's own.
+DIALS_FROM_ANOTHER_NUMBER: Final = frozenset({LineProviderName.TWILIO})
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +51,8 @@ class TelephonyLine:
     numbers: tuple[PhoneNumber, ...]
     app_id: str
     webhook_base_url: str
+    # The number users are rung from, when it is not the number the call reached (D-044).
+    dial_from: PhoneNumber | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +66,7 @@ class LineDescription:
     account_id: str
     app_id: str
     webhook_base_url: str
+    dial_from: PhoneNumber | None = None
 
     def with_token(self, auth_token: str) -> TelephonyLine:
         """The line, complete."""
@@ -72,6 +79,7 @@ class LineDescription:
             numbers=self.numbers,
             app_id=self.app_id,
             webhook_base_url=self.webhook_base_url,
+            dial_from=self.dial_from,
         )
 
 
@@ -117,10 +125,10 @@ def _line(position: int, entry: str) -> LineDescription:
     pairs: dict[str, str] = {}
     for item in entries(body, ";"):
         key, equals, value = (part.strip() for part in item.partition("="))
-        if not equals or key not in _KEYS or not value:
+        if not equals or key not in _KEYS | _OPTIONAL_KEYS or not value:
             raise ValueError(
                 f"TELEPHONY_LINES line {name!r} has an entry that is not one of "
-                f"{', '.join(sorted(_KEYS))} with a value"
+                f"{', '.join(sorted(_KEYS | _OPTIONAL_KEYS))} with a value"
             )
         if key in pairs:
             raise ValueError(f"TELEPHONY_LINES line {name!r} gives {key} more than once")
@@ -128,14 +136,16 @@ def _line(position: int, entry: str) -> LineDescription:
     missing = sorted(_KEYS - set(pairs))
     if missing:
         raise ValueError(f"TELEPHONY_LINES line {name!r} does not give {', '.join(missing)}")
+    provider = _provider(name, pairs["provider"])
     return LineDescription(
         name=name,
-        provider=_provider(name, pairs["provider"]),
+        provider=provider,
         regions=_regions(name, pairs["regions"]),
         numbers=_numbers(name, pairs["numbers"]),
         account_id=pairs["account"],
         app_id=pairs["app"],
         webhook_base_url=_webhook(name, pairs["webhook"]),
+        dial_from=_dial_from(name, provider, pairs.get("dial_from")),
     )
 
 
@@ -169,6 +179,22 @@ def _numbers(name: str, value: str) -> tuple[PhoneNumber, ...]:
                 "in E.164 form"
             ) from None
     return tuple(numbers)
+
+
+def _dial_from(name: str, provider: LineProviderName, value: str | None) -> PhoneNumber | None:
+    if value is None:
+        return None
+    if provider not in DIALS_FROM_ANOTHER_NUMBER:
+        raise ValueError(
+            f"TELEPHONY_LINES line {name!r} gives dial_from, which its provider cannot ring "
+            "users from"
+        )
+    try:
+        return PhoneNumber.parse(value)
+    except InvariantError:
+        raise ValueError(
+            f"TELEPHONY_LINES line {name!r} dial_from is not an international number in E.164 form"
+        ) from None
 
 
 def _webhook(name: str, value: str) -> str:

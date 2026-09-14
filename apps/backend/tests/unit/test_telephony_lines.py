@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from letmehandle.config import telephony_lines
 from letmehandle.config.settings import ConfigurationError, Settings, TelephonyProviderName
 from letmehandle.config.telephony_lines import (
     LineProviderName,
@@ -68,6 +69,22 @@ class TestParsing:
         assert both.regions == frozenset({US, IN})
         assert anywhere.regions is None
 
+    def test_a_line_rings_users_from_its_own_number_unless_it_gives_dial_from(self) -> None:
+        (own,) = parse_telephony_lines(entry())
+        (abroad,) = parse_telephony_lines(entry(dial_from="+12025550142"))
+
+        assert own.dial_from is None
+        assert abroad.dial_from == PhoneNumber.parse("+12025550142")
+        assert abroad.with_token("token-in").dial_from == PhoneNumber.parse("+12025550142")
+
+    def test_dial_from_is_refused_on_a_provider_that_cannot_ring_from_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(telephony_lines, "DIALS_FROM_ANOTHER_NUMBER", frozenset())
+        with pytest.raises(ValueError, match="line 'in' gives dial_from") as failure:
+            parse_telephony_lines(entry(dial_from="+12025550142"))
+        assert "2025550142" not in str(failure.value)
+
     @pytest.mark.parametrize(
         ("text", "problem"),
         [
@@ -82,6 +99,8 @@ class TestParsing:
             (entry(regions="GB"), "no telephony region is called 'GB'"),
             (entry(numbers="+91555010|2025550143"), "number 2 is not an international number"),
             (entry(webhook="ftp://calls.example.com"), "webhook that is not an http URL"),
+            (entry(dial_from="2025550143"), "dial_from is not an international number"),
+            (entry() + ";dial_from=", "is not one of"),
             (entry(webhook="https://calls.example.com/?a=b"), "query or a fragment"),
             (f"{IN_ENTRY},{IN_ENTRY}", "names the same line more than once"),
             (f"{IN_ENTRY},{entry(regions='IN').replace('in:', 'india:')}", "region IN"),

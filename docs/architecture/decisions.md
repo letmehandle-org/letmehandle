@@ -1003,6 +1003,10 @@ and a `LineProviderName` member with a case in bootstrap for calls, and an `OTPP
 an `OTPProviderName` member and a case in bootstrap for texts. The checklist is in
 [`docs/providers/call-transport.md`](../providers/call-transport.md#serving-another-country).
 
+**Amended by D-044: a line may ring users from another number.** Where a country's numbers on the
+provider cannot place calls there, the line names a number of the same account to ring users from.
+Users still forward to the line's own number.
+
 ## D-042 — A provider may own the sign-in code where a country's delivery rules require it
 
 **Accepted.** Amends D-037 and D-041. The application normally makes the sign-in code, hashes it and
@@ -1114,3 +1118,36 @@ would refuse the update anyway.
 - A store release (Google Play, and the App Store for iOS) replaces this when the app is ready for
   one. The version code stays under Google Play's limit of 2100000000 so the same codes carry over;
   store builds would be given no manifest address.
+
+## D-044 — A line may ring its users from a number other than its own
+
+**Accepted.** Amends D-041. A telephony line may give `dial_from=+E164`, a number on the same
+provider account, and a user escalated to on that line is rung from it instead of from the number
+the call reached. A line without it behaves exactly as D-041 says.
+
+The provider's Indian numbers are toll-free. They take calls, which is all forwarding needs, but
+cannot place a call to an Indian phone; outbound calls there have to come from a number abroad. An
+India line under D-041 alone could answer every forwarded call and never ring the user, so the
+escalation that is the product's reason to answer would always fail. A second provider for India
+would mean a transport nobody has written; a number of the same account abroad needs only
+configuration.
+
+**What changes.**
+
+- `TELEPHONY_LINES` accepts an optional `dial_from` key per line. Startup refuses one that is not an
+  international number in E.164 form, and one given to a line whose provider cannot ring users from
+  it, naming `TELEPHONY_LINES`, the line and the key, and never the value.
+- The streaming transport uses it as the caller id of every user leg. The assistant's leg is an
+  application destination, not a phone, and keeps the number the call reached.
+- A restart ending a call a stopped process left (D-041) looks for the user's leg from `dial_from`,
+  since that is where it was dialled from.
+- The number users forward to is unchanged: still the first of the line's own `numbers`.
+
+**Consequences.**
+
+- An Indian user sees a number abroad when the assistant hands them a call, not a number in their
+  own country as D-041 intended, and may not recognise it until they have saved it.
+- Each such ring is an international call on the account, billed at the provider's rate for it.
+- That the number belongs to the same account is not checked at startup, which would need a request
+  to the provider before the process can serve. A number the account does not own is refused by the
+  provider at the first dial, which is reported as the user's leg failing.

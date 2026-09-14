@@ -107,6 +107,8 @@ class TwilioConfig:
     app_id: str
     numbers: tuple[PhoneNumber, ...]
     path_prefix: str = ""
+    # The number of the account users are rung from, instead of the number the call reached (D-044).
+    dial_from: PhoneNumber | None = None
 
     def __post_init__(self) -> None:
         if not self.numbers:
@@ -620,7 +622,7 @@ class TwilioCallTransport(CallTransport):
     ) -> None:
         request = ParticipantRequest(
             to=target,
-            from_=call.from_number.value,
+            from_=self._caller_id_for(call, leg.role).value,
             label=leg.label,
             status_callback_url=self._callback_url(LEG_PATH, call, leg),
             conference_status_callback_url=self._callback_url(CONFERENCE_PATH, call),
@@ -797,12 +799,13 @@ class TwilioCallTransport(CallTransport):
             raise failures[0]
 
     async def _end_dialled_for(self, call_id: CallId) -> None:
-        """End legs from the number the call reached to the line that forwarded it (D-033)."""
+        """End legs from the number users are rung from to the line that forwarded it (D-033)."""
         found = await self._api.find_call(call_id.value)
         line = None if found is None else _number_or_none(found.forwarded_from)
         if found is None or line is None:
             return
-        await self._api.end_calls_between(self._number_to_call_from(found.to).value, line.value)
+        dialled_from = self._config.dial_from or self._number_to_call_from(found.to)
+        await self._api.end_calls_between(dialled_from.value, line.value)
 
     def _ended_by_provider(self, call: _Call, reason: str) -> None:
         self._emit(CallEventKind.ENDED, call, "ended", detail=reason)
@@ -900,6 +903,12 @@ class TwilioCallTransport(CallTransport):
         if call is None:
             raise ProviderError(PROVIDER, "no such call is in progress", retryable=False)
         return call
+
+    def _caller_id_for(self, call: _Call, role: ParticipantRole) -> PhoneNumber:
+        """A user is rung from the line's dial_from when it has one; the assistant never is."""
+        if role is ParticipantRole.USER and self._config.dial_from is not None:
+            return self._config.dial_from
+        return call.from_number
 
     def _number_to_call_from(self, called: str | None) -> PhoneNumber:
         dialled = _number_or_none(called)

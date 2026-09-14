@@ -28,15 +28,17 @@ from tests.unit.adapters.transport.test_twilio_transport import RecordingApi
 LEFT_RUNNING = CallId("CAsim-left-running")
 OUR_NUMBER = PhoneNumber.parse("+12025550100")
 USERS_LINE = PhoneNumber.parse("+12025550143")
+RINGS_FROM = PhoneNumber.parse("+12025550101")
 STARTED = datetime(2026, 6, 1, 11, 0, tzinfo=UTC)
 
 
-def a_new_process(api: RecordingApi) -> TwilioCallTransport:
+def a_new_process(api: RecordingApi, dial_from: PhoneNumber | None = None) -> TwilioCallTransport:
     return TwilioCallTransport(
         config=TwilioConfig(
             account_id="account-for-tests",
             app_id="app-for-tests",
             numbers=(OUR_NUMBER,),
+            dial_from=dial_from,
         ),
         api=api,
         verifier=SignatureVerifier(
@@ -133,6 +135,18 @@ async def test_a_call_that_reached_a_number_not_configured_is_ended_from_the_fir
         await transport.close()
 
     assert api.ended_between == [(OUR_NUMBER.value, USERS_LINE.value)]
+
+
+async def test_a_line_with_dial_from_ends_the_users_phone_rung_from_it() -> None:
+    api = RecordingApi()
+    api.found = CallRecord(to=OUR_NUMBER.value, forwarded_from=USERS_LINE.value)
+    transport = a_new_process(api, dial_from=RINGS_FROM)
+    try:
+        await transport.terminate(LEFT_RUNNING)
+    finally:
+        await transport.close()
+
+    assert api.ended_between == [(RINGS_FROM.value, USERS_LINE.value)]
 
 
 @pytest.mark.parametrize(

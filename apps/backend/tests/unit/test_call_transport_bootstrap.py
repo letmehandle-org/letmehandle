@@ -265,6 +265,11 @@ def test_each_region_is_told_its_own_lines_number() -> None:
     )
 
 
+def test_a_line_that_rings_users_from_another_number_is_still_forwarded_to_its_own() -> None:
+    lines = LINES_BY_REGION + ";dial_from=+12025550101"
+    assert forwarding_for(lines_settings(lines)).by_region[IN] == PhoneNumber.parse("+91555010")
+
+
 def test_a_line_for_every_region_is_the_number_for_everyone_without_one() -> None:
     lines = LINES_BY_REGION.replace("regions=US", "regions=*")
     assert forwarding_for(lines_settings(lines)) == ForwardingNumbers(

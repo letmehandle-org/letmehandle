@@ -661,7 +661,8 @@ class Settings(BaseSettings):
             description="Telephony lines by region, instead of `TELEPHONY_PROVIDER` and its "
             "account: `name:provider=twilio;regions=US|IN;numbers=+E164|+E164;account=id;app=id;"
             "webhook=https://host`, comma-separated. `regions=*` serves every region no other "
-            "line does. A line's callbacks are under `/lines/<name>` (D-041).",
+            "line does. A line's callbacks are under `/lines/<name>` (D-041). `dial_from=+E164`, "
+            "optional, is a number on the same account users are rung from instead (D-044).",
         ),
     ] = None
     telephony_line_auth_tokens: Annotated[
