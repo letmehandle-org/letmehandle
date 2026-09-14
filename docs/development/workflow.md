@@ -68,6 +68,33 @@ tag without a release does the same, and creates the release from the changelog.
 whose version the backend does not declare, and a version with no notes in the changelog. Nothing is
 tagged `latest`: moving to a new release should be a choice.
 
+### The Android app
+
+The same workflow builds the Android app and attaches `letmehandle-android.apk` and
+`letmehandle-android.json` to the release (D-043). The latest APK is always at
+`https://github.com/<owner>/<repository>/releases/latest/download/letmehandle-android.apk`, and apps
+installed from a release update themselves from the manifest beside it. The job fails, naming what
+is missing, unless the repository has:
+
+| Kind | Name | What it holds |
+| --- | --- | --- |
+| Secret | `ANDROID_RELEASE_KEYSTORE_BASE64` | The release keystore, base64-encoded: `base64 -i release.jks` |
+| Secret | `ANDROID_RELEASE_KEYSTORE_PASSWORD` | The keystore's password |
+| Secret | `ANDROID_RELEASE_KEY_ALIAS` | The alias of the signing key in it |
+| Secret | `ANDROID_RELEASE_KEY_PASSWORD` | The key's password |
+| Variable | `ANDROID_API_BASE_URL` | The production backend the released app talks to, an https URL |
+
+The release key signs every APK there will ever be: an app signed with another key cannot update an
+installed one. Keep a copy of the keystore and its passwords outside GitHub. A keystore is never
+committed; `.gitignore` refuses `*.keystore` and `*.jks`.
+
+To build a release APK locally, set `LMH_ANDROID_KEYSTORE_FILE`, `LMH_ANDROID_KEYSTORE_PASSWORD`,
+`LMH_ANDROID_KEY_ALIAS` and `LMH_ANDROID_KEY_PASSWORD`, then run
+`./gradlew assembleRelease -PlmhVersionName=2026.9.14 -PlmhVersionCode=2026091400` in
+`apps/mobile/android`. Without those variables the release build is signed with the debug key.
+`-PlmhUpdateManifestUrl=https://...` switches self-update on; leave it out of any build that is not
+a published release.
+
 ## Versioning
 
 Versions are release dates, as many open-source projects now use, because a date says at a glance

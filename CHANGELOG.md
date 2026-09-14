@@ -21,6 +21,10 @@ taken from that section.
 
 ### Added
 
+- Each release carries the Android app as `letmehandle-android.apk`, signed with the release key and
+  pointed at the production backend, and an app installed from it updates itself to later releases
+  (D-043). The release workflow needs four secrets and one variable, listed in
+  [`docs/development/workflow.md`](docs/development/workflow.md#the-android-app).
 - A third speech adapter, for GPT-Live, chosen with `SPEECH_PROVIDER=gpt_live` (D-040).
 - A sign-in code provider whose verification service makes, sends and checks the code,
   `twilio_verify`, with `SMS_VERIFY_SERVICE_ID`. `OTP_PROVIDER_BY_CALLING_CODE=91:twilio_verify` uses

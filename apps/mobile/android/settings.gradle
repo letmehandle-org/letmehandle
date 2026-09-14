@@ -1,7 +1,8 @@
 // Resolves React Native packages through node, since pnpm installs them at the repository root; includeBuild takes a String.
 pluginManagement {
-    def resolvePackage = { String name ->
-        def script = "require('path').dirname(require.resolve('${name}/package.json'))"
+    def resolvePackage = { String name, String from = null ->
+        def paths = from == null ? "" : ", { paths: [${groovy.json.JsonOutput.toJson(from)}] }"
+        def script = "require('path').dirname(require.resolve('${name}/package.json'${paths}))"
         def process = ["node", "--print", script].execute()
         def located = process.text.trim()
         process.waitFor()
@@ -15,6 +16,9 @@ pluginManagement {
 
     gradle.ext.reactNativeGradlePlugin = resolvePackage("@react-native/gradle-plugin")
     gradle.ext.reactNativeDir = new File(resolvePackage("react-native"))
+    // React Native's own dependency, so found from it. Only a release build compiles JavaScript
+    // ahead of time, which is why a debug build never missed it.
+    gradle.ext.hermesCompilerDir = new File(resolvePackage("hermes-compiler", gradle.ext.reactNativeDir.path))
 
     includeBuild(gradle.ext.reactNativeGradlePlugin)
 }
