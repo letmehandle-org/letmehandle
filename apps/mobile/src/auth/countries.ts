@@ -1,11 +1,4 @@
-/**
- * The countries a number can be entered for, and what a whole number looks like in each.
- *
- * A short list on purpose, and each rule is the national significant number — what is left once
- * the country code and any trunk `0` are gone. The backend accepts any E.164 number (it cannot
- * know every plan either), so these rules exist to catch a digit too many or too few before a code
- * is sent to a number that cannot receive it, not to decide who may sign up.
- */
+/** The countries a number can be entered for and the national number rules each one checks. */
 
 export type CountryCode =
   | 'IN'
@@ -35,7 +28,7 @@ export interface Country {
 }
 
 export const COUNTRIES: readonly Country[] = [
-  // Mobile numbers, which are what a phone that can forward calls has: ten digits from 6 to 9.
+  // Mobile numbers: ten digits starting 6 to 9.
   {
     code: 'IN',
     dial: '91',
@@ -135,12 +128,7 @@ export interface DeviceHints {
   readonly locale?: string | null;
 }
 
-/**
- * The country to start from: the network the phone is on, else the region it is set to.
- *
- * The network is where the phone actually is; the language setting is only where its owner said
- * they are from. Neither needs a permission, which asking for a location to fill one field would.
- */
+/** The country to start from: the network's, else the locale's region, else the default. */
 export function detectCountry(hints: DeviceHints): CountryCode {
   const fromNetwork = countryFor(hints.network);
   if (fromNetwork !== undefined) {
@@ -159,12 +147,7 @@ export function nationalDigits(typed: string): string {
 
 export type NumberProblem = 'short' | 'long' | 'start' | null;
 
-/**
- * What is wrong with these digits for this country, or null when they are a whole number.
- *
- * How a number starts is judged from its fourth digit on, which is the longest prefix any rule
- * here reads: earlier than that, a number that is merely unfinished would be called wrong.
- */
+/** What is wrong with these digits, or null; the start is judged from the fourth digit on. */
 export function numberProblem(country: Country, digits: string): NumberProblem {
   const [shortest, longest] = country.digits;
   if (digits.length > longest) {
@@ -197,12 +180,7 @@ export function grouped(country: Country, digits: string): string {
   return parts.join(' ');
 }
 
-/**
- * A number pasted or autofilled with its country code, split into the two.
- *
- * Longest calling code first, so `+971…` is the Emirates rather than a country coded `9`. Where
- * two countries share a code, as the United States and Canada do, the one already chosen is kept.
- */
+/** A pasted international number split into country and digits, longest calling code first. */
 export function splitInternational(
   typed: string,
   current: Country,

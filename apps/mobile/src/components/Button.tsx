@@ -23,16 +23,7 @@ const INK: Record<Variant, string> = {
   danger: theme.colour.warning,
 };
 
-/**
- * The one button, in four voices.
- *
- * Primary is the single thing a screen wants done; ghost is a real alternative; quiet is a way
- * out; danger destroys something and is never violet, so deleting never looks like the brand.
- *
- * `busy` is separate from `disabled` because they mean different things to somebody looking at
- * the screen: one is "wait", the other is "you cannot do this yet". A single flag would make
- * every slow action look like a broken one.
- */
+/** The one button: primary, ghost, quiet or danger, with busy distinct from disabled. */
 export function Button({
   label,
   onPress,

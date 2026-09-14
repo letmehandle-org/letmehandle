@@ -13,12 +13,7 @@ interface Props {
   readonly onDone: () => void;
 }
 
-/**
- * The end of setup.
- *
- * A voice is already chosen, so nothing more is asked; the chip says which one, so somebody who
- * cares knows it exists and can change it later in Personalise.
- */
+/** The end of setup, naming the voice already chosen. */
 export function SetupDoneScreen({ onDone }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { state } = useVoiceSettings();

@@ -1,11 +1,4 @@
-/**
- * Saving a change the moment it is made, and saying so when it is refused.
- *
- * The design has no save buttons: a switch is moved and that is the change. The provider already
- * shows the change before the server confirms it and puts it back if refused; what is left for a
- * screen is to tell the user, because a control that springs back with no word reads as the app
- * losing their work.
- */
+/** Saves a change as it is made and says why when it is refused. */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,12 +17,12 @@ export function useImmediateSave(): ImmediateSave {
   const { t } = useTranslation();
   const { save: store } = usePreferences();
   const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(0);
 
   const save = useCallback(
     (changes: PreferencesUpdate): void => {
       setProblem(null);
-      setBusy(true);
+      setSaving(count => count + 1);
       store(changes)
         .catch((error: unknown) => {
           setProblem(
@@ -37,11 +30,11 @@ export function useImmediateSave(): ImmediateSave {
           );
         })
         .finally(() => {
-          setBusy(false);
+          setSaving(count => count - 1);
         });
     },
     [store, t],
   );
 
-  return { problem, busy, save };
+  return { problem, busy: saving > 0, save };
 }

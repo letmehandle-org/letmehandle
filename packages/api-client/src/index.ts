@@ -1,10 +1,4 @@
-/**
- * The backend's wire types, named.
- *
- * `schema.ts` is generated and unreadable by design. These aliases are the readable surface:
- * they name the handful of shapes the app actually uses, so a screen imports `TokenPair`
- * rather than reaching into a generated path that changes shape whenever the generator does.
- */
+/** Readable names for the backend's generated wire types. */
 import type { components, paths } from './schema';
 
 export type { components, paths };
@@ -62,17 +56,15 @@ export type Escalation = Schemas['EscalationContextResponse'];
 export type EscalationReason = Schemas['EscalationReason'];
 export type Privacy = Schemas['PrivacyPayload'];
 
-/**
- * The machine-readable codes the API returns with a failure.
- *
- * A client branches on these. The message beside them is for a person and will be rewritten,
- * so anything that parses one has turned prose into an interface.
- */
+/** The machine-readable codes the API returns with a failure; clients branch on these, never on messages. */
 export const ERROR_CODES = {
   invalidRequest: 'invalid_request',
   invalidCredentials: 'invalid_credentials',
   notAuthenticated: 'not_authenticated',
   rateLimited: 'rate_limited',
+  unservedCountry: 'unserved_country',
+  transcriptPurged: 'transcript_purged',
+  transcriptNotRecorded: 'transcript_not_recorded',
   databaseUnavailable: 'database_unavailable',
   internal: 'internal_error',
 } as const;

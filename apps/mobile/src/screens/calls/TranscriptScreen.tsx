@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { TranscriptLine } from '@letmehandle/api-client';
+import { ERROR_CODES, type TranscriptLine } from '@letmehandle/api-client';
 
 import { ApiError } from '../../api/errors';
 import { describeFailure } from '../../api/messages';
@@ -13,7 +13,7 @@ import { Icon } from '../../components/icon/Icon';
 import { Notice } from '../../components/Notice';
 import { Screen } from '../../components/Screen';
 import { dayAndMonth } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { usePreferences } from '../../preferences/PreferencesProvider';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
@@ -24,12 +24,7 @@ interface Props {
   readonly onOpenPrivacy: () => void;
 }
 
-/**
- * What was said, in the order it was said, and when it goes.
- *
- * Purged and never recorded are different answers and each gets its own: deletion is the user's
- * retention working, not something missing, and a call nobody spoke on never had words to keep.
- */
+/** What was said, in order, with purged and never-recorded shown as their own answers. */
 export function TranscriptScreen({
   callId,
   onBack,
@@ -46,7 +41,6 @@ export function TranscriptScreen({
     loaded.state === 'failed' && loaded.error instanceof ApiError
       ? loaded.error.code
       : null;
-  const days = preferences.privacy?.transcript_retention_days ?? 7;
 
   return (
     <Screen
@@ -59,13 +53,13 @@ export function TranscriptScreen({
         <ActivityIndicator color={theme.colour.accent} style={styles.loading} />
       )}
 
-      {code === 'transcript_purged' && (
+      {code === ERROR_CODES.transcriptPurged && (
         <View style={styles.gone} testID="transcript-purged">
           <Disc icon="clock" tone="quiet" size={72} />
           <Text style={styles.goneText}>
-            {days === 1
-              ? t('transcript.purgedOne')
-              : t('transcript.purged', { days })}
+            {t('transcript.purged', {
+              count: preferences.privacy.transcript_retention_days,
+            })}
           </Text>
           <Button
             label={t('transcript.backToSummary')}
@@ -80,15 +74,15 @@ export function TranscriptScreen({
           />
         </View>
       )}
-      {code === 'transcript_not_recorded' && (
+      {code === ERROR_CODES.transcriptNotRecorded && (
         <View style={styles.gone} testID="transcript-not-recorded">
           <Disc icon="mic" tone="quiet" size={72} />
           <Text style={styles.goneText}>{t('transcript.notRecorded')}</Text>
         </View>
       )}
       {loaded.state === 'failed' &&
-        code !== 'transcript_purged' &&
-        code !== 'transcript_not_recorded' && (
+        code !== ERROR_CODES.transcriptPurged &&
+        code !== ERROR_CODES.transcriptNotRecorded && (
           <>
             <Notice
               tone="problem"
@@ -135,9 +129,10 @@ function Line({ line }: { readonly line: TranscriptLine }): React.JSX.Element {
     <View
       style={styles.line}
       accessible
-      accessibilityLabel={`${t(`transcript.speaker.${line.speaker}`)}: ${
-        line.text
-      }`}
+      accessibilityLabel={t('common.labelled', {
+        label: t(`transcript.speaker.${line.speaker}`),
+        value: line.text,
+      })}
       testID={`transcript-line-${line.speaker}`}
     >
       <View style={styles.who}>

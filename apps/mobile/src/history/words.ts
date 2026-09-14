@@ -1,9 +1,4 @@
-/**
- * The words a call is described in, from the translations.
- *
- * Beside `presentation.ts` rather than inside it, because these need a translator and those do
- * not, and keeping them apart keeps the pure choices testable without one.
- */
+/** The words a call is described in, from the translations. */
 import type { TFunction } from 'i18next';
 
 import type { Caller, CallSummary } from '@letmehandle/api-client';
@@ -50,5 +45,7 @@ export function listLine(call: CallSummary, t: TFunction): string {
     call.status === 'in_progress' || call.outcome === 'rejected_by_rule'
       ? null
       : durationWords(call.duration_seconds, t);
-  return length === null ? what : `${what} · ${length}`;
+  return length === null
+    ? what
+    : t('common.pair', { first: what, second: length });
 }

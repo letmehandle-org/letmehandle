@@ -40,12 +40,7 @@ const LENGTH_LINES: Record<Verbosity, readonly number[]> = {
   detailed: [100, 100, 70],
 };
 
-/**
- * How the assistant comes across. Optional, and never part of setup.
- *
- * A voice is already chosen for everybody; everything here is a tap on a picture rather than a
- * word — voices as faces, manner as icons, length drawn as lines of speech.
- */
+/** How the assistant comes across: voice, manner and length. */
 export function PersonaliseScreen({
   onBack,
   onOpenTopics,
@@ -156,8 +151,7 @@ function Voices(): React.JSX.Element {
 
   const { catalogue, selection } = state;
   const chosen = selection.persona_voice_id;
-  // The voice callers actually hear is the one drawn as chosen, so the picture never disagrees
-  // with the call.
+  // Draws the voice callers actually hear as the chosen one.
   const shown = selection.resolved_voice_id;
   const notYours =
     chosen !== null && selection.cloned_voice_id === null && chosen !== shown;

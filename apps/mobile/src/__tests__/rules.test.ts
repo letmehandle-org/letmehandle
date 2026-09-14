@@ -1,6 +1,4 @@
-/**
- * The translation between the design's rules and the API's preferences.
- */
+/** The translation between the design's rules and the API's preferences. */
 import { arcsFor } from '../components/dialGeometry';
 import {
   coveredMinutes,
@@ -16,7 +14,6 @@ import {
   MAX_FACT_LENGTH,
   factProblem,
   followsTwoLanes,
-  grantedCount,
   hearsEveryCall,
   personalityWith,
   twoLanes,
@@ -143,27 +140,6 @@ describe('hours', () => {
     } finally {
       Intl.DateTimeFormat = real;
     }
-  });
-});
-
-describe('capabilities', () => {
-  it('counts what is granted, treating none as zero', () => {
-    const none = {
-      ...DEFAULT_PREFERENCES,
-      authority: { ...DEFAULT_PREFERENCES.authority, capabilities: undefined },
-    };
-    expect(grantedCount(none, 7)).toEqual({ granted: 0, total: 7 });
-    const two = {
-      ...DEFAULT_PREFERENCES,
-      authority: {
-        ...DEFAULT_PREFERENCES.authority,
-        capabilities: ['take_a_message', 'confirm_appointments'],
-      },
-    };
-    expect(grantedCount(two as typeof DEFAULT_PREFERENCES, 7)).toEqual({
-      granted: 2,
-      total: 7,
-    });
   });
 });
 

@@ -26,13 +26,7 @@ interface Props {
   readonly onOpen: (page: SettingsPage) => void;
 }
 
-/**
- * Every setting, each row showing where it stands.
- *
- * The value on the right answers most questions without opening anything. Privacy is not here:
- * how long transcripts are kept is not yet something the API lets anybody change, and a row for
- * it would be a control that cannot work.
- */
+/** Every setting, each row showing where it stands. */
 export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();
@@ -80,7 +74,7 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
           value={
             preferences.hours.active == null
               ? t('hours.always')
-              : `${preferences.hours.active.start}–${preferences.hours.active.end}`
+              : t('hours.window', preferences.hours.active)
           }
           onPress={() => {
             onOpen('hours');
@@ -144,7 +138,7 @@ export function SettingsScreen({ onOpen }: Props): React.JSX.Element {
           icon="lock"
           title={t('settings.privacy')}
           value={t('privacy.days', {
-            count: preferences.privacy?.transcript_retention_days ?? 7,
+            count: preferences.privacy.transcript_retention_days,
           })}
           onPress={() => {
             onOpen('privacy');

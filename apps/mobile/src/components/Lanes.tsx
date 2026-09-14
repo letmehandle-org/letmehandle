@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
@@ -65,15 +66,13 @@ function End({
   );
 }
 
-/**
- * Where a kind of call goes, read left to right.
- *
- * One lane per rule, with nothing to toggle. The assistant's lane sits on the pastel ground and
- * ends in the filled violet circle, so the two lanes differ in exactly the way the two outcomes
- * do.
- */
+/** Where a kind of call goes, read left to right; the assistant's lane sits on the pastel ground. */
 export function Lane(props: LaneProps): React.JSX.Element {
-  const described = `${props.from.label}: ${props.to.label}`;
+  const { t } = useTranslation();
+  const described = t('common.labelled', {
+    label: props.from.label,
+    value: props.to.label,
+  });
   if (props.assistant === true) {
     return (
       <Hero style={styles.laneHero} testID={props.testID}>

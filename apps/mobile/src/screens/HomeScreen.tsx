@@ -1,32 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-
-import type { CallSummary } from '@letmehandle/api-client';
+import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 
 import { useSession } from '../auth/SessionProvider';
 import { useCallScreening } from '../calls/CallScreeningProvider';
 import { Button } from '../components/Button';
+import { CallRow } from '../components/CallRow';
 import { Card } from '../components/Card';
-import { Dial, DialCaption, DialFigure } from '../components/Dial';
-import { Disc } from '../components/Disc';
+import { Dial } from '../components/Dial';
 import { Hero } from '../components/Hero';
 import { Icon } from '../components/icon/Icon';
 import { Notice } from '../components/Notice';
 import { Row } from '../components/Row';
 import { Screen } from '../components/Screen';
 import { StatusPill } from '../components/StatusPill';
-import { iconOf, timeOfDay, toneOf } from '../history/presentation';
-import { callerName, listLine } from '../history/words';
-import {
-  elapsed,
-  homeState,
-  ringParts,
-  tally,
-  type HomeState,
-} from '../home/today';
+import { timeOfDay } from '../history/presentation';
+import { homeState, type HomeState } from '../home/today';
 import { useHome, type HomeSnapshot } from '../home/useHome';
 import { useSecureScreen } from '../security/secureScreen';
+import { NeedsYou } from './home/NeedsYou';
+import { Today } from './home/Today';
 import { theme } from '../theme';
 
 interface Props {
@@ -46,13 +39,7 @@ const PILL: Record<
   'first-day': { key: 'home.waiting', tone: 'quiet' },
 };
 
-/**
- * One object, one number, a few rows: whether the assistant is taking calls, how today went, and
- * the latest calls.
- *
- * Every state is one the facts put it in (see `home/today.ts`). A call that is still going and has
- * been escalated takes the whole screen, in the one colour that only ever means the user is wanted.
- */
+/** Whether the assistant is taking calls, how today went, and the latest calls. */
 export function HomeScreen({
   onOpenCall = () => undefined,
   onOpenEscalation = () => undefined,
@@ -64,7 +51,7 @@ export function HomeScreen({
   const { snapshot, stale, refresh } = useHome(
     api,
     screening,
-    profile?.id ?? '',
+    profile?.id ?? null,
   );
 
   return (
@@ -94,7 +81,7 @@ export function HomeScreen({
   );
 }
 
-/** The ring first, because its shape never changes; only the numbers are unknown. */
+/** The ring before any numbers are known. */
 function Loading({
   failed,
   onRetry,
@@ -219,11 +206,12 @@ function Loaded({
           <Text style={styles.label}>{t('home.latest')}</Text>
           <Card>
             {snapshot.latest.map((call, index) => (
-              <LatestRow
+              <CallRow
                 key={call.id}
                 call={call}
                 last={index === snapshot.latest.length - 1}
                 onOpen={onOpenCall}
+                testID={`home-call-${call.id}`}
               />
             ))}
           </Card>
@@ -239,218 +227,7 @@ function KeptOutOfScreenshots(): null {
   return null;
 }
 
-function Today({
-  snapshot,
-  screeningOnly,
-}: {
-  readonly snapshot: HomeSnapshot;
-  readonly screeningOnly: boolean;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const counts = tally(snapshot.today);
-  const parts = ringParts(counts);
-  const figure = screeningOnly ? counts.turnedAway : counts.total;
-
-  const legend = screeningOnly
-    ? [
-        {
-          key: 'you',
-          count: counts.you,
-          label: t('home.rangYou'),
-          colour: theme.colour.needsYou,
-        },
-        {
-          key: 'turnedAway',
-          count: counts.turnedAway,
-          label: t('home.stopped'),
-          colour: theme.colour.textFaint,
-        },
-      ]
-    : [
-        {
-          key: 'handled',
-          count: counts.handled,
-          label: t('home.handled'),
-          colour: theme.colour.accent,
-        },
-        {
-          key: 'you',
-          count: counts.you,
-          label: t('home.you'),
-          colour: theme.colour.needsYou,
-        },
-        {
-          key: 'turnedAway',
-          count: counts.turnedAway,
-          label: t('home.turnedAway'),
-          colour: theme.colour.textFaint,
-        },
-      ];
-
-  return (
-    <>
-      <Hero testID="home-today">
-        <View style={styles.hero}>
-          <Dial
-            size={210}
-            blank={counts.total === 0}
-            rest={theme.colour.dialRestOnHero}
-            segments={[
-              { fraction: parts.handled, colour: theme.colour.accent },
-              { fraction: parts.you, colour: theme.colour.needsYou },
-              { fraction: parts.turnedAway, colour: theme.colour.textFaint },
-            ]}
-          >
-            <Icon
-              name={screeningOnly ? 'shield' : 'bot'}
-              colour={theme.colour.accentDeep}
-              size={26}
-            />
-            <DialFigure text={String(figure)} testID="home-figure" />
-            <DialCaption
-              text={t(screeningOnly ? 'home.stoppedToday' : 'home.callsToday')}
-            />
-          </Dial>
-          {counts.total > 0 ? (
-            <View style={styles.legend} testID="home-legend">
-              {legend.map(item => (
-                <View key={item.key} style={styles.legendItem}>
-                  <View
-                    style={[styles.dot, { backgroundColor: item.colour }]}
-                  />
-                  <Text style={styles.legendText}>
-                    <Text style={styles.legendCount}>{item.count}</Text>{' '}
-                    {item.label}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.nothing}>{t('home.nothingYet')}</Text>
-          )}
-        </View>
-      </Hero>
-    </>
-  );
-}
-
-function NeedsYou({
-  snapshot,
-  onOpen,
-}: {
-  readonly snapshot: HomeSnapshot;
-  readonly onOpen: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const detail = snapshot.escalation?.detail ?? null;
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const tick = setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-    return () => {
-      clearInterval(tick);
-    };
-  }, []);
-
-  return (
-    <>
-      <Hero tone="needsYou" testID="home-needs-you">
-        <View style={styles.hero}>
-          {detail !== null && (
-            <Text style={styles.timer} testID="home-needs-you-timer">
-              {elapsed(detail.raised_at, now)}
-            </Text>
-          )}
-          <Dial
-            size={170}
-            rest={theme.colour.dialRestOnHero}
-            segments={[{ fraction: 0.25, colour: theme.colour.needsYou }]}
-          >
-            <Disc icon="phone-ring" tone="needsYou" size={64} />
-          </Dial>
-          <Text style={styles.answer}>{t('home.answerYourPhone')}</Text>
-          {detail !== null && (
-            <>
-              <Text style={styles.caller}>
-                {detail.caller ?? detail.caller_label}
-              </Text>
-              <Text style={styles.why}>{detail.title}</Text>
-            </>
-          )}
-        </View>
-      </Hero>
-      {detail?.body !== undefined && (
-        <Text style={styles.note}>{detail.body}</Text>
-      )}
-      <Button
-        label={t('home.seeWhole')}
-        onPress={onOpen}
-        testID="home-open-escalation"
-      />
-    </>
-  );
-}
-
-function LatestRow({
-  call,
-  last,
-  onOpen,
-}: {
-  readonly call: CallSummary;
-  readonly last: boolean;
-  readonly onOpen: (callId: string) => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <Row
-      icon={iconOf(call.caller, call.outcome)}
-      tone={toneOf(call)}
-      title={callerName(call.caller, t)}
-      subtitle={listLine(call, t)}
-      value={timeOfDay(call.started_at)}
-      onPress={() => {
-        onOpen(call.id);
-      }}
-      last={last}
-      testID={`home-call-${call.id}`}
-    />
-  );
-}
-
 const styles = StyleSheet.create({
-  hero: {
-    alignItems: 'center',
-    gap: theme.space.sm,
-    paddingVertical: theme.space.sm,
-  },
-  legend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: theme.space.md,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.space.xs,
-  },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { ...theme.type.subtitle, color: theme.colour.heroMuted },
-  legendCount: { fontFamily: theme.font.strong, color: theme.colour.heroText },
-  nothing: { ...theme.type.subtitle, color: theme.colour.heroMuted },
-  timer: {
-    ...theme.type.strong,
-    color: theme.colour.needsYouDeep,
-    alignSelf: 'flex-end',
-  },
-  answer: { ...theme.type.heading, color: theme.colour.needsYouDeep },
-  caller: { ...theme.type.strong, color: theme.colour.heroText },
-  why: {
-    ...theme.type.subtitle,
-    color: theme.colour.heroMuted,
-    textAlign: 'center',
-  },
   note: { ...theme.type.subtitle, color: theme.colour.textMuted },
   label: {
     ...theme.type.label,

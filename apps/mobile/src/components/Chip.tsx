@@ -15,12 +15,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * A short word in a pill: a filter to choose, or a fact about a call.
- *
- * A chip that can be chosen is a radio, so a screen reader says which is on; one that only
- * states something is text.
- */
+/** A short word in a pill: a radio when it can be chosen, text when it only states something. */
 export function Chip({
   label,
   onPress,

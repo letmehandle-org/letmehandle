@@ -1,14 +1,8 @@
-/**
- * What Home says, decided from what the app knows and nothing else.
- *
- * Pure, so each state the design draws is reached only by the facts that make it true: "on duty"
- * only once calls are arriving, "not on duty" only where this phone has been seen not to screen and
- * nothing else brings calls to the assistant, and "needs you" only for a call that is still going
- * and has been escalated.
- */
+/** What Home says, decided purely from what the app knows. */
 import type { CallSummary } from '@letmehandle/api-client';
 
 import type { RoleStatus } from '../calls/callScreening';
+import { localMidnight, minutesAndSeconds } from '../time/clock';
 
 export interface Tally {
   readonly total: number;
@@ -22,11 +16,7 @@ export interface Tally {
 
 /** Local midnight today, as an instant the API can compare. */
 export function startOfToday(now: Date): string {
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).toISOString();
+  return localMidnight(now).toISOString();
 }
 
 export function tally(calls: readonly CallSummary[]): Tally {
@@ -72,8 +62,7 @@ export function homeState(facts: Facts): HomeState {
   if (facts.escalatedCallId !== null) {
     return 'needs-you';
   }
-  // Where calls arrive forwarded, handset screening is only a first filter: the assistant still
-  // answers, so saying the phone can only stop calls would be untrue.
+  // Forwarded calls reach the assistant whatever the handset does.
   if (facts.screeningRole !== null && !facts.callsForwarded) {
     return facts.screeningRole === 'held' ? 'screening' : 'not-on-duty';
   }
@@ -98,9 +87,7 @@ export function ringParts(counts: Tally): {
 
 /** "1:28", minutes and seconds since the escalation was raised. */
 export function elapsed(since: string, now: Date): string {
-  const seconds = Math.max(
-    0,
+  return minutesAndSeconds(
     Math.floor((now.getTime() - new Date(since).getTime()) / 1000),
   );
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }

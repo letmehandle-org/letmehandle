@@ -20,12 +20,7 @@ interface Props {
 /** The most topics the API holds. */
 const MAX_TOPICS = 50;
 
-/**
- * What the user cares about: short phrases the assistant listens for.
- *
- * Chips rather than free text, because a topic long enough to be a sentence is an instruction
- * somebody could plant in what the agent reads.
- */
+/** Short topics the assistant listens for, as chips. */
 export function TopicsScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

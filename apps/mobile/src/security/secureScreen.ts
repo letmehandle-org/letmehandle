@@ -1,9 +1,4 @@
-/**
- * Screens that show what callers said are kept out of screenshots and the app switcher.
- *
- * Counted rather than toggled: a transcript opened over a summary opened over the list is three
- * secure screens, and closing the transcript must not unprotect the two still underneath.
- */
+/** Keeps screens with callers' words out of screenshots, counted so nested screens stay protected (D-035). */
 import { useEffect } from 'react';
 
 import NativeSecureScreen, {
@@ -14,7 +9,7 @@ export interface SecureWindow {
   hold(): () => void;
 }
 
-/** `native` is read each time it is needed, so a module that loads late is still found. */
+/** Reads `native` each time, so a module that loads late is still found. */
 export function secureWindow(
   native: () => Spec | null | undefined,
 ): SecureWindow {

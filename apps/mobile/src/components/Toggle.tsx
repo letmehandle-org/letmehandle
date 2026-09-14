@@ -15,13 +15,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * A single yes or no, as a row.
- *
- * The label is given to the switch itself rather than sitting beside it as decoration, because
- * a switch announced as "off" with no idea what is off is a control nobody can use without
- * sight.
- */
+/** A yes-or-no row whose label belongs to the switch itself. */
 export function Toggle({
   label,
   value,

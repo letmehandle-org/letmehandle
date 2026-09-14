@@ -1,12 +1,5 @@
-/**
- * Today, for Home: loaded when Home opens, again whenever the app comes to the front, and every
- * thirty seconds while it is showing.
- *
- * The last snapshot is kept for as long as the app runs, so switching tabs does not flash an empty
- * ring and a lost connection shows what was there, said to be old, rather than nothing. It is kept
- * against the account it was loaded for, so the next person to sign in never sees it.
- */
-import { useCallback, useEffect, useState } from 'react';
+/** Today's calls for Home, refreshed on focus and on an interval, remembered per account. */
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import type { CallSummary, Escalation } from '@letmehandle/api-client';
@@ -16,7 +9,7 @@ import type { CallScreening, RoleStatus } from '../calls/callScreening';
 import { startOfToday } from './today';
 
 export const REFRESH_EVERY_MS = 30_000;
-/** Today's pages read at most. Three hundred calls in a day is past any person's phone. */
+/** The most pages of today's calls read. */
 const MAX_PAGES = 3;
 
 export interface HomeSnapshot {
@@ -35,7 +28,7 @@ let remembered: {
   readonly snapshot: HomeSnapshot;
 } | null = null;
 
-/** Forget every snapshot. For tests, which each start as a fresh app. */
+/** Forgets every remembered snapshot. */
 export function forgetHome(): void {
   remembered = null;
 }
@@ -63,8 +56,7 @@ async function load(
   for (const call of latest.filter(entry => entry.status === 'in_progress')) {
     const detail = await api.call(call.id);
     if (detail.timings.escalated_at !== null && !detail.human_joined) {
-      // Why it needs the user is worth showing, but a Home that fails because it could not be
-      // read would hide the one thing that matters: that a call is waiting.
+      // An escalation whose context cannot be read still shows as waiting.
       const context = await api.escalation(call.id).catch(() => null);
       escalation = { callId: call.id, detail: context };
       break;
@@ -96,13 +88,14 @@ export interface HomeData {
 export function useHome(
   api: ApiClient,
   screening: CallScreening | null,
-  owner: string,
+  owner: string | null,
 ): HomeData {
   const [snapshot, setSnapshot] = useState<HomeSnapshot | null>(
-    remembered?.owner === owner ? remembered.snapshot : null,
+    owner !== null && remembered?.owner === owner ? remembered.snapshot : null,
   );
   const [failure, setFailure] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
+  const loading = useRef(false);
 
   const refresh = useCallback(() => {
     setAttempt(value => value + 1);
@@ -110,10 +103,13 @@ export function useHome(
 
   useEffect(() => {
     let current = true;
+    loading.current = true;
     load(api, screening, new Date())
       .then(loaded => {
         if (current) {
-          remembered = { owner, snapshot: loaded };
+          if (owner !== null) {
+            remembered = { owner, snapshot: loaded };
+          }
           setSnapshot(loaded);
           setFailure(null);
         }
@@ -122,6 +118,11 @@ export function useHome(
         if (current) {
           setFailure(error);
         }
+      })
+      .finally(() => {
+        if (current) {
+          loading.current = false;
+        }
       });
     return () => {
       current = false;
@@ -129,10 +130,16 @@ export function useHome(
   }, [api, screening, owner, attempt]);
 
   useEffect(() => {
-    const timer = setInterval(refresh, REFRESH_EVERY_MS);
+    // A load still under way is left to finish rather than started again.
+    const whenIdle = (): void => {
+      if (!loading.current) {
+        refresh();
+      }
+    };
+    const timer = setInterval(whenIdle, REFRESH_EVERY_MS);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') {
-        refresh();
+        whenIdle();
       }
     });
     return () => {

@@ -1,13 +1,4 @@
-/**
- * The two pieces of native setup the app cannot start without.
- *
- * Neither is exercised by any other test: both only matter when a real build runs, which is
- * why each was missing until the app was first run on a device. These assertions keep them
- * from being removed again unnoticed.
- *
- * JavaScript rather than TypeScript because it reads the file system, and the app's TypeScript
- * configuration deliberately carries no Node types.
- */
+/** The native setup the app cannot start without, read from the file system. */
 const { readFileSync } = require('fs');
 const path = require('path');
 

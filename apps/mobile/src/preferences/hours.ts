@@ -1,9 +1,4 @@
-/**
- * The assistant's hours: one daily window in the user's own zone, or none for around the clock.
- *
- * Pure, so the arithmetic the ring draws is tested apart from the drawing. A window may run past
- * midnight, and the end is exclusive — the same reading the server uses (D-030).
- */
+/** The assistant's hours: one daily window in the user's zone, or none for around the clock (D-030). */
 import type { TimeWindow } from '@letmehandle/api-client';
 
 const MINUTES_IN_A_DAY = 24 * 60;
@@ -55,12 +50,7 @@ export function hoursFigure(window: TimeWindow): {
   };
 }
 
-/**
- * The timezone the phone is in, which is what a time somebody picks on it means.
- *
- * Read when the window is made rather than stored separately, so a window always travels with the
- * zone it was chosen in.
- */
+/** The phone's timezone, which a window chosen on it is in. */
 export function deviceZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
@@ -69,11 +59,7 @@ export function firstWindow(zone: string = deviceZone()): TimeWindow {
   return { start: FIRST_START, end: FIRST_END, zone };
 }
 
-/**
- * The window with one end moved, or null when that would leave it covering nothing.
- *
- * The server refuses a window that starts where it ends, so the chooser never offers one.
- */
+/** The window with one end moved, or null when it would cover nothing. */
 export function withEnd(
   window: TimeWindow,
   end: 'start' | 'end',

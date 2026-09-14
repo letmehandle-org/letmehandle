@@ -1,12 +1,7 @@
-/**
- * The client's two rules: retry an unauthorised request once, and renew only once at a time.
- *
- * Both exist because of what the backend does with refresh tokens. Renewing rotates them, and
- * presenting a rotated one is treated as theft — so two concurrent renewals would sign the
- * user out, and an unbounded retry would do it repeatedly.
- */
+/** The client retries a 401 once and shares one renewal between requests. */
 import { ApiClient, type SessionHandle } from '../api/client';
 import { ApiError, NetworkError } from '../api/errors';
+import { jsonResponse } from './support/http';
 
 const BASE = 'http://localhost:8000';
 
@@ -27,11 +22,7 @@ class FakeFetch {
     return (async (url: string, init: RequestInit) => {
       this.calls.push({ url, init });
       const reply = this.replies.shift() ?? { status: 200, body: {} };
-      return {
-        ok: reply.status >= 200 && reply.status < 300,
-        status: reply.status,
-        json: async () => reply.body ?? {},
-      } as Response;
+      return jsonResponse(reply.status, reply.body ?? {});
     }) as unknown as typeof fetch;
   }
 
@@ -68,7 +59,14 @@ function handleFor(options: {
 describe('unauthenticated requests', () => {
   it('sends no authorisation header', async () => {
     const fake = new FakeFetch([
-      { status: 202, body: { challenge_id: 'c', expires_in_seconds: 300 } },
+      {
+        status: 202,
+        body: {
+          challenge_id: 'c',
+          expires_in_seconds: 300,
+          resend_after_seconds: 0,
+        },
+      },
     ]);
     globalThis.fetch = fake.fn;
 
@@ -80,8 +78,6 @@ describe('unauthenticated requests', () => {
   });
 
   it('does not renew when one fails', async () => {
-    // A rejected sign-in code is not an expired session, and renewing here would turn a wrong
-    // code into a sign-out.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'invalid_credentials', message: 'no' } },
     ]);
@@ -123,8 +119,6 @@ describe('authenticated requests', () => {
   });
 
   it('retries at most once', async () => {
-    // A second failure means the session is genuinely gone. Retrying further turns one expired
-    // token into a loop.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
@@ -152,10 +146,30 @@ describe('authenticated requests', () => {
     expect(handle.signedOut).toBe(true);
   });
 
+  it('retries with a token renewed meanwhile rather than renewing again', async () => {
+    const session = { token: 'stale', renewTo: 'renewed' };
+    const handle = handleFor(session);
+    const fake = new FakeFetch([
+      { status: 401, body: { error: 'not_authenticated', message: 'no' } },
+      { status: 200, body: { id: 'u' } },
+    ]);
+    const send = fake.fn;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      const response = await send(url, init);
+      session.token = 'fresh';
+      return response;
+    }) as unknown as typeof fetch;
+
+    await new ApiClient(handle, BASE).me();
+
+    expect(handle.renewals).toBe(0);
+    expect(fake.authorisationHeaders()).toEqual([
+      'Bearer stale',
+      'Bearer fresh',
+    ]);
+  });
+
   it('renews once for several requests that fail together', async () => {
-    // The behaviour a cold start depends on. Renewing rotates the refresh token, so a second
-    // renewal would look to the backend exactly like a stolen token being replayed — and
-    // would sign the user out for opening the app.
     const fake = new FakeFetch([
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
       { status: 401, body: { error: 'not_authenticated', message: 'no' } },
@@ -211,12 +225,11 @@ describe('failures', () => {
 
   it('reads how long to wait from a refusal', async () => {
     globalThis.fetch = (async () =>
-      ({
-        ok: false,
-        status: 429,
-        headers: new Headers({ 'Retry-After': '90' }),
-        json: async () => ({ error: 'rate_limited', message: 'no' }),
-      } as Response)) as unknown as typeof fetch;
+      jsonResponse(
+        429,
+        { error: 'rate_limited', message: 'no' },
+        { 'Retry-After': '90' },
+      )) as unknown as typeof fetch;
 
     const refused = await new ApiClient(handleFor({}), BASE)
       .requestChallenge('+12025550143')

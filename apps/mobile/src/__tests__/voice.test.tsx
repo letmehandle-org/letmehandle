@@ -1,11 +1,4 @@
-/**
- * Choosing what the assistant sounds like, on the personalise page.
- *
- * Two things are tested hardest. What a call would actually use, because the chosen voice and
- * the answering voice differ exactly when something has gone wrong. And what is not on the
- * screen: a control for a capability the provider does not have is the failure D-009 exists to
- * prevent, and absence is only protected by a test that asserts it.
- */
+/** Choosing the assistant's voice: what a call would use, and no control for a missing capability (D-009). */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -20,6 +13,7 @@ import {
   type RunningBackend,
   type VoiceSetup,
 } from './support/backend';
+import { jsonResponse } from './support/http';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -116,9 +110,7 @@ describe('what this provider cannot do', () => {
   });
 
   it('draws none even where a provider says it has samples, having no way to fetch one', async () => {
-    // The annotation below is the trip-wire. The day the backend registers a preview route,
-    // the generated schema gains the path, `false` stops compiling, and this test — and the
-    // screen — have to be written against a route that exists.
+    // A route the schema lacks fails to compile here, so the preview stays undrawn until it exists.
     const schemaHasPreview: '/v1/voices/{voice_id}/preview' extends keyof paths
       ? true
       : false = false;
@@ -149,11 +141,7 @@ describe('when the voices cannot be loaded', () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       if (!failed && url.endsWith('/v1/voices')) {
         failed = true;
-        return {
-          ok: false,
-          status: 503,
-          json: async () => ({ error: 'unavailable', message: 'x' }),
-        } as Response;
+        return jsonResponse(503, { error: 'unavailable', message: 'x' });
       }
       return original(url, init);
     }) as typeof fetch;

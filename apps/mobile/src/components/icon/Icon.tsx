@@ -13,13 +13,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * One mark from the icon set.
- *
- * Decorative unless given a label. Nearly every icon here sits beside words that already say
- * what it means, and announcing "bot, image" before every row would make the screen reader
- * slower without telling anybody anything.
- */
+/** One mark from the icon set, decorative unless given a label. */
 export function Icon({
   name,
   size = 20,

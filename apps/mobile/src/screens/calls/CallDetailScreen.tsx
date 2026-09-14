@@ -23,7 +23,7 @@ import {
   timeOfDay,
   toneOf,
 } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { callerName, detailLabel, durationWords } from '../../history/words';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
@@ -37,12 +37,7 @@ interface Props {
   readonly onDeleted: () => void;
 }
 
-/**
- * One call's summary: who, what they wanted, what was settled, and what was said.
- *
- * What the call was is read from the server's summary and nothing is inferred here. A call with
- * no summary yet says so, and a refused call is honest that there is almost nothing to show.
- */
+/** One call's summary from the server: who, what they wanted, what was settled and what was said. */
 export function CallDetailScreen({
   callId,
   onBack,
@@ -167,11 +162,13 @@ function Summary({
 }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const day = dayOf(call.started_at, new Date());
-  const when = `${
-    day.kind === 'date'
-      ? dayAndMonth(day.date, i18n.language)
-      : t(`activity.${day.kind}`)
-  } ${timeOfDay(call.started_at)}`;
+  const when = t('call.when', {
+    day:
+      day.kind === 'date'
+        ? dayAndMonth(day.date, i18n.language)
+        : t(`activity.${day.kind}`),
+    time: timeOfDay(call.started_at),
+  });
   const length = durationWords(call.duration_seconds, t);
   const live = call.status === 'in_progress';
   const refused = call.outcome === 'rejected_by_rule';
@@ -190,7 +187,9 @@ function Summary({
             {callerName(call.caller, t)}
           </Text>
           <Text style={styles.when} testID="call-when">
-            {length === null ? when : `${when} · ${length}`}
+            {length === null
+              ? when
+              : t('common.pair', { first: when, second: length })}
           </Text>
         </View>
       </View>
@@ -288,7 +287,7 @@ function Summary({
   );
 }
 
-/** When a person joined, the timings are the story: one strip, offsets from the start. */
+/** When a person joined: the call's moments on one strip, as offsets from the start. */
 function Timeline({ call }: { readonly call: CallDetail }): React.JSX.Element {
   const { t } = useTranslation();
   const start = call.timings.received_at;

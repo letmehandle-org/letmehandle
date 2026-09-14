@@ -11,8 +11,6 @@ describe('i18n', () => {
   });
 
   it('throws on a missing key rather than rendering it', () => {
-    // A screen showing "home.nonexistent" to a user is a bug that reaches a release precisely
-    // because it looks like a string. Failing here is how it is caught instead.
     expect(() => i18n.t('home.nonexistent')).toThrow(/missing translation/);
   });
 

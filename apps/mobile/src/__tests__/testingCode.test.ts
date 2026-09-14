@@ -1,6 +1,6 @@
 import { showsTestingCode } from '../screens/VerifyCodeScreen';
 
-// FOR TESTING ONLY — delete with showsTestingCode before launch.
+// The fixed code is shown only by development builds.
 describe('the fixed testing code hint', () => {
   it('is shown in a development build', () => {
     expect(showsTestingCode('development')).toBe(true);

@@ -21,19 +21,13 @@ interface Props {
 /** The lengths offered, inside the API's 1 to 90 days. There is no "never": the floor is a day. */
 export const RETENTION_DAYS = [1, 7, 30, 90] as const;
 
-/**
- * What is kept, and for how long — and the one way to keep nothing at all.
- *
- * Words are kept for as long as the user says; summaries always stay; recordings are never made
- * (D-013), which is stated rather than offered as a switch nobody could turn on. Deleting the
- * account is immediate and total, so the sheet says exactly that before it does it.
- */
+/** How long words are kept, that recordings never are (D-013), and deleting the account. */
 export function PrivacyScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { api, signOut } = useSession();
   const { preferences } = usePreferences();
   const { problem, save } = useImmediateSave();
-  const days = preferences.privacy?.transcript_retention_days ?? 7;
+  const days = preferences.privacy.transcript_retention_days;
   const offered = RETENTION_DAYS.some(option => option === days)
     ? [...RETENTION_DAYS]
     : [...RETENTION_DAYS, days].sort((a, b) => a - b);
@@ -47,7 +41,7 @@ export function PrivacyScreen({ onBack }: Props): React.JSX.Element {
     setDeleteProblem(null);
     api
       .deleteAccount()
-      // The account and every token with it are gone, so all that is left is this phone's copy.
+      // The account is gone, so only this phone's copy of the session is left to clear.
       .then(() => signOut())
       .catch(() => {
         setDeleteProblem(t('deleteAccount.failed'));

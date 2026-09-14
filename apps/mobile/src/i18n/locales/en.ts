@@ -1,13 +1,4 @@
-/**
- * British English, the only shipped locale (D-017).
- *
- * Keys are grouped by the screen or concept they belong to. A key used in two places belongs
- * under `common`: duplicating a string under two keys means one of them gets changed and the
- * other does not.
- *
- * The design asks for as few words as a screen can carry. Where an icon or a drawing says it,
- * there is no string here for it to repeat.
- */
+/** British English, the only shipped locale; a key used in two places lives under `common` (D-017). */
 export const en = {
   common: {
     appName: 'LetMeHandle',
@@ -22,12 +13,19 @@ export const en = {
     somethingWentWrong: 'Something went wrong. Please try again.',
     noConnection: 'Could not reach the service. Check your connection.',
     saveFailed: "Couldn't save. It's been put back the way it was.",
+    /** Two facts on one line, such as what happened and how long it took. */
+    pair: '{{first}} · {{second}}',
+    /** A thing and its value, read aloud together. */
+    spoken: '{{first}}, {{second}}',
+    labelled: '{{label}}: {{value}}',
   },
   welcome: {
     /** "Let me handle it.", with "handle" set apart; read together as one sentence. */
     title: 'Let me',
     titleAccent: 'handle',
     titleEnd: ' it.',
+    titleSpoken:
+      '$t(welcome.title) $t(welcome.titleAccent)$t(welcome.titleEnd)',
     lead: "Your assistant picks up the calls you don't want to.",
     start: 'Get started',
     note: 'Signing in only needs your number.',
@@ -87,7 +85,7 @@ export const en = {
     resendIn: 'Send another code in {{clock}}',
     resent: 'A new code is on its way. Only the newest code works.',
     locked: 'Too many wrong codes. Try again in {{wait}}.',
-    // FOR TESTING ONLY — remove before launch, with showsTestingCode.
+    // Shown only by development builds; see showsTestingCode.
     testingHint: 'Testing build: the code is 123456.',
   },
   setup: {
@@ -143,6 +141,7 @@ export const en = {
     set: 'Set hours',
     always: '24/7',
     alwaysOn: 'Always on',
+    window: '{{start}}–{{end}}',
     figure_one: '{{hours}} hr',
     figure_other: '{{hours}} hrs',
     aDay: 'A day',
@@ -208,6 +207,7 @@ export const en = {
     seconds: '{{count}} s',
   },
   call: {
+    when: '{{day}} {{time}}',
     loadFailed: 'Could not load this call.',
     gone: 'This call has been deleted.',
     withheld: 'Number withheld',
@@ -293,8 +293,8 @@ export const en = {
   transcript: {
     title: 'What was said',
     deletesOn: 'Deleted on {{date}}. The summary stays.',
-    purged: 'These words were deleted, as you set: {{days}} days.',
-    purgedOne: 'These words were deleted, as you set: 1 day.',
+    purged_one: 'These words were deleted, as you set: {{count}} day.',
+    purged_other: 'These words were deleted, as you set: {{count}} days.',
     notRecorded:
       'Nothing was said on this call, so there are no words to keep.',
     loadFailed: 'Could not load what was said.',
@@ -354,10 +354,7 @@ export const en = {
     privacy: 'Privacy',
     account: 'Account',
   },
-  /**
-   * Call screening on this handset: what it does, what it cannot, and what refusing it means.
-   * Only shown where the handset has a screening service to grant.
-   */
+  /** Call screening on this handset, shown only where it has a screening service. */
   screening: {
     title: 'Screen calls before they ring',
     subtitle: 'Your rules, applied on this phone.',
@@ -429,6 +426,7 @@ export const en = {
     invalid: 'Keep it to one short sentence.',
     duplicate: 'That is already on the list.',
     full: 'That is as many as it can hold.',
+    quoted: '“{{fact}}”',
   },
   account: {
     title: 'Account',
@@ -443,22 +441,8 @@ export const en = {
   voice: {
     default: 'Whichever your assistant picks',
   },
-  /**
-   * Keys under `preferences` are named for the API sections they edit, and validation messages
-   * are looked up here by the code that raises them.
-   */
+  /** Keys named for the API sections they edit, including their validation messages. */
   preferences: {
-    important_contacts: {
-      invalidNumber: 'Enter the number in full, including the country code.',
-      invalidLabel: 'Give this person a name so you can recognise the entry.',
-      duplicate: 'That number is already on the list.',
-    },
-    hours: {
-      invalidTime: 'Use a 24-hour time, such as 09:00.',
-      emptyWindow:
-        'A window that starts and ends at the same time covers nothing.',
-      invalidZone: 'Name the timezone, such as Europe/London.',
-    },
     personality: {
       invalidTopic: 'A topic is a short phrase, not a sentence.',
       duplicateTopic: 'That is already on the list.',

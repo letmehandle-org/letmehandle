@@ -19,13 +19,7 @@ const PROMISES: readonly { key: string; icon: IconName; tone: Tone }[] = [
   { key: 'private', icon: 'lock', tone: 'quiet' },
 ];
 
-/**
- * The first thing anybody sees: the promise, in the product's own name.
- *
- * "Let me handle it." is the headline, with "handle" in violet and the logo's apricot smile drawn
- * under it, so the mark and the sentence are read as one idea. Three plain promises follow and
- * nothing else competes: no illustration to decode, one button.
- */
+/** The first screen: the headline promise, three promises and one button. */
 export function WelcomeScreen({ onStart }: Props): React.JSX.Element {
   const { t } = useTranslation();
   // The smile is as wide as the word it underlines, measured once it is laid out.
@@ -53,9 +47,7 @@ export function WelcomeScreen({ onStart }: Props): React.JSX.Element {
       <View
         accessible
         accessibilityRole="header"
-        accessibilityLabel={`${t('welcome.title')} ${t(
-          'welcome.titleAccent',
-        )}${t('welcome.titleEnd')}`}
+        accessibilityLabel={t('welcome.titleSpoken')}
         style={styles.headline}
       >
         <Text style={styles.display}>{t('welcome.title')}</Text>
@@ -64,8 +56,7 @@ export function WelcomeScreen({ onStart }: Props): React.JSX.Element {
             <Text style={styles.accent}>{t('welcome.titleAccent')}</Text>
             {t('welcome.titleEnd')}
           </Text>
-          {/* Laid out apart from the sentence, so it measures the word alone: absolute text is
-              only as wide as what it says. Never seen. */}
+          {/* Measures the accent word alone so the smile matches its width; never visible. */}
           <Text
             style={[styles.display, styles.measure]}
             onLayout={event => {

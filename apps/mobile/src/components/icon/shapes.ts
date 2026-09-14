@@ -1,10 +1,4 @@
-/**
- * The icon set, as drawing instructions.
- *
- * Transcribed from `design/icons.svg` so the app and the design draw the same marks: every icon is
- * a 24-point square of 1.5-point strokes. Named by what they mean, not what they depict — the
- * assistant is `bot` everywhere, `bubble-q` is a call it cannot resolve, `siren` is urgent.
- */
+/** The icon set from `design/icons.svg`: 24-point squares of 1.5-point strokes, named by meaning. */
 export type IconShape =
   | { readonly kind: 'path'; readonly d: string }
   | {

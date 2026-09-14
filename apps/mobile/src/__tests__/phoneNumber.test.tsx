@@ -1,6 +1,4 @@
-/**
- * Entering a number: the country chosen from where the phone is, and only whole numbers sent.
- */
+/** Entering a number: the country chosen from where the phone is, and only whole numbers sent. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -18,6 +16,7 @@ import {
   type Country,
 } from '../auth/countries';
 import { en } from '../i18n/locales/en';
+import { jsonResponse } from './support/http';
 
 const mockNetwork: { country: string | null } = { country: 'in' };
 jest.mock('../calls/native/NativeDeviceCountry', () => ({
@@ -29,8 +28,7 @@ jest.mock('../calls/native/NativeDeviceCountry', () => ({
 
 const INDIA = countryFor('IN') as Country;
 const US = countryFor('US') as Country;
-// Ten digits a mobile number in India could have. Written without its country code, and joined to
-// one only at run time, so no whole international number sits in the source.
+// National digits only, joined to a calling code at run time so no whole number sits in source.
 const INDIAN_DIGITS = ['98765', '00000'].join('');
 
 describe('the rules for each country', () => {
@@ -127,13 +125,13 @@ describe('the number screen', () => {
           (JSON.parse(init?.body as string) as { phone_number: string })
             .phone_number,
         );
-        return {
-          ok: true,
-          status: 202,
-          json: async () => ({ challenge_id: 'c', expires_in_seconds: 300 }),
-        } as Response;
+        return jsonResponse(202, {
+          challenge_id: 'c',
+          expires_in_seconds: 300,
+          resend_after_seconds: 30,
+        });
       }
-      return { ok: true, status: 200, json: async () => ({}) } as Response;
+      return jsonResponse(200, {});
     }) as unknown as typeof fetch;
   });
 

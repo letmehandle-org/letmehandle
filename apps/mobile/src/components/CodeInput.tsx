@@ -12,12 +12,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * A code, as a row of boxes.
- *
- * One real text input sits invisibly over the boxes, so the keyboard, paste and the system's
- * one-time-code autofill all work as they do anywhere else; the boxes only draw what it holds.
- */
+/** A code as a row of boxes over one invisible input, so paste and one-time-code autofill work. */
 export function CodeInput({
   label,
   value,

@@ -1,12 +1,7 @@
-/**
- * What the preference calls put on the wire.
- *
- * The method is the substance here rather than a detail: PUT replaces everything from the
- * defaults and PATCH leaves what it was not told about, so a call that used the wrong one would
- * erase sections the user never opened — and nothing about the response would say so.
- */
+/** What the preference calls put on the wire, PATCH for partial changes. */
 import { ApiClient, type SessionHandle } from '../api/client';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const BASE = 'http://localhost:8000';
 
@@ -25,7 +20,7 @@ function fetching(body: unknown): { calls: Call[]; client: ApiClient } {
   const calls: Call[] = [];
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    return { ok: true, status: 200, json: async () => body } as Response;
+    return jsonResponse(200, body);
   }) as unknown as typeof fetch;
 
   return { calls, client: new ApiClient(handle, BASE) };
@@ -67,8 +62,6 @@ describe('onboarding', () => {
   });
 
   it('says whether a step was answered or passed over', async () => {
-    // Sent rather than inferred from an empty body: the backend refuses to skip a step with no
-    // safe default, and it can only refuse what it was told.
     const { calls, client } = fetching(ONBOARDING_COMPLETE);
 
     await client.recordOnboardingStep('hours', true);

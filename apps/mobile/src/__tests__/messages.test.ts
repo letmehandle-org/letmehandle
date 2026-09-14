@@ -1,10 +1,4 @@
-/**
- * Which message a failure deserves.
- *
- * Tested here rather than through a screen, because the interesting cases — a failure that is
- * neither the network nor the API, a limit on a screen that has none — are ones the backend
- * cannot be persuaded to produce on demand.
- */
+/** Which message a failure deserves. */
 import { ApiError, NetworkError } from '../api/errors';
 import { describeFailure } from '../api/messages';
 
@@ -17,7 +11,6 @@ function apiError(status: number, code: string): ApiError {
 
 describe('describing a failure', () => {
   it('reports an unreachable service as such', () => {
-    // Not the server's answer at all, so it is checked before anything about what was said.
     expect(describeFailure(new NetworkError(new Error('x')), t, MESSAGES)).toBe(
       'common.noConnection',
     );
@@ -42,14 +35,12 @@ describe('describing a failure', () => {
   });
 
   it('falls back where the screen has no message for a limit', () => {
-    // A screen without a limit of its own should not invent one.
     expect(
       describeFailure(apiError(429, 'rate_limited'), t, { refused: 'refused' }),
     ).toBe('common.somethingWentWrong');
   });
 
   it('says nothing specific about a failure inside the service', () => {
-    // Not the user's to fix and not theirs to be told about.
     expect(describeFailure(apiError(500, 'internal_error'), t, MESSAGES)).toBe(
       'common.somethingWentWrong',
     );
@@ -58,7 +49,6 @@ describe('describing a failure', () => {
   it.each([[new Error('anything')], ['a string'], [null], [undefined], [42]])(
     'falls back for %p',
     thrown => {
-      // A failure nobody anticipated is exactly the kind to be wrong about.
       expect(describeFailure(thrown, t, MESSAGES)).toBe(
         'common.somethingWentWrong',
       );

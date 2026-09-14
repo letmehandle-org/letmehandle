@@ -1,6 +1,4 @@
-/**
- * What is kept, for how long, and deleting the account.
- */
+/** What is kept, for how long, and deleting the account. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -58,7 +56,7 @@ describe('how long words are kept', () => {
 
     await fireEvent.press(view.getByTestId('privacy-retention-30'));
     await waitFor(() => {
-      expect(backend.preferences().privacy?.transcript_retention_days).toBe(30);
+      expect(backend.preferences().privacy.transcript_retention_days).toBe(30);
     });
     expect(backend.patches).toEqual([
       { privacy: { transcript_retention_days: 30 } },

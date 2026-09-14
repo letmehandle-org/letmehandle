@@ -13,7 +13,7 @@ import { Notice } from '../../components/Notice';
 import { Row } from '../../components/Row';
 import { Screen } from '../../components/Screen';
 import { timeOfDay } from '../../history/presentation';
-import { useLoaded } from '../../history/useLoaded';
+import { useLoaded } from '../../api/useLoaded';
 import { useSecureScreen } from '../../security/secureScreen';
 import { theme } from '../../theme';
 
@@ -26,13 +26,7 @@ interface Props {
   readonly onOpenSummary: (callId: string) => void;
 }
 
-/**
- * Why the assistant wants the user on a call, in the words the notification carried.
- *
- * While the call is live it says what stopped the assistant, what it knows and what it needs, and
- * that answering the phone is how to join — this app places no calls. Opened after the call has
- * ended, the same route shows that it finished and leads to the summary instead (D-016).
- */
+/** Why the assistant wants the user on a call, live or after it ended (D-016). */
 export function EscalationScreen({
   callId,
   onBack,
@@ -47,8 +41,7 @@ export function EscalationScreen({
   const escalation = loaded.state === 'ready' ? loaded.value : null;
   const live = escalation?.status === 'live';
 
-  // Opened while the phone rings, the screen stays open through the call: read once, it would go
-  // on asking the user to answer a call that has already ended.
+  // A live escalation is read again until its call ends.
   useEffect(() => {
     if (!live) {
       return;

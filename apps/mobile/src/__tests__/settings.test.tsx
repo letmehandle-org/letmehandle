@@ -1,10 +1,4 @@
-/**
- * Changing things after setup is over.
- *
- * Nothing in this product is set once, so the test that matters most is the dull one: every
- * page reachable, every change saved the moment it is made, and a refused save put back and
- * explained.
- */
+/** Changing things after setup: every page reachable, every change saved, refusals put back. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 

@@ -1,6 +1,4 @@
-/**
- * Where the session lives, and every way reading it can come back empty.
- */
+/** Where the session lives, and every way reading it comes back empty. */
 import * as Keychain from 'react-native-keychain';
 
 import {
@@ -57,7 +55,6 @@ describe('deciding when to renew', () => {
   });
 
   it('renews shortly before expiry rather than after it', () => {
-    // A token that expires while a request is in flight produces a failure the user sees.
     expect(
       needsRenewal(A_SESSION, A_SESSION.accessTokenExpiresAt - 29_000),
     ).toBe(true);
@@ -78,7 +75,6 @@ describe('storing a session', () => {
       'session',
       JSON.stringify(A_SESSION),
       expect.objectContaining({
-        // Never restored onto a different device from a backup: a session is not a setting.
         accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
       }),
     );
@@ -100,8 +96,7 @@ describe('reading a session that is not there', () => {
   });
 
   it('returns nothing when the keychain throws', async () => {
-    // A declined prompt, an item invalidated by a passcode change, a restored backup. All of
-    // them mean the same thing to the caller: sign in again.
+    // A declined prompt, an invalidated item or a restored backup all read as no session.
     keychain.getGenericPassword.mockRejectedValueOnce(
       new Error('user cancelled'),
     );
@@ -116,8 +111,7 @@ describe('reading a session that is not there', () => {
     ['{"accessToken": 1, "refreshToken": "r", "accessTokenExpiresAt": 1}'],
     ['null'],
   ])('returns nothing for stored value %p', async raw => {
-    // Written by an older version, or corrupted. Treated as no session rather than as a crash
-    // on launch, which is what a thrown parse error here would be.
+    // A malformed stored value reads as no session.
     keychain.getGenericPassword.mockResolvedValueOnce(stored(raw));
 
     expect(await loadSession()).toBeNull();
@@ -131,7 +125,6 @@ describe('clearing a session', () => {
   });
 
   it('does not fail when the keychain does', async () => {
-    // The alternative is refusing to sign somebody out, which is worse than a stale entry.
     keychain.resetGenericPassword.mockRejectedValueOnce(new Error('no'));
     await expect(clearSession()).resolves.toBeUndefined();
   });

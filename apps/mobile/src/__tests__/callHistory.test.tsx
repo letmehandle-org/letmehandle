@@ -1,9 +1,4 @@
-/**
- * Call history: the list, one call's summary, what was said, and deleting.
- *
- * The whole tree against a backend that remembers, because what matters here happens across
- * requests — a filter asking the server rather than hiding rows, a deleted call leaving the list.
- */
+/** Call history against a backend that remembers: the list, a summary, what was said, and deleting. */
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
@@ -18,6 +13,7 @@ import {
   type Held,
   type HistorySetup,
 } from './support/backend';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -148,6 +144,34 @@ describe('the list', () => {
     await fireEvent.press(view.getByTestId('activity-more'));
     expect(await view.findByTestId('call-c')).toBeOnTheScreen();
     expect(view.queryByTestId('activity-more')).toBeNull();
+  });
+
+  it('drops an older page that arrives after the filter changed', async () => {
+    const { view } = await openActivity({
+      calls: [aCall({ id: 'a' }), aCall({ id: 'b' }), aCall({ id: 'c' })],
+      pageSize: 2,
+    });
+    await view.findByTestId('call-b');
+    const answer = globalThis.fetch;
+    let deliver: (() => void) | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('cursor=')) {
+        await new Promise<void>(resolve => {
+          deliver = resolve;
+        });
+      }
+      return answer(url, init);
+    }) as typeof fetch;
+
+    await fireEvent.press(view.getByTestId('activity-more'));
+    await fireEvent.press(view.getByTestId('activity-filter-joined'));
+    expect(await view.findByText(en.activity.emptyFiltered)).toBeOnTheScreen();
+    await act(async () => {
+      deliver?.();
+    });
+
+    expect(view.queryByTestId('call-c')).toBeNull();
+    expect(view.getByText(en.activity.emptyFiltered)).toBeOnTheScreen();
   });
 
   it('says so when the calls cannot be loaded, and tries again', async () => {
@@ -408,24 +432,7 @@ describe('an escalation opened after its call', () => {
   });
 
   it('follows a live escalation to its end without being opened again', async () => {
-    // Only the refresh interval is faked; promises and the test's own waits run on real timers.
-    jest.useFakeTimers({
-      doNotFake: [
-        'Date',
-        'hrtime',
-        'nextTick',
-        'performance',
-        'queueMicrotask',
-        'requestAnimationFrame',
-        'cancelAnimationFrame',
-        'requestIdleCallback',
-        'cancelIdleCallback',
-        'setImmediate',
-        'clearImmediate',
-        'setTimeout',
-        'clearTimeout',
-      ],
-    });
+    fakeOnly('setInterval', 'clearInterval');
     try {
       const escalations: Record<string, Held<Escalation>> = {
         'call-1': { ...ended, status: 'live', ended_at: null },

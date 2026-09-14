@@ -1,11 +1,4 @@
-/**
- * Turning a failure into something worth showing somebody.
- *
- * One place, because the same three questions are asked on every screen that talks to the
- * backend — could we reach it, did it refuse us, or is this something we cannot explain — and
- * answering them separately on each screen is how two screens end up disagreeing about what a
- * 429 means.
- */
+/** Turns a failure into the message a screen shows. */
 import { ApiError, NetworkError } from './errors';
 
 export type Translate = (key: string) => string;
@@ -17,14 +10,7 @@ export interface Messages {
   readonly rateLimited?: string;
 }
 
-/**
- * Which message this failure deserves.
- *
- * The order matters. Unreachable is checked first because it is not the server's answer at
- * all; a refusal second, because it is the one the user can act on; and anything else falls
- * through to a general message rather than being guessed at, since a failure nobody
- * anticipated is exactly the kind to be wrong about.
- */
+/** Unreachable first, then a refusal the user can act on, else a general message. */
 export function describeFailure(
   error: unknown,
   t: Translate,
@@ -38,8 +24,7 @@ export function describeFailure(
     if (error.isRateLimited && messages.rateLimited !== undefined) {
       return messages.rateLimited;
     }
-    // A refusal the user can act on: their number, or their code. Anything else — a failure
-    // inside the service — is not theirs to fix and not theirs to be told about.
+    // Only a 422 or a sign-in refusal is the user's to fix.
     if (error.status === 422 || error.needsSignIn) {
       return messages.refused;
     }

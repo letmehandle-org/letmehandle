@@ -1,11 +1,6 @@
-/**
- * Restoring a session, and ending one.
- *
- * A cold start is where this goes wrong: restoring too eagerly signs people out, restoring too
- * late shows them the sign-in screen they did not need, and renewing twice looks to the backend
- * exactly like a stolen token.
- */
+/** Restoring a session, keeping it through outages, and ending it. */
 import {
+  act,
   fireEvent,
   render,
   renderHook,
@@ -18,6 +13,7 @@ import { App } from '../App';
 import { SessionProvider, useSession } from '../auth/SessionProvider';
 import * as tokenStore from '../auth/tokenStore';
 import { DEFAULT_PREFERENCES, ONBOARDING_COMPLETE } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const NUMBER = '+12025550143';
 const PROFILE = {
@@ -50,16 +46,10 @@ interface Reply {
 function replyWith(replies: Reply[]): jest.Mock {
   const queue = [...replies];
   const fake = jest.fn(async (url: string) => {
-    // Answered from the defaults rather than from the queue. The signed-in tree reads
-    // preferences and onboarding before it renders, and counting those into every queue would
-    // make each of these tests fail whenever a screen gains a request.
+    // Preferences and onboarding answer from fixed bodies, outside the queue.
     const standing = SETUP[url.replace(/^https?:\/\/[^/]+/, '')];
     const reply = standing ?? queue.shift() ?? { status: 200, body: {} };
-    return {
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status,
-      json: async () => reply.body ?? {},
-    } as Response;
+    return jsonResponse(reply.status, reply.body ?? {});
   });
   globalThis.fetch = fake as unknown as typeof fetch;
   return fake;
@@ -99,8 +89,6 @@ describe('starting up', () => {
   });
 
   it('renews before the first request when the token is nearly expired', async () => {
-    // Rather than letting the first request fail and recovering from it, which would open the
-    // application on an error it could have avoided.
     store.loadSession.mockResolvedValue({
       accessToken: 'nearly-expired',
       refreshToken: 'a-refresh-token',
@@ -163,7 +151,6 @@ describe('starting up', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    // Nothing was asked of the backend: there was no session to check.
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
@@ -176,7 +163,6 @@ describe('never being asked for the number again without cause', () => {
   };
 
   it('opens signed in with no signal, even when the token needed renewing', async () => {
-    // On a train, in a lift, in airplane mode: the stored session is still the user's.
     store.loadSession.mockResolvedValue({
       accessToken: 'nearly-expired',
       refreshToken: 'a-refresh-token',
@@ -263,11 +249,7 @@ describe('never being asked for the number again without cause', () => {
     globalThis.fetch = (async () => {
       calls += 1;
       if (calls === 1) {
-        return {
-          ok: false,
-          status: 401,
-          json: async () => ({ error: 'not_authenticated', message: 'no' }),
-        } as Response;
+        return jsonResponse(401, { error: 'not_authenticated', message: 'no' });
       }
       throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
@@ -306,30 +288,25 @@ describe('signing out', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
-    // Revoked at the backend rather than only forgotten here, so the refresh token cannot be
-    // used by anybody who has a copy of it.
+    // The refresh token is revoked at the backend as well as forgotten here.
     expect(fetched.mock.calls.at(-1)?.[0]).toContain('/v1/auth/signout');
     expect(store.clearSession).toHaveBeenCalled();
   });
 
   it('still signs out locally when the backend cannot be told', async () => {
-    // Somebody who asked to be signed out is signed out. A network failure must not leave them
-    // looking at their own account.
     store.loadSession.mockResolvedValue({
       accessToken: 'a-token',
       refreshToken: 'a-refresh-token',
       accessTokenExpiresAt: Date.now() + 600_000,
     });
-    // Everything the signed-in tree needs answers; the sign-out that follows does not. Keyed
-    // by path rather than by how many requests have gone before, so that a screen gaining a
-    // request does not turn this into a test about something else.
+    // The signed-in tree answers by path; the sign-out request fails.
     globalThis.fetch = (async (url: string) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       const standing = { '/v1/me': PROFILE, ...SETUP_BODIES }[path];
       if (standing === undefined) {
         throw new TypeError('Network request failed');
       }
-      return { ok: true, status: 200, json: async () => standing } as Response;
+      return jsonResponse(200, standing);
     }) as unknown as typeof fetch;
 
     const view = await render(<App />);
@@ -347,6 +324,83 @@ describe('signing out', () => {
     await waitFor(() => {
       expect(view.getByTestId('welcome-screen')).toBeOnTheScreen();
     });
+  });
+});
+
+describe('signing out while a request is under way', () => {
+  it('forgets the session on this phone before the backend has answered', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    globalThis.fetch = (async (url: string) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/v1/auth/signout') {
+        return new Promise<Response>(() => undefined);
+      }
+      return jsonResponse(200, { '/v1/me': PROFILE, ...SETUP_BODIES }[path]);
+    }) as unknown as typeof fetch;
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+
+    result.current.signOut().catch(() => undefined);
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-out');
+    });
+    expect(store.clearSession).toHaveBeenCalled();
+  });
+
+  it('does not keep a renewal that finishes after signing out', async () => {
+    store.loadSession.mockResolvedValue({
+      accessToken: 'a-token',
+      refreshToken: 'a-refresh-token',
+      accessTokenExpiresAt: Date.now() + 600_000,
+    });
+    let finishRenewal: (() => void) | null = null;
+    let profileReads = 0;
+    globalThis.fetch = (async (url: string) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (path === '/v1/me') {
+        profileReads += 1;
+        return profileReads === 1
+          ? jsonResponse(200, PROFILE)
+          : jsonResponse(401, { error: 'not_authenticated', message: 'no' });
+      }
+      if (path === '/v1/auth/refresh') {
+        await new Promise<void>(resolve => {
+          finishRenewal = resolve;
+        });
+        return jsonResponse(200, TOKENS);
+      }
+      return jsonResponse(204);
+    }) as unknown as typeof fetch;
+    const { result } = await renderHook(() => useSession(), {
+      wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('signed-in');
+    });
+
+    const request = result.current.api.me().catch(() => undefined);
+    await waitFor(() => {
+      expect(finishRenewal).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.signOut();
+    });
+    await act(async () => {
+      finishRenewal?.();
+      await request;
+    });
+
+    expect(result.current.status).toBe('signed-out');
+    expect(store.saveSession).not.toHaveBeenCalled();
   });
 });
 
@@ -415,8 +469,6 @@ describe('the profile', () => {
 
 describe('using the session outside a provider', () => {
   it('says where the mistake is', async () => {
-    // A screen rendered outside the provider would otherwise read undefined and fail somewhere
-    // unrelated, usually in a render three components away.
     const errors = jest
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);

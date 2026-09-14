@@ -1,21 +1,4 @@
-/**
- * Sending what the handset observed about its calls to the backend.
- *
- * The native side records events whether or not this JavaScript is running — a call can arrive
- * while the app has not been opened since the phone started. This drains that record whenever the
- * app is running: at start, when it comes back to the front, and when the native side says
- * something new is waiting.
- *
- * An event is forgotten only once the backend has answered for it: stored now, stored before, or
- * refused. A refused report is refused for what it says, so sending it again would be refused
- * again, and keeping it would put it at the front of every later request. Anything else — no
- * connection, a server fault — leaves the event where it is. That is tried again a few times, a
- * little later each time, and then left for the next drain; the backend's idempotency makes
- * sending it twice harmless.
- *
- * An entry the handset holds that cannot be read at all is forgotten, and said by its kind of
- * failure only. Kept, it would be read and dropped again on every drain.
- */
+/** Drains the handset's recorded call events to the backend, forgetting each once it is answered for. */
 import type {
   CallReport,
   CallReportBatch,
@@ -76,11 +59,7 @@ export class CallReporter {
     this.onUnreadable = onUnreadable;
   }
 
-  /**
-   * Send everything waiting. One at a time: two drains reading the same record at once would
-   * send every event twice, which is harmless and wasteful. A drain asked for mid-flight runs
-   * once more afterwards, so an event recorded during a send is not left until the next trigger.
-   */
+  /** Sends everything waiting, one drain at a time, running once more if asked for mid-flight. */
   drain(): Promise<void> {
     if (this.running !== null) {
       this.again = true;
@@ -122,10 +101,7 @@ export class CallReporter {
     }
   }
 
-  /**
-   * Forgets entries that will never read, before anything is sent, so a failed send does not
-   * leave them to be read and dropped again on every drain.
-   */
+  /** Forgets entries that will never parse, before anything is sent. */
   private async forgetUnreadable(
     readable: readonly CallReport[],
     unreadable: readonly UnreadableCallReport[],
@@ -155,11 +131,7 @@ export class CallReporter {
   }
 }
 
-/**
- * Whether the same request could succeed shortly: the network did not answer, the server
- * faulted, or it asked for less. Any other refusal — a session that has gone, say — would be the
- * same a second later.
- */
+/** Whether the same request could succeed shortly: no network, a server fault or a 429. */
 function isTransient(error: unknown): boolean {
   if (error instanceof NetworkError) {
     return true;

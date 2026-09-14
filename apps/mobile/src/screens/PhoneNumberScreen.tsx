@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { ERROR_CODES } from '@letmehandle/api-client';
+
 import { describeFailure } from '../api/messages';
 import {
   COUNTRIES,
@@ -18,7 +20,7 @@ import {
   type DeviceHints,
 } from '../auth/countries';
 import { useSession, type CodeSent } from '../auth/SessionProvider';
-import { waitWords } from '../auth/wait';
+import { rateLimitedWords } from '../auth/wait';
 import { ApiError } from '../api/errors';
 import NativeDeviceCountry from '../calls/native/NativeDeviceCountry';
 import { Button } from '../components/Button';
@@ -43,14 +45,7 @@ function deviceHints(): DeviceHints {
   };
 }
 
-/**
- * Where somebody gives the number their assistant will answer for.
- *
- * The country is chosen for them from where the phone is, shown as its flag and calling code, so
- * all they type is their own number. Continue stays off until the digits are a whole number for
- * that country, which catches a digit too many or too few before a code goes nowhere. The number
- * is sent in E.164; the backend still normalises it, in one place.
- */
+/** Entering the number: the country comes from the phone and Continue waits for a whole number. */
 export function PhoneNumberScreen({
   onCodeSent,
   onBack,
@@ -104,19 +99,17 @@ export function PhoneNumberScreen({
         onCodeSent(sent, number);
       })
       .catch((error: unknown) => {
-        if (error instanceof ApiError && error.code === 'unserved_country') {
+        if (
+          error instanceof ApiError &&
+          error.code === ERROR_CODES.unservedCountry
+        ) {
           setProblem(t('phone.unserved'));
           return;
         }
         setProblem(
           describeFailure(error, t, {
             refused: t('phone.invalid'),
-            rateLimited:
-              error instanceof ApiError && error.retryAfterSeconds !== undefined
-                ? t('phone.rateLimitedFor', {
-                    wait: waitWords(error.retryAfterSeconds, t),
-                  })
-                : t('phone.rateLimited'),
+            rateLimited: rateLimitedWords(error, t),
           }),
         );
       })
@@ -154,13 +147,13 @@ export function PhoneNumberScreen({
         leading={
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${t('phone.country')}: ${t(
-              'phone.countryValue',
-              {
+            accessibilityLabel={t('common.labelled', {
+              label: t('phone.country'),
+              value: t('phone.countryValue', {
                 country: t(`phone.countries.${code}`),
                 dial: country.dial,
-              },
-            )}`}
+              }),
+            })}
             onPress={() => {
               setPicking(true);
             }}

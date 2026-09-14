@@ -1,10 +1,4 @@
-/**
- * Holding preferences, and what happens when saving one fails.
- *
- * The optimistic update is the part worth testing hardest. Showing the change immediately is
- * easy; putting it back when the server refuses, and saying so rather than letting it vanish,
- * is the part that gets left out.
- */
+/** Holding preferences: optimistic saves, refusals and loading. */
 import {
   act,
   fireEvent,
@@ -24,11 +18,13 @@ import {
   PreferencesProvider,
   usePreferences,
 } from '../preferences/PreferencesProvider';
+import { useImmediateSave } from '../preferences/useImmediateSave';
 import {
   DEFAULT_PREFERENCES,
   ONBOARDING_COMPLETE,
   onboardingAt,
 } from './support/backend';
+import { jsonResponse } from './support/http';
 
 const PROFILE = {
   id: 'u1',
@@ -70,11 +66,7 @@ function backendHoldingPatch(patch: () => { status: number; body: unknown }): {
         letGo = resolve;
       });
       const reply = patch();
-      return {
-        ok: reply.status >= 200 && reply.status < 300,
-        status: reply.status,
-        json: async () => reply.body,
-      } as Response;
+      return jsonResponse(reply.status, reply.body);
     }
 
     const bodies: Record<string, unknown> = {
@@ -82,11 +74,7 @@ function backendHoldingPatch(patch: () => { status: number; body: unknown }): {
       '/v1/preferences': DEFAULT_PREFERENCES,
       '/v1/onboarding': ONBOARDING_COMPLETE,
     };
-    return {
-      ok: true,
-      status: 200,
-      json: async () => bodies[path],
-    } as Response;
+    return jsonResponse(200, bodies[path]);
   }) as unknown as typeof fetch;
 
   return {
@@ -123,9 +111,6 @@ beforeAll(async () => {
 
 describe('loading', () => {
   it('holds the application back until there is something to render', async () => {
-    // Every screen below takes the preferences as given. Rendering them before the load has
-    // settled would mean each of them checking for an absence that lasts a few hundred
-    // milliseconds once.
     let letGo: (() => void) | null = null;
     globalThis.fetch = (async (url: string) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
@@ -139,11 +124,7 @@ describe('loading', () => {
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await render(
@@ -175,11 +156,7 @@ describe('loading', () => {
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await render(
@@ -206,7 +183,6 @@ describe('saving a change', () => {
       });
     });
 
-    // Still in flight, and the control the user moved has already moved.
     expect(view.result.current.preferences.personality.formality).toBe('warm');
 
     await act(async () => {
@@ -218,8 +194,6 @@ describe('saving a change', () => {
   });
 
   it('puts the previous value back when the server refuses, and says it refused', async () => {
-    // The rejection is the point. A revert with no explanation reads as the application losing
-    // work, which is worse than an error.
     const held = backendHoldingPatch(() => ({
       status: 422,
       body: { error: 'invalid_request', message: 'no' },
@@ -243,28 +217,111 @@ describe('saving a change', () => {
     expect(view.result.current.preferences).toEqual(DEFAULT_PREFERENCES);
   });
 
-  it('sends only the section that changed', async () => {
-    const calls: string[] = [];
+  it('keeps a later change that was saved when an earlier one is refused', async () => {
+    let refuseFirst: (() => void) | null = null;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       if (init?.method === 'PATCH') {
-        calls.push(String(init.body));
-        return {
-          ok: true,
-          status: 200,
-          json: async () => DEFAULT_PREFERENCES,
-        } as Response;
+        const changes = JSON.parse(String(init.body)) as Partial<Preferences>;
+        if (changes.hours !== undefined) {
+          await new Promise<void>(resolve => {
+            refuseFirst = resolve;
+          });
+          return jsonResponse(422, { error: 'invalid_request', message: 'no' });
+        }
+        return jsonResponse(200, { ...DEFAULT_PREFERENCES, ...changes });
       }
       const bodies: Record<string, unknown> = {
         '/v1/me': PROFILE,
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': ONBOARDING_COMPLETE,
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
+    }) as unknown as typeof fetch;
+    const view = await loaded();
+
+    let first: Promise<void> | null = null;
+    await act(async () => {
+      first = view.result.current.save({
+        hours: { active: { start: '07:00', end: '22:00', zone: 'UTC' } },
+      });
+    });
+    await act(async () => {
+      await view.result.current.save({
+        privacy: { transcript_retention_days: 30 },
+      });
+    });
+    await act(async () => {
+      refuseFirst?.();
+      await expect(first).rejects.toThrow();
+    });
+
+    expect(view.result.current.preferences.hours.active).toBeNull();
+    expect(
+      view.result.current.preferences.privacy.transcript_retention_days,
+    ).toBe(30);
+  });
+
+  it('stays busy while any change made in a row is still saving', async () => {
+    let finishFirst: (() => void) | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (init?.method === 'PATCH') {
+        const changes = JSON.parse(String(init.body)) as Partial<Preferences>;
+        if (changes.hours !== undefined) {
+          await new Promise<void>(resolve => {
+            finishFirst = resolve;
+          });
+        }
+        return jsonResponse(200, { ...DEFAULT_PREFERENCES, ...changes });
+      }
+      const bodies: Record<string, unknown> = {
+        '/v1/me': PROFILE,
+        '/v1/preferences': DEFAULT_PREFERENCES,
+        '/v1/onboarding': ONBOARDING_COMPLETE,
+      };
+      return jsonResponse(200, bodies[path]);
+    }) as unknown as typeof fetch;
+    const view = await renderHook(() => useImmediateSave(), { wrapper });
+    await waitFor(() => {
+      expect(view.result.current).toBeDefined();
+    });
+
+    await act(async () => {
+      view.result.current.save({
+        hours: { active: { start: '07:00', end: '22:00', zone: 'UTC' } },
+      });
+    });
+    await act(async () => {
+      view.result.current.save({ privacy: { transcript_retention_days: 30 } });
+    });
+    await waitFor(() => {
+      expect(finishFirst).not.toBeNull();
+    });
+
+    expect(view.result.current.busy).toBe(true);
+    await act(async () => {
+      finishFirst?.();
+    });
+    await waitFor(() => {
+      expect(view.result.current.busy).toBe(false);
+    });
+  });
+
+  it('sends only the section that changed', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = url.replace(/^https?:\/\/[^/]+/, '');
+      if (init?.method === 'PATCH') {
+        calls.push(String(init.body));
+        return jsonResponse(200, DEFAULT_PREFERENCES);
+      }
+      const bodies: Record<string, unknown> = {
+        '/v1/me': PROFILE,
+        '/v1/preferences': DEFAULT_PREFERENCES,
+        '/v1/onboarding': ONBOARDING_COMPLETE,
+      };
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await loaded();
@@ -276,9 +333,6 @@ describe('saving a change', () => {
       });
     });
 
-    // Only the section that changed. The server leaves every other one exactly as it was, so
-    // sending the rest would overwrite them with whatever this client last read — the same
-    // lost update, from the other direction.
     const sent = JSON.parse(calls[0]);
     expect(sent.call_handling).toBeUndefined();
     expect(sent.hours.active).toEqual({
@@ -294,22 +348,14 @@ describe('recording a step', () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       if (path === '/v1/onboarding' && init?.method === 'POST') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => onboardingAt('hours'),
-        } as Response;
+        return jsonResponse(200, onboardingAt('hours'));
       }
       const bodies: Record<string, unknown> = {
         '/v1/me': PROFILE,
         '/v1/preferences': DEFAULT_PREFERENCES,
         '/v1/onboarding': onboardingAt('call_handling'),
       };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => bodies[path],
-      } as Response;
+      return jsonResponse(200, bodies[path]);
     }) as unknown as typeof fetch;
 
     const view = await loaded();

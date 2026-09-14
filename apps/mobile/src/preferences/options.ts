@@ -1,11 +1,4 @@
-/**
- * Every choice the backend will accept, listed once.
- *
- * The generated types say which values exist but not in what order to offer them, and a screen
- * that writes its own list is a screen that quietly stops offering a value the backend added.
- * Typing each list against the generated union means a value that disappears upstream is a
- * compile error here rather than an option nobody can pick.
- */
+/** Every choice the backend accepts, in the order it is offered. */
 import type { IconName } from '../components/icon/Icon';
 import type { Capability, Formality, Verbosity } from '@letmehandle/api-client';
 

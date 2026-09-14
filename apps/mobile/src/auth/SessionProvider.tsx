@@ -1,10 +1,4 @@
-/**
- * Who is signed in, for the whole application.
- *
- * One place holds the session, so that a screen asks whether somebody is signed in rather than
- * reading a token and deciding for itself. The navigator reads `status` to choose between the
- * sign-in screens and the application; nothing else needs to know a token exists.
- */
+/** Who is signed in, for the whole app; screens read `status` and never a token. */
 import React, {
   createContext,
   useCallback,
@@ -37,13 +31,7 @@ export interface CodeSent {
   readonly resendAfterSeconds: number;
 }
 
-/**
- * Whether a failure means the session is over rather than out of reach.
- *
- * Only a 401 from the server. Everything else — no network, a timeout, a 5xx, a rate limit — is
- * something that will pass, and ending a session over it is how somebody who opened the app on a
- * train gets asked for their number again.
- */
+/** Whether a failure ends the session: only a 401 does (D-036). */
 export function endsSession(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
@@ -63,8 +51,6 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function useSession(): SessionContextValue {
   const value = useContext(SessionContext);
   if (value === null) {
-    // A screen rendered outside the provider would otherwise read undefined and fail somewhere
-    // unrelated. This says where the mistake is.
     throw new Error('useSession must be used inside a SessionProvider');
   }
   return value;
@@ -78,8 +64,7 @@ export function SessionProvider({
   const [status, setStatus] = useState<SessionStatus>('restoring');
   const [profile, setProfile] = useState<Profile | null>(null);
 
-  // A ref, not state: the client reads it during a request, and a stale closure over a state
-  // value would send the token that was current when the screen last rendered.
+  // A ref, so a request always reads the current session rather than a render's copy.
   const session = useRef<StoredSession | null>(null);
 
   const forget = useCallback(async (): Promise<void> => {
@@ -89,9 +74,7 @@ export function SessionProvider({
     await clearSession();
   }, []);
 
-  // The client and the session handle need each other: the client asks the handle to renew,
-  // and renewing means calling the client. Held through a ref rather than left to closure
-  // timing, so the cycle is visible instead of being something that happens to work.
+  // The client and the handle need each other, so the handle reaches the client through a ref.
   const clientRef = useRef<ApiClient | null>(null);
 
   const handle = useMemo<SessionHandle>(
@@ -105,15 +88,16 @@ export function SessionProvider({
         }
         try {
           const tokens = await api.refresh(current.refreshToken);
+          if (session.current !== current) {
+            // Signed out, or signed in again, while renewing: the renewal belongs to nobody.
+            return session.current?.accessToken ?? null;
+          }
           const renewed = sessionFromTokens(tokens);
           session.current = renewed;
           await saveSession(renewed);
           return renewed.accessToken;
         } catch (error) {
-          // Only the server saying no ends a session: expired, revoked, or detected as replayed.
-          // A phone with no signal, a server that is restarting, a request that timed out — none
-          // of those is a reason to ask somebody for their number again, so they are raised to
-          // the request that needed the renewal and the session is kept for the next one.
+          // Only a refusal ends the session; network and server faults reach the request that needed renewal.
           if (endsSession(error)) {
             return null;
           }
@@ -121,17 +105,14 @@ export function SessionProvider({
         }
       },
       onSignedOut: () => {
-        // Not awaited: this is called from inside a failed request, which has its own error to
-        // return. The catch is there so that a failure to clear storage cannot surface as an
-        // unhandled rejection somewhere unrelated.
+        // Not awaited: the failed request returns its own error.
         forget().catch(() => undefined);
       },
     }),
     [forget],
   );
 
-  // Built once. A new client per render would lose the renewal in flight, which is the whole
-  // reason concurrent requests share one.
+  // One client for the provider's life, so concurrent requests share its renewal.
   const client = useMemo(() => {
     const built = new ApiClient(handle);
     clientRef.current = built;
@@ -156,9 +137,7 @@ export function SessionProvider({
 
       session.current = stored;
 
-      // Renewed before the first request rather than after one fails, so the application does
-      // not open on an error it could have avoided. Opening with no signal still opens signed
-      // in: the stored session is the user's until the server says otherwise.
+      // Renews an expiring token before the first request; with no signal the app still opens signed in.
       try {
         if (needsRenewal(stored) && (await handle.renew()) === null) {
           if (!cancelled) {
@@ -214,7 +193,7 @@ export function SessionProvider({
       const issued = await client.requestChallenge(phoneNumber);
       return {
         challengeId: issued.challenge_id,
-        resendAfterSeconds: issued.resend_after_seconds ?? 0,
+        resendAfterSeconds: issued.resend_after_seconds,
       };
     },
     [client],
@@ -226,7 +205,14 @@ export function SessionProvider({
       const started = sessionFromTokens(tokens);
       session.current = started;
       await saveSession(started);
-      setProfile(await client.me());
+      // A profile that cannot be read yet is fetched again later; the code is already spent.
+      const current = await client.me().catch((error: unknown) => {
+        if (endsSession(error)) {
+          throw error;
+        }
+        return null;
+      });
+      setProfile(current);
       setStatus('signed-in');
     },
     [client],
@@ -234,13 +220,10 @@ export function SessionProvider({
 
   const signOut = useCallback(async (): Promise<void> => {
     const current = session.current;
-    // Told to the backend first, so the refresh token is revoked there rather than only
-    // forgotten here. A failure does not stop the local sign-out: a user who asked to be
-    // signed out is signed out.
+    await forget();
     if (current !== null) {
       await client.signOut(current.refreshToken).catch(() => undefined);
     }
-    await forget();
   }, [client, forget]);
 
   const value = useMemo<SessionContextValue>(

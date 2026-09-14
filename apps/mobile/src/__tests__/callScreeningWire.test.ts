@@ -1,10 +1,4 @@
-/**
- * The documents that cross into and out of the native screening service.
- *
- * Tested against `wire-examples.json`, which the Kotlin codecs' tests read too. The snapshot this
- * side builds must be one the handset reads; the events the handset writes must be ones this
- * side forwards. Both directions are held by the one file.
- */
+/** The documents crossing the native screening boundary, checked against `wire-examples.json`. */
 import type { Preferences } from '@letmehandle/api-client';
 
 import { callScreeningFrom } from '../calls/callScreening';
@@ -44,7 +38,6 @@ describe('the rules snapshot', () => {
   });
 
   it('carries no contact labels and no hours', () => {
-    // The handset needs a number and what to do with it. Anything else is a copy nothing reads.
     const snapshot = JSON.stringify(
       buildRulesSnapshot(
         {
@@ -158,7 +151,48 @@ describe('the typed native module', () => {
   it('sends the snapshot as the text the handset reads', async () => {
     const native = new FakeNativeCallScreening();
     const snapshot = buildRulesSnapshot(DEFAULT_PREFERENCES, SYNCED_AT);
-    await callScreeningFrom(native)?.writeRulesSnapshot(snapshot);
+    const screening = callScreeningFrom(native);
+    await screening?.startRecordingCalls();
+    await screening?.writeRulesSnapshot(snapshot);
     expect(native.latestSnapshot()).toEqual(snapshot);
+  });
+});
+
+describe('the handset account', () => {
+  it('writes no rules once forgetting the account has begun', async () => {
+    const native = new FakeNativeCallScreening();
+    const screening = callScreeningFrom(native);
+    const snapshot = buildRulesSnapshot(DEFAULT_PREFERENCES, SYNCED_AT);
+    await screening?.startRecordingCalls();
+    native.holdSnapshots();
+
+    const inFlight = screening?.writeRulesSnapshot(snapshot);
+    const forgetting = screening?.forgetAccount();
+    const late = screening?.writeRulesSnapshot(snapshot);
+    native.releaseSnapshots();
+    await Promise.all([inFlight, forgetting, late]);
+
+    expect(native.completed).toEqual(['start', 'write', 'forget']);
+    expect(native.snapshots).toEqual([]);
+  });
+
+  it('writes no rules before an account starts recording', async () => {
+    const native = new FakeNativeCallScreening();
+    await callScreeningFrom(native)?.writeRulesSnapshot(
+      buildRulesSnapshot(DEFAULT_PREFERENCES, SYNCED_AT),
+    );
+    expect(native.completed).toEqual([]);
+  });
+
+  it('writes rules again once an account starts recording', async () => {
+    const native = new FakeNativeCallScreening();
+    const screening = callScreeningFrom(native);
+    const snapshot = buildRulesSnapshot(DEFAULT_PREFERENCES, SYNCED_AT);
+
+    await screening?.forgetAccount();
+    await screening?.startRecordingCalls();
+    await screening?.writeRulesSnapshot(snapshot);
+
+    expect(native.completed).toEqual(['forget', 'start', 'write']);
   });
 });

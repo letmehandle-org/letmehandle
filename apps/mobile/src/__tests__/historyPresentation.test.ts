@@ -1,6 +1,4 @@
-/**
- * The pure choices behind how a call is drawn, and the screenshot guard's counting.
- */
+/** The pure choices behind how a call is drawn, and the screenshot guard's counting. */
 import { en } from '../i18n/locales/en';
 import {
   byDay,

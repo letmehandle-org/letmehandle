@@ -24,12 +24,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * Asking before something that cannot be undone.
- *
- * The confirming button is the only red in the system, and keeping is always one tap away:
- * the scrim, the second button and the system back all keep.
- */
+/** Asks before something that cannot be undone; the scrim, the second button and back all keep. */
 export function ConfirmSheet({
   visible,
   icon,

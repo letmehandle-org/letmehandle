@@ -14,12 +14,7 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * When the phone rings for the user, and the two things they can add to it.
- *
- * The rule is fixed and drawn; being told when the assistant needs them is not optional. What is
- * left is whether to hear about every call and whether to get an evening round-up.
- */
+/** When the phone rings for the user, and the two notifications they can add. */
 export function WhenCalledScreen({ onBack }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { preferences } = usePreferences();

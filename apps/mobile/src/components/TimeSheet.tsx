@@ -25,12 +25,7 @@ interface Props {
 
 const ROW = 52;
 
-/**
- * A sheet of times, every half hour, opening at the one already chosen.
- *
- * A list rather than a spinning wheel: nothing to install, every option readable at once, and a
- * screen reader reads it as the list it is.
- */
+/** A list of half-hour times, opening at the one already chosen. */
 export function TimeSheet({
   title,
   visible,

@@ -1,6 +1,4 @@
-/**
- * What went wrong, in terms a screen can act on.
- */
+/** Failures in terms a screen can act on. */
 import { ERROR_CODES, type ApiErrorBody } from '@letmehandle/api-client';
 
 export class ApiError extends Error {
@@ -32,12 +30,7 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * The network did not answer.
- *
- * Distinct from an `ApiError`, which means the server answered and said no. A screen shows
- * these differently: one is "try again", the other is "that code is wrong".
- */
+/** The network did not answer, as distinct from the server answering no. */
 export class NetworkError extends Error {
   constructor(cause: unknown) {
     super('The service could not be reached.');

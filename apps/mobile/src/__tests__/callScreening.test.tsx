@@ -1,11 +1,4 @@
-/**
- * Call screening, as somebody using the app meets it.
- *
- * What is worth proving: the screen explains the role before asking for it; saying no is a
- * complete answer that leaves every call ringing and the question open; the handset is given
- * the user's rules and given them again when they change; what the handset observed reaches the
- * backend; and a handset that cannot screen shows none of it.
- */
+/** Call screening as the user meets it: the role, the rules on the handset, and reports. */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 import { AppState, PermissionsAndroid } from 'react-native';
@@ -17,6 +10,7 @@ import { en } from '../i18n/locales/en';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { runningBackend, type RunningBackend } from './support/backend';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -267,8 +261,7 @@ describe('keeping the handset in step', () => {
   });
 
   it('reports again when the app comes back to the front', async () => {
-    // A call that arrived while the app was in the background and nothing announced it: the
-    // native side records it regardless, and returning to the app is when it is sent.
+    // A call recorded in the background with no event is sent when the app returns.
     const listeners: ((state: string) => void)[] = [];
     jest
       .spyOn(AppState, 'addEventListener')
@@ -294,8 +287,7 @@ describe('keeping the handset in step', () => {
   });
 
   it('keeps what could not be reported, and tries again shortly', async () => {
-    // Fake timers, so the wait before trying again passes without the test waiting through it.
-    jest.useFakeTimers();
+    fakeOnly('setTimeout', 'clearTimeout');
     try {
       const native = new FakeNativeCallScreening();
       native.pending = [SCREENED];
@@ -328,8 +320,7 @@ describe('keeping the handset in step', () => {
   });
 
   it('records calls only while somebody is signed in', async () => {
-    // A shared phone: calls that arrive between one account leaving and the next arriving are
-    // nobody's, and must never be reported as the calls of whoever signs in next.
+    // Calls between one account leaving and the next arriving are never reported.
     const native = new FakeNativeCallScreening();
     const backend = runningBackend();
     const view = await signedIn(callScreeningFrom(native));

@@ -1,13 +1,4 @@
-/**
- * The two documents that cross into and out of the native screening service.
- *
- * The rules snapshot goes in: the deterministic part of this user's preferences, in the shape the
- * Kotlin `CallRulesSnapshotCodec` reads. Call reports come out: exactly the backend's
- * `CallReportPayload`, so they are forwarded without translation.
- *
- * `wire-examples.json` beside this file is read by these functions' tests and by the Kotlin
- * codecs' tests. A change to either side that the other would not accept fails both suites.
- */
+/** The rules snapshot sent to the native screening service and the call reports read back from it. */
 import type {
   CallEnding,
   CallReport,
@@ -17,7 +8,7 @@ import type {
   ScreeningDecision,
 } from '@letmehandle/api-client';
 
-/** 2 dropped quiet hours: the user's hours decide when the assistant answers, not a handset (D-030). */
+/** Version of the snapshot format, which carries no hours (D-030). */
 export const RULES_SNAPSHOT_VERSION = 2;
 
 export interface RulesSnapshot {
@@ -33,13 +24,7 @@ export interface RulesSnapshot {
   }[];
 }
 
-/**
- * The rules a handset applies before a call rings, from the preferences as they stand.
- *
- * Only the deterministic part. Contact labels stay behind: the handset needs a number and what to
- * do with it, and a copy of what the user calls somebody is a copy nothing reads. So do the user's
- * hours, which no decision on the handset reads.
- */
+/** The deterministic rules a handset applies before a call rings, without labels or hours. */
 export function buildRulesSnapshot(
   preferences: Preferences,
   now: Date,
@@ -83,14 +68,7 @@ export interface PendingCallReports {
   readonly unreadable: UnreadableCallReport[];
 }
 
-/**
- * The handset's pending call events, checked before anything is sent.
- *
- * Checked rather than cast: this text was written by another language's code on another thread,
- * and a report the backend would refuse is better caught here with a reason than there without.
- * Checked one entry at a time, so an entry that cannot be read is set aside instead of holding
- * back every report written after it.
- */
+/** The handset's pending events, checked one entry at a time so a bad entry is set aside. */
 export function parseCallReports(document: string): PendingCallReports {
   let parsed: unknown;
   try {

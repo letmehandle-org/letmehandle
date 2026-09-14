@@ -7,12 +7,7 @@ interface Props {
   readonly size?: number;
 }
 
-/**
- * The LetMeHandle mark: the lower-case letters in violet over the apricot smile.
- *
- * Drawn from `brand/source/mark.svg`, so the app and every other surface carry the same mark.
- * Decorative: the name is always written beside or above it.
- */
+/** The LetMeHandle mark from `brand/source/mark.svg`; decorative, as the name is always written by it. */
 export function BrandMark({ size = 44 }: Props): React.JSX.Element {
   return (
     <Svg

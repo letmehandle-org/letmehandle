@@ -1,12 +1,17 @@
-/**
- * Home: every state the design draws, each reached only by the facts that make it true.
- */
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+/** Home: every state the design draws, each reached only by the facts that make it true. */
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  waitFor,
+} from '@testing-library/react-native';
 import React from 'react';
 
+import { ApiClient } from '../api/client';
 import { SessionProvider } from '../auth/SessionProvider';
 import { callScreeningFrom, type CallScreening } from '../calls/callScreening';
-import { forgetHome } from '../home/useHome';
+import { forgetHome, REFRESH_EVERY_MS, useHome } from '../home/useHome';
 import {
   elapsed,
   homeState,
@@ -19,6 +24,7 @@ import { en } from '../i18n/locales/en';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { aCall, runningBackend, type HistorySetup } from './support/backend';
 import { FakeNativeCallScreening } from './support/nativeCallScreening';
+import { fakeOnly } from './support/timers';
 
 jest.mock('../auth/tokenStore', () => ({
   ...jest.requireActual('../auth/tokenStore'),
@@ -125,8 +131,8 @@ describe('what Home says', () => {
       calls: [aCall({ id: 'old', started_at: yesterday })],
     });
 
-    // The fake backend does not filter by date, so today's listing is told apart by its query.
     expect(backend.listings.some(query => query.includes('from='))).toBe(true);
+    expect(view.getByTestId('home-figure')).toHaveTextContent('0');
     expect(view.getByTestId('home-call-old')).toBeOnTheScreen();
   });
 
@@ -261,7 +267,7 @@ describe('what Home says', () => {
     });
     await fireEvent.press(view.getByTestId('tab-activity'));
     await view.findByTestId('call-call-1');
-    // The connection goes while Activity is open; Home's next refresh is the one that fails.
+    // The connection goes while Activity is open, so Home's next refresh fails.
     backend.failNext('/v1/calls', {
       status: 503,
       body: { error: 'down', message: 'x' },
@@ -294,6 +300,64 @@ describe('what Home says', () => {
         en.home.waiting,
       );
     });
+  });
+});
+
+describe('refreshing Home', () => {
+  it('lets a slow load finish rather than starting it again every interval', async () => {
+    fakeOnly('setInterval', 'clearInterval');
+    try {
+      const release: (() => void)[] = [];
+      const api = {
+        calls: jest.fn(
+          () =>
+            new Promise(resolve => {
+              release.push(() => {
+                resolve({ calls: [], next_cursor: null });
+              });
+            }),
+        ),
+      } as unknown as ApiClient;
+      const view = await renderHook(() => useHome(api, null, 'u1'));
+
+      await act(async () => {
+        jest.advanceTimersByTime(REFRESH_EVERY_MS * 2);
+      });
+      await act(async () => {
+        release.forEach(finish => finish());
+      });
+      await act(async () => {
+        release.forEach(finish => finish());
+      });
+
+      expect(view.result.current.snapshot).not.toBeNull();
+      expect(api.calls).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('the remembered snapshot', () => {
+  it('is never shown to a session whose account is not known yet', async () => {
+    runningBackend({ startAt: null, history: { calls: [aCall()] } });
+    const api = new ApiClient({
+      accessToken: () => 'a-token',
+      renew: async () => null,
+      onSignedOut: () => undefined,
+    });
+    const first = await renderHook(() => useHome(api, null, null));
+    await waitFor(() => {
+      expect(first.result.current.snapshot).not.toBeNull();
+    });
+    await first.unmount();
+    globalThis.fetch = (async () => {
+      throw new TypeError('Network request failed');
+    }) as unknown as typeof fetch;
+
+    const second = await renderHook(() => useHome(api, null, null));
+
+    expect(second.result.current.snapshot).toBeNull();
   });
 });
 

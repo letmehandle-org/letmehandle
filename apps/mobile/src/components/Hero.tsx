@@ -12,12 +12,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * The pastel card that carries the ring.
- *
- * The one gradient in the app, drawn with SVG because React Native has no gradient of its own,
- * and kept to this card so that it stays the thing the eye lands on first.
- */
+/** The pastel card that carries the ring, its gradient drawn in SVG. */
 export function Hero({
   children,
   style,

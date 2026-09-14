@@ -22,10 +22,7 @@ interface Action {
 }
 
 interface Props {
-  /**
-   * A top-level screen's title, set large and to the left — or, with `onBack`, a sub-page's
-   * title, set small and centred between a round back button and an optional action.
-   */
+  /** A top-level title set large, or with `onBack` a sub-page title centred beside the back button. */
   readonly title?: string;
   readonly subtitle?: string;
   readonly onBack?: () => void;
@@ -42,13 +39,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * The shape every screen shares.
- *
- * Here rather than repeated: the ground, the safe area, the keyboard, the gutter and the two
- * kinds of header are the things that get slightly different on the fifth screen somebody
- * writes.
- */
+/** The ground, safe area, keyboard handling, gutter and header every screen shares. */
 export function Screen({
   title,
   subtitle,
@@ -120,7 +111,7 @@ export function Screen({
         ) : null}
 
         {scrollable ? (
-          // Content that runs off the bottom of a fixed body is content nobody knows is there.
+          // Scrolls when content runs past a fixed body.
           <ScrollView
             style={styles.flex}
             contentContainerStyle={styles.scrollBody}

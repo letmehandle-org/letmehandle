@@ -17,12 +17,7 @@ interface Props {
   readonly disabled?: boolean;
 }
 
-/**
- * The voices on offer, as faces to tap.
- *
- * Each is its initial rather than a play button. The shipped provider has no samples to play
- * (D-009), and a play control that cannot play is one the design must not draw.
- */
+/** The voices on offer as initials to tap; no play control where the provider has no samples (D-009). */
 export function VoicePicker({
   label,
   voices,

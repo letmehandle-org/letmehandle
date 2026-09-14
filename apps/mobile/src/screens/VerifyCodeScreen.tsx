@@ -9,7 +9,7 @@ import { CodeInput } from '../components/CodeInput';
 import { HeadingBlock } from '../components/HeadingBlock';
 import { Notice } from '../components/Notice';
 import { Screen } from '../components/Screen';
-import { clockWords, waitWords } from '../auth/wait';
+import { clockWords, rateLimitedWords, waitWords } from '../auth/wait';
 import { environment, type AppEnvironment } from '../config/environment';
 
 interface Props {
@@ -20,23 +20,12 @@ interface Props {
   readonly onBack: () => void;
 }
 
-/**
- * Whether to tell somebody the fixed testing code.
- *
- * FOR TESTING ONLY — remove before launch, together with the backend's fixed code. A
- * development build talks to a backend running the mock code provider, which accepts 123456 for
- * every challenge; no other build is told anything about codes.
- */
+/** Whether a build shows the fixed code the development backend accepts. */
 export function showsTestingCode(name: AppEnvironment): boolean {
   return name === 'development';
 }
 
-/**
- * Where the code is entered. Signing in happens here; the navigator follows the session.
- *
- * Another code can be asked for once the server says so, counted down on the button rather than
- * offered and then refused. Only the newest code works, so the screen says that when it sends one.
- */
+/** Entering the code, with resending counted down to when the server allows it. */
 export function VerifyCodeScreen({
   challengeId: firstChallenge,
   phoneNumber,
@@ -58,8 +47,9 @@ export function VerifyCodeScreen({
   const [now, setNow] = useState(() => Date.now());
 
   const waitLeft = Math.max(0, (resendAt - now) / 1000);
+  const waiting = waitLeft > 0;
   useEffect(() => {
-    if (waitLeft <= 0) {
+    if (!waiting) {
       return undefined;
     }
     const tick = setInterval(() => {
@@ -68,7 +58,7 @@ export function VerifyCodeScreen({
     return () => {
       clearInterval(tick);
     };
-  }, [waitLeft]);
+  }, [waiting]);
 
   const resend = (): void => {
     setProblem(null);
@@ -93,12 +83,7 @@ export function VerifyCodeScreen({
         setProblem(
           describeFailure(error, t, {
             refused: t('code.invalid'),
-            rateLimited:
-              error instanceof ApiError && error.retryAfterSeconds !== undefined
-                ? t('phone.rateLimitedFor', {
-                    wait: waitWords(error.retryAfterSeconds, t),
-                  })
-                : t('phone.rateLimited'),
+            rateLimited: rateLimitedWords(error, t),
           }),
         );
       })
@@ -115,8 +100,7 @@ export function VerifyCodeScreen({
     signIn(challengeId, code.trim())
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.isRateLimited) {
-          // The number is locked after too many wrong codes, or this phone has guessed at too
-          // many. Either way the wait is the server's to say.
+          // Locked or rate limited: the wait is the server's.
           setProblem(
             t('code.locked', {
               wait: waitWords(error.retryAfterSeconds ?? 3600, t),
@@ -125,11 +109,8 @@ export function VerifyCodeScreen({
           setCode('');
           return;
         }
-        // Wrong, expired, already used and never existed all arrive the same way,
-        // deliberately: saying which would tell somebody guessing how close they are.
+        // Every kind of wrong code reads the same, so a guesser learns nothing.
         setProblem(describeFailure(error, t, { refused: t('code.invalid') }));
-        // Cleared on failure so the next attempt starts from an empty field rather than from
-        // a code that has already been refused.
         setCode('');
       })
       .finally(() => {
@@ -152,14 +133,14 @@ export function VerifyCodeScreen({
           />
           <Button
             label={
-              waitLeft > 0
+              waiting
                 ? t('code.resendIn', { clock: clockWords(waitLeft) })
                 : t('code.resend')
             }
             variant="quiet"
             onPress={resend}
             busy={sending}
-            disabled={waitLeft > 0}
+            disabled={waiting}
             testID="code-resend"
           />
         </>

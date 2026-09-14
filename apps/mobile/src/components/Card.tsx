@@ -9,12 +9,7 @@ interface Props {
   readonly testID?: string;
 }
 
-/**
- * White on the lavender ground: everything a person reads sits on one of these.
- *
- * The only elevated surface in the app. Rows inside it are separated by hairlines rather than
- * by more cards, so the screen keeps one level of depth instead of stacking shadows.
- */
+/** The app's one elevated surface; rows inside are separated by hairlines. */
 export function Card({ children, style, testID }: Props): React.JSX.Element {
   return (
     <View style={[styles.card, style]} testID={testID}>
