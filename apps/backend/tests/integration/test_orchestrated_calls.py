@@ -142,6 +142,18 @@ class Orchestrated:
         assert stored is not None
         return stored
 
+    async def lines(self, call: str = CALL) -> list[str]:
+        cipher = self.container.transcript_cipher
+        assert cipher is not None
+        async with unit_of_work(self.factory) as session:
+            stored = await SqlTranscriptRepository(session, cipher).for_call(USER, CallId(call))
+        return [line.text for line in stored]
+
+    async def transcribed(self, count: int = 1, call: str = CALL) -> None:
+        async with asyncio.timeout(10):
+            while len(await self.lines(call)) < count:  # noqa: ASYNC110
+                await asyncio.sleep(0.02)
+
     async def arrives(self) -> None:
         await self.provider.place_call(CALL, forwarded_from=USERS_LINE)
 
@@ -288,18 +300,14 @@ async def test_the_assistant_takes_a_call_on_its_own(storage: tuple[str, str]) -
         await eventually(lambda: running.deployment.transport.open_media_sockets == 1)
         await running.provider.send_caller_audio(CALL, b"\x11" * 160, frames=2)
         await running.caller_says("I am calling about the boiler service.")
-        await asyncio.sleep(0.1)
+        await running.transcribed()
         await running.provider.caller_hangs_up(CALL)
         call = await running.ended()
 
         assert call.state is CallState.COMPLETED
         assert call.handling is CallHandling.ASSISTANT
         assert call.has_participant(ParticipantRole.AGENT) or call.participants
-        cipher = running.container.transcript_cipher
-        assert cipher is not None
-        async with unit_of_work(running.factory) as session:
-            lines = await SqlTranscriptRepository(session, cipher).for_call(USER, CallId(CALL))
-        assert [line.text for line in lines] == ["I am calling about the boiler service."]
+        assert await running.lines() == ["I am calling about the boiler service."]
         assert await running.summary_outcome() is CallOutcome.CALLER_HUNG_UP
         running.nothing_held()
 
@@ -313,7 +321,7 @@ async def test_a_call_the_assistant_took_is_summarised_by_the_model_and_stored_s
         await running.arrives()
         await running.reaches(CallState.AGENT_HANDLING)
         await running.caller_says("I am calling about the boiler service.")
-        await asyncio.sleep(0.1)
+        await running.transcribed()
         await running.provider.caller_hangs_up(CALL)
         await running.ended()
 
