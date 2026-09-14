@@ -19,6 +19,8 @@ taken from that section.
 
 ## [Unreleased]
 
+## [2026.9.14]
+
 ### Added
 
 - Each release carries the Android app as `letmehandle-android.apk`, signed with the release key and
@@ -131,5 +133,6 @@ provider that sends a real text message: **no deployment of this version is safe
   content are not yet excluded from screenshots.
 - Observability beyond structured logs, and a dependency vulnerability audit, are not yet in place.
 
-[Unreleased]: https://github.com/letmehandle-org/letmehandle/compare/v2026.9.13...HEAD
+[Unreleased]: https://github.com/letmehandle-org/letmehandle/compare/v2026.9.14...HEAD
+[2026.9.14]: https://github.com/letmehandle-org/letmehandle/compare/v2026.9.13...v2026.9.14
 [2026.9.13]: https://github.com/letmehandle-org/letmehandle/releases/tag/v2026.9.13
