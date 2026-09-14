@@ -1,15 +1,4 @@
-"""A verification API in this process, answering the requests of the provider that makes its codes.
-
-It answers the two requests that provider makes — start a verification, and check a code — the way
-the documented API does: authenticated as the account, under one verification service. Starting one
-texts a code the service chose, and starting another while one is pending texts the same code
-again. Checking the right code approves it once; a wrong code leaves it pending; a code for a number
-with nothing pending is a 404, which is also what an expired or already approved one becomes. A
-number it cannot deliver to is a 400 with the numeric code for why, and it can throttle, fail, or
-not answer at all. What it texted is kept, so a test reads a code as a person reads their phone.
-
-Every identifier says it is simulated, and every number is in a range reserved for fiction.
-"""
+"""An in-process verification API answering start and check requests, with fictional ids."""
 
 from __future__ import annotations
 

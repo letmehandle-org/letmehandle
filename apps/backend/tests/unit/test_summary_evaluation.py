@@ -1,10 +1,4 @@
-"""The summary evaluation set's scoring, proven with scripted models rather than a real one.
-
-The set runs against a configured endpoint and is not part of the test run. What is proven here is
-that it can be passed, by the reference summaries it was written with, and that it cannot be passed
-by a model that writes the same summary for every call, copies the call out, keeps everything, or
-is not there at all.
-"""
+"""The summary evaluation set's scoring, proven with reference summaries and degenerate models."""
 
 from __future__ import annotations
 
@@ -36,8 +30,7 @@ if TYPE_CHECKING:
     from tests.support.scripted_model import Step
 
 CLASSES = ("extraction", "absent_detail", "ending", "no_details")
-# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
-# runs cannot tell the two apart.
+# The fewest scenarios per class for one miss not to outweigh a prompt change.
 SMALLEST_CLASS = 12
 
 
@@ -115,8 +108,7 @@ def copies_the_call_out(scenario: SummaryScenario) -> list[Step]:
 
 
 def keeps_everything(scenario: SummaryScenario) -> list[Step]:
-    # The reference, with the longest line of the call kept as a detail of every kind: grounded,
-    # and useless.
+    # The reference, with the call's longest line kept as a detail of every kind.
     longest = max((text for _, text in scenario.said), key=len)
     everything = [
         {"kind": kind.value, "value": longest, "evidence": longest} for kind in DetailKind
