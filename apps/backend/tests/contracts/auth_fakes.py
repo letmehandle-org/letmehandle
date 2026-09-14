@@ -1,9 +1,4 @@
-"""In-memory storage and crypto, for testing the sign-in use case.
-
-The storage really stores, the hasher really hashes, and the rate limiter really counts. A
-mock that returned canned answers would let the use case pass while getting rotation, reuse
-detection or attempt counting wrong — which are the only parts of this that matter.
-"""
+"""In-memory storage, hashing, rate limiting and signing that really behave, for sign-in."""
 
 from __future__ import annotations
 
@@ -149,9 +144,7 @@ class InMemoryDeviceRepository(DeviceRepository):
         self.by_user: dict[str, list[DeviceToken]] = defaultdict(list)
 
     async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # A token can move between accounts when a handset changes hands, so it is removed from
-        # everywhere before being added here. Two accounts sharing one would send somebody
-        # else's call context to it.
+        # A token can move between accounts, so it leaves every other account first.
         for tokens in self.by_user.values():
             if token in tokens:
                 tokens.remove(token)
@@ -167,12 +160,7 @@ class InMemoryDeviceRepository(DeviceRepository):
 
 
 class Sha256Hasher(SecretHasher):
-    """Fast and constant-time, for tests.
-
-    Not what production uses: a hash this cheap is one worth attacking offline. It is here
-    because a test suite that spends a hundred milliseconds per sign-in is a test suite people
-    stop running.
-    """
+    """A fast, unsalted, constant-time hasher for tests."""
 
     def hash(self, secret: str) -> str:
         return hashlib.sha256(secret.encode()).hexdigest()
@@ -182,12 +170,7 @@ class Sha256Hasher(SecretHasher):
 
 
 class SaltedHasher(SecretHasher):
-    """Salted, and therefore never the same twice.
-
-    The shape of a real code hasher, without the cost. Exists so that a test can prove a value
-    hashed with this cannot be looked up by its hash — which is the difference between the two
-    hashers this application uses.
-    """
+    """A salted hasher whose output differs every time, so no value is found by its hash."""
 
     def hash(self, secret: str) -> str:
         salt = secrets.token_hex(8)
@@ -201,11 +184,7 @@ class SaltedHasher(SecretHasher):
 
 
 class PredictableSecretGenerator(SecretGenerator):
-    """Codes and tokens a test can name.
-
-    Predictable on purpose, and unusable in production for exactly that reason — which is why
-    it lives under tests and not beside the real one.
-    """
+    """Codes and tokens a test can name in advance."""
 
     def __init__(self, code: str = "424242") -> None:
         self._code = code
@@ -230,11 +209,7 @@ class RandomSecretGenerator(SecretGenerator):
 
 
 class FakeTokenSigner(TokenSigner):
-    """Issues a token that is a string and verifies it by looking in a dictionary.
-
-    Enough to exercise the use case. The real signer's own behaviour — signature, expiry,
-    tampering — is tested against the real signer.
-    """
+    """Issues a token that is a plain string and verifies it by looking it up in a dictionary."""
 
     def __init__(self, lifetime: timedelta = timedelta(minutes=15)) -> None:
         self._lifetime = lifetime

@@ -1,9 +1,4 @@
-"""In-memory stand-ins for storing handset reports and handing on call events.
-
-They keep the promises the real ones do — a report is recorded once per user and event, and
-nothing one user reported is visible under another — so a service test passing against them is
-testing the service rather than a fake that agrees with anything.
-"""
+"""In-memory report storage and event forwarding; a report is kept once per user and event."""
 
 from __future__ import annotations
 

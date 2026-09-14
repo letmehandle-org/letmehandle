@@ -48,8 +48,6 @@ class TestCountingIdGenerator(IdGeneratorContract):
         return CountingIdGenerator()
 
     def test_identifiers_are_predictable(self, generator: CountingIdGenerator) -> None:
-        # A test that has to read an identifier out of the output in order to assert on it is
-        # a test describing the implementation.
         assert generator.generate() == "id-1"
         assert generator.generate() == "id-2"
 
@@ -92,8 +90,7 @@ class TestRecordingNotificationProvider(NotificationProviderContract):
         return CallId("call-1")
 
     async def test_a_failure_is_reported_rather_than_raised(self) -> None:
-        # The property the escalation path depends on. A push that does not arrive degrades the
-        # experience; it must never cancel the call that is already ringing.
+        # A failed push degrades the experience and never cancels the call already ringing.
         notifier = RecordingNotificationProvider(status=DeliveryStatus.FAILED)
         outcome = await notifier.send(
             DeviceToken(DevicePlatform.IOS, "t"),
@@ -115,8 +112,7 @@ class TestRecordingNotificationProvider(NotificationProviderContract):
         assert outcome.token_should_be_removed
 
     async def test_a_token_for_the_wrong_platform_is_a_defect_and_raises(self) -> None:
-        # Distinct from a delivery failure: this one is a bug in the calling code, and
-        # reporting it as an outcome would hide it.
+        # A token for the wrong platform is a caller bug, so it raises instead of being reported.
         notifier = RecordingNotificationProvider(platform=DevicePlatform.IOS)
         with pytest.raises(Exception, match="cannot be sent"):
             await notifier.send(
@@ -141,8 +137,7 @@ class TestStaticVoiceProvider(VoiceProviderContract):
         assert chosen == "cloned"
 
     async def test_a_revoked_cloned_voice_falls_back_to_the_chosen_persona(self) -> None:
-        # The whole point of the chain: a voice that stops working changes how the call sounds
-        # and nothing else.
+        # A voice that stops working changes how the call sounds and nothing else.
         chosen = await resolve_voice(
             StaticVoiceProvider(unavailable={"cloned"}),
             VoiceSelection(cloned_voice_id="cloned", persona_voice_id="bright"),
@@ -191,7 +186,6 @@ class TestStaticVoiceProvider(VoiceProviderContract):
         assert chosen == "calm"
 
     async def test_a_provider_without_cloning_declares_so(self) -> None:
-        # The interface renders from this. No cloning declared means no training flow shown —
-        # not disabled, not marked as coming soon, absent.
+        # No cloning declared means the interface shows no training flow at all.
         assert not StaticVoiceProvider().capabilities.cloning
         assert StaticVoiceProvider(cloning=True).capabilities.cloning
