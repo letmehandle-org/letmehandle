@@ -1,10 +1,4 @@
-"""Whole calls, end to end, against the simulated provider over real HTTP and websockets.
-
-Each test runs the application on loopback, lets the simulated provider place a call into it,
-and watches what the orchestrator would hear. Every termination path is checked by counting what
-is left afterwards — calls held, media sockets open, tasks running — because a transport that
-reports a call ended and keeps a socket open is the failure that takes a service down slowly.
-"""
+"""Whole calls against the simulated provider over real HTTP and websockets, counting leftovers."""
 
 from __future__ import annotations
 
@@ -405,9 +399,7 @@ async def test_a_dropped_caller_leave_still_ends_the_call_by_the_conference_endi
 async def test_a_whole_calls_callbacks_arriving_at_once_settle_into_a_legal_end(
     deployment: Deployment,
 ) -> None:
-    # The provider sends callbacks as separate requests, so they are handled concurrently, not
-    # one after another. Every one of a call's callbacks racing in together must still end in
-    # a state the call could have reached.
+    # All of a call's callbacks arrive concurrently and still end in a reachable state.
     provider = deployment.provider
     provider.answering[USER_NUMBER.value] = Answering.ANSWERS
     provider.hold()

@@ -1,13 +1,4 @@
-"""A spoken conversation with an ElevenLabs agent, end to end, with no account and no call.
-
-Everything here is the real code a deployment runs — the settings, the bootstrap, the ElevenLabs
-session, the websocket connection and the conversation use case — talking over a real socket to a
-simulated agent on loopback. The simulation holds the client to what the real service holds it to:
-pings answered, overrides allowed, events only as configured. Each test asserts on what the
-service received as well as on what the caller heard, so that deleting the session's own
-interruption handling or its restoration of a dropped conversation fails a test here, rather than
-being covered for by the conversation discarding its speaker anyway.
-"""
+"""A spoken conversation with a simulated ElevenLabs agent on loopback, through the real stack."""
 
 from __future__ import annotations
 
@@ -52,8 +43,7 @@ if TYPE_CHECKING:
     from letmehandle.domain.ports.speech import SpeechProvider, SpeechSession
 
 SYSTEM_CONTEXT: Final = "You answer calls for somebody who is busy."
-# How long a turn hums before falling silent. The simulation hears any non-silent audio as speech
-# and a silent frame after it as the end of the turn, which is all a turn needs to be.
+# Frames of tone per turn; the simulation ends a turn at the first silent frame after speech.
 TURN_FRAMES: Final = 10
 SILENCE: Final = AudioFrame(bytes(2 * SAMPLES_PER_FRAME), SPEECH_WIDEBAND)
 # Long enough for a response over loopback, short enough that a hang fails the test promptly.
@@ -61,12 +51,7 @@ PATIENCE_SECONDS: Final = 10.0
 
 
 def turn_frames(turn: int) -> list[AudioFrame]:
-    """What the caller says in one turn: a tone of its own pitch, so no other turn repeats a frame.
-
-    The agent speaks the caller's audio back, so a frame the speaker plays says which turn's reply
-    it came from — which is how a test tells an interrupted reply from the one after it. The shared
-    tone repeats itself every few frames, which is why each turn is not simply more of it.
-    """
+    """One turn of caller audio: a tone of its own pitch, so every reply frame names its turn."""
     frequency = 300.0 + 150.0 * turn
     rate = SPEECH_WIDEBAND.sample_rate_hz
     frames = []
@@ -171,8 +156,7 @@ async def test_a_conversation_is_held_end_to_end_over_a_real_socket(
         assert await asyncio.wait_for(call.task, PATIENCE_SECONDS) is ConversationEnd.SPEAKER_GONE
 
     await service.wait_until_idle()
-    # The agent answered with what it heard, the handshake carried the agent and the key, the
-    # conversation was opened as this session, and it was never dropped for want of a pong.
+    # The agent echoed the caller, the handshake carried agent and key, and no pong was missed.
     assert call.heard() == [frame.data for frame in turn_frames(0)]
     assert call.transcript.turns == (
         TranscriptTurn(SIMULATED_TRANSCRIPT, speaker_is_caller=True),
@@ -201,16 +185,14 @@ async def test_the_agent_interrupted_by_the_caller_is_not_heard_again(
 
     async with await connect(provider_for(service, metrics)) as session:
         call = Call(session, metrics)
-        # A speaker still busy with the first frame of a reply, while the rest of it has arrived
-        # and is waiting: the ordinary state of a speaker playing in real time.
+        # The speaker is busy with a reply's first frame while the rest waits behind it.
         call.sink.hold()
         service.hold_next_reply(after=6)
         call.speaker.say(0)
         await asyncio.wait_for(call.sink.held.wait(), PATIENCE_SECONDS)
         await asyncio.wait_for(_until(lambda: service.holding), PATIENCE_SECONDS)
 
-        # The caller talks over it. A ping the service sends after its interruption being
-        # answered proves the session has read the interruption, with the speaker still stuck.
+        # The caller talks over it; a ping answered after the interruption shows it was read.
         call.speaker.say(1)
         await asyncio.wait_for(_until(lambda: bool(service.interruptions)), PATIENCE_SECONDS)
         await asyncio.wait_for(
@@ -223,9 +205,7 @@ async def test_the_agent_interrupted_by_the_caller_is_not_heard_again(
         call.speaker.hang_up()
         await asyncio.wait_for(call.task, PATIENCE_SECONDS)
 
-    # Only the frame already at the speaker was played. The five waiting behind it, and the one
-    # the service had on its way when it stopped, were dropped by the session; the speaker's own
-    # buffer was cleared at once; and the next thing played was the reply to what interrupted.
+    # Only the frame at the speaker played; queued frames were dropped; the next reply followed.
     assert call.sink.discarded_after == [1]
     assert call.heard() == [turn_frames(0)[0].data, *(frame.data for frame in turn_frames(1))]
 
@@ -245,8 +225,7 @@ async def test_a_dropped_conversation_is_replaced_by_one_told_what_was_said(
         answered = len(service.answered_pings)
         service.drop_connections()
         await asyncio.wait_for(_until(lambda: len(service.openings) == 2), PATIENCE_SECONDS)
-        # Audio said into the outage is dropped, not replayed, so the caller speaks again only once
-        # the new conversation is answering its pings.
+        # Audio during the outage is dropped, so the caller speaks once pings are answered again.
         await asyncio.wait_for(
             _until(lambda: len(service.answered_pings) > answered), PATIENCE_SECONDS
         )
@@ -260,8 +239,7 @@ async def test_a_dropped_conversation_is_replaced_by_one_told_what_was_said(
 
     await service.wait_until_idle()
     resumed = service.openings[1]
-    # The service cannot resume a conversation, so the new one is told it in its prompt, and is
-    # asked not to greet a caller who has been talking for a while.
+    # The new conversation carries the history in its prompt and opens without a greeting.
     assert resumed.first_message == ""
     assert resumed.prompt is not None
     assert resumed.prompt.startswith(SYSTEM_CONTEXT)
@@ -273,8 +251,7 @@ async def test_a_dropped_conversation_is_replaced_by_one_told_what_was_said(
 async def test_an_agent_that_does_not_allow_the_overrides_is_refused_before_a_conversation(
     metrics: RecordingMetrics,
 ) -> None:
-    # A deployment whose agent allows the prompt, language and voice but not the first message:
-    # the greeting is refused, so no conversation opens, and nothing is retried behind the call.
+    # An agent refusing the first-message override opens no conversation and nothing is retried.
     async with SimulatedElevenLabsService(
         allowed_overrides=OVERRIDES_THIS_ADAPTER_NEEDS - {"first_message"}
     ) as service:
@@ -314,8 +291,7 @@ async def test_a_refusal_after_a_drop_ends_the_conversation_with_a_typed_failure
         call.speaker.say(0)
         await call.until_heard(1)
 
-        # The key was revoked while the call was up. Retrying cannot fix that, so the session
-        # gives up at once rather than spending its attempts on it.
+        # A revoked key ends the session at once instead of spending its reconnection attempts.
         service.refuse_authentication()
         service.drop_connections()
 
@@ -354,10 +330,6 @@ def metrics() -> RecordingMetrics:
 
 
 async def _until(condition: Callable[[], bool]) -> None:
-    """Wait for something neither side signals, such as a second conversation reaching the service.
-
-    Polled rather than awaited on an event, because adding an event to production code for a test
-    to wait on is the wrong trade; every call is bounded by the caller's own timeout.
-    """
-    while not condition():  # noqa: ASYNC110 - see the docstring
+    """Polls until a condition neither side signals holds, bounded by the caller's timeout."""
+    while not condition():  # noqa: ASYNC110 - a bounded poll
         await asyncio.sleep(0.01)

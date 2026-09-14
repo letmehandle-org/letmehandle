@@ -1,10 +1,4 @@
-"""Signing in with a code sent as a text message, over HTTP against a real database.
-
-The same stack as the sign-in suite with one difference: the code arrives through the provider a
-production deployment runs with, talking to a simulated message API, and is read off the message
-the way a person reads it. What the provider's failures become is asserted here too, because the
-difference between them is what somebody signing in sees.
-"""
+"""Signing in with a texted code over HTTP against a real database and a simulated message API."""
 
 from __future__ import annotations
 
@@ -108,8 +102,7 @@ async def test_a_provider_that_cannot_send_now_is_a_temporary_failure(
 async def test_codes_that_were_never_sent_do_not_use_up_the_hourly_allowance(
     texting: Api, service: SimulatedSms
 ) -> None:
-    # An outage is nobody's attempt. Counting it would lock a person out for an hour for trying
-    # to sign in while the provider was down.
+    # A provider outage does not count as a sign-in attempt.
     service.behaviour = Behaviour.DOWN
     for _ in range(CODES_AN_HOUR):
         failed = await texting.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
@@ -125,8 +118,7 @@ async def test_codes_that_were_never_sent_do_not_use_up_the_hourly_allowance(
 async def test_a_code_that_may_have_been_sent_counts_and_says_when_to_ask_again(
     session: object, database_url: str, schema: str, service: SimulatedSms
 ) -> None:
-    # A request the service did not answer may still have been delivered. Rolling it back would
-    # let every slow send escape the cooldown and the budgets, which is when pumping pays best.
+    # An unanswered request may have been delivered, so it counts against cooldown and budgets.
     provider = SmsOTPProvider(
         account_id=SMS_ACCOUNT, auth_token=SMS_TOKEN, sender=SMS_SENDER, transport=service.transport
     )
@@ -167,8 +159,7 @@ async def test_a_service_that_could_not_be_reached_sent_nothing_and_counts_for_n
 async def test_each_country_signs_in_with_a_code_from_its_own_provider(
     session: object, database_url: str, schema: str, service: SimulatedSms
 ) -> None:
-    # India's numbers are texted by a provider of their own; everybody else's go to the default.
-    # The Indian number is shorter than any in India's plan, so it can reach nobody.
+    # Indian numbers go to their own provider; this one is too short to reach anybody.
     indian_number = "+91555001"
     default = MockOTPProvider(is_production=False)
     texting = SmsOTPProvider(

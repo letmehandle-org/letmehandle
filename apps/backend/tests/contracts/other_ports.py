@@ -1,8 +1,4 @@
-"""Contracts for the smaller ports.
-
-Together in one module because each is a handful of tests. Kept as separate classes so that an
-implementation subclasses only the one it implements.
-"""
+"""Contracts for the smaller ports, one class per port."""
 
 from __future__ import annotations
 
@@ -41,8 +37,7 @@ class ClockContract:
         raise NotImplementedError
 
     def test_the_time_it_reports_knows_its_own_zone(self, clock: Clock) -> None:
-        # A naive instant means whatever the machine is set to, which is how a service that
-        # behaves in one region misbehaves in another.
+        # A naive instant means whatever zone the machine is set to.
         assert clock.now().tzinfo is not None
 
     def test_it_reports_a_consistent_time(self, clock: Clock) -> None:
@@ -70,8 +65,7 @@ class OTPProviderContract:
         raise NotImplementedError
 
     def test_it_says_whether_it_is_safe_for_production(self, otp: OTPProvider) -> None:
-        # The failure being prevented is silent and total: a mock left configured in production
-        # means everybody can sign in as anybody.
+        # A mock provider in production lets anybody sign in as anybody.
         assert isinstance(otp.is_safe_for_production, bool)
         assert otp.name.strip()
 
@@ -121,8 +115,7 @@ class NotificationProviderContract:
     async def test_it_reports_an_outcome_rather_than_raising(
         self, notifier: NotificationProvider, call_id: CallId
     ) -> None:
-        # The caller carries on regardless: the authoritative event is the user's phone
-        # ringing, and a failed push must never cancel an escalation.
+        # A failed push is reported and never cancels an escalation.
         token = DeviceToken(notifier.platform, "a-token")
         outcome = await notifier.send(token, self._notification(call_id))
         assert outcome.status is not None
@@ -130,8 +123,7 @@ class NotificationProviderContract:
     async def test_an_invalid_token_is_distinguishable(
         self, notifier: NotificationProvider, call_id: CallId
     ) -> None:
-        # The one outcome that requires an action rather than a retry: the token is dead and
-        # should be removed, or it will be retried forever.
+        # A dead token is the outcome that requires removing the token rather than retrying.
         token = DeviceToken(notifier.platform, "a-token")
         outcome = await notifier.send(token, self._notification(call_id))
         assert outcome.token_should_be_removed == (
@@ -146,8 +138,7 @@ class VoiceProviderContract:
         raise NotImplementedError
 
     def test_it_always_has_a_default(self, voices: VoiceProvider) -> None:
-        # A provider with no default would leave a call with no voice, which is a silent
-        # assistant: the worst failure this product has.
+        # A provider with no default leaves a call with no voice.
         assert voices.default_voice_id.strip()
 
     async def test_it_lists_voices(self, voices: VoiceProvider) -> None:
@@ -166,9 +157,7 @@ class VoiceProviderContract:
     async def test_a_selected_voice_is_used_when_it_is_available(
         self, voices: VoiceProvider
     ) -> None:
-        # Deliberately not the first voice in the catalogue: for a provider whose default is
-        # also its first, asserting on that one is asserting that the default equals the
-        # default, and a provider that ignored every selection would pass it.
+        # A voice other than the default, so a provider ignoring the selection fails.
         chosen_voice = await self._not_the_default(voices)
         chosen = await resolve_voice(
             voices, VoiceSelection(persona_voice_id=chosen_voice.id), locale="en"
@@ -178,8 +167,7 @@ class VoiceProviderContract:
     async def test_an_unavailable_selection_falls_through_rather_than_failing(
         self, voices: VoiceProvider
     ) -> None:
-        # Silence is the one outcome this must never produce. A revoked or broken voice makes
-        # the call sound different, not disappear.
+        # A revoked or broken voice changes how the call sounds and never silences it.
         chosen = await resolve_voice(
             voices, VoiceSelection(persona_voice_id="no-such-voice"), locale="en"
         )
@@ -190,9 +178,7 @@ class VoiceProviderContract:
             await resolve_voice(voices, VoiceSelection(), locale="  ")
 
     async def test_preview_matches_what_the_provider_declares(self, voices: VoiceProvider) -> None:
-        # The declaration and the behaviour have to agree in both directions. A provider
-        # declaring preview and then refusing draws a control that plays nothing; one refusing
-        # to declare it while serving samples hides a feature it has.
+        # The declared preview capability matches whether samples are served.
         if voices.capabilities.preview:
             sample = await voices.preview(voices.default_voice_id)
             assert sample.audio
@@ -211,7 +197,6 @@ class VoiceProviderContract:
         pytest.skip("this provider offers only its default voice")
 
     async def test_an_unknown_voice_is_never_a_key_error(self, voices: VoiceProvider) -> None:
-        # Whatever the provider can do, "there is no such voice" reaches the caller as a domain
-        # error. A KeyError escaping a lookup is a 500 for a request that was merely wrong.
+        # An unknown voice reaches the caller as a domain error, never a KeyError.
         with pytest.raises(DomainError):
             await voices.preview("no-such-voice")

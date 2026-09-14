@@ -1,13 +1,4 @@
-"""A model for the Strands SDK that answers from a script.
-
-It implements the SDK's own `Model` and speaks through `stream` in the event shape a real provider
-produces — a message start, content blocks, a stop reason — so the SDK's agent loop runs for real
-around it: tools are executed, results are fed back, a missing assessment is asked for again, and a
-turn limit is counted. Only the words are fixed in advance.
-
-Each request the SDK makes is kept, so a test can check what the model was actually shown: which
-system prompt, which messages, which tools.
-"""
+"""A Strands SDK `Model` that streams scripted replies and keeps every request it was sent."""
 
 from __future__ import annotations
 
@@ -128,8 +119,7 @@ class ScriptedModel(Model):
         system_prompt: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        # The SDK's agent asks for structured output through a tool in `stream`; this method is
-        # only reached by its deprecated path, which nothing here uses.
+        # Structured output arrives through a tool in `stream`; this is the deprecated path.
         raise NotImplementedError("structured output arrives through a tool call")
         yield {}
 

@@ -1,9 +1,4 @@
-"""In-memory storage and crypto, for testing the sign-in use case.
-
-The storage really stores, the hasher really hashes, and the rate limiter really counts. A
-mock that returned canned answers would let the use case pass while getting rotation, reuse
-detection or attempt counting wrong — which are the only parts of this that matter.
-"""
+"""In-memory storage, hashing, rate limiting and signing that really behave, for sign-in."""
 
 from __future__ import annotations
 
@@ -18,7 +13,6 @@ from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.ports.rate_limit import RateLimitDecision, RateLimiter
 from letmehandle.domain.ports.repositories import (
-    DeviceRepository,
     OTPChallengeRepository,
     RefreshTokenRepository,
     UserRepository,
@@ -30,7 +24,6 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.user import User
-    from letmehandle.domain.ports.notification import DeviceToken
 
 
 class InMemoryUserRepository(UserRepository):
@@ -144,35 +137,8 @@ class InMemoryRefreshTokenRepository(RefreshTokenRepository):
         return revoked
 
 
-class InMemoryDeviceRepository(DeviceRepository):
-    def __init__(self) -> None:
-        self.by_user: dict[str, list[DeviceToken]] = defaultdict(list)
-
-    async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # A token can move between accounts when a handset changes hands, so it is removed from
-        # everywhere before being added here. Two accounts sharing one would send somebody
-        # else's call context to it.
-        for tokens in self.by_user.values():
-            if token in tokens:
-                tokens.remove(token)
-        self.by_user[user_id.value].append(token)
-
-    async def tokens_for(self, user_id: UserId) -> list[DeviceToken]:
-        return list(self.by_user[user_id.value])
-
-    async def remove(self, user_id: UserId, token: DeviceToken) -> None:
-        tokens = self.by_user[user_id.value]
-        if token in tokens:
-            tokens.remove(token)
-
-
 class Sha256Hasher(SecretHasher):
-    """Fast and constant-time, for tests.
-
-    Not what production uses: a hash this cheap is one worth attacking offline. It is here
-    because a test suite that spends a hundred milliseconds per sign-in is a test suite people
-    stop running.
-    """
+    """A fast, unsalted, constant-time hasher for tests."""
 
     def hash(self, secret: str) -> str:
         return hashlib.sha256(secret.encode()).hexdigest()
@@ -182,12 +148,7 @@ class Sha256Hasher(SecretHasher):
 
 
 class SaltedHasher(SecretHasher):
-    """Salted, and therefore never the same twice.
-
-    The shape of a real code hasher, without the cost. Exists so that a test can prove a value
-    hashed with this cannot be looked up by its hash — which is the difference between the two
-    hashers this application uses.
-    """
+    """A salted hasher whose output differs every time, so no value is found by its hash."""
 
     def hash(self, secret: str) -> str:
         salt = secrets.token_hex(8)
@@ -201,11 +162,7 @@ class SaltedHasher(SecretHasher):
 
 
 class PredictableSecretGenerator(SecretGenerator):
-    """Codes and tokens a test can name.
-
-    Predictable on purpose, and unusable in production for exactly that reason — which is why
-    it lives under tests and not beside the real one.
-    """
+    """Codes and tokens a test can name in advance."""
 
     def __init__(self, code: str = "424242") -> None:
         self._code = code
@@ -219,22 +176,8 @@ class PredictableSecretGenerator(SecretGenerator):
         return f"refresh-{self._issued}"
 
 
-class RandomSecretGenerator(SecretGenerator):
-    """The real shape: unguessable values from a source fit for secrets."""
-
-    def numeric_code(self, length: int) -> str:
-        return "".join(str(secrets.randbelow(10)) for _ in range(length))
-
-    def token(self) -> str:
-        return secrets.token_urlsafe(32)
-
-
 class FakeTokenSigner(TokenSigner):
-    """Issues a token that is a string and verifies it by looking in a dictionary.
-
-    Enough to exercise the use case. The real signer's own behaviour — signature, expiry,
-    tampering — is tested against the real signer.
-    """
+    """Issues a token that is a plain string and verifies it by looking it up in a dictionary."""
 
     def __init__(self, lifetime: timedelta = timedelta(minutes=15)) -> None:
         self._lifetime = lifetime
@@ -264,9 +207,6 @@ class CountingRateLimiter(RateLimiter):
     @property
     def is_shared(self) -> bool:
         return False
-
-    def set_now(self, instant: datetime) -> None:
-        self._now = instant
 
     async def check(self, key: str, *, limit: int, window: timedelta) -> RateLimitDecision:
         cutoff = self._now - window

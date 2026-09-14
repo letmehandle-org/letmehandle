@@ -1,11 +1,4 @@
-"""No module outside bootstrap names the call transport it is running on.
-
-The domain check proves the domain is clean. This one covers everything else — the HTTP layer,
-the application layer, the entry point — because a transport name in `api/` or `application/`
-is the same branch as one in the domain, only easier to write. A transport may name itself
-inside its own adapter package; configuration may name the choices it reads; bootstrap names
-them because choosing is its job. Nothing else may.
-"""
+"""No module outside bootstrap, configuration and its own adapter names a call transport."""
 
 from __future__ import annotations
 
@@ -17,10 +10,7 @@ SOURCE = Path(__file__).resolve().parents[2] / "src" / "letmehandle"
 
 TRANSPORT_NAMES = ("twilio", "telnyx", "plivo", "vonage", "android", "android_native")
 
-# Each transport's own package, the one place besides bootstrap and configuration it may be named.
-# A name with no package here has no adapter yet, so it belongs nowhere else at all. The streaming
-# provider's account also delivers sign-in codes, and those adapters speak through the transport's
-# API client, so they name the provider too; they are providers of codes, not a transport choice.
+# Each transport's own packages, including the sign-in code adapters that use its API client.
 ADAPTERS = {
     "twilio": (
         "adapters/transport/twilio/",
@@ -31,13 +21,10 @@ ADAPTERS = {
     "android_native": ("adapters/transport/android_native/",),
 }
 
-# Where a transport's name belongs: bootstrap, and the configuration it reads, lines by region
-# included.
+# Where every transport name is allowed: bootstrap and the configuration it reads.
 ALWAYS_ALLOWED = ("bootstrap.py", "config/settings.py", "config/telephony_lines.py")
 
-# A push is routed by the device's platform, which describes a device rather than branching on a
-# transport: the notification port, the push adapter that delivers to that platform, and the
-# schema a device registers with. The domain check records the port's exemption with its reason.
+# Push routing by device platform: the notification port, the push adapter and the device schema.
 EXEMPT = {
     ("domain/ports/notification.py", "android"),
     ("adapters/notification/fcm/provider.py", "android"),
@@ -46,12 +33,7 @@ EXEMPT = {
 
 
 def mentions(name: str, line: str) -> bool:
-    """Whether a line names the transport, however it is joined to the words around it.
-
-    Deliberately no word boundaries. Identifiers are where a name hides — a class, a builder, a
-    constant all run it into other words — and a boundary on either side lets every one of them
-    through.
-    """
+    """Whether a line names the transport, without word boundaries, so identifiers are caught."""
     return name in line.lower()
 
 

@@ -1,9 +1,4 @@
-"""The voice-provider contract, run against the configured catalogue.
-
-Twice, in both of the configurations this provider runs in: with sample audio and without.
-The contract asserts that a provider's declared capabilities match what it does, and that is
-the one assertion a single configuration cannot make on its own.
-"""
+"""The voice-provider contract, run on the configured catalogue with and without sample audio."""
 
 from __future__ import annotations
 

@@ -1,11 +1,4 @@
-"""A spoken conversation, end to end, with no account and no call.
-
-Everything here is the real code a deployment runs — the settings, the bootstrap, the realtime
-session, the websocket connection and the conversation use case — talking over a real socket to
-a simulated service on loopback. The only stand-ins are the service itself and the speaker and
-speaker-box at either end, which is the plan's condition for proving the speech layer works
-before any endpoint or transport exists.
-"""
+"""A spoken conversation with a simulated realtime service on loopback, through the real stack."""
 
 from __future__ import annotations
 
@@ -40,8 +33,7 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.ports.speech import SpeechProvider, SpeechSession
 
-# How long a turn hums before falling silent. The simulation hears any non-silent audio as speech
-# and a silent frame after it as the end of the turn, which is all a turn needs to be.
+# Frames of tone per turn; the simulation ends a turn at the first silent frame after speech.
 TURN_FRAMES: Final = 10
 SILENCE: Final = AudioFrame(b"\x00" * len(tone_frame(0).data), SPEECH_WIDEBAND)
 # Long enough for a response over loopback, short enough that a hang fails the test promptly.
@@ -149,8 +141,7 @@ async def test_a_caller_talking_over_the_model_silences_it(
 
     async with await connect(provider_for(service, metrics)) as session:
         call = Call(session, metrics)
-        # Hold the reply mid-sentence, once some of it has been heard, then speak over it: the
-        # only way to interrupt a response deterministically rather than hoping one is playing.
+        # Holds the reply after its first delta and speaks over it, interrupting deterministically.
         service.hold_responses(after_deltas=1)
         call.speaker.say_something()
         await call.until_heard(1)
@@ -163,8 +154,7 @@ async def test_a_caller_talking_over_the_model_silences_it(
 
     await service.wait_until_idle()
     assert call.sink.discarded_after, "what the speaker had buffered must be dropped"
-    # And the model was stopped, and told how much was heard, by the session: the speaker going
-    # quiet alone leaves the model talking and believing it was heard to the end.
+    # The session stopped the model and told it how much of the reply was heard.
     after_the_caller_spoke = service.received[0].since_speech_started(1)
     assert "response.cancel" in after_the_caller_spoke
     assert "conversation.item.truncate" in after_the_caller_spoke
@@ -186,8 +176,7 @@ async def test_a_dropped_connection_recovers_without_ending_the_conversation(
         await session.update_context(LATEST_CONTEXT)
 
         service.drop_connections()
-        # The replacement is only listening once the session has finished restoring it: speech in
-        # between belongs to no connection, and waiting on the handshake alone raced that.
+        # Waits until the session has restored the replacement connection before speaking into it.
         await asyncio.wait_for(
             _until(lambda: metrics.counted(RECONNECTIONS, outcome="succeeded") == 1),
             PATIENCE_SECONDS,
@@ -203,8 +192,7 @@ async def test_a_dropped_connection_recovers_without_ending_the_conversation(
 
     await service.wait_until_idle()
     assert service.open_connections == 0
-    # The replacement was set up as this session, with the context as it was when the connection
-    # dropped rather than as it was when the call began.
+    # The replacement was set up as this session, with the context as it was when it dropped.
     replacement = service.received[1]
     assert replacement.event_types[0] == "session.update"
     assert replacement.instructions[0] == LATEST_CONTEXT
@@ -220,8 +208,7 @@ async def test_a_refusal_after_a_drop_ends_the_conversation_with_a_typed_failure
         call.speaker.say_something()
         await call.until_heard(1)
 
-        # The key was revoked while the call was up. Retrying cannot fix that, so the session
-        # gives up at once rather than spending its attempts on it.
+        # A revoked key ends the session at once instead of spending its reconnection attempts.
         service.refuse_authentication()
         service.drop_connections()
 
@@ -239,10 +226,6 @@ def test_a_provider_cannot_be_built_without_somewhere_to_connect() -> None:
 
 
 async def _until(condition: Callable[[], bool]) -> None:
-    """Wait for something neither side signals, such as a second handshake reaching the service.
-
-    Polled rather than awaited on an event, because adding an event to production code for a test
-    to wait on is the wrong trade; every call is bounded by the caller's own timeout.
-    """
-    while not condition():  # noqa: ASYNC110 - see the docstring
+    """Polls until a condition neither side signals holds, bounded by the caller's timeout."""
+    while not condition():  # noqa: ASYNC110 - a bounded poll
         await asyncio.sleep(0.01)

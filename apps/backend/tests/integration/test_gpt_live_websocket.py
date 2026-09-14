@@ -1,9 +1,4 @@
-"""The GPT-Live handshake, against a websocket server on loopback.
-
-No database and no account. What this proves is what the session above cannot see: that the
-endpoint is used exactly as given, with no query parameters, and that the key travels as a bearer
-header only when there is one.
-"""
+"""The GPT-Live handshake on loopback: the endpoint as given, a bearer header only with a key."""
 
 from __future__ import annotations
 

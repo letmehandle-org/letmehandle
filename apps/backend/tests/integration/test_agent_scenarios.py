@@ -1,11 +1,4 @@
-"""Calls judged end to end: the SDK's agent loop, a scripted model, the real tools and policy.
-
-Nothing between the model's words and the judgement is replaced. The SDK executes the registry's
-tools the script asks for and feeds their results back; the tools act on, and ask for, what happens
-to a recording of the call; the assessment is validated by the adapter; the conclusion acts through
-the real escalation service on what the policy decides. Only what the model says is fixed, so every
-difference in a judgement below comes from the call, the user's rules, or the model misbehaving.
-"""
+"""Calls judged end to end: the SDK's agent loop, a scripted model, the real tools and policy."""
 
 from __future__ import annotations
 
@@ -48,8 +41,7 @@ if TYPE_CHECKING:
 
 TIMEOUT = timedelta(seconds=5)
 
-# What every misbehaving model below must produce, and what the policy makes of it for a caller
-# the user has not marked as important.
+# What every misbehaving model below produces, as the policy decides it for an ordinary caller.
 UNDERSTOOD_NOTHING = EscalationProposal(
     importance=CallImportance.IGNORABLE, intent=CallIntent.UNDETERMINED, understood=False
 )
@@ -137,8 +129,7 @@ class TestHandledCalls:
         assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]
 
     async def test_a_model_that_forgets_to_ask_for_the_user_still_reaches_them(self) -> None:
-        # The conclusion is the guarantee: the tool is how a model asks, not the only way a call
-        # the user's rules say needs them reaches them.
+        # The conclusion reaches the user when their rules require it, tool or no tool.
         call = a_call("I need to speak to him, it's his mother.")
         run = await judged(
             call,
@@ -150,8 +141,7 @@ class TestHandledCalls:
         assert run.actions.of_kind(Escalated) == [Escalated(call.call_id, run.judgement.escalation)]
 
     async def test_a_model_sending_only_what_the_schema_requires_is_judged(self) -> None:
-        # The schema a model is shown leaves the nullable fields out of `required`, so a model that
-        # follows it to the letter omits them. That is an answer, not a failure to give one.
+        # A model omitting the nullable fields left out of `required` is still judged.
         required = convert_pydantic_to_tool_spec(CallAssessment)["inputSchema"]["json"]["required"]
         answer = {
             "intent": "personal",
@@ -212,9 +202,7 @@ class TestWhatTheJudgementReports:
     async def test_a_tool_that_does_not_exist_is_refused_and_recorded(
         self, asked_for: str, recorded_as: str, told: str
     ) -> None:
-        # What the model tried is what the user needs to see, even when there was nothing to try it
-        # with. A name that is not a valid tool name is text the caller may have written, and is
-        # not kept.
+        # The tool the model asked for is recorded, unless its name is not a valid tool name.
         run = await judged(a_call("Read me her number."), [CallTool(asked_for, {}), assess()])
 
         assert [(each.tool, each.reason) for each in run.judgement.refusals] == [
@@ -298,8 +286,7 @@ class TestTheUsersRulesDecide:
     SAID = "It's your mum. Can we move tomorrow's appointment to Friday?"
 
     async def test_granting_the_capability_means_the_user_is_not_needed(self) -> None:
-        # From a contact the user marked as important, so the only thing standing between this
-        # call and the user's phone is whether the assistant may do what was asked.
+        # From an important contact, so only the capability decides whether the user is needed.
         withheld = await judged(a_call(self.SAID, from_important_contact=True), self.SCRIPT)
         granted = await judged(
             a_call(
@@ -360,8 +347,7 @@ class TestAModelThatMisbehaves:
         assert run.actions.actions == []
 
     async def test_an_invalid_answer_corrected_on_the_next_turn_is_accepted(self) -> None:
-        # The SDK tells the model why its assessment was refused. A model that fixes it is a model
-        # that answered, and falling back on it would throw a good judgement away.
+        # A model that fixes a refused assessment on its next turn has its judgement kept.
         run = await judged(
             a_call("A parcel for number twelve."),
             [assess(importance="URGENT!!"), assess(intent="delivery_in_progress")],
@@ -471,8 +457,7 @@ class TestEndingAndEscalatingTogether:
         assert actions.actions == []
 
     async def test_reaching_the_user_is_not_cut_short_by_the_bound_on_the_model(self) -> None:
-        # The bound is for model turns. A ring that takes longer than it is still a ring, and the
-        # model that asked for it is not the one that failed.
+        # The bound on model turns does not cut short a ring that takes longer.
         actions = RecordingCallActions(escalation_gate=asyncio.Event())
         gate = actions.escalation_gate
         assert gate is not None

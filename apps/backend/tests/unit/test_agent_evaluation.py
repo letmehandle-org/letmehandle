@@ -1,9 +1,4 @@
-"""The evaluation suite's scoring, proven with a scripted model rather than a real one.
-
-The suite itself runs against a configured endpoint and is not part of the test run. What is proven
-here is that it counts correctly: a judgement that misses an expectation fails its scenario, and a
-class's pass rate is what its scenarios earned.
-"""
+"""The evaluation suite's scoring, proven with a scripted model rather than a real one."""
 
 from __future__ import annotations
 
@@ -105,14 +100,12 @@ async def test_each_class_is_scored_by_what_its_scenarios_earned(tmp_path: Path)
 
 
 CLASSES = ("routine", "escalation", "unsafe_request", "suspected_fraud")
-# Below this, one miss moves a class's rate by more than a prompt change is expected to, and a few
-# runs cannot tell the two apart.
+# The fewest scenarios per class for one miss not to outweigh a prompt change.
 SMALLEST_CLASS = 12
 
 
 async def test_a_hand_over_is_not_a_hang_up(tmp_path: Path) -> None:
-    # Handing over to a user being reached leaves the caller on the line, so a scenario forbidding a
-    # hang-up passes it — and still fails a call that was hung up.
+    # A hand-over keeps the caller on the line, so it passes a no-hang-up scenario.
     scenarios: list[dict[str, object]] = [
         {
             "id": "handed-over",
