@@ -1,19 +1,18 @@
-"""Calls the assistant takes: the conversation, the judgement, escalation and de-escalation.
-
-A streaming line only: on a handset's line none of this exists, which the tests over every line
-assert from the other side.
-"""
+"""Calls the assistant takes: conversation, judgement, escalation and de-escalation."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import time
+from dataclasses import replace
+from datetime import time, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 
 from letmehandle.application.agent.ports import CallEnding, OutcomeRecord
 from letmehandle.application.orchestration.run import CallIsOverError
 from letmehandle.application.orchestration.summary import MESSAGE_LABEL
+from letmehandle.application.speech.conversation import CONVERSATION_ENDED
 from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.audio import SPEECH_WIDEBAND, AudioFrame
 from letmehandle.domain.models.authority import AgentAuthority, Capability
@@ -26,7 +25,7 @@ from letmehandle.domain.models.escalation import (
     EscalationUrgency,
 )
 from letmehandle.domain.models.escalation_context import EscalationStatus
-from letmehandle.domain.models.identifiers import CallId
+from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.intent import CallImportance, CallIntent
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import (
@@ -50,6 +49,7 @@ from tests.support.orchestration import (
     QUICK,
     ROUTINE,
     WANTS_THE_USER,
+    ControlledSession,
     Look,
     Running,
     StreamingLine,
@@ -57,6 +57,11 @@ from tests.support.orchestration import (
     eventually,
     orchestrating,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from letmehandle.domain.models.call import TranscriptEntry
 
 CALL = "call"
 STRANGER_NUMBER = PhoneNumber("+12025550101")
@@ -124,7 +129,7 @@ class TestTheSummary:
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
             await with_the_assistant(running)
             await running.caller_says("Is she there? It is urgent.")
-            await eventually(lambda: running.judgements == 1)
+            await running.settled(CALL, CallState.HUMAN_RINGING)
             line.hangs_up(CALL)
             await running.ended(CALL)
 
@@ -343,6 +348,62 @@ class TestTheAssistantHandlesACall:
             assert call.state is CallState.COMPLETED
             assert line.asked("terminate", CALL) == 1
 
+    async def test_the_agent_ending_a_call_whose_conversation_stopped_ends_it_at_once(
+        self,
+    ) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        bounds = replace(QUICK, speaker_gone=timedelta(seconds=30))
+        async with orchestrating(line, looks=looks, bounds=bounds) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Bye.")
+            await eventually(lambda: running.judgements == 1)
+            line.audio[CallId(CALL)].stop()
+            await eventually(
+                lambda: running.metrics.counted(CONVERSATION_ENDED, outcome="speaker_gone") == 1
+            )
+            judged.set()
+
+            call = await running.ended(CALL)
+
+            assert call.state is CallState.COMPLETED
+
+    async def test_teardown_stops_the_assistant_before_storing_its_last_lines(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        judged = asyncio.Event()
+        line = streaming()
+        looks = [Look(ending=CallEnding.RESOLVED, waits_for=judged)]
+        async with orchestrating(line, looks=looks) as running:
+            await with_the_assistant(running)
+            await running.caller_says("Bye.")
+            await eventually(lambda: running.judgements == 1)
+            speaker = line.speakers[CallId(CALL)]
+            speaker.hold()
+            session = await running.session()
+            await session.emit(AudioProduced(AudioFrame(b"\x00\x10" * 320, SPEECH_WIDEBAND)))
+            await session.emit(
+                TranscriptProduced("Goodbye.", speaker_is_caller=False, is_final=True)
+            )
+            await eventually(lambda: speaker.playing)
+            transcripts = running.stores.transcripts
+            store = transcripts.append
+            closed_when_stored: list[bool] = []
+
+            async def append(
+                user_id: UserId, call_id: CallId, entries: Sequence[TranscriptEntry]
+            ) -> None:
+                closed_when_stored.append(session.is_closed)
+                await store(user_id, call_id, entries)
+
+            monkeypatch.setattr(transcripts, "append", append)
+            judged.set()
+            speaker.release()
+            await running.ended(CALL)
+
+            assert closed_when_stored == [True]
+
     async def test_the_agent_ending_the_call_keeps_what_it_assessed_the_call_to_be(self) -> None:
         looks = [Look(proposal=ROUTINE, ending=CallEnding.RESOLVED)]
         line = streaming()
@@ -373,8 +434,7 @@ class TestTheAssistantHandlesACall:
     async def test_a_record_claiming_an_ending_the_call_did_not_have_is_not_the_summary(
         self,
     ) -> None:
-        # Written while the user's phone was ringing, anticipating a handover that never came: the
-        # caller hung up first, and history must say the user was wanted and missed it.
+        # A record written as the phone rang, for a handover the caller hung up before.
         record = OutcomeRecord(CallOutcome.HANDED_TO_USER, "Handed the neighbour over to you.")
         line = streaming()
         looks = [Look(proposal=WANTS_THE_USER, record=record)]
@@ -418,8 +478,7 @@ class TestEscalation:
     async def test_a_user_answering_before_the_assistants_join_is_heard_is_recorded_after_it(
         self,
     ) -> None:
-        # Callbacks can arrive in any order. The assistant was talking to the caller before the
-        # user was rung, so the record says it was on the call first whatever order they came in.
+        # The assistant is recorded before the user, whatever order the callbacks came in.
         line = streaming()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
             line.arrives(CALL, STRANGER)
@@ -522,8 +581,7 @@ class TestEscalation:
     async def test_the_assistant_is_told_the_user_is_being_reached_before_they_are_dialled(
         self,
     ) -> None:
-        # The assistant answers the caller while the dial is still on its way; told only once the
-        # phone rang, it had already said the user could not be called.
+        # The assistant is told before the dial completes.
         line = streaming()
         line.holding["dial"] = asyncio.Event()
         async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
@@ -536,6 +594,24 @@ class TestEscalation:
             line.holding["dial"].set()
             await running.settled(CALL, CallState.HUMAN_RINGING)
             assert sum('"being_reached"' in each for each in session.context_updates) == 1
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+    async def test_a_slow_context_update_does_not_hold_the_dial_back(self) -> None:
+        line = streaming()
+        bounds = replace(QUICK, provider=timedelta(seconds=30))
+        looks = [Look(proposal=WANTS_THE_USER)]
+        async with orchestrating(line, looks=looks, bounds=bounds) as running:
+            await with_the_assistant(running)
+            session = await running.session()
+            assert isinstance(session, ControlledSession)
+            session.holding_updates = asyncio.Event()
+            await running.caller_says("It is very urgent, call them now.")
+
+            await eventually(lambda: line.asked("dial", CALL) == 1)
+
+            session.holding_updates.set()
+            await running.settled(CALL, CallState.HUMAN_RINGING)
             line.hangs_up(CALL)
             await running.ended(CALL)
 
@@ -616,7 +692,7 @@ class TestEscalation:
             await eventually(lambda: '"being_reached"' in "".join(session.context_updates))
             await running.caller_says("Are they coming?")
             await eventually(lambda: running.judgements == 2)
-            # Still ringing, and the caller still has somebody to talk to.
+            # Still ringing, with the assistant still on the call.
             assert running.stores.call(CALL).state is CallState.HUMAN_RINGING
             assert not session.is_closed
             line.user_answers(CALL)
@@ -645,6 +721,21 @@ class TestEscalation:
             released.set()
             await eventually(lambda: session.is_closed)
             assert running.stores.call(CALL).state is CallState.HUMAN_JOINED
+
+    async def test_what_the_caller_says_once_the_user_has_joined_is_not_judged(self) -> None:
+        line = streaming()
+        async with orchestrating(line, looks=[Look(proposal=WANTS_THE_USER)]) as running:
+            await ringing(running)
+            await eventually(lambda: running.judgements == 1)
+            line.user_answers(CALL)
+            await running.settled(CALL, CallState.HUMAN_JOINED)
+            await running.caller_says("Hello, it's me.")
+            said = running.stores.transcripts.lines[CallId(CALL)]
+            await eventually(lambda: said[-1].text == "Hello, it's me.")
+            line.hangs_up(CALL)
+            await running.ended(CALL)
+
+            assert running.judgements == 1
 
     async def test_with_the_assistant_gone_a_user_not_reached_ends_the_call(self) -> None:
         line = streaming()
@@ -773,8 +864,7 @@ class TestDegradedProviders:
         line = streaming()
         async with orchestrating(line) as running:
             await with_the_assistant(running)
-            # A caller hanging up ends the conference, and the assistant's leg can be heard of
-            # leaving before the caller's.
+            # The assistant's leg is reported leaving before the caller's.
             line.leaves(CALL, Leg.ASSISTANT)
             session = await running.session()
             await eventually(lambda: session.is_closed)

@@ -1,9 +1,4 @@
-"""One orchestrator, several lines: each call lives on the line it arrived on (D-041).
-
-A deployment serving two countries carries each country's calls on a line of its own. The calls
-share one orchestrator, and nothing a run does to a call may reach the other line: the user is
-dialled, and the call ended, where the call is.
-"""
+"""One orchestrator, several lines: each call lives on the line it arrived on (D-041)."""
 
 from __future__ import annotations
 
@@ -70,8 +65,7 @@ async def test_calls_on_two_lines_run_together_and_each_is_acted_on_where_it_arr
 
 
 async def test_a_call_left_unfinished_is_ended_on_every_line_and_recorded_once() -> None:
-    # A stored call does not say which line carried it, so each is asked; the one that did not
-    # finds nothing of it at its provider, and one refusing does not stop the next from trying.
+    # Every line is asked to end a stored call, and one refusing does not stop the next.
     first, second = StreamingLine(), StreamingLine()
     first.refusing.add("terminate")
     stores = await stores_holding(left_ringing("left"))

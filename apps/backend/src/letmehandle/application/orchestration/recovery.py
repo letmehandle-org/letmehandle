@@ -1,13 +1,4 @@
-"""Ending the calls a stopped process left behind.
-
-A live call is not resumable: its audio stream and its speech session went with the process that
-held them. So a call found unfinished at startup is ended at its transport where that is possible,
-moved to FAILED and summarised, and never left in a state nothing will move it out of (D-029).
-
-A stored call does not say which line it arrived on, so every line is asked to end it. A line that
-never carried the call finds nothing of it at its provider; asking is what a line is for when it
-holds nothing, and it costs a restart a few requests per call left behind.
-"""
+"""Ending, as failed, every call a stopped process left unfinished, on every line (D-029)."""
 
 from __future__ import annotations
 
@@ -56,11 +47,7 @@ class Recovery:
         self._bounds = bounds
 
     async def end_unfinished(self) -> int:
-        """End every call left unfinished, a page at a time, and say how many were ended.
-
-        Stops when a page comes back the same as the last, which is storage refusing the writes
-        that would have moved those calls on: the next start tries them again.
-        """
+        """End every unfinished call a page at a time until a page repeats; say how many."""
         ended = 0
         previous: tuple[str, ...] = ()
         while True:
@@ -78,8 +65,7 @@ class Recovery:
             async with asyncio.timeout(self._bounds.storage.total_seconds()):
                 async with self._stores() as stores:
                     return await stores.calls.unfinished(limit=MAX_CALL_PAGE)
-        # A process that cannot read its calls still starts: the calls stay unfinished in storage,
-        # and the next start tries again. Logged and counted by kind, never raised into startup.
+        # Calls that cannot be read stay unfinished for the next start: logged and counted by kind.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.recovery_unavailable", error)
             self._metrics.increment(RECOVERED, {"outcome": "unavailable"})
@@ -90,8 +76,7 @@ class Recovery:
             try:
                 async with asyncio.timeout(self._bounds.provider.total_seconds()):
                     await transport.terminate(call.id)
-            # Ended here whether or not a transport could let it go: the call is over either way,
-            # because nothing holds it any more.
+            # The call is ended here whether or not a transport let it go.
             except Exception as error:  # noqa: BLE001
                 log_failure(logger, "call.recovery_terminate_failed", error)
         ledger = CallLedger(
@@ -108,7 +93,7 @@ class Recovery:
             async with asyncio.timeout(self._bounds.storage.total_seconds()):
                 async with self._stores() as stores:
                     preferences = await stores.preferences.get(call.user_id)
-        # The summary is written in the default language rather than not at all.
+        # Preferences that cannot be read give the default language.
         except Exception:  # noqa: BLE001
             return DEFAULT_LOCALE
         return DEFAULT_LOCALE if preferences is None else preferences.locale

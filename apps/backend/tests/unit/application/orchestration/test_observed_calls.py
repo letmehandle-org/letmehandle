@@ -1,8 +1,4 @@
-"""What a call leaves behind for somebody diagnosing it: its trace, its timings, its standing.
-
-And how a call is handled when something it depends on keeps failing: a circuit per dependency,
-retries only for what is safe to ask twice, and each degraded path taken at once.
-"""
+"""What a call leaves for diagnosis, and how it is handled while a dependency keeps failing."""
 
 from __future__ import annotations
 
@@ -13,7 +9,7 @@ import pytest
 
 from letmehandle.application.escalation.dispatch import DELIVERY_SECONDS
 from letmehandle.application.orchestration.ledger import STATE_SECONDS
-from letmehandle.application.orchestration.run import (
+from letmehandle.application.orchestration.metrics import (
     DEGRADED,
     DUPLICATE_IGNORED,
     ESCALATION_RESOLVED,
@@ -156,7 +152,7 @@ class TestTheMeasurements:
             line.arrives("nobody-call", STRANGER)
             await eventually(lambda: running.metrics.counted(ROUTED, outcome="nobody") == 1)
 
-        # Letting it go failed too, and was counted; there is no record to mark it on.
+        # Letting it go failed and was counted, with no record to mark it on.
         assert running.metrics.counted(PROVIDER_FAILED, stage="terminate", kind="refused") == 1
         assert "nobody-call" not in {each.value for each in running.stores.timeline.marks}
 

@@ -1,16 +1,4 @@
-"""Trying an operation again, where that is correct, and nowhere else.
-
-Two things must both be true. The failure must be one that trying again can fix — a timeout, a
-dependency that could not be reached — which the failure taxonomy decides, never the call site.
-And the operation must be safe to repeat: storing a whole call again, or ending a call that may
-already have ended, leaves the world as one attempt would. Dialling somebody again does not; it
-rings their phone twice. The second is a property of the operation and cannot be read off an
-exception, so it is stated in the name of the one function that retries, and a call site that
-reaches for it is claiming it.
-
-The waits between attempts grow and are jittered across their whole range, so that every call
-that met the same outage does not come back to the same dependency at the same instant.
-"""
+"""Trying an operation again, only when it is safe to repeat and its failure is retryable."""
 
 from __future__ import annotations
 
@@ -29,11 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    """How many attempts, and how long the waits between them may grow to.
-
-    The wait before attempt `n + 1` is drawn evenly from nothing up to `first_wait` doubled `n - 1`
-    times, and never more than `longest_wait`.
-    """
+    """How many attempts, with jittered waits growing from `first_wait` to `longest_wait`."""
 
     attempts: int = 3
     first_wait: timedelta = timedelta(milliseconds=100)
@@ -58,12 +42,7 @@ async def retry_idempotent[T](
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     jitter: Callable[[], float] = random.random,
 ) -> T:
-    """Run `operation`, again after a retryable failure, until it succeeds or attempts run out.
-
-    Only for an operation that is safe to repeat: see the module's account of why that cannot be
-    checked here. A failure that is not retryable is raised at once, and the last failure is raised
-    when attempts run out. Cancellation is never retried.
-    """
+    """Run `operation`, safe to repeat, again after each retryable failure, up to `attempts`."""
     attempt = 1
     while True:
         try:
@@ -71,6 +50,6 @@ async def retry_idempotent[T](
         except Exception as error:
             if attempt >= policy.attempts or not classify(error).retryable:
                 raise
-        # Anywhere from nothing to the ceiling, so retries after one outage do not arrive together.
+        # Jittered across the whole range up to the ceiling.
         await sleep(jitter() * policy.ceiling(attempt))
         attempt += 1

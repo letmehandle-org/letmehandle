@@ -1,10 +1,4 @@
-"""How long a call may last and how many one account may have at once, on each kind of line.
-
-A handset reports its own calls, and a report of one ending that never arrives — the app killed,
-the handset offline — would otherwise leave the call's run holding it until the process stopped.
-The same is true of any transport whose report of an ending is lost, so both bounds hold on every
-line, and each is a transition to FAILED through the one teardown.
-"""
+"""How long a call may last and how many one account may have at once, on each kind of line."""
 
 from __future__ import annotations
 
@@ -14,8 +8,8 @@ from datetime import timedelta
 
 import pytest
 
+from letmehandle.application.orchestration.metrics import CALL_BOUNDED
 from letmehandle.application.orchestration.orchestrator import LIVE_CALLS_PER_ACCOUNT
-from letmehandle.application.orchestration.run import CALL_BOUNDED
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
 from letmehandle.domain.models.phone_number import PhoneNumber
@@ -32,8 +26,7 @@ from tests.support.orchestration import (
 
 STRANGER = Caller(number=PhoneNumber("+12025550101"))
 PASSING = UserPreferences(rules=CallRules(default_posture=HandlingPosture.PASS_THROUGH))
-# Long enough for a call to be put through and picked up first, short enough to wait for. The ring
-# is longer, so a streaming call picked up is still up when the duration runs out.
+# Longer than putting a call through and picking it up, and shorter than the ring.
 SHORT_CALLS = replace(QUICK, duration=timedelta(seconds=0.5), ring=timedelta(seconds=5))
 # Calls put through stay ringing for the length of a test.
 LONG_RINGS = replace(QUICK, ring=timedelta(seconds=30))

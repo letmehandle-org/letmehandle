@@ -1,9 +1,4 @@
-"""The assistant's voice on one call: a speech session, the conversation over it, and what it knows.
-
-Owned by a run. Opening is bounded, the conversation runs as a task this owns, and every way it
-stops — the speaker gone, the session over, a failure — reaches the run as one input. Stopping is
-safe at any point and more than once, and releases the task and the session before it returns.
-"""
+"""The assistant's voice on one call: its speech session and the conversation over it."""
 
 from __future__ import annotations
 
@@ -15,28 +10,30 @@ from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.prompts import load_prompts
 from letmehandle.application.orchestration.inputs import ConversationStopped, Heard
+from letmehandle.application.orchestration.metrics import PROVIDER_FAILED, SPEECH_OPEN_SECONDS
 from letmehandle.application.preferences.context import DEFAULT_LOCALE, build_preference_context
+from letmehandle.application.resilience.circuit import Dependency
+from letmehandle.application.resilience.timing import Stopwatch
 from letmehandle.application.speech.conversation import (
     Conversation,
     Transcript,
     TranscriptTurn,
 )
 from letmehandle.domain.failures import FailureKind, classify
+from letmehandle.domain.models.timeline import MarkKind
 from letmehandle.domain.ports.voice import resolve_voice
 from letmehandle.observability import catalogue
 from letmehandle.observability.logging import get_logger, log_failure
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from datetime import timedelta
 
     from letmehandle.application.orchestration.inputs import Input
     from letmehandle.application.orchestration.plan import Converse
+    from letmehandle.application.orchestration.run import RunContext
     from letmehandle.domain.models.identifiers import CallId
     from letmehandle.domain.models.preferences import UserPreferences
     from letmehandle.domain.ports.call_transport import ParticipantOutcome
-    from letmehandle.domain.ports.clock import Clock
-    from letmehandle.domain.ports.metrics import MetricsRecorder
     from letmehandle.domain.ports.speech import SpeechCapabilities, SpeechSession
 
 logger = get_logger(__name__)
@@ -68,7 +65,7 @@ class Situation:
 
 
 class _HeardTranscript(Transcript):
-    """A transcript that tells the run each settled line as it is recorded."""
+    """A transcript that posts each settled line to the run as it is recorded."""
 
     def __init__(self, post: Callable[[Input], None]) -> None:
         super().__init__()
@@ -80,20 +77,20 @@ class _HeardTranscript(Transcript):
 
 
 class Speaking:
-    """One call's speech session and the conversation carried over it, once started."""
+    """One call's speech session and the conversation carried over it, owned by the call's run."""
 
     def __init__(
         self,
-        *,
         call_id: CallId,
+        context: RunContext,
+        *,
         post: Callable[[Input], None],
-        clock: Clock,
-        metrics: MetricsRecorder,
+        note: Callable[[MarkKind, str], None],
     ) -> None:
         self._call_id = call_id
+        self._context = context
         self._post = post
-        self._clock = clock
-        self._metrics = metrics
+        self._note = note
         self._session: tuple[SpeechSession, UserPreferences] | None = None
         self._task: asyncio.Task[None] | None = None
         self._conversation: Conversation | None = None
@@ -103,51 +100,46 @@ class Speaking:
         """Whether a conversation is still running."""
         return self._task is not None and not self._task.done()
 
-    async def start(self, step: Converse, preferences: UserPreferences, bound: timedelta) -> None:
-        """Open the session and start the conversation, within `bound`. Raises when it cannot."""
-        assistance = step.assistance
-        locale = _opening_locale(assistance.speech.capabilities, preferences.locale)
-        async with asyncio.timeout(bound.total_seconds()):
-            voice = await resolve_voice(assistance.voices, preferences.voice, locale=locale)
-            session = await assistance.speech.connect(
-                system_context=self._context(preferences, Situation()),
-                voice_id=voice,
-                greeting=load_prompts(locale).greeting(),
-                locale=locale,
-                input_format=step.audio.audio_format(),
-            )
-        self._session = (session, preferences)
-        conversation = Conversation(
-            session=session,
-            source=step.audio.audio_source(self._call_id),
-            sink=step.audio.audio_sink(self._call_id),
-            transcript=_HeardTranscript(self._post),
-            metrics=self._metrics,
-            clock=self._clock,
-        )
-        self._conversation = conversation
-        self._task = asyncio.get_running_loop().create_task(self._converse(conversation))
+    async def open(self, step: Converse, preferences: UserPreferences) -> bool:
+        """Open the session through the speech circuit and start the conversation; say if it did."""
+        context = self._context
+        stopwatch = Stopwatch()
+        try:
+            with context.tracer.span("speech.open", dependency=Dependency.SPEECH.value):
+                await context.circuits[Dependency.SPEECH].call(
+                    lambda: self._start(step, preferences)
+                )
+        # A speech service that does not open in time fails the call: logged and counted by kind.
+        except Exception as error:  # noqa: BLE001
+            log_failure(logger, "call.speech_unavailable", error)
+            kind = classify(error).kind
+            context.metrics.increment(PROVIDER_FAILED, {"stage": "speech", "kind": kind})
+            self._note(MarkKind.FAILURE, f"speech.{kind}")
+            context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "failed"})
+            return False
+        context.metrics.observe(SPEECH_OPEN_SECONDS, stopwatch.seconds, {"outcome": "opened"})
+        return True
 
-    async def finish_speaking(self, bound: timedelta, pause: timedelta) -> None:
-        """Let the caller hear the assistant out: quiet for `pause`, waited for at most `bound`."""
+    async def finish_speaking(self) -> None:
+        """Wait, within the goodbye bound, until the assistant is quiet for the goodbye pause."""
         conversation = self._conversation
         if conversation is None or not self.is_speaking:
             return
-        # A reply that runs past the bound is cut off: the call was asked to end, and an assistant
-        # that never stops talking must not keep it open.
+        bounds = self._context.bounds
+        # A reply still playing when the bound runs out is cut off.
         with contextlib.suppress(TimeoutError):
-            async with asyncio.timeout(bound.total_seconds()):
-                await conversation.quiet(pause.total_seconds())
+            async with asyncio.timeout(bounds.goodbye.total_seconds()):
+                await conversation.quiet(bounds.goodbye_pause.total_seconds())
 
-    async def tell(self, situation: Situation, bound: timedelta) -> None:
-        """Tell a running assistant what has changed. A failure to is logged, not raised."""
+    async def tell(self, situation: Situation) -> None:
+        """Tell a running assistant what has changed, within the provider bound; never raises."""
         if self._session is None or not self.is_speaking:
             return
         session, preferences = self._session
         try:
-            async with asyncio.timeout(bound.total_seconds()):
-                await session.update_context(self._context(preferences, situation))
-        # The assistant keeps talking on what it knew; the call is not worth ending for this.
+            async with asyncio.timeout(self._context.bounds.provider.total_seconds()):
+                await session.update_context(self._system_context(preferences, situation))
+        # The assistant keeps talking on what it knew: logged, not raised.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.context_update_failed", error)
 
@@ -163,36 +155,54 @@ class Speaking:
             return
         try:
             await opened[0].close()
-        # A session that fails as it closes is closed as far as the call is concerned: nothing
-        # more will be sent on it, and whatever stops it — a teardown, the assistant gone — must
-        # go on past it rather than leave the call half ended. Logged by kind and counted.
+        # A session that fails as it closes counts as closed: logged and counted by kind.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.speech_close_failed", error)
-            self._metrics.increment(SPEECH_CLOSE_FAILED, {"kind": classify(error).kind})
+            self._context.metrics.increment(SPEECH_CLOSE_FAILED, {"kind": classify(error).kind})
+
+    async def _start(self, step: Converse, preferences: UserPreferences) -> None:
+        assistance = step.assistance
+        context = self._context
+        locale = _opening_locale(assistance.speech.capabilities, preferences.locale)
+        async with asyncio.timeout(context.bounds.speech_open.total_seconds()):
+            voice = await resolve_voice(assistance.voices, preferences.voice, locale=locale)
+            session = await assistance.speech.connect(
+                system_context=self._system_context(preferences, Situation()),
+                voice_id=voice,
+                greeting=load_prompts(locale).greeting(),
+                locale=locale,
+                input_format=step.audio.audio_format(),
+            )
+        self._session = (session, preferences)
+        conversation = Conversation(
+            session=session,
+            source=step.audio.audio_source(self._call_id),
+            sink=step.audio.audio_sink(self._call_id),
+            transcript=_HeardTranscript(self._post),
+            metrics=context.metrics,
+            clock=context.clock,
+        )
+        self._conversation = conversation
+        self._task = asyncio.get_running_loop().create_task(self._converse(conversation))
 
     async def _converse(self, conversation: Conversation) -> None:
         try:
             end = await conversation.run()
-        # Every way a conversation can fail ends the same way for the call — the assistant is gone
-        # — so each is one input rather than an exception nobody is awaiting.
+        # Every failure of a conversation reaches the run as one input: the assistant is gone.
         except Exception as error:  # noqa: BLE001
             log_failure(logger, "call.conversation_failed", error)
             self._post(ConversationStopped(None))
         else:
             self._post(ConversationStopped(end))
 
-    def _context(self, preferences: UserPreferences, situation: Situation) -> str:
+    def _system_context(self, preferences: UserPreferences, situation: Situation) -> str:
         return load_prompts(preferences.locale).conversation_context(
-            build_preference_context(preferences, now=self._clock.now()),
+            build_preference_context(preferences, now=self._context.clock.now()),
             preferences.authority,
             situation=situation.as_data(),
         )
 
 
 def _opening_locale(capabilities: SpeechCapabilities, locale: str) -> str:
-    """The language a call opens in: the user's, where the speech service speaks it (D-039).
-
-    English otherwise, rather than a refusal: a caller answered in the wrong language can still be
-    helped, and the service may yet follow them into their own.
-    """
+    """The user's language where the speech service speaks it, and the default otherwise (D-039)."""
     return locale if capabilities.speaks(locale) else DEFAULT_LOCALE

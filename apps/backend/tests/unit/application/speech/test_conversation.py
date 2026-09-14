@@ -1,12 +1,4 @@
-"""A spoken conversation, carried with no call anywhere near it.
-
-Every test here runs the conversation against the in-memory echo session, a generated tone and
-a sink that only takes notes. No call, transport or phone number exists in any of them, which is
-the point: if the speech layer quietly depended on a call, these could not be written.
-
-Resources are asserted by counting what is left. A conversation that says it stopped both
-directions and leaves a task behind is the failure that takes a service down over a week.
-"""
+"""A spoken conversation, carried with no call, transport or phone number anywhere near it."""
 
 from __future__ import annotations
 
@@ -78,8 +70,7 @@ async def open_session() -> EchoSpeechSession:
 
 @pytest.fixture
 async def session() -> AsyncIterator[EchoSpeechSession]:
-    # The test owns the session, as a real caller of the conversation would. The conversation
-    # is lent it and must give it back open.
+    # The test owns the session, and the conversation gives it back open.
     async with await open_session() as opened:
         assert isinstance(opened, EchoSpeechSession)
         yield opened
@@ -99,8 +90,7 @@ async def test_a_conversation_runs_with_no_call_transport_or_phone_number_presen
     parts.source.hang_up()
 
     assert await running is ConversationEnd.SPEAKER_GONE
-    # Echoed back frame for frame: the audio went in through the source, through the session,
-    # and out through the sink, with nothing but the abstractions in between.
+    # Echoed back frame for frame, from source through session to sink.
     assert parts.sink.written == parts.source.said()
     assert parts.sink.discarded_after == []
     assert not session.is_closed
@@ -108,8 +98,7 @@ async def test_a_conversation_runs_with_no_call_transport_or_phone_number_presen
 
 
 async def test_the_source_ending_ends_the_conversation(session: EchoSpeechSession) -> None:
-    # Nothing is waiting in the session, so the player is parked on it when the speaker goes.
-    # It has to be stopped rather than left listening to a session with nobody on the line.
+    # The player is parked on an empty session when the speaker goes.
     before = other_tasks()
     parts = Harness(session, ToneSource(frames=0), RecordingSink())
 
@@ -147,8 +136,7 @@ async def test_the_caller_starting_to_speak_discards_what_the_sink_was_about_to_
 
     assert parts.sink.discarded_after == [2]
     assert len(parts.sink.written) == 3
-    # The conversation clears its own side only. The session's queue is the session's to
-    # empty, and interrupting it from here as well would interrupt it twice.
+    # The session's own queue is the session's to empty.
     assert session.interruptions == 0
 
 
@@ -219,7 +207,7 @@ async def test_a_failed_session_ends_the_conversation_with_a_typed_error(
 
     assert failure.value.reason == "the stream dropped"
     assert failure.value.retryable is retryable
-    # What was said before the failure is still there to read, which is when it matters most.
+    # What was said before the failure is still there to read.
     assert parts.transcript.turns == (TranscriptTurn("hello", speaker_is_caller=True),)
     assert other_tasks() == before
     retryable_label = str(retryable).lower()
@@ -238,8 +226,7 @@ async def test_a_failing_sink_surfaces_its_own_error_and_leaves_nothing_running(
     before = other_tasks()
     parts = Harness(session, ToneSource(frames=None), Unplugged())
 
-    # Unwrapped: a caller catching a provider error should not have to know that the
-    # conversation happened to use a task group.
+    # Raised unwrapped from the task group.
     with pytest.raises(ProviderError, match="unplugged"):
         await parts.conversation().run()
 
@@ -256,25 +243,84 @@ async def test_a_slow_sink_holds_the_source_back_rather_than_buffering(
     running = asyncio.create_task(parts.conversation().run())
     await parts.sink.held.wait()
 
-    # The source never ends, so a conversation that did not wait for the sink would take
-    # another frame on every one of these turns of the loop.
+    # The source never ends, so a conversation not waiting on the sink would keep taking frames.
     await settle()
     stalled_at = parts.source.taken
     await settle()
 
     assert parts.source.taken == stalled_at
-    # What the bound allows and no more: one frame's reply in the sink's hands, the echo
-    # session's eight queued events holding four more, and one waiting for room.
+    # One frame's reply in the sink, four in the session's eight queued events, one waiting.
     assert stalled_at <= 6
     assert parts.sink.written == []
 
-    # Released, it carries on from where it stopped, and nothing was lost in the wait.
+    # Released, it carries on from where it stopped with nothing lost.
     parts.sink.release()
     await parts.sink.until_written(stalled_at)
     parts.source.hang_up()
     assert await running is ConversationEnd.SPEAKER_GONE
     assert parts.sink.written == parts.source.said()[: len(parts.sink.written)]
     assert other_tasks() == before
+
+
+class TestQuiet:
+    """Waiting until the session has stopped playing for a pause."""
+
+    PAUSE = 0.05
+
+    async def test_nothing_playing_is_quiet_after_the_pause(
+        self, session: EchoSpeechSession
+    ) -> None:
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        running = asyncio.create_task(conversation.run())
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+
+        await conversation.quiet(self.PAUSE)
+
+        assert loop.time() - started >= self.PAUSE
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+    async def test_a_frame_still_playing_is_waited_for(self, session: EchoSpeechSession) -> None:
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        parts.sink.hold()
+        running = asyncio.create_task(conversation.run())
+        await session.emit(AudioProduced(tone_frame(0)))
+        await parts.sink.held.wait()
+
+        quiet = asyncio.create_task(conversation.quiet(self.PAUSE))
+        await asyncio.sleep(self.PAUSE * 2)
+        assert not quiet.done()
+
+        loop = asyncio.get_running_loop()
+        parts.sink.release()
+        released = loop.time()
+        await quiet
+        assert loop.time() - released >= self.PAUSE
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+    async def test_a_frame_played_during_the_pause_starts_it_again(
+        self, session: EchoSpeechSession
+    ) -> None:
+        pause = self.PAUSE * 10
+        parts = Harness(session, ToneSource(frames=0, stays_open=True), RecordingSink())
+        conversation = parts.conversation()
+        running = asyncio.create_task(conversation.run())
+        loop = asyncio.get_running_loop()
+
+        quiet = asyncio.create_task(conversation.quiet(pause))
+        await asyncio.sleep(self.PAUSE)
+        emitted = loop.time()
+        await session.emit(AudioProduced(tone_frame(0)))
+        await parts.sink.until_written(1)
+        await quiet
+
+        assert loop.time() - emitted >= pause
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,11 +347,7 @@ async def session_full(parts: Harness) -> None:
 
 
 async def settle() -> None:
-    """Let everything runnable run until it blocks.
-
-    Proving that something stops requires letting it try to continue, and there is no event
-    for "nothing more happened".
-    """
+    """Let everything runnable run until it blocks."""
     for _ in range(100):
         await asyncio.sleep(0)
 

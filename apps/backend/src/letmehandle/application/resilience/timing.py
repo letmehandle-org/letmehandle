@@ -22,10 +22,6 @@ class Stopwatch:
 
 
 async def within[T](bound: timedelta, work: Callable[[], Awaitable[T]]) -> T:
-    """`work`, or `TimeoutError` once `bound` has passed.
-
-    Bounded inside whatever runs it, so that a circuit around it sees the timeout as the
-    dependency's failure rather than as a cancellation that says nothing.
-    """
+    """`work`, or `TimeoutError` once `bound` has passed, raised inside any circuit around it."""
     async with asyncio.timeout(bound.total_seconds()):
         return await work()

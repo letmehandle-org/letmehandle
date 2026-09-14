@@ -1,10 +1,4 @@
-"""What orchestration needs from outside itself.
-
-`CallOwnership` says whose call an arriving call is. That is how the call reached the product, which
-D-004 makes the transport's business: a handset reports on behalf of the account it signed in as,
-and a telephony number is reached through the user's own line forwarding to it. So each transport's
-side answers, chosen in bootstrap, and orchestration asks without knowing which answered (D-033).
-"""
+"""What orchestration needs from outside itself (D-033)."""
 
 from __future__ import annotations
 
@@ -44,11 +38,7 @@ class CallOwnership(ABC):
 
 @dataclass(frozen=True, slots=True)
 class CallLine:
-    """A transport calls arrive on, and whose each arriving call is.
-
-    Together because they are chosen together: a line's ownership reads what that line's transport
-    knows about its calls, and nothing about any other line's.
-    """
+    """A transport calls arrive on, with the ownership that reads that transport's calls."""
 
     transport: CallTransport
     ownership: CallOwnership
@@ -71,11 +61,7 @@ type OpenCallStores = Callable[[], AbstractAsyncContextManager[CallStores]]
 
 @dataclass(frozen=True, slots=True)
 class CallJudging:
-    """The agent that judges calls, and how to let go of what it remembers about one.
-
-    Together because they are built together: every judgement shares one escalation service, and
-    only whoever built it can hand out its `forget`.
-    """
+    """The agent that judges calls, and how to let go of what it remembers about one."""
 
     agent: CallAgent
     forget: Callable[[CallId], None]
@@ -83,11 +69,7 @@ class CallJudging:
 
 @dataclass(frozen=True, slots=True)
 class AssistantServices:
-    """What an assistant needs to hold calls: a speech service, voices, and an agent to judge.
-
-    `judging` builds the agent from the actions orchestration implements, which exist only once
-    the orchestrator does.
-    """
+    """What an assistant speaks with, and how to build its agent from orchestration's actions."""
 
     speech: SpeechProvider
     voices: VoiceProvider
@@ -105,31 +87,27 @@ class Assistance:
 
 @dataclass(frozen=True, slots=True)
 class Bounds:
-    """How long anything a call waits on may take. Each expiry is a transition, never an escape.
+    """How long each thing a call waits on may take; every expiry is a transition (D-029)."""
 
-    `ring` is how long the user's phone rings before the assistant takes the call back. `judgement`
-    bounds one look at the call by the agent, `speech_open` the speech service opening, `provider`
-    one request to the transport, and `storage` one unit of work. `speaker_gone` is how long a
-    conversation whose audio stopped waits for the transport to say the call ended. `goodbye` is
-    how long a call the agent ended waits for the assistant to finish speaking before it is hung
-    up, and `goodbye_pause` how long the assistant must have been quiet to count as finished.
-    `summary` is how long teardown waits for a summary to be written before writing the facts' own;
-    it is shorter than `shutdown`, which is how long stopping waits for every call to be torn down.
-    `duration` is how long a call may last at all: a transport whose report of a call ending is
-    lost, as a handset's is when the app is killed or offline, would otherwise leave the call held
-    for as long as the process runs.
-    """
-
+    # How long the user's phone rings before the assistant takes the call back.
     ring: timedelta = timedelta(seconds=30)
     judgement: timedelta = timedelta(seconds=20)
     speech_open: timedelta = timedelta(seconds=10)
+    # One request to the transport, or one context update to the speech session.
     provider: timedelta = timedelta(seconds=10)
+    # One unit of work in storage.
     storage: timedelta = timedelta(seconds=5)
+    # How long the transport has to report a hang-up once the assistant's audio has gone.
     speaker_gone: timedelta = timedelta(seconds=5)
+    # How long an ending the agent asked for waits for the assistant to finish speaking.
     goodbye: timedelta = timedelta(seconds=10)
+    # How long the assistant must be quiet to have finished speaking.
     goodbye_pause: timedelta = timedelta(seconds=1)
+    # How long teardown waits for a written summary, shorter than `shutdown`.
     summary: timedelta = timedelta(seconds=10)
+    # How long stopping waits for every call to be torn down.
     shutdown: timedelta = timedelta(seconds=15)
+    # The longest a call may last, for a transport whose report of its ending is lost.
     duration: timedelta = timedelta(hours=4)
 
     def __post_init__(self) -> None:

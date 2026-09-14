@@ -1,21 +1,9 @@
-"""The one component that owns every call's life (D-029).
-
-It reads every line's events, gives each new call a run and each later event to that call's run,
-and implements the agent's `CallActions` by handing each request to the run of the call it is for.
-There is one orchestrator whatever the transport: what differs between transports is the plan each
-call is given, derived from capabilities, never a branch on which transport it is.
-
-A deployment may carry calls on several lines — one per country it serves, say — and still has one
-orchestrator. A call belongs to the line it arrived on for its whole life: its plan is derived from
-that line's transport, its owner is found by that line's ownership, and it is dialled into, bridged
-and ended there, so a user is rung from a number in the region the call reached.
-"""
+"""The one component that owns every call's life, on every line (D-029)."""
 
 from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from letmehandle.application.agent.ports import CallActions
@@ -27,12 +15,11 @@ from letmehandle.application.orchestration.inputs import (
     OutcomeRecorded,
     Reported,
 )
+from letmehandle.application.orchestration.metrics import DEGRADED, DUPLICATE_IGNORED
 from letmehandle.application.orchestration.plan import plan_for
 from letmehandle.application.orchestration.ports import Assistance, Bounds
 from letmehandle.application.orchestration.recovery import Recovery
 from letmehandle.application.orchestration.run import (
-    DEGRADED,
-    DUPLICATE_IGNORED,
     CallIsOverError,
     CallRun,
     CallStanding,
@@ -70,21 +57,15 @@ logger = get_logger(__name__)
 # A request for a run, made once the future its answer arrives on exists.
 type Asking = Callable[[asyncio.Future[None]], Request]
 
-# How many ended calls are remembered, so an event for one arriving after its teardown is dropped
-# rather than taken for a new call. Bounded: a process runs for weeks.
+# How many ended calls are remembered, so a late event for one is not taken for a new call.
 REMEMBERED_ENDINGS: Final = 10_000
 
-# How many live calls one account may have. More than a person has at once on any line, and few
-# enough that a handset reporting new calls in a loop holds a handful of runs, not thousands.
+# How many live calls one account may have.
 LIVE_CALLS_PER_ACCOUNT: Final = 5
 
 
 class CallOrchestrator:
-    """Owns every live call on its lines, from arrival to teardown.
-
-    `summariser` writes the summary of a call the assistant took; without one, every call is
-    summarised from its facts.
-    """
+    """Owns every live call on its lines, from arrival to teardown."""
 
     def __init__(
         self,
@@ -112,12 +93,7 @@ class CallOrchestrator:
                     "a transport the assistant can take calls on needs a speech service and an "
                     "agent"
                 )
-        # What every run shares, built on the first line; each line's runs are given a copy of it
-        # with that line's transport and owners, and nothing reads a transport from this one.
-        first = lines[0]
         self._context = RunContext(
-            transport=first.transport,
-            ownership=first.ownership,
             stores=stores,
             dispatcher=dispatcher,
             clock=clock,
@@ -128,13 +104,7 @@ class CallOrchestrator:
             summariser=summariser,
             admits=self._admits,
         )
-        # What a run on each line is given: everything shared, and that line's transport and owners.
-        self._contexts = {
-            line.transport: replace(
-                self._context, transport=line.transport, ownership=line.ownership
-            )
-            for line in lines
-        }
+        self._lines = {line.transport: line for line in lines}
         self._assistance = (
             None
             if assistant is None
@@ -155,10 +125,7 @@ class CallOrchestrator:
         return len(self._tasks)
 
     def standings(self) -> tuple[CallStanding, ...]:
-        """Where every live call stands, oldest state first, so one stuck in a state stands out.
-
-        A call still being matched to its owner has no standing yet, and is not listed.
-        """
+        """Where every live call with a record stands, oldest state first."""
         standing = (run.standing for run in self._runs.values())
         return tuple(sorted((each for each in standing if each is not None), key=_since))
 
@@ -166,7 +133,7 @@ class CallOrchestrator:
         """End what a previous process left unfinished, then take calls."""
         context = self._context
         await Recovery(
-            transports=tuple(self._contexts),
+            transports=tuple(self._lines),
             stores=context.stores,
             dispatcher=context.dispatcher,
             clock=context.clock,
@@ -174,7 +141,7 @@ class CallOrchestrator:
             bounds=context.bounds,
         ).end_unfinished()
         loop = asyncio.get_running_loop()
-        self._consumers = [loop.create_task(self._consume(line)) for line in self._contexts]
+        self._consumers = [loop.create_task(self._consume(line)) for line in self._lines]
 
     async def stop(self) -> None:
         """Stop taking calls, tear every live one down, and wait for every run to finish."""
@@ -185,20 +152,11 @@ class CallOrchestrator:
         await self._end(list(self._runs))
 
     async def end_calls_of(self, user_id: UserId) -> None:
-        """Tear down every live call of this user's, and wait until each run has gone.
-
-        For an account being deleted: once this returns, no run is left to write anything more
-        about the user's calls. A call whose owner is still being looked up is nobody's yet; what
-        it writes after the account is gone finds no account to write it against.
-        """
+        """Tear down every live call of this user's and wait until each run has gone."""
         await self._end([call_id for call_id, run in self._runs.items() if run.owner == user_id])
 
     async def _end(self, call_ids: list[CallId]) -> None:
-        """End these calls now and wait for their runs, within the shutdown bound.
-
-        Each run is given the bound to reach its teardown; one still running after that is
-        cancelled, and its call is left for the next start to end.
-        """
+        """End these calls, cancelling any run still going after the shutdown bound."""
         tasks = [self._tasks[call_id] for call_id in call_ids]
         for call_id in call_ids:
             self._runs[call_id].post(Abandoned())
@@ -212,29 +170,23 @@ class CallOrchestrator:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def receive(self, event: CallEvent, transport: CallTransport) -> None:
-        """Give an event to its call's run, starting a run for a call that has just arrived.
-
-        `transport` is the line the event arrived on, which a new call keeps for its whole life.
-        A provider's call identifiers are its own and never repeat, so no two lines share one.
-        """
+        """Give an event to its call's run, starting a run, kept on `transport`, for a new call."""
         call_id = event.call_id
         run = self._runs.get(call_id)
         if run is not None:
             run.post(Reported(event))
             return
         if call_id in self._ended or event.kind is not CallEventKind.INCOMING:
-            # About a call already torn down, or one this process never saw arrive: nothing to do.
+            # An event for a call already torn down, or never seen arriving.
             logger.info("call.event_ignored", kind=event.kind.value)
             self._context.metrics.increment(DUPLICATE_IGNORED, {"stage": "late"})
             return
-        assistance = self._assistance_now()
-        degraded = (
-            (Dependency.SPEECH,) if assistance is None and self._assistance is not None else ()
-        )
+        assistance, degraded = self._assistance_now()
         run = CallRun(
             event,
             plan_for(transport, event, assistance),
-            self._contexts[transport],
+            self._lines[transport],
+            self._context,
             degraded=degraded,
         )
         task = asyncio.get_running_loop().create_task(run.run())
@@ -242,18 +194,13 @@ class CallOrchestrator:
         self._tasks[call_id] = task
         task.add_done_callback(lambda done: self._run_done(call_id, done))
 
-    def _assistance_now(self) -> Assistance | None:
-        """What an assistant would speak with, unless speech is failing every call just now.
-
-        A plan without it offers no assistant, and routing puts through to the user a call it would
-        have handed to one: better their phone rings than the caller meets an assistant that cannot
-        speak, or is hung up on while one fails to open.
-        """
+    def _assistance_now(self) -> tuple[Assistance | None, tuple[Dependency, ...]]:
+        """What an assistant speaks with, or nothing while the speech circuit refuses, and why."""
         if self._assistance is not None and self._context.circuits[Dependency.SPEECH].is_refusing:
             logger.warning("call.degraded", stage="speech")
             self._context.metrics.increment(DEGRADED, {"stage": "speech"})
-            return None
-        return self._assistance
+            return None, (Dependency.SPEECH,)
+        return self._assistance, ()
 
     def _admits(self, user_id: UserId) -> bool:
         """Whether this account has fewer live calls than `LIVE_CALLS_PER_ACCOUNT`."""
@@ -271,7 +218,7 @@ class CallOrchestrator:
         while len(self._ended) > REMEMBERED_ENDINGS:
             self._ended.popitem(last=False)
         if not task.cancelled() and task.exception() is not None:
-            # A defect in a run. The call stays unfinished in storage, and the next start ends it.
+            # A defect in a run, whose call the next start ends.
             logger.error("call.run_failed", error=type(task.exception()).__name__)
 
     async def _request(self, call_id: CallId, make: Asking) -> None:
@@ -280,7 +227,7 @@ class CallOrchestrator:
             raise CallIsOverError
         reply: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         run.post(make(reply))
-        await asyncio.gather(reply)
+        await reply
 
 
 def _since(standing: CallStanding) -> datetime:
