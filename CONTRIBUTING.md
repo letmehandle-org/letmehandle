@@ -39,6 +39,8 @@ about in review.
 
 **Types are strict.** mypy strict on the backend, no `any` in TypeScript.
 
+**Comments are one line.** `make comments` fails when a file gains a multi-line docstring or comment block; `python3 scripts/comment_audit.py --update` lowers its baseline once counts fall.
+
 ## The architecture rules
 
 These are the ones worth reading before you write code, because the build will reject a

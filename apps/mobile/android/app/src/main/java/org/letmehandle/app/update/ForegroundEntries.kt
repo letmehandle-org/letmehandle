@@ -4,11 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 
-/**
- * Calls [onEnter] when the app comes to the foreground: at launch, and on every return after all of
- * its screens were hidden. Counted by started activities, so moving between the app's own screens
- * is not a return.
- */
+/** Calls [onEnter] when the app comes to the foreground. */
 class ForegroundEntries(private val onEnter: () -> Unit) : Application.ActivityLifecycleCallbacks {
   private var startedActivities = 0
 

@@ -1,9 +1,4 @@
-"""What the providers around a call get wrong, and a process stopping under one.
-
-F: every telephony callback delivered twice, and out of order, through a whole escalated call.
-The model unavailable at the moment it is asked to judge. And a restart while a call is live: the
-process stops, another starts on the same database, and the call is found as it was left.
-"""
+"""Provider faults: F duplicated and reordered callbacks, the model down, and a restart."""
 
 from __future__ import annotations
 
@@ -128,8 +123,7 @@ async def test_a_caller_hanging_up_is_a_hang_up_when_the_assistants_leg_is_heard
         await system.reaches(account, call_id, CallState.AGENT_HANDLING)
         await system.assistant_is_streaming(call_id)
 
-        # The conference ends around the caller: the assistant's media stream stops at once, and
-        # the callbacks about its leg reach the application before the one about the caller.
+        # The assistant's stream stops at once and its leg's callbacks arrive before the caller's.
         provider.hold()
         await provider.caller_hangs_up(call_id)
         await provider.settle(system.transport)

@@ -1,14 +1,4 @@
-"""A whole call, read back as somebody investigating it would, and nothing personal in any of it.
-
-One escalated call on the streaming transport: a delivery driver the user has to decide for, the
-user joining, the caller hanging up. Then everything observability produced about it — every log
-line, every span, every metric, readiness, and each diagnostics response — is read for the call's
-structure, which must be there, and for the driver's number, the user's number, what the driver
-said, what the user was told, the devices' tokens and the access token, none of which may be.
-
-This is also the diagnostic procedure in `docs/operations/diagnosing-a-call.md`, run: live calls,
-then one call's timeline by its id, then the measurements.
-"""
+"""One escalated call read back through logs, spans, metrics and diagnostics, nothing personal."""
 
 from __future__ import annotations
 

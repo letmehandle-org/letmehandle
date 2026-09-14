@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
-"""List the licence of every dependency that ships, and flag any the project's MIT licence cannot carry.
-
-What ships is the backend's runtime dependencies, as the lock resolves them without the development
-group, and the mobile workspace's production dependencies. Tools that only run on a contributor's
-machine or in CI are not distributed, so they are not listed.
-
-    cd apps/backend
-    uv run python ../../scripts/licence_report.py            # write docs/development/licences.md
-    uv run python ../../scripts/licence_report.py --check    # fail on a flagged licence, write nothing
-
-Run from `apps/backend` with `uv run`, so the backend's installed distributions are the ones read.
-Needs `uv` and `pnpm` on the path, and `make setup` to have installed both trees.
-"""
+# ruff: noqa: T201, S607 - a terminal tool whose output is the point
+"""List the licence of every shipped dependency, and flag any the MIT licence cannot carry."""
 
 from __future__ import annotations
 
@@ -29,8 +18,7 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 BACKEND: Final = ROOT / "apps" / "backend"
 REPORT: Final = ROOT / "docs" / "development" / "licences.md"
 
-# Licences that let a dependency be distributed with, and linked from, an MIT project with no
-# obligation beyond keeping its notice. SPDX identifiers, compared case-insensitively.
+# SPDX identifiers an MIT project ships with no obligation beyond the notice, in lower case.
 PERMISSIVE: Final = frozenset(
     name.lower()
     for name in (
@@ -107,7 +95,15 @@ class Dependency:
 def backend_runtime() -> list[tuple[str, str, bool]]:
     """Each runtime dependency, its locked version, and whether it is installed on this platform."""
     exported = subprocess.run(
-        ["uv", "export", "--no-dev", "--no-hashes", "--no-emit-project", "--format", "requirements-txt"],
+        [
+            "uv",
+            "export",
+            "--no-dev",
+            "--no-hashes",
+            "--no-emit-project",
+            "--format",
+            "requirements-txt",
+        ],
         cwd=BACKEND,
         capture_output=True,
         text=True,
@@ -134,11 +130,12 @@ def installed_licence(name: str) -> str:
     expression = metadata.get("License-Expression")
     if expression:
         return str(expression)
-    classifiers = [
-        _ALIASES.get(each.rsplit("::", 1)[-1].strip().lower(), each.rsplit("::", 1)[-1].strip())
+    named = [
+        each.rsplit("::", 1)[-1].strip()
         for each in metadata.get_all("Classifier") or []
         if each.startswith("License ::") and "OSI Approved ::" in each
     ]
+    classifiers = [_ALIASES.get(name.lower(), name) for name in named]
     if classifiers:
         return " OR ".join(sorted(set(classifiers)))
     free_text = (metadata.get("License") or "").strip().splitlines()
@@ -204,7 +201,12 @@ def report(dependencies: list[Dependency], elsewhere: list[str]) -> str:
         "",
     ]
     if flagged:
-        lines += ["## Flagged", "", "| Package | Version | Licence | Why |", "| --- | --- | --- | --- |"]
+        lines += [
+            "## Flagged",
+            "",
+            "| Package | Version | Licence | Why |",
+            "| --- | --- | --- | --- |",
+        ]
         lines += [f"| {e.name} | {e.version} | {e.licence or '—'} | {e.verdict} |" for e in flagged]
         lines.append("")
     if conditional:
@@ -224,7 +226,12 @@ def report(dependencies: list[Dependency], elsewhere: list[str]) -> str:
             "",
         ]
     for ecosystem in ("backend", "mobile"):
-        lines += [f"## {ecosystem.capitalize()}", "", "| Package | Version | Licence |", "| --- | --- | --- |"]
+        lines += [
+            f"## {ecosystem.capitalize()}",
+            "",
+            "| Package | Version | Licence |",
+            "| --- | --- | --- |",
+        ]
         lines += [
             f"| {e.name} | {e.version} | {e.licence or '—'} |"
             for e in sorted(dependencies, key=lambda each: (each.name.lower(), each.version))
@@ -246,7 +253,9 @@ def main() -> int:
         REPORT.write_text(report(dependencies, elsewhere), encoding="utf-8")
         print(f"wrote {REPORT.relative_to(ROOT)}")
     for each in flagged:
-        print(f"licence: {each.ecosystem} {each.name} {each.version}: {each.verdict}", file=sys.stderr)
+        print(
+            f"licence: {each.ecosystem} {each.name} {each.version}: {each.verdict}", file=sys.stderr
+        )
     return 1 if flagged else 0
 
 

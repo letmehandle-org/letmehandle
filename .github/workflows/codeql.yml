@@ -1,8 +1,6 @@
 name: CodeQL
 
-# Run when a release is published, as part of building it, and on demand. Pull requests and
-# pushes to main are covered by the checks in ci.yml. `workflow_call` lets release.yml run it for a
-# release it created itself, which starts no workflow of its own; nothing calls it for a pull request.
+# Runs for a release, on demand, and from release.yml; pull requests are covered by ci.yml.
 on:
   release:
     types: [published]
@@ -17,6 +15,7 @@ jobs:
   analyse:
     name: Analyse ${{ matrix.language }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

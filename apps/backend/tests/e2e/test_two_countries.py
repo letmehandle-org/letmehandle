@@ -1,11 +1,4 @@
-"""One deployment serving the US and India, each country's calls on a line of its own (D-041).
-
-Two simulated accounts of one provider stand for the two lines, calling the application back under
-their own path prefixes. A US user and an Indian user are each told their own region's number to
-forward to; a call forwarded to each line runs at the same time through the one orchestrator; each
-caller asks for the user, and each user is dialled from the line their call arrived on — a number
-in their own country — joins, and has the call summarised when it ends.
-"""
+"""One deployment serving the US and India, each country's calls on a line of its own (D-041)."""
 
 from __future__ import annotations
 
@@ -130,8 +123,7 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
 
             us.answering[USERS_LINE] = Answering.ANSWERS
             india.answering[IN_USERS_LINE] = Answering.ANSWERS
-            # The Indian call arrives once the American one has its session, so the sessions are
-            # in the order of the calls; both calls stay live throughout.
+            # The Indian call arrives once the American one has its session; both stay live.
             await us.place_call("CAsim-us-call", CALLER, forwarded_from=american.number)
             await system.reaches(american, "CAsim-us-call", CallState.AGENT_HANDLING)
             await eventually(lambda: len(speech.sessions) == 1, seconds=PATIENCE_SECONDS)
@@ -139,8 +131,7 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
             await system.reaches(indian, "CAsim-in-call", CallState.AGENT_HANDLING)
             assert system.orchestrator.live_calls == 2
 
-            # Each caller asks for the user, one after the other, so each judgement is the one
-            # the script expects.
+            # Each caller asks for the user in turn, so each judgement is the one scripted.
             await eventually(lambda: len(speech.sessions) == 2, seconds=PATIENCE_SECONDS)
             first, second = speech.sessions
             await first.emit(

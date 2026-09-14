@@ -6,12 +6,7 @@ import java.util.Locale
 import org.json.JSONException
 import org.json.JSONObject
 
-/**
- * The newest published APK, as the release workflow describes it in `letmehandle-android.json`.
- *
- * [sha256] is what makes the download trustworthy: the manifest and the APK are fetched separately,
- * and an APK whose digest is not this one is never handed to the installer.
- */
+/** The newest published APK, as the release workflow describes it in `letmehandle-android.json`. */
 data class UpdateManifest(
     val versionCode: Int,
     val versionName: String,
@@ -19,10 +14,7 @@ data class UpdateManifest(
     val sha256: String,
 )
 
-/**
- * Reads the manifest strictly. A manifest with anything unexpected is refused whole, and a refused
- * manifest means no update — the app keeps running the version it has, and asks again later.
- */
+/** Reads the manifest strictly. */
 object UpdateManifestCodec {
   class InvalidManifest(message: String, cause: Throwable? = null) :
       IllegalArgumentException(message, cause)

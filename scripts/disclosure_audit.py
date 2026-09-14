@@ -1,55 +1,6 @@
 #!/usr/bin/env python3
-"""Keeps what belongs in a working session out of a public repository."""
-
-# This repository is public from its first commit. The conversation that produces it is not,
-# and the boundary between them only runs one way: a push cannot be taken back, because by
-# then it is in somebody else's clone and in a search index.
-#
-# What must not cross that boundary is set out in docs/architecture/decisions.md under D-021:
-# credentials, cloud and provider account identifiers, resource names, personal data of any
-# kind, and anything said in a working session that is not a technical requirement.
-#
-# A convention lasts exactly as long as the person who remembers it. This script is that
-# convention made mechanical, so that it does not have to be remembered.
-#
-# ---------------------------------------------------------------------------
-# Two tiers, because a gate that cries wolf is a gate somebody turns off
-# ---------------------------------------------------------------------------
-#
-#   TIER 1  A credential, an account identifier, a personal datum, a real phone number, a
-#           name. Zero tolerance. No baseline, no way to record an exception. If one of
-#           these matches, something crossed the boundary.
-#
-#   TIER 2  Vocabulary that is usually innocent and occasionally the tell — "the operator",
-#           "our strategy", "competitor". Ratcheted against scripts/disclosure_baseline.json:
-#           what already exists is recorded, and any rise fails. Shrinking one file does not
-#           pay for growing another, so the count only ever goes down.
-#
-# In text being written now — a commit message, a pull request body, the added side of a
-# diff — there is no legacy to grandfather, so both tiers block.
-#
-# ---------------------------------------------------------------------------
-# Why some patterns are base64
-# ---------------------------------------------------------------------------
-#
-# Not obfuscation. A plain-text list of the names and addresses this gate exists to catch
-# would publish them inside the gate, and would match itself on every run, so the audit
-# could never pass. Decoded at run time, they exist only in memory.
-#
-#   See them:  python3 scripts/disclosure_audit.py --show-terms
-#
-# ---------------------------------------------------------------------------
-# Where this runs
-# ---------------------------------------------------------------------------
-#
-#   make verify            the working tree, beside pii-audit
-#   .githooks/pre-commit   the staged content, before it is recorded
-#   .githooks/commit-msg   the message, before it is recorded
-#   .githooks/pre-push     every commit in the push, message and diff
-#   .github/workflows      the pull request's whole range, plus its title and body
-#
-# No one layer holds alone: hooks are skipped by --no-verify and a workflow is skipped by an
-# admin merge. They are layered because the ways around each do not overlap.
+# ruff: noqa: T201, S603, S607 - a terminal tool whose output is the point
+"""Blocks credentials, personal data and session talk from files, commits and messages (D-021)."""
 
 import argparse
 import base64
@@ -61,44 +12,24 @@ import sys
 
 BASELINE = os.path.join("scripts", "disclosure_baseline.json")
 
-# This file and its baseline are the only exempt paths, and they are exempt because they are
-# the gate. Nothing else in the tree can be excluded.
+# The gate's own files, the only paths exempt from it.
 SELF = ("scripts/disclosure_audit.py", BASELINE.replace(os.sep, "/"))
 
-# Lockfiles are written by a package manager, not by a person, and they carry whatever upstream
-# put in a package's metadata — including a maintainer's address in a deprecation notice. That
-# is not this project disclosing anything, and blocking it would mean the project cannot have a
-# lockfile.
-#
-# The exemption is from the address rule and from that rule alone. A credential, an account
-# identifier, a phone number or a name in one of these files still fails, and gitleaks reads
-# them too.
+# Lockfiles, exempt from the email address rule alone because upstream metadata carries addresses.
 GENERATED = ("pnpm-lock.yaml", "apps/backend/uv.lock", "uv.lock")
 EMAIL_RULE = "an email address"
 IDENTITY_RULE = "an identifying name"
 
-# No commit carries a co-author trailer, in any form. A trailer names a person and usually an
-# address, and a forge adds one on its own when it squash-merges — so a merge made without an
-# explicit message is how one arrives. Merges here are made with the message written out.
+# No commit message carries a co-author trailer, in any form.
 COAUTHOR_TRAILER = re.compile(r"^\s*co-authored-by:", re.IGNORECASE)
 COAUTHOR_RULE = "a co-author trailer"
 
-# Who a commit says wrote and committed it is published with it. Only a forge noreply address
-# may appear there; anything else is a real address attached to every copy of the history.
-#
-# Commits the forge makes itself — a squash merge, a branch updated from its web page — are the
-# exception, and the only one. Their author address comes from the merging account's own email
-# setting, which nothing in this repository can change, so this rule governs what is pushed from
-# a machine. Those merges are still refused a co-author trailer: merges here are made with the
-# message written out.
+# A commit's author and committer are forge noreply addresses, unless the forge itself committed it.
 NOREPLY_AUTHORSHIP = re.compile(r"(@users\.noreply\.github\.com|^noreply@github\.com)$")
 FORGE_COMMITTER = "noreply@github.com"
 AUTHORSHIP_RULE = "an address in who wrote or committed it"
 
-# Commits that were already published when the two rules above were added, exempted from those
-# two rules only and by exact id, so the history scan can pass without rewriting what every
-# clone already holds. A commit is added only by a deliberate decision to leave a published
-# commit as it is, recorded in the commit that adds it.
+# Published commits exempt, by exact id, from the authorship and co-author rules only.
 PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset(
     {
         "a489677da53ff0d88dbf7cbe720093173887d625",
@@ -117,8 +48,7 @@ PUBLISHED_BEFORE_THE_AUTHORSHIP_RULES = frozenset(
     }
 )
 
-# Identity terms: names, and the names of unrelated projects whose mention would say more
-# about who wrote this than about the code.
+# Identity terms, base64 so the gate neither publishes nor matches them; see `--show-terms`.
 IDENTITY_B64 = [
     "XGJuYXZlZW5cYg==",
     "XGJuYXZlZW5iaGF0dFxi",
@@ -130,14 +60,7 @@ IDENTITY_B64 = [
     "XGJ6YXByaXNlXGI=",
 ]
 
-# Structural tier 1 patterns. These are shapes, not secrets, so they are readable: a reviewer
-# needs to see what is being matched in order to trust the gate.
-#
-# Phone numbers are the interesting case. This product is built on phone numbers and its
-# tests need them, so a blanket ban would be unworkable and would be worked around. Instead
-# only numbers reserved for fiction are permitted — the North American 555-01xx range and the
-# United Kingdom's Ofcom drama ranges — and every fixture must use one. A number outside them
-# is either real or about to be, and both are a problem.
+# Phone numbers in the ranges reserved for fiction, the only ones permitted.
 FICTIONAL_NUMBERS = re.compile(
     r"""\+(?:
           1[2-9][0-9]{2}55501[0-9]{2}   # +1 NPA 555-01xx, reserved for fiction in North America
@@ -149,46 +72,29 @@ FICTIONAL_NUMBERS = re.compile(
 )
 
 STRUCTURAL = [
-    # A cloud account identifier, a resource name, or anything else that names a specific
-    # deployed thing.
+    # Tier 1: a cloud account or deployed resource identifier.
     (r"\barn:aws[a-z\-]*:[a-z0-9\-]*:", "an AWS resource identifier"),
     (r"(?<![\w.+])\d{12}(?![\w.])", "a twelve-digit account identifier"),
     (r"\b[A-Z]{2}[0-9a-f]{32}\b", "a provider account or resource identifier"),
-    # An email address. Addresses at reserved documentation domains are the exception,
-    # because examples need one.
-    # The final label must be alphabetic, which is what separates an address from the
-    # userinfo of a URL pointing at an IP literal — "nothing@127.0.0.1" is a connection
-    # string in a test fixture, not somebody's address. Reserved documentation domains are
-    # excluded so that examples can have one.
-    # Excluded, in order: reserved documentation domains, so examples can have an address;
-    # .invalid, likewise; and the forge's own service addresses, which appear in the
-    # Signed-off-by trailer of every automated dependency commit. Without the last one the gate
-    # blocks every bot pull request, and a gate that blocks routine work is a gate somebody
-    # switches off. A forge noreply address identifies an account that is already public in the
-    # history anyway.
+    # An email address outside example domains, .invalid and the forge's service addresses.
     (
         r"\b[\w.+-]+@(?!example\.(?:com|org|net)\b)(?![\w.-]*\.invalid\b)"
         r"(?![\w.-]*\bnoreply\.github\.com\b)(?!github\.com\b)"
         r"[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b",
         "an email address",
     ),
-    # A street address, loosely. Deliberately loose: a false positive here is cheap and a
-    # miss is not.
+    # A street address, matched loosely.
     (
         r"\b\d{1,5}\s+[A-Z][a-z]+\s+(?:Street|Road|Avenue|Lane|Drive|Marg|Nagar)\b",
         "a postal address",
     ),
-    # A private key, in any of the usual wrappers. gitleaks catches these too; two gates
-    # with different bypasses is the point.
+    # A private key, in any of the usual wrappers.
     (r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY", "a private key"),
-    # Zero tolerance rather than ratcheted: a word about the circumstances the work was done
-    # in says nothing about the product and does not belong in a public repository. Tier 2
-    # would allow it to be baselined; this cannot be.
+    # The circumstances the work was done in, with no baseline.
     (r"\bhackathon\b", "a reference to the circumstances of the work"),
 ]
 
-# Tier 2: ordinary words that are usually about the product and occasionally about the
-# session that built it. Ratcheted rather than banned.
+# Tier 2: vocabulary ratcheted per file against the baseline in a tree scan, blocking in new text.
 VOCABULARY = [
     (r"\bthe operator\b", "session vocabulary"),
     (r"\bcompetitor(?:s|'s)?\b", "positioning"),
@@ -218,8 +124,7 @@ def compiled_tier2():
 
 def scan_line(line, tier1, tier2, path=None):
     """Return (tier1 hits, tier2 hits) for one line."""
-    # A permitted fictional number is removed before matching, so the phone rule can be
-    # strict without making the test fixtures unwritable.
+    # Permitted fictional numbers are removed before matching.
     cleaned = FICTIONAL_NUMBERS.sub("", line)
     one = [why for pattern, why in tier1 if pattern.search(cleaned)]
     two = [why for pattern, why in tier2 if pattern.search(cleaned)]
@@ -231,6 +136,20 @@ def scan_line(line, tier1, tier2, path=None):
     if COAUTHOR_TRAILER.match(line):
         one.append(COAUTHOR_RULE)
     return one, two
+
+
+def added_lines(diff):
+    """Yield (path, text) for each added line of a unified diff, skipping the gate's own files."""
+    path, in_header = "?", False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            path, in_header = "?", True
+        elif in_header and line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else "?"
+        elif line.startswith("@@"):
+            in_header = False
+        elif not in_header and line.startswith("+") and path not in SELF:
+            yield path, line[1:]
 
 
 def tracked_files():
@@ -287,7 +206,7 @@ def audit_tree():
 
     failed = report(blocking, "these must not be in a tracked file")
 
-    # The ratchet. A rise in any file fails; a fall is recorded so it cannot rise back.
+    # A rise in any file's tier 2 count fails.
     risen = [(p, c, baseline.get(p, 0)) for p, c in counts.items() if c > baseline.get(p, 0)]
     if risen:
         failed = True
@@ -313,17 +232,7 @@ def audit_text(stream, label):
 
 
 def audit_history():
-    """Every commit on every ref: messages, and the added side of every diff.
-
-    The half a working-tree scan can never see. A file removed from the tree and called done
-    stays in the commit that added it, in the pull request body the forge still serves, and in
-    the commit subject — all of which are published the moment the repository is.
-
-    This repository has been public from its first commit and every push is audited, so this is
-    a backstop rather than the main gate. It is here because that only holds while the hooks
-    and the workflow both hold, and because a repository that was ever private needs it before
-    it is flipped.
-    """
+    """Every commit on every ref: messages, and the added side of every diff."""
     return audit_range(["--all"])
 
 
@@ -361,20 +270,14 @@ def audit_range(args):
                 findings.append((f"{sha[:8]} message", why, line))
 
         diff = subprocess.run(
-            ["git", "show", "--format=", "--unified=0", sha], capture_output=True, text=True
+            ["git", "show", "--format=", "--unified=0", "--no-color", sha],
+            capture_output=True,
+            text=True,
         ).stdout
-        path = "?"
-        for line in diff.splitlines():
-            if line.startswith("+++ b/"):
-                path = line[6:]
-                continue
-            if not line.startswith("+") or line.startswith("+++"):
-                continue
-            if path in SELF:
-                continue
-            one, two = scan_line(line[1:], tier1, tier2, path)
+        for path, line in added_lines(diff):
+            one, two = scan_line(line, tier1, tier2, path)
             for why in one + two:
-                findings.append((f"{sha[:8]} {path}", why, line[1:]))
+                findings.append((f"{sha[:8]} {path}", why, line))
 
     return (
         1
@@ -389,25 +292,17 @@ def audit_staged():
     diff = subprocess.run(
         ["git", "diff", "--cached", "--unified=0", "--no-color"], capture_output=True, text=True
     ).stdout
-    findings, path = [], "?"
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-            continue
-        if not line.startswith("+") or line.startswith("+++"):
-            continue
-        if path in SELF:
-            continue
-        one, two = scan_line(line[1:], tier1, tier2, path)
+    findings = []
+    for path, line in added_lines(diff):
+        one, two = scan_line(line, tier1, tier2, path)
         for why in one + two:
-            findings.append((path, why, line[1:]))
+            findings.append((path, why, line))
     return 1 if report(findings, "staged changes carry text that must not be published") else 0
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    # REMAINDER rather than "+": a new-branch range is "<sha> --not --remotes=origin", and
-    # argparse would otherwise try to interpret --not as one of its own options.
+    # REMAINDER, so a range such as "<sha> --not --remotes=origin" keeps its own options.
     parser.add_argument(
         "--range", nargs=argparse.REMAINDER, help="audit the commits in this rev range"
     )

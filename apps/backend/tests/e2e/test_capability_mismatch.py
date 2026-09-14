@@ -1,14 +1,4 @@
-"""T7: escalation asked for on a capability set that cannot bridge.
-
-The call is a real streaming call, over the simulated provider, on a transport declaring everything
-the streaming transport declares except adding somebody to a call. The plan for such a call has no
-escalation step (D-029), so asking for the user is not a request that is refused or fails: there is
-nothing to call. The handoff this capability set can take is the one it has: the assistant stays
-with the caller, and the reason the user was wanted is kept for the call's history.
-
-The other capability set that cannot bridge, a handset's, has no assistant to ask for the user at
-all; its handoff — the call ringing natively — is the handset scenarios' T1.
-"""
+"""T7: escalation on a streaming call that cannot bridge keeps the assistant on it (D-029)."""
 
 from __future__ import annotations
 

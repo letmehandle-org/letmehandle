@@ -5,13 +5,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 
-/**
- * Copies a download while computing its SHA-256, so the APK is hashed exactly as it was written and
- * read only once.
- *
- * Bounded: a response larger than [maxBytes] is abandoned rather than allowed to fill the handset's
- * storage.
- */
+/** Copies a download while computing its SHA-256, within a byte limit. */
 object DigestingCopy {
   class TooLarge(maxBytes: Long) : IOException("the download is larger than $maxBytes bytes")
 

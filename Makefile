@@ -1,11 +1,12 @@
-# The single entry point. Every gate a contributor runs and every gate CI runs is a target
-# here, so the two cannot drift: CI calls these, it does not reimplement them.
+# Every gate a contributor or CI runs is a target here.
 
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 BACKEND := apps/backend
 MOBILE  := apps/mobile
+TYPED_SCRIPTS := agent_evaluation comment_audit dependency_audit evaluation_runs \
+	generate_config_reference licence_report live_rehearsal summary_evaluation
 
 define CHECK_DATABASE
 import asyncio, os, sys
@@ -18,17 +19,13 @@ asyncio.run(main())
 endef
 export CHECK_DATABASE
 
-# Where the local database is. Overridable, because 5432 is a popular port and a contributor
-# may already have something on it: `POSTGRES_PORT=5433 make verify` moves both the stack and
-# the tests together.
+# Host ports for the stack, and the tests' database with it: `POSTGRES_PORT=5433 make up verify`.
 POSTGRES_PORT ?= 5432
 BACKEND_PORT  ?= 8000
 export POSTGRES_PORT
 export BACKEND_PORT
 
-# The tests that need a database read this. Without it they skip, and the coverage floor is
-# then unreachable — which reads as a failing build rather than as a missing database, so it is
-# set here rather than left to each developer's shell.
+# The database the tests that need one connect to.
 export TEST_DATABASE_URL ?= postgresql+asyncpg://letmehandle:letmehandle@127.0.0.1:$(POSTGRES_PORT)/letmehandle
 
 .PHONY: help
@@ -84,7 +81,7 @@ licences: ## Regenerate the third-party licence report
 	@cd $(BACKEND) && uv run python ../../scripts/licence_report.py
 
 .PHONY: verify
-verify: audit lint typecheck test coverage api-types-check config-reference-check docs-check ## Everything. What pre-push and CI run.
+verify: audit comments lint typecheck test coverage api-types-check config-reference-check docs-check ## Everything. What pre-push and CI run.
 	@echo -e "\033[32mverify passed\033[0m"
 
 .PHONY: audit
@@ -97,27 +94,38 @@ audit: ## Check that nothing private reached a tracked file, or any commit
 		echo "gitleaks: not installed, skipped locally (CI runs it)"; \
 	fi
 
+.PHONY: comments
+comments: ## Fail if a file gained a multi-line docstring or comment block (ratcheted)
+	@python3 scripts/comment_audit.py
+
 .PHONY: audit-deps
 audit-deps: ## Check every locked dependency for known vulnerabilities (needs the network)
-	@# Not in verify: the advisory databases are online, and verify runs before every push, offline
-	@# included. CI runs this as a job of its own. An audit that cannot reach its database fails.
+	@# Not in verify, because it needs the network; CI runs it as a job of its own.
 	@cd $(BACKEND) && uv run python ../../scripts/dependency_audit.py
 
 .PHONY: lint
 lint: ## Lint and check formatting
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff check . && uv run ruff format --check .; fi
+	@if [ -d $(BACKEND) ]; then $(MAKE) --no-print-directory lint-backend; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile lint; fi
+
+.PHONY: lint-backend
+lint-backend: ## Lint and check the formatting of the backend and the scripts
+	@cd $(BACKEND) && uv run ruff check . ../../scripts && uv run ruff format --check . ../../scripts
 
 .PHONY: format
 format: ## Apply formatting
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff format . && uv run ruff check --fix .; fi
+	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run ruff format . ../../scripts && uv run ruff check --fix . ../../scripts; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile format; fi
 
 .PHONY: typecheck
 typecheck: ## Type check both applications, and the import boundaries
-	@if [ -d $(BACKEND) ]; then cd $(BACKEND) && uv run mypy src tests ../../scripts/agent_evaluation.py ../../scripts/live_rehearsal.py ../../scripts/summary_evaluation.py ../../scripts/dependency_audit.py ../../scripts/generate_config_reference.py ../../scripts/licence_report.py && uv run lint-imports; fi
+	@if [ -d $(BACKEND) ]; then $(MAKE) --no-print-directory typecheck-backend; fi
 	@if [ -d $(MOBILE) ]; then pnpm --filter mobile typecheck; fi
 	@if [ -d packages/api-client ]; then pnpm --filter @letmehandle/api-client typecheck; fi
+
+.PHONY: typecheck-backend
+typecheck-backend: ## Type check the backend and its typed scripts, and the import boundaries
+	@cd $(BACKEND) && uv run mypy src tests $(TYPED_SCRIPTS:%=../../scripts/%.py) && uv run lint-imports
 
 .PHONY: test
 test: ## Run the unit and integration suites
@@ -135,9 +143,7 @@ coverage: database-or-explain ## Enforce the coverage floors from D-020
 
 .PHONY: database-or-explain
 database-or-explain:
-	@# A connection, not a port check: something else answering on 5432 is the common case on a
-	@# machine that runs more than one project, and a port that opens tells you nothing about
-	@# whether this project's database is behind it.
+	@# Connects rather than checking the port, since another project's server may hold it.
 	@cd $(BACKEND) && uv run python -c "$$CHECK_DATABASE" 2>/dev/null || { \
 		echo ""; \
 		echo "No database on port $(POSTGRES_PORT)."; \

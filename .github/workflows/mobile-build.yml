@@ -1,18 +1,22 @@
 name: Mobile build
 
-# Building the native applications costs minutes a backend change has no reason to spend, so
-# this runs only when something under the mobile app actually changes.
+# Builds and tests the native applications only when the mobile app or its toolchain changes.
 on:
   pull_request:
     paths:
       - 'apps/mobile/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - '.github/actions/pnpm-install/**'
       - '.github/workflows/mobile-build.yml'
   push:
     branches: [main]
     paths:
       - 'apps/mobile/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/actions/pnpm-install/**'
+      - '.github/workflows/mobile-build.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,29 +29,23 @@ jobs:
   ios:
     name: iOS
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/pnpm-install
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      # 3.4 rather than 3.3: Gemfile.lock is written by a current bundler, and bundler 4
-      # requires a Ruby newer than 3.3. The alternative is pinning an old bundler in a
-      # generated file by hand, which is how the previous attempt failed — macOS's own Ruby
-      # 2.6 wrote "BUNDLED WITH 1.17.2", and bundler 1 calls String#untaint, removed in
-      # Ruby 3.2.
+      # Ruby 3.4, because the bundler that wrote Gemfile.lock needs a Ruby newer than 3.3.
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4'
           bundler-cache: true
           working-directory: apps/mobile
+
+      - uses: actions/cache@v4
+        with:
+          path: apps/mobile/ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile.lock', 'pnpm-lock.yaml') }}
 
       - name: Pods
         working-directory: apps/mobile/ios
@@ -68,18 +66,11 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/pnpm-install
 
       - uses: actions/setup-java@v6
         with:
@@ -87,6 +78,10 @@ jobs:
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v6
+
+      - name: Unit tests
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Build
         working-directory: apps/mobile/android

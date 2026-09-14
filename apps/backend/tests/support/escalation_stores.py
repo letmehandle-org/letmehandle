@@ -1,9 +1,4 @@
-"""In-memory device and escalation-context storage, for the dispatcher without a database.
-
-They keep the promises the repository interfaces make — user scoping, first claim wins, the
-first end is kept — so a test that passes here is not passing because the fake is lenient. The
-same behaviours are proven against PostgreSQL in the integration suite.
-"""
+"""In-memory device and escalation-context storage that keeps the repositories' promises."""
 
 from __future__ import annotations
 

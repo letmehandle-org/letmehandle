@@ -1,21 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201, S603 - a terminal tool that runs the package managers it audits
-"""Audit the backend's locked dependencies and the workspace's for known vulnerabilities.
-
-    make audit-deps
-
-The backend's lock is exported with its hashes and read by pip-audit; the JavaScript workspace is
-read by pnpm's own audit. Both ask an advisory database over the network, which is why this is its
-own target and CI job rather than part of `make verify`: verify runs before every push, offline
-included, and a gate that fails for want of a network teaches people to skip it.
-
-An advisory is accepted only by its identifier, below, with the reason it was accepted and where
-that reasoning is recorded. Anything else fails. An accepted advisory that no longer appears is
-reported, so the list shrinks when an upstream fix lands.
-
-Exit status: 0 clean, 1 an advisory that is not accepted, 2 an audit that could not be run. The
-last is never a pass: an audit that did not reach its database has not said anything is safe.
-"""
+"""Audit every locked dependency for advisories; exit 0 clean, 1 refused, 2 not run."""
 
 from __future__ import annotations
 
@@ -33,8 +18,7 @@ BACKEND: Final = ROOT / "apps" / "backend"
 # Pinned, so the audit is the same audit on every machine and in CI.
 PIP_AUDIT: Final = "pip-audit==2.10.1"
 
-# Accepted in docs/security/review.md, under Dependencies. Each entry is the advisory's identifier
-# and the reason; the review holds the reasoning in full and the condition that would reopen it.
+# Accepted advisories by identifier, with the reason recorded in docs/security/review.md.
 ACCEPTED: Final = {
     "GHSA-w3rx-r6r6-pgpr": "image-size, reached only through the bundler; no patched release",
     "GHSA-5p2g-fcmc-qvqq": "image-size, reached only through the bundler; no patched release",
@@ -104,8 +88,7 @@ def backend_findings() -> list[Finding]:
             ],
             cwd=BACKEND,
         )
-    # pip-audit exits 1 when it finds something, and prints JSON either way; anything unparseable
-    # is an audit that did not run.
+    # pip-audit prints JSON whatever it finds; unparseable output is an audit that did not run.
     try:
         report = json.loads(audited.stdout)
     except json.JSONDecodeError as error:

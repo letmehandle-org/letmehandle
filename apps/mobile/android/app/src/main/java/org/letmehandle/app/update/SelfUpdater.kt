@@ -14,17 +14,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 
-/**
- * Keeps an APK installed from a GitHub release on the newest release (D-043).
- *
- * Off unless the build was given a manifest URL, which only the release workflow does: a debug
- * build, or anybody's build from source, never replaces itself with a published APK signed by
- * another key — the installer would refuse it anyway, after a wasted download.
- *
- * Everything happens on one background thread, and nothing here throws to its caller: a failed
- * check is logged and tried again at the next due check. An APK is installed only if its SHA-256 is
- * the one the manifest states, and the download is deleted whatever happens.
- */
+/** Keeps an APK installed from a GitHub release on the newest release (D-043). */
 class SelfUpdater(
     context: Context,
     private val manifestUrl: String,
@@ -91,8 +81,7 @@ class SelfUpdater(
     try {
       connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
       connection.readTimeout = READ_TIMEOUT_MILLIS
-      // Release downloads redirect to a storage host. HttpURLConnection never follows a redirect
-      // from https to http, and the final address is checked as well, so the bytes arrive over TLS.
+      // Follows the release host's redirect; the final address must still be https.
       connection.instanceFollowRedirects = true
       val status = connection.responseCode
       if (connection.url.protocol != "https") throw IOException("redirected away from https")
@@ -109,8 +98,7 @@ class SelfUpdater(
         PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
           setAppPackageName(context.packageName)
           setSize(apk.length())
-          // Silent once this app installed the one being replaced; the platform still asks the
-          // user when it did not, and before Android 12 it always asks.
+          // Installs without a prompt where the platform allows it.
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
           }

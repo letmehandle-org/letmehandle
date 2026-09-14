@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-#
-# Reads the message before it is recorded.
-#
-# A commit message is published exactly as much as the code is, and it is the surface no file
-# audit can see: the disclosure audit scans files and a staged diff, and a message is neither.
-#
-# It also enforces Conventional Commits (D-019), because the changelog is generated from the
-# history and a history that does not parse is a changelog written by hand.
-#
-# Install:  make hooks      Skip deliberately:  git commit --no-verify
+# Enforces Conventional Commits (D-019) and audits the message. Install: make hooks
 set -uo pipefail
 
 message_file="$1"
@@ -21,10 +12,7 @@ esac
 
 subject="$(grep -v '^#' "$message_file" | grep -v '^$' | head -1)"
 
-# A merge resolved by hand arrives as COMMIT_EDITMSG rather than MERGE_MSG, so the check above
-# does not catch it. Its subject is written by git and cannot be made conventional without
-# rewriting what git means by a merge, so the format rule is skipped — but the disclosure check
-# below still runs, because a merge message can carry a branch name somebody chose.
+# A hand-resolved merge keeps git's subject, but its message is still audited.
 merge='^Merge (branch|remote-tracking branch|commit|pull request|tag) '
 if printf '%s' "$subject" | grep -qE "$merge"; then
     exec python3 "$root/scripts/disclosure_audit.py" --text --label "the merge message" \

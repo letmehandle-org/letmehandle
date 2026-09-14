@@ -1,24 +1,5 @@
 # ruff: noqa: T201 - a terminal tool whose output is the point
-"""Talk to the configured speech service from a terminal.
-
-Microphone in, the model's voice out, through exactly the path a call will take: the speech port,
-the conversation use case, an audio source and a sink. Nothing here knows which service is
-configured, so the same command verifies any provider that implements the port.
-
-    cd apps/backend
-    uv sync --group harness
-    uv run python ../../scripts/speech_harness.py --context "You answer calls for a busy person."
-
-While it runs, type a command and press return:
-
-    context <text>   tell the model something new, without reconnecting
-    interrupt        stop the model mid-sentence
-    disconnect       drop the connection, to watch it recover
-    quit             end the conversation and print the latency summary
-
-Nothing is recorded. Audio goes from the microphone to the service and from the service to the
-speaker, and the transcript printed at the end exists only in this process (D-013).
-"""
+"""Talk to the configured speech service from a terminal, through the speech port (D-013)."""
 
 from __future__ import annotations
 
@@ -55,14 +36,10 @@ if TYPE_CHECKING:
 
     from letmehandle.domain.ports.speech import SpeechSession
 
-# 20 ms of audio at a time: small enough that speech starts promptly, large enough that the
-# callback is not the thing using the processor.
+# Audio per microphone callback, in milliseconds.
 _FRAME_MS = 20
 _SPEAKER_FORMAT = AudioFormat(AudioEncoding.PCM_S16LE, 24_000)
-# How much unplayed audio the speaker holds before writing waits. Small on purpose: audio handed to
-# a sink is audio the session counts as heard, and when the caller interrupts, what the speaker
-# was still holding is audio the model believes was said. The session holds the rest, where an
-# interruption can take it back.
+# Unplayed seconds the speaker holds before writing waits, small so an interruption can undo it.
 _MAX_BUFFERED_SECONDS = 0.3
 
 
@@ -96,8 +73,7 @@ class MicrophoneSource(AudioSource):
                 yield AudioFrame(await self._frames.get(), SPEECH_WIDEBAND)
 
     def _offer(self, chunk: bytes) -> None:
-        # A microphone cannot be told to wait. When the conversation falls behind, the newest
-        # audio is dropped and counted, rather than the queue growing without limit.
+        # When the conversation falls behind, the newest audio is dropped and counted.
         try:
             self._frames.put_nowait(chunk)
         except asyncio.QueueFull:
@@ -136,8 +112,7 @@ class SpeakerSink(AudioSink):
             converter = self._converters[frame.format] = AudioConverter(frame.format, self.format)
         data = converter.convert(frame.data)
         limit = int(_MAX_BUFFERED_SECONDS * self.format.sample_rate_hz) * 2
-        # Drained by the audio device's own thread, which has no event loop to signal, so the
-        # wait is a poll at the pace audio plays.
+        # Drained by the audio device's thread, which has no event loop, so the wait polls.
         while self._buffered() > limit:  # noqa: ASYNC110
             await asyncio.sleep(_FRAME_MS / 1_000)
         with self._lock:
@@ -193,11 +168,7 @@ class SummaryRecorder(MetricsRecorder):
 
 
 class Severable:
-    """Stands between the session and the network, so the harness can cut the line.
-
-    The cut is what a network failure looks like to the session — the next read fails and is
-    worth retrying — so what the harness demonstrates is the recovery a real drop gets.
-    """
+    """Stands between the session and the network, so the harness can cut the line."""
 
     def __init__(self) -> None:
         self._live: list[_SeverableConnection] = []
@@ -258,8 +229,7 @@ async def _commands(
                 await session.update_context(rest)
                 print("context updated")
             elif verb == "interrupt":
-                # Both halves, as a caller talking over the model gets: the session stops the
-                # model, and the speaker drops what it was still holding to play.
+                # The session stops the model and the speaker drops what it still holds.
                 await session.interrupt()
                 await sink.discard()
                 print("interrupted")
@@ -269,8 +239,7 @@ async def _commands(
             else:
                 print("commands: context <text> | interrupt | disconnect | quit")
         except DomainError as error:
-            # A session that has failed refuses further commands. Said here, rather than taken
-            # down with the rest of the harness, so the latency summary still prints.
+            # A failed session refuses commands; the harness keeps running so the summary prints.
             print(f"not done: {error}")
 
 

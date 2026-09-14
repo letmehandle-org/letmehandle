@@ -1,0 +1,16 @@
+name: pnpm install
+description: Sets up pnpm and Node from .nvmrc with the store cached, then installs the locked workspace.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+
+    - name: Install
+      shell: bash
+      run: pnpm install --frozen-lockfile

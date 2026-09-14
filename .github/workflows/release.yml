@@ -23,8 +23,7 @@ on:
   push:
     tags: ["v*"]
 
-# One release of one tag at a time. A release published for a tag that was just pushed starts a
-# second run for the same tag, which waits rather than racing the first to the registry.
+# One run per tag at a time; a second run for the same tag waits.
 concurrency:
   group: release-${{ github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
@@ -36,6 +35,7 @@ jobs:
   prepare:
     name: Version and notes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
       image: ${{ steps.version.outputs.image }}
@@ -48,8 +48,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          # The release date, month and day without leading zeros, and a counter from 2 for a
-          # further release on the same day.
+          # vYYYY.M.D without leading zeros, or vYYYY.M.D-N for a further release that day.
           if ! [[ "$TAG" =~ ^v(20[0-9]{2}\.(1[0-2]|[1-9])\.(3[01]|[12][0-9]|[1-9])(-[2-9]|-[1-9][0-9]+)?)$ ]]; then
             echo "::error::$TAG is not a version tag of the form vYYYY.M.D or vYYYY.M.D-N"
             exit 1
@@ -90,6 +89,7 @@ jobs:
     name: Backend image
     needs: prepare
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -109,8 +109,7 @@ jobs:
           context: .
           file: infra/docker/backend.Dockerfile
           push: true
-          # The exact version only. No `latest`: any release may change something public, and nobody
-          # should move to one without choosing to.
+          # The exact version only, never `latest`.
           tags: |
             ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
           labels: |
@@ -125,6 +124,7 @@ jobs:
     name: Release notes
     needs: [prepare, image]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -156,6 +156,7 @@ jobs:
     name: Android APK
     needs: [prepare, notes]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: write
     env:
