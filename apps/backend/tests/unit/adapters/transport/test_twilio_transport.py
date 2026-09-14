@@ -304,6 +304,26 @@ async def test_the_user_is_dialled_from_the_number_the_caller_dialled_when_it_is
     await transport.close()
 
 
+async def test_a_line_with_dial_from_rings_the_user_from_it_and_dials_the_assistant_as_before(
+    api: RecordingApi,
+) -> None:
+    transport = TwilioCallTransport(
+        config=TwilioConfig(
+            account_id="a", app_id="b", numbers=(OUR_NUMBER,), dial_from=OTHER_NUMBER
+        ),
+        api=api,
+        verifier=SignatureVerifier(auth_token="t", public_base_url="https://calls.example.com"),
+    )
+    transport.incoming_call(incoming())
+    await transport.answer(CALL)
+    await transport.add_participant(CALL, USER)
+    assert [(request.to.startswith("app:"), request.from_) for _, request in api.created] == [
+        (True, OUR_NUMBER.value),
+        (False, OTHER_NUMBER.value),
+    ]
+    await transport.close()
+
+
 async def test_a_call_that_is_over_is_not_started_again_by_a_late_redelivery(
     transport: TwilioCallTransport,
 ) -> None:
