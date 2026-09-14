@@ -1,8 +1,4 @@
-"""Preferences over HTTP, against a real database.
-
-The rule under test throughout: a section nobody sent is left exactly as it was. Every failure
-here is the same shape — one screen saving one thing and quietly erasing the rest.
-"""
+"""Preferences over HTTP against a real database, where an absent section is left as it was."""
 
 from __future__ import annotations
 
@@ -51,7 +47,7 @@ class TestReading:
         preferences = await read(api, tokens)
 
         assert preferences["version"] >= 1
-        # The safest reasonable option everywhere: nothing granted, nothing disclosed.
+        # Nothing granted, nothing disclosed.
         assert preferences["authority"]["capabilities"] == []
         assert preferences["important_contacts"] == []
         assert preferences["hours"]["active"] is None
@@ -118,8 +114,7 @@ class TestPartialUpdates:
         assert after["important_contacts"][0]["label"] == "The school"
 
     async def test_hours_can_be_cleared(self, api: Api) -> None:
-        # Absent leaves alone; explicitly empty clears. Without both, hours once set could never
-        # go back to around the clock.
+        # Absent leaves alone; explicitly empty clears.
         tokens = await sign_in(api)
         await patch(api, tokens, {"hours": LONDON_HOURS})
 
@@ -132,7 +127,7 @@ class TestPartialUpdates:
         assert (await read(api, tokens))["hours"] == {"active": None}
 
     async def test_the_two_windows_of_the_old_shape_are_refused(self, api: Api) -> None:
-        # D-030. Accepting and ignoring them would tell an old client its quiet hours saved.
+        # Only the one-window shape is accepted (D-030).
         tokens = await sign_in(api)
         response = await api.client.patch(
             "/v1/preferences",
@@ -151,8 +146,7 @@ class TestPartialUpdates:
         assert (await read(api, tokens))["important_contacts"][0]["phone_number"] == ANOTHER_NUMBER
 
     async def test_the_response_is_stable_for_the_same_stored_values(self, api: Api) -> None:
-        # Sets are sorted on the way out, so a client comparing two reads does not see a change
-        # that is not one.
+        # Sets are sorted on the way out.
         tokens = await sign_in(api)
         await patch(
             api,
@@ -163,13 +157,7 @@ class TestPartialUpdates:
 
 
 class TestTheTwoHalvesOfOneDomainObject:
-    """Call handling and hours are two screens and one `CallRules`.
-
-    Saving one of them must not disturb the other. The obvious implementation — building a
-    whole `CallRules` from whichever half arrived — resets the other to its defaults, and the
-    tests that miss it are the ones that only ever change sections which map to independent
-    domain fields.
-    """
+    """Call handling and hours share one `CallRules`, and saving one leaves the other."""
 
     async def test_saving_hours_does_not_reset_call_handling(self, api: Api) -> None:
         tokens = await sign_in(api)
@@ -184,8 +172,6 @@ class TestTheTwoHalvesOfOneDomainObject:
         assert after["call_handling"]["posture_by_category"] == {"known_contact": "pass_through"}
 
     async def test_saving_call_handling_does_not_reset_hours(self, api: Api) -> None:
-        # A user who sets their hours and then changes how unknown callers are treated must not
-        # find their phone ringing at three in the morning.
         tokens = await sign_in(api)
         await patch(api, tokens, {"hours": LONDON_HOURS})
 
@@ -196,17 +182,11 @@ class TestTheTwoHalvesOfOneDomainObject:
 
 
 class TestConcurrentSaves:
-    # Rounds of two saves at once. One round loses a change only when the two requests interleave,
-    # so a single round passes by luck; before the fix twenty rounds lost a change in nearly all.
+    # Rounds of two concurrent saves, since one round interleaves only by chance.
     ROUNDS = 20
 
     async def test_two_sections_saved_at_once_both_survive(self, api: Api) -> None:
-        """A phone saving two screens in quick succession, before and after a first save.
-
-        The service reads, composes and writes; without that read locking something that exists,
-        both requests start from the same values and the second overwrites the first. Before a
-        user's first save there is no preferences row, so the lock has to be taken elsewhere.
-        """
+        """Two concurrent saves, before and after a first save, both keep their change."""
         import asyncio
 
         from sqlalchemy import delete
@@ -217,7 +197,7 @@ class TestConcurrentSaves:
         lost = 0
         for round_number in range(self.ROUNDS):
             if round_number % 2 == 0:
-                # Every other round starts with no stored preferences at all.
+                # Every other round starts with no stored preferences.
                 async with api.app.state.session_factory() as session:
                     await session.execute(delete(PreferencesRow))
                     await session.commit()
@@ -269,14 +249,11 @@ class TestReplacing:
 
         assert response.status_code == 200
         assert response.json()["locale"] == "en-GB"
-        # The deliberate difference from patch: replace means replace.
         assert response.json()["authority"]["capabilities"] == []
 
 
 class TestValidation:
     async def test_a_category_cannot_be_blocked_and_handled_at_once(self, api: Api) -> None:
-        # The outcome would depend on which rule was read first, which is a coin toss dressed
-        # up as configuration.
         tokens = await sign_in(api)
         response = await api.client.patch(
             "/v1/preferences",
@@ -301,7 +278,6 @@ class TestValidation:
             {"important_contacts": [{"phone_number": "not-a-number", "label": "x"}]},
             {"important_contacts": [{"phone_number": ANOTHER_NUMBER, "label": ""}]},
             {"personality": {"formality": "brusque", "verbosity": "brief", "topics": []}},
-            # A paragraph in front of the model is room for an instruction somebody else wrote.
             {
                 "personality": {
                     "formality": "warm",
@@ -317,8 +293,7 @@ class TestValidation:
     async def test_the_api_refuses_what_the_domain_would(
         self, api: Api, body: dict[str, Any]
     ) -> None:
-        # The API rejects what the UI would, and for the same reasons: the domain type is the
-        # single source of truth and this layer constructs it.
+        # The API refuses what the domain refuses.
         tokens = await sign_in(api)
         response = await api.client.patch("/v1/preferences", headers=bearer(tokens), json=body)
         assert response.status_code == 422, response.text
@@ -351,9 +326,7 @@ class TestValidation:
     async def test_a_whole_set_invariant_is_a_request_problem_not_a_server_fault(
         self, api: Api, body: dict[str, Any], why: str
     ) -> None:
-        # These run when the service composes the whole set, which is outside the mapping
-        # function that catches the rest. Without translating them there too, a duplicate phone
-        # number in somebody's address book becomes a 500.
+        # Whole-set invariants are a 422, not a 500.
         tokens = await sign_in(api)
         response = await api.client.patch("/v1/preferences", headers=bearer(tokens), json=body)
         assert response.status_code == 422, f"{why}: {response.text}"
@@ -374,8 +347,7 @@ class TestValidation:
         assert response.status_code == 422
 
     async def test_a_time_with_seconds_is_refused(self, api: Api) -> None:
-        # Stored to the minute. A window whose ends differ only in seconds would come back
-        # equal, which the domain refuses — so the row would save and never be readable again.
+        # Stored to the minute, so seconds never make a window's ends equal.
         tokens = await sign_in(api)
         response = await api.client.patch(
             "/v1/preferences",
@@ -385,8 +357,6 @@ class TestValidation:
         assert response.status_code == 422
 
     async def test_a_contact_label_cannot_span_lines(self, api: Api) -> None:
-        # The label reaches the model. A value spanning several lines is room for something
-        # shaped like an instruction.
         tokens = await sign_in(api)
         await patch(
             api,
@@ -405,7 +375,6 @@ class TestValidation:
     async def test_a_locale_that_is_not_a_language_tag_is_refused(
         self, api: Api, locale: str
     ) -> None:
-        # This is what the agent speaks and what a voice is chosen for.
         tokens = await sign_in(api)
         response = await api.client.patch(
             "/v1/preferences", headers=bearer(tokens), json={"locale": locale}
@@ -442,8 +411,7 @@ class TestOnboarding:
         assert response.json()["next_step"] == "hours"
 
     async def test_progress_survives_a_new_session(self, api: Api) -> None:
-        # Held on the server, so reinstalling or signing in elsewhere resumes rather than
-        # starting again. This is the test that would fail if it were kept on the device.
+        # Held on the server.
         first = await sign_in(api)
         await api.client.post(
             "/v1/onboarding", headers=bearer(first), json={"step": "call_handling"}
@@ -470,8 +438,6 @@ class TestOnboarding:
         assert "hours" in response.json()["skipped"]
 
     async def test_call_handling_cannot_be_skipped(self, api: Api) -> None:
-        # There is no safe default for an unknown caller, and guessing on somebody's behalf is
-        # the one thing this product must not do.
         tokens = await sign_in(api)
         response = await api.client.post(
             "/v1/onboarding",
@@ -502,7 +468,7 @@ class TestOnboarding:
 
     @pytest.mark.parametrize("removed", ["introduction", "important_contacts", "personality"])
     async def test_a_step_setup_no_longer_asks_is_refused(self, api: Api, removed: str) -> None:
-        # D-032: these are settings now, and recording one would be recording nothing.
+        # Settings now, not steps (D-032).
         tokens = await sign_in(api)
         response = await api.client.post(
             "/v1/onboarding", headers=bearer(tokens), json={"step": removed}
@@ -589,8 +555,7 @@ class TestTranscriptRetention:
     async def test_an_empty_privacy_section_is_refused_rather_than_resetting_it(
         self, api: Api
     ) -> None:
-        # The section has one field. Filling it from the default would turn "I sent the privacy
-        # screen with nothing on it" into "delete my transcripts after seven days".
+        # The section's one field has no default.
         tokens = await sign_in(api)
         await patch(api, tokens, {"privacy": {"transcript_retention_days": 30}})
 

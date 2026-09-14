@@ -91,7 +91,7 @@ class TestRateLimit:
         # Refused before anything was stored or handed on.
         assert (USER, "e9") not in repository.rows
         assert len(sink.published) == 2
-        # Counted per user: another account's handset is not held back by this one.
+        # Counted per user.
         await reporting.report(SOMEBODY_ELSE, [report("e9", CallEventKind.INCOMING)])
 
 
@@ -125,7 +125,7 @@ class TestMapping:
     async def test_each_event_says_when_the_handset_saw_it_happen(
         self, reporting: CallReporting, sink: RecordingCallEventSink
     ) -> None:
-        # Not when the report arrived: a handset offline for an hour reports an hour late.
+        # The moment it happened, not when the report arrived.
         rang = CallReport(
             event_id=EventId("e1"),
             call_id=CallId("call-1"),
@@ -139,7 +139,6 @@ class TestMapping:
     async def test_identifiers_name_the_user_as_well_as_the_handset_call(
         self, reporting: CallReporting, sink: RecordingCallEventSink
     ) -> None:
-        # Otherwise two accounts whose handsets chose the same identifier would be one call.
         await reporting.report(USER, [report("e1", CallEventKind.INCOMING)])
         await reporting.report(SOMEBODY_ELSE, [report("e1", CallEventKind.INCOMING)])
 

@@ -181,10 +181,7 @@ class TestTrimming:
         assert len(kept) < len("They are at the gate with a parcel.")
 
     def test_across_every_limit_the_order_of_loss_holds_and_the_result_fits(self) -> None:
-        # Every limit from "nothing fits" to "everything fits", so the order of loss is proven
-        # rather than sampled: a detail is gone or cut before the caller is touched, the caller
-        # is at its shortest before the reason is touched, and anything at or above the floor
-        # fits.
+        # Every limit from nothing fitting to everything fitting, checking the order of loss.
         full = size(notification_for(context()))
         floor = size(notification_for(context(), fits=within(1)))
         for limit in range(floor, full + 1):
@@ -214,8 +211,7 @@ class TestTrimming:
         assert module._prefix("anything", 0) is None
 
     def test_the_largest_context_allowed_fits_a_platform_limit_after_trimming(self) -> None:
-        # The bounds on a stored context exist so that this always holds: whatever the
-        # orchestrator records, a 4 KB platform receives a notification rather than a refusal.
+        # Whatever a stored context holds, a 4 KB platform receives a notification.
         widest = "界" * MAX_DETAIL_LENGTH
         largest = context(
             call_id=CallId("c" * MAX_CALL_ID_LENGTH),

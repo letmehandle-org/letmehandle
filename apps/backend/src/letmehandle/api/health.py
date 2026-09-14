@@ -24,19 +24,7 @@ class Health(BaseModel):
 
 
 class Readiness(BaseModel):
-    """Readiness: can this process do its job.
-
-    ``checks`` names each dependency and whether it answered. It carries no configuration —
-    not a host, not a user, not a URL — because a readiness endpoint is usually the most
-    exposed thing an application has.
-
-    ``dependencies`` is where each provider's circuit stands, by role — telephony, speech, the
-    model, each push platform — and never by vendor. An open circuit does not make the process
-    unready: every process shares the same providers, so taking this one out of rotation would
-    move its calls to another that fails them the same way, while this one still does what the
-    degraded path allows. ``rate_limits`` says whether limits are counted across processes or in
-    each one alone.
-    """
+    """Readiness: each dependency's answer, each circuit by role, and how limits are counted."""
 
     status: Literal["ready", "degraded"]
     checks: dict[str, bool]
@@ -46,11 +34,7 @@ class Readiness(BaseModel):
 
 @router.get("/health", response_model=Health, summary="Liveness")
 async def health(request: Request) -> Health:
-    """Answer without touching a dependency.
-
-    An orchestrator restarts a process that fails this. Checking the database here would make
-    a database outage restart every healthy process, which turns an outage into a worse one.
-    """
+    """Answer without touching a dependency."""
     version: str = request.app.state.version
     return Health(version=version)
 
@@ -79,7 +63,7 @@ async def readiness(request: Request, response: Response) -> Readiness:
         status="ready" if ready else "degraded",
         checks=checks,
         dependencies={name: state.value for name, state in observability.circuits.states().items()},
-        # Before startup there is no limiter yet to ask, and nothing is being limited.
+        # No container before startup, so nothing is limited yet.
         rate_limits=(
             "shared"
             if container is not None and container.rate_limiter.is_shared

@@ -1,11 +1,4 @@
-"""What the call history API returns.
-
-Separate from the domain types, as everywhere in this layer. Only responses live here: the one
-thing a client sends is a filter, and a filter is query parameters.
-
-Who called is a category, a name only for somebody the user knows, and whether the number was
-withheld — never the number itself. See `application/calls/history.py` for why.
-"""
+"""What the call history API returns; who called never includes the number."""
 
 from __future__ import annotations
 
@@ -22,7 +15,7 @@ from letmehandle.domain.models.summary import CallOutcome
 
 
 class CallStatus(StrEnum):
-    """Whether a call is still going. An ended call's summary can arrive a moment after it ends."""
+    """Whether a call is still going."""
 
     IN_PROGRESS = "in_progress"
     ENDED = "ended"
@@ -30,17 +23,13 @@ class CallStatus(StrEnum):
 
 class CallerPayload(Response):
     category: CallerCategory
-    # Only for a caller the user has told us about; a stranger's is null whatever the network sent.
+    # Null for a caller the user has not named.
     display_name: str | None
     number_withheld: bool
 
 
 class CallListItem(Response):
-    """One call in the list.
-
-    `outcome` and `headline` are null until the call has a summary: while it is in progress, and
-    for the moment between its end and its summary being written.
-    """
+    """One call in the list; `outcome` and `headline` are null until it has a summary."""
 
     id: str
     started_at: datetime
@@ -63,7 +52,7 @@ class CallTimingsPayload(Response):
 
     received_at: datetime
     answered_at: datetime | None
-    # When the assistant first asked for the user, whether or not they were reached.
+    # When the assistant first asked for the user, reached or not.
     escalated_at: datetime | None
     human_joined_at: datetime | None
     ended_at: datetime | None
@@ -76,15 +65,9 @@ class ExtractedDetailPayload(Response):
 
 
 class CallDetailResponse(CallListItem):
-    """One call in full.
+    """One call in full, with the user's current retention and when its transcript is due to go."""
 
-    `transcript_retention_days` is the user's setting as it stands, which is the one the purge
-    applies. `transcript_expires_at` is when the last of the transcript is due to go — null when
-    there is none to go, or while the call is still going.
-    """
-
-    # Whom routing gave the call to: straight through to the user, or the assistant. Null for a
-    # call rejected by the rules, and for one still being routed.
+    # Null for a call rejected by the rules or still being routed.
     handling: CallHandling | None
     intent: CallIntent | None
     importance: CallImportance | None

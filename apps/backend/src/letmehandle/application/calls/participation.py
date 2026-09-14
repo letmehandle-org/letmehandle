@@ -1,9 +1,4 @@
-"""When somebody first came on a call, read from its participants.
-
-In one place because the summary written as a call ends and the history read long after both ask
-it, and two readings of the same participants that disagreed would show the user joining a call
-at one moment in its summary and another in its timeline.
-"""
+"""When somebody first came on a call, read from its participants."""
 
 from __future__ import annotations
 
@@ -31,12 +26,7 @@ def answered_at(call: CallSession) -> datetime | None:
 
 
 def human_joined_at(call: CallSession) -> datetime | None:
-    """When the user first joined a call the assistant was on, if they did.
-
-    Only a call the assistant was on. A user on a call put straight through to them answered
-    their phone; they did not join anything, and history that said they had would describe a
-    handover that never happened.
-    """
+    """When the user first joined a call the assistant was on, if they did."""
     if first_joined(call, ParticipantRole.AGENT) is None:
         return None
     return first_joined(call, ParticipantRole.HUMAN)

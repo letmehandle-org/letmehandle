@@ -1,10 +1,4 @@
-"""What the voice API returns.
-
-The catalogue and the capabilities travel together on purpose. A client that bundles its own
-list of voices is a client that shows one the server cannot use; a client that guesses at what
-a provider can do is a client that offers a control which does nothing. Both are answered by
-the server describing itself.
-"""
+"""What the voice API returns: the catalogue together with the provider's capabilities."""
 
 from __future__ import annotations
 
@@ -16,12 +10,7 @@ from letmehandle.api.schemas import Request, Response
 
 
 class VoiceCapabilitiesPayload(Response):
-    """What the configured provider can do.
-
-    The interface renders from these. Everything absent means the control is not drawn at all —
-    not disabled, not labelled as unavailable — because a control that cannot work teaches
-    people to distrust the ones that can.
-    """
+    """What the configured provider can do; a control it cannot serve is not drawn."""
 
     builtin_voices: bool
     preview: bool
@@ -32,12 +21,7 @@ class VoiceCapabilitiesPayload(Response):
 
 
 class VoicePayload(Response):
-    """One voice, and whether this one in particular can be heard.
-
-    Per voice rather than per provider: a provider holding a sample for one voice and not
-    another declares the capability and can still serve only the one, and a client drawing a
-    control from the capability alone draws two that fail.
-    """
+    """One voice, and whether this one in particular can be heard."""
 
     id: str
     name: str
@@ -55,13 +39,7 @@ class VoiceCatalogueResponse(Response):
 
 
 class VoiceSelectionResponse(Response):
-    """What the user has chosen, and what a call would actually use.
-
-    `resolved_voice_id` is the answer the fallback chain gives right now — the cloned voice if
-    it is still available, otherwise the chosen one, otherwise the provider's default. It is
-    returned alongside the choice because those differ exactly when something has gone wrong
-    with a voice, and that is the moment a user should be able to see it.
-    """
+    """What the user has chosen, and the voice the fallback chain resolves to now."""
 
     cloned_voice_id: str | None
     persona_voice_id: str | None
@@ -69,12 +47,6 @@ class VoiceSelectionResponse(Response):
 
 
 class VoiceSelectionUpdate(Request):
-    """A change to the chosen voice.
-
-    The field is required and may be `null`, and the difference from optional is the point.
-    `null` clears the choice and returns to the provider's default, which somebody must be able
-    to do; a request that simply left the field out would otherwise mean the same thing, and a
-    client reading the schema could not tell "clear it" from "I forgot to send it".
-    """
+    """A change to the chosen voice: required, with `null` returning to the provider's default."""
 
     persona_voice_id: Annotated[str, Field(min_length=1, max_length=64)] | None

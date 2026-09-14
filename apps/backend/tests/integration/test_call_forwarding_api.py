@@ -1,9 +1,4 @@
-"""What a user is told about forwarding calls, where a deployment needs it and where not.
-
-A streaming deployment hears about a call only when the user's carrier forwards it, so the app has
-to be able to say where to. A deployment that needs nothing forwarded must not say anything, or a
-user sets up forwarding to a number that answers nobody.
-"""
+"""What a user is told about forwarding calls, only where a deployment's calls arrive forwarded."""
 
 from __future__ import annotations
 
@@ -20,8 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 FORWARD_TO = "+12025550100"
-# Where each region's users forward on a deployment with a line per country. The Indian numbers
-# are shorter than any in India's plan, so they reach nobody.
+# Each region's forwarding number; the Indian ones are too short to reach anybody.
 US_LINE = "+12025550100"
 IN_LINE = "+91555010"
 IN_USER = "+91555001"
@@ -85,7 +79,6 @@ class TestOnboarding:
         }
 
     async def test_forwarding_cannot_be_skipped(self, forwarded: Api) -> None:
-        # Skipped, no call ever reaches the assistant, and a finished setup would say it works.
         tokens = await sign_in(forwarded)
         response = await forwarded.client.post(
             "/v1/onboarding",
@@ -147,8 +140,7 @@ class TestLinesByRegion:
     async def test_a_user_no_line_serves_is_told_no_number_and_is_not_asked_to_forward(
         self, by_region: Api
     ) -> None:
-        # Their calls cannot reach the deployment, so setup does not send them to a number that
-        # would carry a call abroad, or pretend forwarding is what stands between them and it.
+        # No line serves their region, so setup names no number to forward to.
         tokens = await sign_in(by_region, UK_USER)
         profile = await by_region.client.get("/v1/me", headers=bearer(tokens))
         recorded = await by_region.client.post(

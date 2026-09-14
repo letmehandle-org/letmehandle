@@ -71,10 +71,12 @@ class EscalationContext:
         return self.status is EscalationStatus.LIVE
 
     def ended(self, at_instant: datetime) -> EscalationContext:
-        """The same escalation, for a call that is over. Ending twice keeps the first end."""
+        """The same escalation, ended no earlier than raised; ending twice keeps the first end."""
         if not self.is_live:
             return self
-        return replace(self, status=EscalationStatus.ENDED, ended_at=at_instant)
+        return replace(
+            self, status=EscalationStatus.ENDED, ended_at=max(at_instant, self.raised_at)
+        )
 
 
 def _check_text(what: str, value: str | None, limit: int) -> None:

@@ -1,25 +1,11 @@
-"""The one place an escalation becomes the words on a lock screen.
-
-Provider-independent: a platform decides how many bytes it accepts and how it encodes them, and
-this decides what to say and what to give up when there is not room for all of it. The push and
-the context endpoint are both built here, so the app reads the same words either way.
-
-What goes in is deliberately little — why, who as far as anyone knows, what is needed, what has
-been established, and the call id. What never goes in: a transcript, a recording, a number. A
-notification is carried by two companies' servers and left on a lock screen.
-
-Trimming is deterministic and ordered by what the user can most afford to lose: what has been
-established first, then what is needed, then who is calling, and the reason last. Each is cut to
-the longest prefix that fits rather than dropped whole, so a notification that is slightly too
-large loses a few words rather than a sentence.
-"""
+"""The one place an escalation becomes notification words, trimmed in a fixed order to fit."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 
-from letmehandle.application.preferences.context import normalise_locale
+from letmehandle.application.preferences.context import DEFAULT_LOCALE, closest_phrasebook
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.escalation import EscalationReason
 from letmehandle.domain.ports.notification import EscalationNotification
@@ -78,12 +64,11 @@ _HINDI: Final = EscalationPhrasebook(
     nothing_known_yet="अभी और कुछ पता नहीं है।",
 )
 
-DEFAULT_LOCALE: Final = "en"
 PHRASEBOOKS: Final[Mapping[str, EscalationPhrasebook]] = {DEFAULT_LOCALE: _ENGLISH, "hi": _HINDI}
 
 
 def _every_reason_has_words() -> None:
-    """Fail at import rather than while a phone is ringing, for the reason with no phrasing."""
+    """Fail at import for a locale with no phrasing for some reason."""
     for locale, book in PHRASEBOOKS.items():
         missing = set(EscalationReason) - set(book.why)
         if missing:
@@ -97,12 +82,7 @@ _every_reason_has_words()
 
 def phrasebook_for(locale: str) -> EscalationPhrasebook:
     """The closest phrasing available, narrowing from the full locale to its language."""
-    normalised = normalise_locale(locale)
-    for key in (normalised, normalised.split("-", 1)[0]):
-        book = PHRASEBOOKS.get(key)
-        if book is not None:
-            return book
-    return PHRASEBOOKS[DEFAULT_LOCALE]
+    return closest_phrasebook(locale, PHRASEBOOKS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,13 +101,7 @@ def notification_for(
     fits: Callable[[EscalationNotification], bool] | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> EscalationNotification:
-    """The notification for this escalation, trimmed until `fits` accepts it.
-
-    Without `fits` nothing is trimmed: that is the context as the app shows it when it fetches
-    rather than receives it. When nothing fits even at its shortest, the shortest is returned
-    rather than an error — a notification the platform then refuses is a recorded outcome, and
-    an exception here would be one more thing between an escalation and the user.
-    """
+    """The notification for this escalation, trimmed until `fits` accepts it or nothing is left."""
     book = phrasebook_for(locale)
     words = _Words(
         why=book.why[context.reason],
@@ -143,9 +117,7 @@ def notification_for(
     if accept(build(words)):
         return build(words)
 
-    # In the order the user can most afford to lose them. Details may vanish entirely; the
-    # caller and the reason always keep at least a character, because the notification refuses
-    # to exist without a title and a label reading "…" still says a label was cut.
+    # Least needed first; the caller and the reason keep at least a character.
     for field, may_vanish in (
         ("established", True),
         ("needed", True),
@@ -165,20 +137,14 @@ def _anything(_: EscalationNotification) -> bool:
 def _trim_field(
     words: _Words, field: str, *, may_vanish: bool, fits: Callable[[_Words], bool]
 ) -> _Words:
-    """The same words with one field cut to the longest prefix that fits.
-
-    A binary search over the prefix length: the payload grows with the prefix, so the longest
-    fitting one is found in a handful of measurements rather than one per character. When no
-    prefix fits, the field is left at its shortest so the next field can be tried.
-    """
+    """The same words with one field cut, by binary search, to the longest prefix that fits."""
     text: str | None = getattr(words, field)
     if text is None:
         return words
     shortest = 0 if may_vanish else 1
 
     def at(length: int) -> _Words:
-        # Keyed by name, which the checker cannot follow; a required field is never given None
-        # because its shortest length is one.
+        # A required field's shortest length is one, so it is never None.
         changes: dict[str, Any] = {field: _prefix(text, length)}
         return replace(words, **changes)
 

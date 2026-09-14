@@ -1,9 +1,4 @@
-"""Signing in where the provider makes and checks the code, and the service still sets every limit.
-
-Only the comparison moves to the provider (D-042). Each test here is one of the service's rules
-held against such a provider: who may be sent a code, how many and how soon, how many guesses,
-how long a code lasts, that it works once, and that a provider unable to answer signs nobody in.
-"""
+"""Signing in where the provider holds the code, with every limit still the service's (D-042)."""
 
 from __future__ import annotations
 

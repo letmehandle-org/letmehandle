@@ -1,9 +1,4 @@
-"""Signing in, end to end over HTTP against a real database.
-
-Everything here goes through the same stack a mobile app would: the routes, the dependency
-wiring, the real hashers, the real signer, and PostgreSQL. The only substitute is the provider
-that would send a text message.
-"""
+"""Signing in end to end over HTTP against a real database, substituting only the text provider."""
 
 from __future__ import annotations
 
@@ -29,10 +24,7 @@ pytestmark = pytest.mark.integration
 
 
 async def after_the_reuse_leeway(api: Api) -> None:
-    """Move every rotation back past the leeway, as if the replay came minutes later.
-
-    The application's clock is the real one, so time is moved in the rows instead.
-    """
+    """Move every stored rotation back past the leeway."""
     async with unit_of_work(api.app.state.session_factory) as session:
         await session.execute(
             text("UPDATE refresh_tokens SET rotated_at = rotated_at - make_interval(secs => :s)"),
@@ -85,8 +77,7 @@ class TestSigningIn:
         assert response.json()["error"] == "invalid_credentials"
 
     async def test_an_unknown_challenge_fails_identically(self, api: Api) -> None:
-        # Same status and same code as a wrong code. The difference would tell an attacker
-        # whether a challenge identifier they hold is real.
+        # The same status and code as a wrong code.
         wrong_code = await api.client.post(
             "/v1/auth/verify",
             json={"challenge_id": (await code_for(api))[0], "code": "000001"},
@@ -126,8 +117,7 @@ class TestSigningIn:
 
 class TestLimits:
     async def test_too_many_requests_for_one_number_are_refused(self, api: Api) -> None:
-        # The default allows five per hour per number. The sixth is refused, and says when to
-        # come back rather than leaving a client to retry immediately.
+        # The sixth code in an hour is refused with when to come back.
         for _ in range(5):
             allowed = await api.client.post("/v1/auth/challenge", json={"phone_number": NUMBER})
             assert allowed.status_code == 202
@@ -180,8 +170,6 @@ class TestSessions:
     async def test_reusing_a_refresh_token_ends_every_session_from_that_sign_in(
         self, api: Api
     ) -> None:
-        # The behaviour that turns a stolen refresh token from indefinite access into one use
-        # and an alarm.
         tokens = await sign_in(api)
         renewed = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
@@ -200,13 +188,7 @@ class TestSessions:
         assert successor.status_code == 401
 
     async def test_the_revocation_survives_the_refusal_that_triggered_it(self, api: Api) -> None:
-        """The subtle half of reuse detection.
-
-        The revocation happens on the way to refusing the request. If the refusal rolled the
-        transaction back — which is what an ordinary error path does — the family would be
-        revoked in memory and left working in the database, and the stolen token would go on
-        working with nothing to show it had been noticed.
-        """
+        """The revocation that detects reuse is committed, not rolled back with the refusal."""
         tokens = await sign_in(api)
         renewed = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
@@ -214,7 +196,7 @@ class TestSessions:
         await after_the_reuse_leeway(api)
         await api.client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
 
-        # A fresh request, so nothing is carried over from the one that detected the reuse.
+        # A fresh request.
         after = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": renewed.json()["refresh_token"]}
         )
@@ -250,8 +232,7 @@ class TestSessions:
 
 class TestStayingSignedIn:
     async def test_a_renewal_whose_answer_never_arrived_can_be_asked_again(self, api: Api) -> None:
-        # The app is killed after the server rotated the token and before the keychain kept the
-        # new one. It comes back with the old token, and must not lose the session for it.
+        # The app comes back with the token it held before the rotation.
         tokens = await sign_in(api)
         lost = await api.client.post(
             "/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
@@ -265,7 +246,7 @@ class TestStayingSignedIn:
         assert again.status_code == 200
         me = await api.client.get("/v1/me", headers=bearer(again.json()))
         assert me.status_code == 200
-        # And the pair that was lost still works too: nothing was revoked.
+        # The pair that was lost still works: nothing was revoked.
         assert (
             await api.client.post(
                 "/v1/auth/refresh", json={"refresh_token": lost.json()["refresh_token"]}
@@ -394,7 +375,6 @@ class TestProtectedRoutes:
         assert again.json()["display_name"] == "Alex"
 
     async def test_an_update_that_changes_nothing_is_accepted(self, api: Api) -> None:
-        # A client sending an empty change is not an error, and must not write a row for it.
         tokens = await sign_in(api)
         response = await api.client.patch("/v1/me", headers=bearer(tokens), json={})
         assert response.status_code == 200
@@ -411,7 +391,7 @@ class TestProtectedRoutes:
         assert after.json()["locale"] == "en-GB"
 
     async def test_the_locale_is_the_one_calls_are_handled_in(self, api: Api) -> None:
-        # One locale: the one the assistant, its summaries and its notifications use.
+        # One locale, shared with preferences.
         tokens = await sign_in(api)
 
         await api.client.patch("/v1/me", headers=bearer(tokens), json={"locale": "hi"})
@@ -428,13 +408,30 @@ class TestProtectedRoutes:
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_request"
 
+    @pytest.mark.parametrize("locale", ["!!!!!!", "en_GB_", "1234"])
+    async def test_a_locale_that_is_not_a_language_tag_is_refused(
+        self, api: Api, locale: str
+    ) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch("/v1/me", headers=bearer(tokens), json={"locale": locale})
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_request"
+
+    async def test_a_refused_update_changes_nothing(self, api: Api) -> None:
+        tokens = await sign_in(api)
+        response = await api.client.patch(
+            "/v1/me", headers=bearer(tokens), json={"display_name": "Alex", "locale": "  "}
+        )
+        assert response.status_code == 422
+        after = await api.client.get("/v1/me", headers=bearer(tokens))
+        assert after.json()["display_name"] is None
+
 
 class TestDegradedService:
     async def test_requests_that_need_the_database_say_so_when_there_is_none(
         self, api: Api
     ) -> None:
-        # Distinguishable from an authentication failure and from a crash: an operator reading
-        # this knows the service is up and its database is not.
+        # Distinguishable from an authentication failure and from a crash.
         factory = api.app.state.session_factory
         api.app.state.session_factory = None
         try:
@@ -446,9 +443,7 @@ class TestDegradedService:
         assert response.json()["error"] == "database_unavailable"
 
     async def test_a_token_for_an_account_that_no_longer_exists_is_refused(self, api: Api) -> None:
-        # A token outlives the account it names when the account is deleted. Treating that as
-        # unauthenticated rather than as a missing row keeps the answer the same as every other
-        # failure to authenticate.
+        # A token naming a deleted account is unauthenticated.
         from sqlalchemy import delete
 
         from letmehandle.adapters.database.models import UserRow
@@ -463,7 +458,6 @@ class TestDegradedService:
 
 class TestIsolation:
     async def test_one_user_cannot_read_another_s_profile(self, api: Api) -> None:
-        # The proof every later phase repeats for every resource it adds.
         mine = await sign_in(api, NUMBER)
         theirs = await sign_in(api, ANOTHER_NUMBER)
 
@@ -488,8 +482,7 @@ class TestConcurrentAttempts:
     """Limits that hold when the requests arrive together, not only one after another."""
 
     async def test_guesses_sent_at_once_still_exhaust_the_challenge(self, api: Api) -> None:
-        # An attempt counter read by every request before any of them writes it back counts
-        # a burst of guesses as one, and the five-guess limit becomes unlimited.
+        # Guesses arriving together each consume an attempt.
         challenge_id, code = await code_for(api)
         wrong = [f"{guess:06d}" for guess in range(20) if f"{guess:06d}" != code][:10]
 
@@ -525,8 +518,7 @@ class TestConcurrentAttempts:
     async def test_a_refresh_token_being_exchanged_is_not_read_as_unused_elsewhere(
         self, api: Api
     ) -> None:
-        # Two exchanges of one token that both read it before either rotates it both succeed,
-        # so a stolen token replayed at the same moment as the real one would never be noticed.
+        # Two exchanges of one token at once are one exchange and one reuse.
         tokens = await sign_in(api)
         token_hash = api.app.state.container.token_hasher.hash(tokens["refresh_token"])
         factory = api.app.state.session_factory
@@ -538,8 +530,7 @@ class TestConcurrentAttempts:
                 replay = group.create_task(
                     SqlRefreshTokenRepository(replaying).find_by_hash(token_hash)
                 )
-                # Long enough for the replay's query to reach the database before the exchange
-                # finishes, which is the interleaving that loses the check.
+                # Holds the exchange open while the replay's query reaches the database.
                 await asyncio.sleep(0.2)
                 await SqlRefreshTokenRepository(exchanging).update(held.rotated(datetime.now(UTC)))
                 await exchanging.commit()

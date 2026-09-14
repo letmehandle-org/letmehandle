@@ -1,10 +1,4 @@
-"""Call history over HTTP, against a real database.
-
-Calls are seeded through the real repositories and committed, as orchestration will leave them,
-and read back only through the API. Each test is something a user would notice: a call missing
-from their history or shown twice, a stranger's number on their screen, somebody else's call
-answering at all, a transcript said to be gone that never existed, or a deleted call that is not.
-"""
+"""Call history over HTTP against a real database, seeded through the real repositories."""
 
 from __future__ import annotations
 
@@ -65,7 +59,7 @@ CONTACT = Caller(
 )
 REASON = EscalationReason.DECISION_NEEDS_THE_USER
 
-# Distinctive, so finding them anywhere they should not be can only mean they leaked.
+# Distinctive values, so finding them anywhere they should not be means a leak.
 SAID = "the side gate code is heron-4471"
 EVIDENCE = "reference ZX-heron-9043"
 
@@ -260,7 +254,6 @@ class TestListing:
         }
 
     async def test_a_call_in_progress_is_listed_with_no_outcome_yet(self, api: Api) -> None:
-        # It rang the user's phone a moment ago; a history without it is missing a call they had.
         me = await person(api)
         await Seed(api).call(a_call(me, "ringing", state=CallState.AGENT_HANDLING))
 
@@ -332,7 +325,7 @@ class TestFilters:
         assert ids(await listed(api, history, outcome="rejected_by_rule")) == ["rejected"]
 
     async def test_by_whether_the_user_joined(self, api: Api, history: Person) -> None:
-        # A call with no summary yet matches neither: whether anybody joined it is not known.
+        # A call with no summary yet matches neither.
         assert ids(await listed(api, history, human_joined="true")) == ["handed"]
         assert ids(await listed(api, history, human_joined="false")) == [
             "missed",
@@ -472,8 +465,7 @@ class TestPagination:
     async def test_a_cursor_forged_from_somebody_else_s_call_still_pages_only_one_s_own(
         self, api: Api, five_calls: Person
     ) -> None:
-        # All a cursor holds is a position in time; pointing it at another user's call moves
-        # nothing but where the user's own list resumes.
+        # A cursor pointed at another user's call only moves where the user's own list resumes.
         forged = base64.urlsafe_b64encode(
             json.dumps([at(10).isoformat(), "theirs"]).encode()
         ).decode()
@@ -525,7 +517,7 @@ class TestDetail:
             True,
             "Sam",
         )
-        # The default retention, and the moment the last line said on the call is due to go.
+        # The default retention, and when the last line said on the call is due to go.
         assert body["transcript_available"] is True
         assert body["transcript_retention_days"] == 7
         assert body["transcript_expires_at"] == "2026-06-08T12:01:30Z"
@@ -556,7 +548,7 @@ class TestDetail:
         assert body["timings"]["answered_at"] is None
         assert body["timings"]["escalated_at"] is None
         assert body["timings"]["human_joined_at"] is None
-        # Given to nobody: the rules refused it before anybody could take it.
+        # Given to nobody: the rules refused it.
         assert body["handling"] is None
         assert (body["transcript_available"], body["transcript_expires_at"]) == (False, None)
         assert body["headline"] == "A call from a sales caller was ended by your rules."
@@ -579,7 +571,7 @@ class TestDetail:
 
         assert (body["status"], body["outcome"], body["intent"]) == ("in_progress", None, None)
         assert body["timings"]["ended_at"] is None
-        # Joined, read from who is on the call, before any summary says so.
+        # Joined, read from the participants before any summary.
         assert body["timings"]["human_joined_at"] == "2026-06-01T12:00:20Z"
         assert body["human_joined"] is True
         assert (body["transcript_available"], body["transcript_expires_at"]) == (True, None)
@@ -620,7 +612,7 @@ class TestTranscript:
         summary = fallback_summary(CallFacts(call, escalation_reason=REASON), locale="en")
         await Seed(api).call(call, said=lines(at(3), at(30)), summary=summary)
 
-        # The real purge, run as the scheduler runs it, eight days on.
+        # The real purge, eight days on.
         result = await purge_transcripts(
             make_settings(),
             engine=api.app.state.engine,
@@ -736,8 +728,7 @@ class TestDeletion:
         }
 
     async def test_what_the_user_was_told_about_the_call_goes_with_it(self, api: Api) -> None:
-        # The escalation context repeats who called and what they wanted in words of its own. A
-        # call deleted with that left behind is a call the user was told is gone and is not.
+        # The escalation context of a deleted call goes with it.
         me = await person(api)
         call = escalated_call(me)
         await Seed(api).call(call)

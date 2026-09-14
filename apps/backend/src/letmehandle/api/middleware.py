@@ -22,12 +22,7 @@ HEADER = "x-correlation-id"
 
 
 class CorrelationMiddleware(BaseHTTPMiddleware):
-    """Give every request an id, and put it on every log line it produces.
-
-    An inbound id is honoured so that a caller — a mobile app, or a provider webhook — can tie
-    its own logs to ours. It is treated as an opaque label and never as input to anything,
-    which is why it is bounded in length before use.
-    """
+    """Give every request an id, honouring an inbound one bounded in length, and log the request."""
 
     MAX_LENGTH = 128
 
@@ -36,9 +31,7 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         incoming = request.headers.get(HEADER, "").strip()
         identifier = incoming[: self.MAX_LENGTH] if incoming else str(uuid.uuid4())
-        # Both, deliberately. The context variable reaches every log line without being
-        # threaded through call signatures; the request scope outlives this middleware, and is
-        # what the error handlers can still read after it has unwound. See errors.py.
+        # The state outlives this middleware for the error handlers; the variable feeds log lines.
         request.state.correlation_id = identifier
         token = correlation_id.set(identifier)
         started = time.perf_counter()

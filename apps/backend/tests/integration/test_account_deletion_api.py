@@ -1,10 +1,4 @@
-"""Deleting an account, over HTTP, against a real database: nothing of the person is left.
-
-The residue check reads every table the schema declares rather than a list written here, so a
-table added later is covered without anybody remembering this test. It also insists that every
-table held something of the person before, so a new table nobody seeds here fails loudly instead
-of passing because it was empty.
-"""
+"""Deleting an account over HTTP leaves nothing of the person in any table the schema declares."""
 
 from __future__ import annotations
 

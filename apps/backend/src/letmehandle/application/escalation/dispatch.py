@@ -1,28 +1,4 @@
-"""Telling the user about an escalation, on every device they have, without ever getting in its way.
-
-The governing rule is D-016: the phone ringing is the escalation, and this is context for it. So
-nothing here raises into its caller, nothing waits longer than a short bound, and a failure is a
-recorded outcome — on the stored context, where the app surfaces it, and in the metrics — rather
-than an exception on the path that is ringing somebody's phone.
-
-In order, for one escalation:
-
-  1. The context is claimed in storage. A second dispatch for the same call finds it claimed and
-     stops: one notification per call, however often the caller asks. The context is stored
-     before anything is sent, so the app can fetch it even if every push is lost.
-  2. Every device the user has is sent to at once, through the provider for its platform, each
-     bounded by the same deadline. A platform with no provider configured is an outcome too.
-  3. Tokens a platform reported dead are removed, and what became of the notification is
-     recorded on the context.
-
-A dispatch started in the background can claim its context after the call it is for has ended,
-when storage answers the claim late. The dispatcher remembers when each call ended, so a context
-claimed for a call already over is marked ended as soon as it is stored, and `call_ended` never
-waits on a notification to find out.
-
-Storage is reached through a scope that opens and commits its own unit of work, so no database
-transaction is held open while a push is in flight.
-"""
+"""Telling the user about an escalation on every device, never raising into the ring (D-016)."""
 
 from __future__ import annotations
 
@@ -33,7 +9,8 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from letmehandle.application.escalation.notification import DEFAULT_LOCALE, notification_for
+from letmehandle.application.escalation.notification import notification_for
+from letmehandle.application.preferences.context import DEFAULT_LOCALE
 from letmehandle.application.resilience.circuit import CircuitOpenError
 from letmehandle.application.resilience.timing import Stopwatch
 from letmehandle.domain.failures import FailureKind, classify
@@ -65,12 +42,10 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Short, because a notification arriving after the user has already answered is worth little, and
-# a caller awaiting this — rather than starting it in the background — waits at most this long.
+# The longest one dispatch waits on its devices.
 DEFAULT_TIMEOUT: Final = timedelta(seconds=5)
 
 # How many ended calls are remembered, so a context claimed after its call ended is marked ended.
-# Bounded: a process runs for weeks, and a claim arrives within moments of its call or not at all.
 REMEMBERED_ENDINGS: Final = 10_000
 
 
@@ -101,7 +76,7 @@ class AttemptResult(StrEnum):
     TIMED_OUT = "timed_out"
     ERRORED = "errored"
     NOT_CONFIGURED = "not_configured"
-    # Not attempted: the platform's push service has been failing, and its circuit is open.
+    # Not attempted, because the platform's circuit is open.
     UNAVAILABLE = "unavailable"
 
 
@@ -182,11 +157,7 @@ class EscalationDispatcher:
     async def dispatch(
         self, user_id: UserId, context: EscalationContext, *, locale: str = DEFAULT_LOCALE
     ) -> DispatchReport:
-        """Notify every device this user has about this escalation, in `locale`. Never raises.
-
-        Awaiting it takes at most the timeout plus two short storage round trips. A caller that
-        must not wait even that long uses `start`.
-        """
+        """Notify every device this user has about this escalation, in `locale`; never raises."""
         claimed = replace(context, delivery=NotificationDelivery.PENDING)
         try:
             async with self._stores() as stores:
@@ -224,11 +195,7 @@ class EscalationDispatcher:
     def start(
         self, user_id: UserId, context: EscalationContext, *, locale: str = DEFAULT_LOCALE
     ) -> asyncio.Task[DispatchReport]:
-        """Dispatch in the background and return at once, so the ring is not delayed at all.
-
-        The task is held here until it finishes: a task nothing references can be collected
-        before it runs.
-        """
+        """Dispatch in the background, holding the task until it finishes."""
         task = asyncio.get_running_loop().create_task(
             self.dispatch(user_id, context, locale=locale)
         )
@@ -237,13 +204,8 @@ class EscalationDispatcher:
         return task
 
     async def call_ended(self, user_id: UserId, call_id: CallId, at_instant: datetime) -> bool:
-        """Record that the call is over, so the app shows a summary. Never raises.
-
-        Returns whether a context was marked; false for a call that never escalated, and false
-        when storage could not be reached, which is logged and counted.
-        """
-        # Remembered before marking: a claim committed from here on finds the call over and marks
-        # its own context, and one committed before is there for the mark below to find.
+        """Mark the call's context ended, returning whether one was; never raises."""
+        # Remembered before marking, so a later claim finds the call over.
         self._ended[(user_id, call_id)] = at_instant
         while len(self._ended) > REMEMBERED_ENDINGS:
             self._ended.popitem(last=False)
@@ -293,7 +255,7 @@ class EscalationDispatcher:
         except TimeoutError:
             attempt = DeliveryAttempt(token, AttemptResult.TIMED_OUT)
         except Exception as error:  # noqa: BLE001 - one device's defect must not cost the others
-            # Logged without a traceback: its frames can hold the notification being sent.
+            # Logged without a traceback, whose frames can hold the notification.
             log_failure(
                 logger,
                 "escalation.delivery_errored",
@@ -361,8 +323,7 @@ async def _sent_by(
 
 
 def _service_failed(outcome: DeliveryOutcome) -> bool:
-    # The platform saying it could not deliver is its service failing, as an unreachable one would
-    # be; a device it refuses, or a token it no longer knows, is the platform working.
+    # Only a failed delivery counts against the platform's circuit.
     return outcome.status is DeliveryStatus.FAILED
 
 

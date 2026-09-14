@@ -1,14 +1,4 @@
-"""Who is asking, for counting what one place asks for.
-
-The peer the connection came from, unless that peer is a proxy this deployment was told to trust,
-in which case the address that proxy says it forwarded for. Nothing else in the header is believed:
-`X-Forwarded-For` is written by whoever sends the request, and only the entries our own proxies
-appended can be relied on. So the list is read from the right, past every trusted proxy, and the
-first address that is not one of ours is the client.
-
-An IPv6 client is counted by its /64, because a single subscriber is routinely handed a whole /64
-and can pick a new address in it for every request.
-"""
+"""The client behind a request: the peer or nearest untrusted forwarded hop, IPv6 by /64 (D-036)."""
 
 from __future__ import annotations
 
@@ -37,7 +27,7 @@ def client_source(
         for hop in reversed([part.strip() for part in forwarded.split(",") if part.strip()]):
             candidate = _parsed(hop)
             if candidate is None:
-                # A hop nobody can read ends the chain: nothing to its left can be trusted either.
+                # An unreadable hop ends the chain.
                 break
             address = candidate
             if not _is_trusted(candidate, trusted_proxies):

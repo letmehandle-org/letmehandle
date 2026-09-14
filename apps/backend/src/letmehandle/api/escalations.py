@@ -1,10 +1,4 @@
-"""Devices and escalation context, over HTTP.
-
-Two things the app needs so that push is an accelerator and never the only path (D-016): a way
-to tell the backend where to deliver, and a way to read an escalation's context when nothing was
-delivered. Both are the signed-in user's own and nobody else's (D-012): another user's call id
-is a 404, exactly as a call id that does not exist.
-"""
+"""The signed-in user's devices and escalation contexts, over HTTP (D-012, D-016)."""
 
 from __future__ import annotations
 
@@ -36,11 +30,7 @@ router = APIRouter(
 async def register_device(
     body: RegisterDeviceRequest, user: CurrentUser, devices: Devices
 ) -> Response:
-    """Record this device's push token for the signed-in user.
-
-    Idempotent: the app calls it on every launch and whenever its platform issues a new token. A
-    token previously registered to another account moves to this one.
-    """
+    """Record this device's push token for the signed-in user, idempotently."""
     token = DeviceToken(body.platform, body.token)
     replacing = (
         None if body.previous_token is None else DeviceToken(body.platform, body.previous_token)
@@ -55,11 +45,7 @@ async def register_device(
     summary="Stop sending escalation notifications to this device",
 )
 async def unregister_device(body: DevicePayload, user: CurrentUser, devices: Devices) -> Response:
-    """Forget this device for the signed-in user. Succeeds whether or not it was registered.
-
-    A POST with a body rather than a DELETE with the token in the path: a push token identifies a
-    handset, and a path is what access logs keep.
-    """
+    """Forget this device for the signed-in user; a POST so the token stays out of access logs."""
     await devices.remove(user.id, DeviceToken(body.platform, body.token))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -75,11 +61,7 @@ async def read_escalation(
     contexts: EscalationContexts,
     preferences: Preferences,
 ) -> EscalationContextResponse:
-    """What the user was, or would have been, told about this escalation.
-
-    For the app opened without a notification, or opened long after one: the same words, from
-    the backend rather than from the lock screen.
-    """
+    """What the user was, or would have been, told about this escalation."""
     try:
         identifier = CallId(call_id)
     except InvariantError as error:
@@ -90,11 +72,10 @@ async def read_escalation(
         raise ApiError(
             status.HTTP_404_NOT_FOUND, "escalation_not_found", "There is no such escalation."
         )
-    # In the preferences' locale, which is the one the notification was sent in.
-    return context_response(context, locale=(await preferences.get(user.id)).locale)
+    return _context_response(context, locale=(await preferences.get(user.id)).locale)
 
 
-def context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:
+def _context_response(context: EscalationContext, *, locale: str) -> EscalationContextResponse:
     """The response, built from the same notification a push would have carried."""
     shown = notification_for(context, locale=locale)
     return EscalationContextResponse(

@@ -1,8 +1,4 @@
-"""Changing some preferences without disturbing the others.
-
-The rule this exists to hold: a section nobody sent is left exactly as it was. Every test here
-is a version of the same failure — a screen that saves one thing and quietly erases the rest.
-"""
+"""Changing some preferences without disturbing the others (D-023)."""
 
 from __future__ import annotations
 
@@ -50,8 +46,7 @@ FORWARDED = OnboardingFlow(calls_are_forwarded=True)
 
 ACTIVE_HOURS = TimeWindow(time(7, 0), time(22, 0), "Europe/London")
 
-# Every field different from its default, so a test asserting the half that was not sent
-# survived is asserting something.
+# Every field differs from its default.
 REJECT_UNKNOWN = CallHandling(
     default_posture=HandlingPosture.REJECT,
     anonymous_posture=HandlingPosture.REJECT,
@@ -109,7 +104,6 @@ class TestPartialUpdates:
     async def test_a_section_that_was_not_sent_is_left_alone(
         self, service: PreferencesService
     ) -> None:
-        # The whole point. A screen saving one section has no idea what the others hold.
         await service.apply(
             USER,
             PreferenceChanges(
@@ -128,8 +122,7 @@ class TestPartialUpdates:
     async def test_every_section_survives_a_change_to_another(
         self, service: PreferencesService
     ) -> None:
-        # Driven over all of them, because the one that gets forgotten is never the one somebody
-        # thought to write a test for.
+        # Driven over every section.
         full = PreferenceChanges(
             locale="en-GB",
             formality=Formality.FORMAL,
@@ -161,8 +154,7 @@ class TestPartialUpdates:
     async def test_an_empty_value_clears_a_section_where_absence_would_not(
         self, service: PreferencesService
     ) -> None:
-        # Absent means "leave it"; empty means "clear it". Without both, a user can add a
-        # contact and never remove the last one.
+        # Absent leaves alone; empty clears (D-023).
         await service.apply(
             USER,
             PreferenceChanges(important_contacts=(ImportantContact(number=NUMBER, label="Mum"),)),
@@ -175,7 +167,6 @@ class TestPartialUpdates:
     async def test_a_request_that_changes_nothing_costs_no_write(
         self, service: PreferencesService, preferences: InMemoryPreferencesRepository
     ) -> None:
-        # A client sending an untouched form is ordinary, and should not be a write.
         await service.apply(USER, PreferenceChanges())
         assert preferences.writes == 0
 
@@ -185,13 +176,7 @@ class TestPartialUpdates:
 
 
 class TestCallHandlingAndHours:
-    """One domain object, two screens, and the bug that lives between them.
-
-    `CallRules` carries both how a caller is routed and when the user is available. They are
-    edited on separate screens, so a save carrying one of them must not disturb the other — and
-    the obvious implementation, building a whole `CallRules` from whichever half arrived,
-    silently resets the other to its defaults.
-    """
+    """Routing and hours share one `CallRules`, saved from separate screens independently."""
 
     async def test_setting_hours_leaves_call_handling_alone(
         self, service: PreferencesService
@@ -202,8 +187,7 @@ class TestCallHandlingAndHours:
 
         after = await service.get(USER)
         assert after.rules.active_hours == ACTIVE_HOURS
-        # Every field of the half that was not sent, because resetting any one of them is the
-        # same defect wearing a different name.
+        # Every field of the half that was not sent.
         assert after.rules.default_posture is HandlingPosture.REJECT
         assert after.rules.anonymous_posture is HandlingPosture.REJECT
         assert after.rules.blocked_categories == frozenset({CallerCategory.SPAM})
@@ -212,8 +196,6 @@ class TestCallHandlingAndHours:
     async def test_setting_call_handling_leaves_hours_alone(
         self, service: PreferencesService
     ) -> None:
-        # The direction that matters most: hours that silently disappear mean a phone ringing at
-        # three in the morning with nothing anywhere to say why.
         await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
 
         await service.apply(USER, PreferenceChanges(call_handling=REJECT_UNKNOWN))
@@ -222,8 +204,7 @@ class TestCallHandlingAndHours:
         assert after.rules.active_hours == ACTIVE_HOURS
 
     async def test_hours_can_still_be_cleared(self, service: PreferencesService) -> None:
-        # Absent leaves alone; present-and-empty clears. Without both, hours once set could never
-        # go back to around the clock.
+        # Absent leaves alone; present and empty clears.
         await service.apply(USER, PreferenceChanges(hours=Hours(active=ACTIVE_HOURS)))
 
         await service.apply(USER, PreferenceChanges(hours=Hours()))
@@ -235,7 +216,7 @@ class TestVersion:
     async def test_a_change_leaves_the_set_at_today_s_version(
         self, service: PreferencesService
     ) -> None:
-        # What is handed back says the same thing the row it is about to become will say.
+        # What is handed back matches the row it becomes.
         updated = await service.apply(USER, PreferenceChanges(locale="en-GB"))
         assert updated.version == PREFERENCES_VERSION
 
@@ -255,7 +236,7 @@ class TestVoice:
         assert (await service.get(USER)).voice.persona_voice_id == "ava"
 
     async def test_a_voice_can_be_cleared(self, service: PreferencesService) -> None:
-        # Back to the provider's default, which is a thing somebody must be able to do.
+        # Back to the provider's default.
         await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
         await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice()))
@@ -274,15 +255,12 @@ class TestReplacing:
         assert after.rules.blocked_categories == frozenset({CallerCategory.SPAM})
 
     async def test_it_replaces_rather_than_merges(self, service: PreferencesService) -> None:
-        # The deliberate counterpart to a partial update: a caller that means to set everything
-        # says so, rather than relying on having mentioned every section.
         await service.apply(USER, PreferenceChanges(locale="en-GB"))
         await service.replace_all(USER, PreferenceChanges())
         assert (await service.get(USER)).locale == "en"
 
     async def test_it_keeps_the_voice_it_cannot_carry(self, service: PreferencesService) -> None:
-        # The one exception, and the reason for it: a replace request has no field for the
-        # voice, so resetting it here is a change nobody asked for and nobody can see coming.
+        # The voice survives: a replace request has no field for it.
         await service.apply(USER, PreferenceChanges(persona_voice=PersonaVoice("ava")))
 
         await service.replace_all(USER, PreferenceChanges(locale="en-GB"))
@@ -319,7 +297,6 @@ class TestOnboarding:
         assert progress.next_step is OnboardingStep.HOURS
 
     async def test_progress_is_remembered(self, service: PreferencesService) -> None:
-        # Held on the server so that reinstalling resumes rather than starting again.
         await service.record_step(USER, OnboardingStep.CALL_HANDLING)
         assert (await service.progress(USER)).next_step is OnboardingStep.HOURS
 
@@ -331,15 +308,12 @@ class TestOnboarding:
     async def test_answering_a_step_that_was_skipped_records_it_as_answered(
         self, service: PreferencesService
     ) -> None:
-        # Somebody who came back to fill in what they skipped has answered it.
         await service.record_step(USER, OnboardingStep.HOURS, skipped=True)
         progress = await service.record_step(USER, OnboardingStep.HOURS)
         assert OnboardingStep.HOURS in progress.completed
         assert OnboardingStep.HOURS not in progress.skipped
 
     async def test_call_handling_cannot_be_skipped(self, service: PreferencesService) -> None:
-        # There is no safe default for what to do with a call from somebody unknown, and
-        # guessing on the user's behalf is the one thing this product must not do.
         with pytest.raises(InvariantError, match="cannot be skipped"):
             await service.record_step(USER, OnboardingStep.CALL_HANDLING, skipped=True)
 
@@ -374,7 +348,6 @@ class TestForwardingStep:
         forwarded: PreferencesService,
         onboarding: InMemoryOnboardingRepository,
     ) -> None:
-        # The row outlives the deployment's configuration; reading it must not break or lie.
         await forwarded.record_step(USER, OnboardingStep.CALL_FORWARDING)
 
         assert (await service.progress(USER)).completed == ()

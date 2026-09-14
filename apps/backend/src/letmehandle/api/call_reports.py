@@ -1,16 +1,10 @@
-"""A handset reporting its own calls.
-
-The handset decides a call before it rings and cannot wait for this service to do it; it tells
-this service what happened afterwards. The route belongs to the signed-in user: the reports are
-stored against that user and no other, so a handset can only ever speak for its own account's
-calls, whatever identifiers it sends.
-"""
+"""A handset reporting its own calls, stored against the signed-in user only (D-028)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter
 
-from letmehandle.api.body_limit import limited_body_route
+from letmehandle.api.body_limit import JSON_BODY_LIMIT_BYTES, limited_body_route
 from letmehandle.api.call_report_schemas import (
     CallReportBatch,
     CallReportPayload,
@@ -20,7 +14,7 @@ from letmehandle.api.call_report_schemas import (
     UnreadableReport,
 )
 from letmehandle.api.dependencies import CallReports, CurrentUser
-from letmehandle.api.errors import ApiError
+from letmehandle.api.errors import rate_limited
 from letmehandle.application.calls.reports import ReportingRateLimitedError
 from letmehandle.domain.errors import InvariantError
 from letmehandle.domain.models.identifiers import CallId, EventId
@@ -28,11 +22,8 @@ from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.ports.call_transport import CallEventKind
 from letmehandle.domain.ports.reported_calls import CallReport
 
-# The largest request body read: a full batch of the largest reports is a fraction of this.
-REPORTS_BODY_LIMIT_BYTES = 256 * 1024
-
 router = APIRouter(
-    prefix="/v1", tags=["calls"], route_class=limited_body_route(REPORTS_BODY_LIMIT_BYTES)
+    prefix="/v1", tags=["calls"], route_class=limited_body_route(JSON_BODY_LIMIT_BYTES)
 )
 
 _KINDS = {
@@ -61,19 +52,15 @@ async def report_calls(
         try:
             batch.append(_to_report(payload))
         except InvariantError as error:
-            # A screening decision on an ended call, or an ending on an incoming one: the handset
-            # reported something that cannot have happened, and that report alone is refused.
+            # A report that cannot have happened is refused alone.
             rejected.append(
                 RejectedReport(index=index, event_id=payload.event_id, reason=str(error))
             )
     try:
         outcome = await reporting.report(user.id, batch)
     except ReportingRateLimitedError as error:
-        raise ApiError(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "rate_limited",
-            "Too many reports. Try again shortly.",
-            headers={"Retry-After": str(error.retry_after_seconds)},
+        raise rate_limited(
+            error.retry_after_seconds, "Too many reports. Try again shortly."
         ) from error
     return CallReportReceipt(
         accepted=[event.value for event in outcome.accepted],

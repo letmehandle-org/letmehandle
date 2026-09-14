@@ -1,15 +1,4 @@
-"""A user's calls, read back afterwards: listed, opened, read in full, and deleted.
-
-Every method takes the user whose calls they are, and passes it to every repository it reads,
-so a call belonging to somebody else is not found rather than refused — the answer for another
-user's call and for no call at all is the same answer, and gives nothing away (D-012).
-
-What a user is shown about who called is decided here rather than in the HTTP layer, because it
-is a rule and not a format: the category always, a name only for a caller the user has told us
-about, and the number never. A stranger's number is somebody else's personal data, the user's
-phone already showed it when it rang, and a history that repeats it is one more place it can
-leak from (D-014, D-021).
-"""
+"""A user's calls, read back: listed, opened, read in full and deleted, per user (D-012)."""
 
 from __future__ import annotations
 
@@ -40,12 +29,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class CallRecord:
-    """One call as history shows it: the call, and its summary once it has one.
-
-    A call with no summary is still a record. It is either still going, or it ended and its
-    summary has not been written yet; either way it rang the user's phone, and a history that
-    left it out would be missing a call they know they had — one they could not delete, either.
-    """
+    """One call as history shows it: the call, and its summary once it has one."""
 
     call: CallSession
     summary: CallSummary | None
@@ -57,7 +41,7 @@ class CallRecord:
 
     @property
     def display_name(self) -> str | None:
-        """A name to show, only for somebody the user knows; a network can name a stranger."""
+        """A name to show, only for somebody the user knows; never the number (D-014)."""
         caller = self.caller
         return caller.display_name if caller.is_known else None
 
@@ -87,21 +71,12 @@ class RecordPage:
 
 @dataclass(frozen=True, slots=True)
 class Retention:
-    """How long a call's transcript is kept, as the user's setting stands today.
-
-    Today's setting rather than the one in force when the call was made, because that is the
-    setting the purge applies (see the retention module): a user who shortens it sees their older
-    transcripts go now, and history has to say what will actually happen.
-    """
+    """How long a call's transcript is kept, under the setting the purge applies today."""
 
     days: int
 
     def expires_at(self, call: CallSession) -> datetime | None:
-        """When the last of the call's transcript becomes due for deletion, once it has ended.
-
-        Every line expires a retention after it was said, and the last line was said by the end
-        of the call, so this is when nothing of it will be left once the purge has run.
-        """
+        """When the last of an ended call's transcript becomes due for deletion."""
         return None if call.ended_at is None else call.ended_at + timedelta(days=self.days)
 
 
@@ -122,12 +97,7 @@ class CallDetail:
 
 @dataclass(frozen=True, slots=True)
 class TranscriptView:
-    """What can be read of a call's transcript, and why nothing can when nothing can.
-
-    `entries` is empty unless `status` is `RETAINED`. It can be empty then too, for the moment
-    between the purge taking a call's last line and this read — which is the truth: nothing is
-    left.
-    """
+    """What can be read of a call's transcript; `entries` is empty unless `status` is `RETAINED`."""
 
     call: CallSession
     status: TranscriptStatus

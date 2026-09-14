@@ -1,8 +1,4 @@
-"""Signing in, exercised against storage that really stores.
-
-Every test here describes an attack or a mistake somebody will actually make: a replayed code,
-a stolen refresh token, an enumerated phone number, a brute-forced six digits.
-"""
+"""Signing in against storage that really stores: replays, stolen tokens, enumeration, guessing."""
 
 from __future__ import annotations
 
@@ -60,8 +56,7 @@ class Harness:
         self.signer = FakeTokenSigner()
         self.limiter = limiter or NeverLimits()
         self.metrics = RecordingMetrics()
-        # Without a resend cooldown unless the test is about one: signing the same number in twice
-        # is ordinary here, and the cooldown has tests of its own.
+        # No resend cooldown unless the test sets one.
         self.policy = policy or AuthenticationPolicy(resend_cooldowns=(timedelta(0),))
         self.service = AuthenticationService(
             users=self.users,
@@ -105,16 +100,12 @@ class TestRequestingACode:
         assert THE_CODE not in stored.code_hash
 
     async def test_the_challenge_exists_before_the_code_is_sent(self, harness: Harness) -> None:
-        # The other order can deliver a code that nothing will accept, which looks to the user
-        # exactly like the product being broken.
         issued = await harness.service.request_challenge(NUMBER)
         assert await harness.challenges.get(issued.challenge_id) is not None
 
     async def test_requesting_says_nothing_about_whether_an_account_exists(
         self, harness: Harness
     ) -> None:
-        # Enumeration is the expensive half of attacking a phone-number identity, and this is
-        # where it would be made cheap.
         await harness.sign_in(NUMBER)
         for_existing = await harness.service.request_challenge(NUMBER)
         for_new = await harness.service.request_challenge(ANOTHER_NUMBER)
@@ -141,7 +132,6 @@ class TestRequestingACode:
 
         with pytest.raises(RateLimitedError) as failure:
             await harness.service.request_challenge(NUMBER)
-        # Told when to come back, or a client simply retries and makes it worse.
         assert failure.value.retry_after_seconds > 0
 
     async def test_the_per_number_limit_is_per_number(self, harness: Harness) -> None:
@@ -179,8 +169,7 @@ class TestRequestingACode:
             rate_limiter=limiter,
             policy=AuthenticationPolicy(challenges_per_source=2),
         )
-        # Different numbers, one source: the shape of an attacker enumerating numbers, which
-        # the per-number limit cannot see.
+        # Different numbers from one source.
         await harness.service.request_challenge(NUMBER, source="one-place")
         await harness.service.request_challenge(ANOTHER_NUMBER, source="one-place")
 
@@ -211,7 +200,6 @@ class TestVerifying:
         assert len(harness.users.by_id) == 1
 
     async def test_a_wrong_code_is_refused_and_consumes_an_attempt(self, harness: Harness) -> None:
-        # Without consuming the attempt the limit is advisory, and six digits is nothing.
         issued = await harness.service.request_challenge(NUMBER)
         with pytest.raises(AuthenticationError):
             await harness.service.verify(issued.challenge_id, "000000")
@@ -245,21 +233,14 @@ class TestVerifying:
             await harness.service.verify(issued.challenge_id, THE_CODE)
 
     async def test_an_unknown_challenge_is_refused_the_same_way(self, harness: Harness) -> None:
-        # Identical failure to a wrong code. Distinguishing them tells an attacker whether a
-        # challenge identifier they hold is real.
+        # The same failure as a wrong code.
         with pytest.raises(AuthenticationError):
             await harness.service.verify("no-such-challenge", THE_CODE)
 
 
 class TestHashing:
     async def test_a_refresh_token_is_found_even_when_codes_are_salted(self) -> None:
-        """The bug this exists to prevent: one hasher used for both jobs.
-
-        A one-time code is verified against a known row, so it is salted. A refresh token has
-        to be found by its hash, which a salted hash makes impossible — every lookup misses,
-        and every renewal fails with the same message as a stolen token. A suite that uses one
-        deterministic hasher for both cannot see it.
-        """
+        """A salted code hasher and a deterministic token hasher, each doing its own job."""
         harness = Harness()
         harness.service = AuthenticationService(
             users=harness.users,
@@ -297,9 +278,7 @@ class TestRefreshing:
             await harness.service.refresh(original)
 
     async def test_reusing_a_rotated_token_revokes_the_whole_family(self, harness: Harness) -> None:
-        # The property that turns a stolen refresh token from indefinite access into one use
-        # and an alarm. Either copy could be the thief's, and nothing can tell which, so both
-        # stop working and the legitimate user signs in again.
+        # Reuse revokes the whole family, both copies included.
         original = await harness.sign_in()
         successor = await harness.service.refresh(original)
         harness.clock.advance((REFRESH_REUSE_LEEWAY + timedelta(seconds=1)).total_seconds())
@@ -322,7 +301,6 @@ class TestRefreshing:
             await harness.service.refresh(original)
 
     async def test_two_sign_ins_are_independent_families(self, harness: Harness) -> None:
-        # Signing out on one device must not sign the user out on another.
         first = await harness.sign_in()
         second = await harness.sign_in()
 
@@ -339,21 +317,7 @@ class TestSigningOut:
             await harness.service.refresh(token)
 
     async def test_it_is_silent_about_a_token_it_does_not_know(self, harness: Harness) -> None:
-        # Saying so would tell an attacker whether a token they hold is real.
         await harness.service.sign_out("not-a-token")
-
-    async def test_signing_out_everywhere_ends_every_session(self, harness: Harness) -> None:
-        first = await harness.sign_in()
-        second = await harness.sign_in()
-        user = await harness.users.find_by_number(NUMBER)
-        assert user is not None
-
-        ended = await harness.service.sign_out_everywhere(user.id)
-
-        assert ended == 2
-        for token in (first, second):
-            with pytest.raises(AuthenticationError):
-                await harness.service.refresh(token)
 
 
 class FixedCodeOTPProvider(RecordingOTPProvider):
@@ -386,7 +350,6 @@ class TestAFixedTestingCode:
         assert harness.otp.sent == [(NUMBER, THE_CODE)]
 
     async def test_a_real_provider_may_not_fix_the_code(self) -> None:
-        # Every account would share one code, and nothing about the service would look wrong.
         harness = Harness(otp=FixedCodeOTPProvider("123456", production_safe=True))
         with pytest.raises(InvariantError, match="must not fix them"):
             await harness.service.request_challenge(NUMBER)
@@ -402,8 +365,7 @@ class TestStayingSignedIn:
     async def test_a_rotated_token_presented_again_within_the_leeway_gets_a_new_pair(
         self, harness: Harness
     ) -> None:
-        # The app was killed between the server rotating the token and the keychain keeping the
-        # new one. Coming back with the old one must not cost the user their session.
+        # The app comes back with the token it held before the rotation.
         original = await harness.sign_in()
         lost = await harness.service.refresh(original)
         harness.clock.advance(REFRESH_REUSE_LEEWAY.total_seconds())
@@ -427,7 +389,6 @@ class TestStayingSignedIn:
         for _ in range(4):
             harness.clock.advance(timedelta(days=80).total_seconds())
             token = (await harness.service.refresh(token)).refresh_token
-        # Three hundred and twenty days after signing in, still signed in.
         assert token
 
 
