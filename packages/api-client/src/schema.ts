@@ -443,11 +443,7 @@ export interface components {
         };
         /**
          * CallHandling
-         * @description Whom routing gave the call to, which its final state no longer says.
-         *
-         *     A completed call was either put straight through to the user or taken by the assistant, and
-         *     history tells the two apart. Read from the moves themselves rather than set beside them, so it
-         *     cannot disagree with the path the call took. A rejected call was given to nobody.
+         * @description Whom routing gave the call to, read from the moves the call made.
          * @enum {string}
          */
         CallHandling: "passed_through" | "assistant";
@@ -468,24 +464,13 @@ export interface components {
         };
         /**
          * CallImportance
-         * @description How much this matters to the user, ordered.
-         *
-         *     An `IntEnum` because these are compared — a rule says "escalate at or above this" — and an
-         *     ordering written as a lookup table beside an unordered enum is an ordering that drifts
-         *     from it.
-         *
-         *     The numbers are spaced so that a level can be inserted later without renumbering the ones
-         *     either side, which would silently change the meaning of every stored value.
+         * @description How much a call matters to the user, ordered, with gaps so a level can be inserted.
          * @enum {integer}
          */
         CallImportance: 10 | 20 | 30 | 40 | 50;
         /**
          * CallIntent
-         * @description What the call is for.
-         *
-         *     `UNDETERMINED` is a real answer: early in a call, or in a call that never made sense, the
-         *     honest classification is that there is not one yet. A model forced to choose will choose
-         *     something, and downstream rules will act on it.
+         * @description What the call is for; `UNDETERMINED` is the answer while there is none yet.
          * @enum {string}
          */
         CallIntent: "undetermined" | "delivery_in_progress" | "appointment" | "enquiry" | "personal" | "service_issue" | "sales" | "suspected_fraud";
@@ -513,11 +498,7 @@ export interface components {
         };
         /**
          * CallOutcome
-         * @description How it ended, in the terms a person would use.
-         *
-         *     Distinct from `CallState`: the state machine's endings are about the mechanism, and these
-         *     are about what happened. A call that reached COMPLETED could have been resolved, handed
-         *     over, or abandoned, and a user reading their history wants to know which.
+         * @description How a call ended in the terms a person would use, unlike the mechanism of `CallState`.
          * @enum {string}
          */
         CallOutcome: "resolved_by_agent" | "handed_to_user" | "passed_through" | "rejected_by_rule" | "caller_hung_up" | "unanswered_escalation" | "failed";
@@ -589,11 +570,7 @@ export interface components {
         };
         /**
          * CallerCategory
-         * @description What kind of call this appears to be.
-         *
-         *     Deliberately coarse. These are the distinctions the user's rules act on — the difference
-         *     between a delivery and a courier is not one anybody would set a different rule for, and a
-         *     category nobody can act on is a category that only makes classification harder.
+         * @description The coarse kinds of call the user's rules act on.
          * @enum {string}
          */
         CallerCategory: "known_contact" | "delivery" | "healthcare" | "education" | "financial" | "service_provider" | "sales" | "spam" | "unknown";
@@ -607,11 +584,7 @@ export interface components {
         };
         /**
          * Capability
-         * @description One thing the assistant may be permitted to do.
-         *
-         *     Each is a distinct decision a user would actually make differently, which is the test for
-         *     whether a capability belongs here. Splitting further produces a settings screen nobody
-         *     finishes; merging produces permissions nobody meant to give.
+         * @description One thing the assistant may be permitted to do, each a decision a user makes on its own.
          * @enum {string}
          */
         Capability: "answer_questions_about_availability" | "share_delivery_instructions" | "confirm_appointments" | "reschedule_appointments" | "decline_on_the_users_behalf" | "take_a_message" | "share_contact_details";
@@ -676,20 +649,13 @@ export interface components {
         };
         /**
          * EscalationReason
-         * @description Why the assistant wants a person.
-         *
-         *     These are the reasons it can actually distinguish, and each leads somewhere different: an
-         *     unauthorised action may be resolved by granting a capability, a caller's request may be
-         *     resolved by the user answering, and a failure is an operational problem.
+         * @description Why the assistant wants the user.
          * @enum {string}
          */
         EscalationReason: "caller_asked_for_the_user" | "action_not_authorised" | "decision_needs_the_user" | "important_enough_to_interrupt" | "cannot_understand_the_caller" | "user_rule_requires_it";
         /**
          * EscalationStatus
          * @description Whether the call the escalation belongs to is still going.
-         *
-         *     A notification can arrive after the call has ended, and that is a designed state: the app
-         *     shows what happened instead of a live context for a call nobody can join.
          * @enum {string}
          */
         EscalationStatus: "live" | "ended";
@@ -800,10 +766,7 @@ export interface components {
         };
         /**
          * OnboardingStep
-         * @description One thing to ask about.
-         *
-         *     One step per group of preferences, because a step is a screen and a screen that asks about
-         *     two unrelated things is one people abandon.
+         * @description One screen of setup, asking about one group of preferences.
          * @enum {string}
          */
         OnboardingStep: "call_handling" | "call_forwarding" | "hours" | "authority" | "notifications";
@@ -950,11 +913,7 @@ export interface components {
         ReportedCallKind: "incoming" | "answered" | "ended";
         /**
          * ScreeningDecision
-         * @description What was done with a call before the handset rang.
-         *
-         *     Only produced where `can_screen_before_ringing` is declared. `SILENCE` is distinct from
-         *     `REJECT` because they mean different things to the caller: one rings out, the other is
-         *     refused, and a user choosing between them is choosing what the caller learns.
+         * @description What was done with a call before the handset rang, where screening is declared.
          * @enum {string}
          */
         ScreeningDecision: "allow" | "reject" | "silence";
@@ -1043,11 +1002,7 @@ export interface components {
         };
         /**
          * Verbosity
-         * @description How much the assistant says.
-         *
-         *     Separate from formality because they vary independently: a warm assistant can be brief, and
-         *     a formal one can go on. Collapsing them into one dial would make half the combinations
-         *     people actually want unreachable.
+         * @description How much the assistant says, independently of how formally.
          * @enum {string}
          */
         Verbosity: "brief" | "normal" | "detailed";
