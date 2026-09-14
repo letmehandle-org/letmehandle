@@ -13,7 +13,6 @@ from letmehandle.domain.errors import DomainError
 from letmehandle.domain.models.auth import AuthenticatedUser
 from letmehandle.domain.ports.rate_limit import RateLimitDecision, RateLimiter
 from letmehandle.domain.ports.repositories import (
-    DeviceRepository,
     OTPChallengeRepository,
     RefreshTokenRepository,
     UserRepository,
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
     from letmehandle.domain.models.identifiers import UserId
     from letmehandle.domain.models.phone_number import PhoneNumber
     from letmehandle.domain.models.user import User
-    from letmehandle.domain.ports.notification import DeviceToken
 
 
 class InMemoryUserRepository(UserRepository):
@@ -139,26 +137,6 @@ class InMemoryRefreshTokenRepository(RefreshTokenRepository):
         return revoked
 
 
-class InMemoryDeviceRepository(DeviceRepository):
-    def __init__(self) -> None:
-        self.by_user: dict[str, list[DeviceToken]] = defaultdict(list)
-
-    async def register(self, user_id: UserId, token: DeviceToken) -> None:
-        # A token can move between accounts, so it leaves every other account first.
-        for tokens in self.by_user.values():
-            if token in tokens:
-                tokens.remove(token)
-        self.by_user[user_id.value].append(token)
-
-    async def tokens_for(self, user_id: UserId) -> list[DeviceToken]:
-        return list(self.by_user[user_id.value])
-
-    async def remove(self, user_id: UserId, token: DeviceToken) -> None:
-        tokens = self.by_user[user_id.value]
-        if token in tokens:
-            tokens.remove(token)
-
-
 class Sha256Hasher(SecretHasher):
     """A fast, unsalted, constant-time hasher for tests."""
 
@@ -198,16 +176,6 @@ class PredictableSecretGenerator(SecretGenerator):
         return f"refresh-{self._issued}"
 
 
-class RandomSecretGenerator(SecretGenerator):
-    """The real shape: unguessable values from a source fit for secrets."""
-
-    def numeric_code(self, length: int) -> str:
-        return "".join(str(secrets.randbelow(10)) for _ in range(length))
-
-    def token(self) -> str:
-        return secrets.token_urlsafe(32)
-
-
 class FakeTokenSigner(TokenSigner):
     """Issues a token that is a plain string and verifies it by looking it up in a dictionary."""
 
@@ -239,9 +207,6 @@ class CountingRateLimiter(RateLimiter):
     @property
     def is_shared(self) -> bool:
         return False
-
-    def set_now(self, instant: datetime) -> None:
-        self._now = instant
 
     async def check(self, key: str, *, limit: int, window: timedelta) -> RateLimitDecision:
         cutoff = self._now - window
