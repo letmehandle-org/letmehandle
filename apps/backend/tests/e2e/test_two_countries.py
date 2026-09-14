@@ -58,6 +58,8 @@ US_LINE: Final = PhoneNumber.parse("+12025550100")
 IN_LINE: Final = PhoneNumber.parse("+91555010")
 IN_USERS_LINE: Final = "+91555001"
 IN_CALLER: Final = "+91555002"
+# A US number on the India line's account, which can ring Indian phones where its own cannot.
+IN_DIALS_FROM: Final = PhoneNumber.parse("+12025550102")
 
 LINES: Final = (
     f"us:provider=twilio;regions=US;numbers={US_LINE.value};account=account-us;app=app-us;"
@@ -197,5 +199,39 @@ async def test_a_us_call_and_an_indian_call_each_reach_their_user_from_their_own
             "handed_to_user",
             "handed_to_user",
         )
+        assert model.unused_steps == 0
+        await deployment.released()
+
+
+async def test_an_indian_user_forwards_to_the_india_line_and_is_rung_from_its_dial_from(
+    database: str, pushes: Pushes
+) -> None:
+    # India's toll-free numbers take calls but cannot place them to Indian phones (D-044).
+    model = ScriptedModel([WANTS_THE_USER])
+    lines = f"{LINES};dial_from={IN_DIALS_FROM.value}"
+    async with two_lines(database, lines, model) as deployment:
+        india, system, api = deployment.india, deployment.system, deployment.api
+        indian = await api.sign_in(IN_USERS_LINE)
+        await api.configure(indian, call_handling())
+        profile = await api.http.get("/v1/me", headers=indian.headers)
+        assert profile.json()["call_forwarding"] == {"number": IN_LINE.value}
+
+        india.answering[IN_USERS_LINE] = Answering.ANSWERS
+        await india.place_call("CAsim-in-call", IN_CALLER, forwarded_from=indian.number)
+        await system.reaches(indian, "CAsim-in-call", CallState.AGENT_HANDLING)
+        await eventually(lambda: len(deployment.speech.sessions) == 1, seconds=PATIENCE_SECONDS)
+        (session,) = deployment.speech.sessions
+        await session.emit(said("Is he there?"))
+        await system.joined_by_the_user(indian, "CAsim-in-call")
+
+        # The call reached the India line's number; the user's phone showed the US number.
+        assert [(leg.from_, leg.to) for leg in india.legs.values() if leg.to == IN_USERS_LINE] == [
+            (IN_DIALS_FROM.value, IN_USERS_LINE)
+        ]
+        assert not deployment.us.legs
+
+        await india.caller_hangs_up("CAsim-in-call")
+        detail = await system.ended(indian, "CAsim-in-call")
+        assert detail["outcome"] == "handed_to_user"
         assert model.unused_steps == 0
         await deployment.released()
