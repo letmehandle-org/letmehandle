@@ -38,7 +38,7 @@ from letmehandle.domain.errors import ProviderError
 from letmehandle.domain.models.call import CallHandling, CallSession, Participant, ParticipantRole
 from letmehandle.domain.models.call_state import CallState
 from letmehandle.domain.models.caller import Caller
-from letmehandle.domain.models.escalation_context import NotificationDelivery
+from letmehandle.domain.models.escalation_context import EscalationContext, NotificationDelivery
 from letmehandle.domain.models.identifiers import CallId, UserId
 from letmehandle.domain.models.phone_number import PhoneNumber
 from letmehandle.domain.models.preferences import CallRules, HandlingPosture, UserPreferences
@@ -79,6 +79,14 @@ ROUTINE = assess(importance="routine")
 WANTS_THE_USER = assess(importance="urgent", caller_asked_for_the_user=True)
 
 
+async def polled[T](read: Callable[[], Awaitable[T]], holds: Callable[[T], bool]) -> T:
+    """The first value `read` returns that `holds`, polling storage for at most ten seconds."""
+    async with asyncio.timeout(10):
+        while not holds(value := await read()):  # noqa: ASYNC110 - storage offers nothing to await
+            await asyncio.sleep(0.02)
+    return value
+
+
 class RefusingNotifications(RecordingNotificationProvider):
     """A push service that fails every delivery the way a broken one does: by raising."""
 
@@ -115,12 +123,11 @@ class Orchestrated:
             )
 
     async def reaches(self, state: CallState, call: str = CALL) -> CallSession:
-        async with asyncio.timeout(10):
-            while True:
-                stored = await self.stored(call)
-                if stored is not None and stored.state is state:
-                    return stored
-                await asyncio.sleep(0.02)
+        stored = await polled(
+            lambda: self.stored(call), lambda each: each is not None and each.state is state
+        )
+        assert stored is not None
+        return stored
 
     async def summary_outcome(self, call: str = CALL) -> CallOutcome | None:
         cipher = self.container.transcript_cipher
@@ -132,10 +139,7 @@ class Orchestrated:
         return None if summary is None else summary.outcome
 
     async def ended(self, call: str = CALL) -> CallSession:
-        async with asyncio.timeout(10):
-            # Storage offers nothing to await, so it is asked again until it answers.
-            while await self.summary_outcome(call) is None:  # noqa: ASYNC110
-                await asyncio.sleep(0.02)
+        await polled(lambda: self.summary_outcome(call), lambda outcome: outcome is not None)
         await eventually(lambda: self.orchestrator.live_calls == 0)
         await self.deployment.settle()
         stored = await self.stored(call)
@@ -150,9 +154,7 @@ class Orchestrated:
         return [line.text for line in stored]
 
     async def transcribed(self, count: int = 1, call: str = CALL) -> None:
-        async with asyncio.timeout(10):
-            while len(await self.lines(call)) < count:  # noqa: ASYNC110
-                await asyncio.sleep(0.02)
+        await polled(lambda: self.lines(call), lambda lines: len(lines) >= count)
 
     async def arrives(self) -> None:
         await self.provider.place_call(CALL, forwarded_from=USERS_LINE)
@@ -422,14 +424,14 @@ async def test_a_notification_that_fails_leaves_the_escalation_ringing(
         await running.reaches(CallState.HUMAN_JOINED)
         cipher = running.container.transcript_cipher
         assert cipher is not None
-        async with asyncio.timeout(10):
-            while True:
-                async with unit_of_work(running.factory) as session:
-                    contexts = SqlEscalationContextRepository(session, cipher)
-                    context = await contexts.get(USER, CallId(CALL))
-                if context is not None and context.delivery is NotificationDelivery.FAILED:
-                    break
-                await asyncio.sleep(0.02)
+
+        async def context() -> EscalationContext | None:
+            async with unit_of_work(running.factory) as session:
+                return await SqlEscalationContextRepository(session, cipher).get(USER, CallId(CALL))
+
+        await polled(
+            context, lambda each: each is not None and each.delivery is NotificationDelivery.FAILED
+        )
         await running.provider.caller_hangs_up(CALL)
         await running.ended()
         running.nothing_held()
