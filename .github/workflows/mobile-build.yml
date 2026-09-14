@@ -42,7 +42,7 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: apps/mobile/ios/Pods
           key: pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile.lock', 'pnpm-lock.yaml') }}
