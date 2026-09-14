@@ -1913,7 +1913,7 @@
   "info": {
     "summary": "An agent that handles phone calls on someone's behalf.",
     "title": "LetMeHandle",
-    "version": "2026.9.13"
+    "version": "2026.9.14"
   },
   "openapi": "3.1.0",
   "paths": {
